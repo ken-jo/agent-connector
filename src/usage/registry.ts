@@ -19,11 +19,54 @@ import type { UsageReader, UsageReaderFactory } from "./types.js";
  * one entry below.
  */
 export const USAGE_READER_REGISTRY: readonly UsageReaderFactory[] = [
+  // U1 — JSONL readers
+  {
+    platformId: "claude-code",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/claude-code.js").then((m) => m.default),
+  },
+  {
+    platformId: "codex",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/codex.js").then((m) => m.default),
+  },
+  {
+    platformId: "gemini-cli",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/gemini-cli.js").then((m) => m.default),
+  },
   {
     platformId: "qwen-code",
     format: "jsonl",
     kind: "local",
     load: () => import("./readers/qwen-code.js").then((m) => m.default),
+  },
+  {
+    platformId: "copilot-cli",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/copilot-cli.js").then((m) => m.default),
+  },
+  {
+    platformId: "pi",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/pi.js").then((m) => m.default),
+  },
+  {
+    platformId: "kimi",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/kimi.js").then((m) => m.default),
+  },
+  {
+    platformId: "openclaw",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/openclaw.js").then((m) => m.default),
   },
 ];
 
