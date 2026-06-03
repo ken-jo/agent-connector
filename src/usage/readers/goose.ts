@@ -208,9 +208,11 @@ function resolvedProvider(providerName: unknown, modelId: string): string {
  * Returns 0 when unparseable (mirroring the Rust 0.0 sentinel).
  */
 function parseCreatedAt(s: string): number {
-  // RFC3339 (e.g. "2026-04-14T16:18:53Z" / with offset). Date.parse handles these.
-  const iso = Date.parse(s);
-  if (!Number.isNaN(iso)) return iso;
+  // ORDER MATTERS: the bare "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DD" forms must be
+  // matched BEFORE the Date.parse fallback. V8's Date.parse accepts both shapes
+  // but interprets them as LOCAL time, whereas goose.rs treats them as UTC
+  // (chrono NaiveDateTime/NaiveDate.and_utc()). Detecting them first via regex
+  // and building with Date.UTC keeps the timestamp tz-stable (mirrors cursor.ts).
 
   // "YYYY-MM-DD HH:MM:SS" → treat the space-separated form as UTC.
   const dt = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
@@ -232,6 +234,11 @@ function parseCreatedAt(s: string): number {
     const ms = Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]));
     return Number.isNaN(ms) ? 0 : ms;
   }
+
+  // RFC3339 (e.g. "2026-04-14T16:18:53Z" / with offset). Date.parse handles these
+  // with explicit tz info, so the local-vs-UTC ambiguity above does not apply.
+  const iso = Date.parse(s);
+  if (!Number.isNaN(iso)) return iso;
 
   return 0;
 }

@@ -6,6 +6,8 @@
  * dependency-free (no zod) to keep the single-binary install lean.
  */
 
+import { isAbsolute, normalize } from "node:path";
+
 import type {
   CommandDef,
   ConnectorConfig,
@@ -202,8 +204,49 @@ function normalizeSkills(input: SkillDef[] | undefined): SkillDef[] {
       );
     }
     assertNonEmptyString("skills", i, "body", skill.body);
+    assertSafeResourceKeys("skills", i, skill.resources);
     return { ...skill, name };
   });
+}
+
+/**
+ * Validate every `skill.resources` key as a SAFE relative path that stays inside
+ * the skill dir. Each resource is later written/removed via join(skillDir, rel)
+ * by every adapter, so an unvalidated key like "../../settings.json" would
+ * escape the skill dir → arbitrary file write/delete. Reject (throw) when a key
+ * is empty/".", absolute, or normalizes to a path that begins with ".." or
+ * contains a "/.." (or platform-sep) traversal segment.
+ */
+function assertSafeResourceKeys(
+  surface: string,
+  index: number,
+  resources: Record<string, string> | undefined,
+): void {
+  if (resources == null) return;
+  if (typeof resources !== "object" || Array.isArray(resources)) {
+    throw new ConnectorConfigError(`${surface}[${index}].resources must be an object`);
+  }
+  for (const rel of Object.keys(resources)) {
+    if (rel === "" || rel === "." || rel.trim() === "") {
+      throw new ConnectorConfigError(
+        `${surface}[${index}].resources key must be a non-empty relative path (got ${JSON.stringify(rel)})`,
+      );
+    }
+    if (isAbsolute(rel)) {
+      throw new ConnectorConfigError(
+        `${surface}[${index}].resources key must be a relative path inside the skill dir, not absolute (got ${JSON.stringify(rel)})`,
+      );
+    }
+    // Normalize with BOTH posix and native separators flattened so a Windows
+    // "..\\x" or a posix "../x" is caught regardless of the host OS.
+    const norm = normalize(rel.replace(/\\/g, "/"));
+    const segs = norm.split(/[/\\]/);
+    if (norm === ".." || norm.startsWith("../") || norm.startsWith("..\\") || segs.includes("..")) {
+      throw new ConnectorConfigError(
+        `${surface}[${index}].resources key must not escape the skill dir via ".." (got ${JSON.stringify(rel)})`,
+      );
+    }
+  }
 }
 
 function normalizeSubagents(input: SubagentDef[] | undefined): SubagentDef[] {

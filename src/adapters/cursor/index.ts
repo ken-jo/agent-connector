@@ -486,11 +486,15 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
    * Render a Cursor command: BODY-ONLY markdown (no frontmatter). Cursor reads
    * the file as the command prompt verbatim. We prepend the one-line description
    * as an HTML comment header when present so authoring intent survives the
-   * round-trip without leaking into the rendered prompt.
+   * round-trip without leaking into the rendered prompt. A description containing
+   * "-->" would prematurely CLOSE the HTML comment and leak the remainder into
+   * the prompt, so we neutralize that sequence before embedding it.
    */
   private renderCommand(cmd: CommandDef): string {
-    const header = cmd.description ? `<!-- ${cmd.description} -->\n\n` : "";
-    return `${header}${cmd.prompt}\n`;
+    if (!cmd.description) return `${cmd.prompt}\n`;
+    // Break any literal comment-close so it cannot terminate our header early.
+    const safe = cmd.description.replace(/--+>/g, (m) => m.replace(/>/g, "&gt;"));
+    return `<!-- ${safe} -->\n\n${cmd.prompt}\n`;
   }
 
   // ── Skills ────────────────────────────────────────────────────────────────
@@ -510,8 +514,19 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
         this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
       );
       // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
       for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
-        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
       }
     }
     return changes;
@@ -529,9 +544,13 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
       // skill dir itself when we own its full contents.
       changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
       for (const rel of Object.keys(skill.resources ?? {})) {
-        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
       }
-      changes.push(this.removeContentFile(dir, ctx.dryRun));
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
     }
     return changes;
   }

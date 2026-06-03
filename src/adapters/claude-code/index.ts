@@ -471,8 +471,19 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
         this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
       );
       // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
       for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
-        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
       }
     }
     return changes;
@@ -490,9 +501,13 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
       // skill dir itself when we own its full contents.
       changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
       for (const rel of Object.keys(skill.resources ?? {})) {
-        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
       }
-      changes.push(this.removeContentFile(dir, ctx.dryRun));
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
     }
     return changes;
   }

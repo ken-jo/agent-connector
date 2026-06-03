@@ -31,16 +31,23 @@ export async function run(argv: string[]): Promise<number> {
   const flagArgs = argv.slice(0, sepIndex);
   const serverInvocation = argv.slice(sepIndex + 1);
 
+  // strict:false so an unknown FUTURE flag before `--` (written by a newer host
+  // config) is ignored instead of throwing — a parse throw here would prevent the
+  // real MCP server from ever spawning and wedge the host's tool call. We only
+  // read the two flags we understand; everything else is tolerated.
   const { values } = parseArgs({
     args: flagArgs,
     options: {
       connector: { type: "string" },
       scope: { type: "string" },
     },
-    allowPositionals: false,
+    allowPositionals: true,
+    strict: false,
   });
 
-  const connectorId = values.connector;
+  // With strict:false, parseArgs types each value as string | boolean; we only
+  // accept the string form (a bare `--connector` flag with no value is invalid).
+  const connectorId = typeof values.connector === "string" ? values.connector : undefined;
   if (!connectorId || connectorId.trim() === "") {
     return fail("serve requires --connector <id>");
   }

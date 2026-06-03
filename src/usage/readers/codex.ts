@@ -244,6 +244,44 @@ function freshState(): CodexParseState {
   };
 }
 
+/**
+ * A model-less token_count record buffered until a later turn resolves the
+ * model (port of codex.rs `pending_model_messages`). codex.rs back-fills the
+ * resolved model + dedup key onto these, and flushes any still-unresolved at EOF
+ * as "unknown" — but STILL with a dedup key when the row had a real timestamp.
+ * `usedFallbackTimestamp` mirrors `parsed_timestamp.is_none()`: when true the
+ * dedup key is skipped on flush (the mtime fallback is not a stable identity).
+ */
+interface PendingCodexRecord {
+  record: UsageRecord;
+  tokens: TokenBreakdown;
+  providerId: string;
+  ts: number;
+  usedFallbackTimestamp: boolean;
+}
+
+/**
+ * Flush every buffered model-less record with a now-resolved model (port of
+ * flush_pending_model_messages): back-fill modelId and — when the row carried a
+ * real timestamp — the codex dedup key keyed on that model.
+ */
+function flushPending(pending: PendingCodexRecord[], out: UsageRecord[], model: string): void {
+  for (const p of pending) {
+    p.record.modelId = model;
+    if (!p.usedFallbackTimestamp) {
+      p.record.dedupKey = codexDedupKey(p.ts, p.providerId, model, p.tokens);
+    }
+    out.push(p.record);
+  }
+  pending.length = 0;
+}
+
+/** Flush remaining buffered records as "unknown" (still keyed when timestamped). */
+function flushPendingAsUnknown(pending: PendingCodexRecord[], out: UsageRecord[]): void {
+  if (pending.length === 0) return;
+  flushPending(pending, out, DEFAULT_MODEL);
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
@@ -389,6 +427,9 @@ function parseCodexFile(path: string): UsageRecord[] {
   const fallbackTs = fileMtimeMs(path);
   const state = freshState();
   const out: UsageRecord[] = [];
+  // Model-less token_count rows are buffered here and back-filled once a later
+  // turn resolves the model (else flushed as "unknown" WITH a dedup key at EOF).
+  const pending: PendingCodexRecord[] = [];
 
   for (const raw of lines) {
     if (typeof raw !== "object" || raw === null) continue;
@@ -435,9 +476,13 @@ function parseCodexFile(path: string): UsageRecord[] {
       continue;
     }
 
-    // ── turn_context: sets the current model for subsequent token rows. ──
+    // ── turn_context: sets the current model for subsequent token rows. When
+    // it resolves a model, flush any buffered model-less rows onto it. ──
     if (entryType === "turn_context") {
       state.currentModel = extractModel(payload);
+      if (state.currentModel !== undefined) {
+        flushPending(pending, out, state.currentModel);
+      }
       continue;
     }
 
@@ -450,7 +495,12 @@ function parseCodexFile(path: string): UsageRecord[] {
     const payloadModel = extractModel(payload);
     const infoModel = extractModelFromInfo(info);
     const model = payloadModel ?? infoModel ?? state.currentModel;
-    if (model !== undefined) state.currentModel = model;
+    if (model !== undefined) {
+      state.currentModel = model;
+      // A resolved model back-fills any earlier model-less rows (codex.rs flushes
+      // pending_model_messages here before building the current record).
+      flushPending(pending, out, model);
+    }
 
     const totalUsageRaw = info.total_token_usage ?? undefined;
     const lastUsageRaw = info.last_token_usage ?? undefined;
@@ -537,13 +587,34 @@ function parseCodexFile(path: string): UsageRecord[] {
     if (state.sessionWorkspaceKey !== undefined) record.projectKey = state.sessionWorkspaceKey;
     if (state.sessionWorkspaceLabel !== undefined) record.projectLabel = state.sessionWorkspaceLabel;
     if (agent !== undefined) record.agent = agent;
+
+    if (model === undefined) {
+      // Model not yet resolved: buffer the record and defer modelId + dedupKey
+      // until a later turn resolves the model (codex.rs pending_model_messages).
+      // At EOF it flushes as "unknown" but STILL with a dedup key when the row
+      // carried a real timestamp — so it can dedup against cross-source overlap.
+      pending.push({
+        record,
+        tokens,
+        providerId,
+        ts,
+        usedFallbackTimestamp: parsedTs === null,
+      });
+      continue;
+    }
+
     // Dedup key only when a real timestamp was parsed (mtime fallback skips it,
     // matching codex.rs which sets the key only when parsed_timestamp.is_some()).
-    if (parsedTs !== null && model !== undefined) {
+    if (parsedTs !== null) {
       record.dedupKey = codexDedupKey(ts, providerId, model, tokens);
     }
     out.push(record);
   }
+
+  // EOF: any token_count rows whose model never resolved are emitted as
+  // "unknown" — keeping a dedup key when their timestamp was real (codex.rs
+  // flush_pending_model_messages_as_unknown at end of file).
+  flushPendingAsUnknown(pending, out);
 
   return out;
 }

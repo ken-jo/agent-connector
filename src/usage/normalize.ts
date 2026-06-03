@@ -189,6 +189,146 @@ export function inferProvider(model: string): string | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Agent-name normalization (port of sessions/mod.rs normalize_agent_name +
+// normalize_opencode_agent_name). The opencode reader MUST normalize the agent
+// before its dedup fingerprint, or fork-copied history (which differs only in a
+// raw agent string) escapes dedup and double-counts.
+// ─────────────────────────────────────────────────────────────────────────
+
+// U+200B ZWSP, U+200C ZWNJ, U+200D ZWJ, U+FEFF BOM/ZWNBSP.
+const ZERO_WIDTH_RE = /[​‌‍﻿]/g;
+
+/** Strip zero-width chars oh-my-openagent uses as invisible sort prefixes. */
+function stripZeroWidthChars(s: string): string {
+  ZERO_WIDTH_RE.lastIndex = 0;
+  return ZERO_WIDTH_RE.test(s) ? s.replace(ZERO_WIDTH_RE, "") : s;
+}
+
+const AGENT_PREFIXES = ["astrape:", "oh-my-claudecode:", "oh-my-codex:"] as const;
+
+/** Strip a known namespace prefix (case-insensitive), else return as-is. */
+function stripAgentPrefix(name: string): string {
+  for (const prefix of AGENT_PREFIXES) {
+    if (name.length >= prefix.length && name.slice(0, prefix.length).toLowerCase() === prefix) {
+      return name.slice(prefix.length);
+    }
+  }
+  return name;
+}
+
+/** Collapse internal whitespace runs to single spaces (port of canonicalize_agent_name). */
+function canonicalizeAgentName(name: string): string {
+  return name.split(/\s+/).filter((w) => w !== "").join(" ");
+}
+
+/** Titlecase one word, with UI/UX/API kept uppercase (port of titlecase_word). */
+function titlecaseWord(word: string): string {
+  const lower = word.toLowerCase();
+  if (lower === "ui") return "UI";
+  if (lower === "ux") return "UX";
+  if (lower === "api") return "API";
+  if (word === "") return "";
+  const chars = [...word];
+  const first = chars[0] as string;
+  return first.toUpperCase() + chars.slice(1).join("");
+}
+
+/** Titlecase an agent name across '-' and whitespace boundaries (port of titlecase_agent). */
+function titlecaseAgent(name: string): string {
+  if (name === "") return "";
+  return name
+    .split("-")
+    .flatMap((part) => part.split(/\s+/))
+    .filter((w) => w !== "")
+    .map(titlecaseWord)
+    .join(" ");
+}
+
+/** Port of normalize_agent_name. */
+export function normalizeAgentName(agent: string): string {
+  const cleaned = stripZeroWidthChars(agent);
+  const trimmed = cleaned.trim();
+  const stripped = stripAgentPrefix(trimmed);
+  const canonical = canonicalizeAgentName(stripped);
+  const agentLower = canonical.toLowerCase();
+
+  if (agentLower.includes("plan")) {
+    if (agentLower.includes("omo") || agentLower.includes("sisyphus")) {
+      return "Planner-Sisyphus";
+    }
+    return titlecaseAgent(canonical);
+  }
+  if (agentLower === "omo" || agentLower === "sisyphus") return "Sisyphus";
+  if (agentLower === "orchestrator-sisyphus") return "Atlas";
+  return titlecaseAgent(canonical);
+}
+
+/** Port of normalize_oh_my_opencode_agent_name (returns undefined when no match). */
+function normalizeOhMyOpencodeAgentName(agentLower: string): string | undefined {
+  switch (agentLower) {
+    case "sisyphus (ultraworker)":
+    case "sisyphus - ultraworker":
+    case "sisyphus ultraworker":
+    case "sisyphus":
+      return "Sisyphus";
+    case "hephaestus (deep agent)":
+    case "hephaestus - deep agent":
+    case "hephaestus deep agent":
+    case "hephaestus":
+      return "Hephaestus";
+    case "prometheus (plan builder)":
+    case "prometheus - plan builder":
+    case "prometheus plan builder":
+    case "prometheus (planner)":
+    case "prometheus":
+      return "Prometheus";
+    case "atlas (plan executor)":
+    case "atlas - plan executor":
+    case "atlas plan executor":
+    case "atlas":
+      return "Atlas";
+    case "metis (plan consultant)":
+    case "metis - plan consultant":
+    case "metis plan consultant":
+    case "metis":
+      return "Metis";
+    case "momus (plan critic)":
+    case "momus - plan critic":
+    case "momus plan critic":
+    case "momus (plan reviewer)":
+    case "momus":
+      return "Momus";
+    case "orchestrator-sisyphus":
+      return "Atlas";
+    case "sisyphus-junior":
+      return "Sisyphus-Junior";
+    case "planner-sisyphus":
+      return "Planner-Sisyphus";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Port of normalize_opencode_agent_name (sessions/mod.rs:88-154). Applies the
+ * shared cleaning pipeline, then the oh-my-opencode agent table, then falls back
+ * to normalizeAgentName. Used by the opencode reader BEFORE its dedup fingerprint
+ * so fork copies collapse (matching opencode.rs:272).
+ */
+export function normalizeOpencodeAgentName(agent: string): string {
+  const cleaned = stripZeroWidthChars(agent);
+  const trimmed = cleaned.trim();
+  const stripped = stripAgentPrefix(trimmed);
+  const canonical = canonicalizeAgentName(stripped);
+  const agentLower = canonical.toLowerCase();
+
+  const ohMy = normalizeOhMyOpencodeAgentName(agentLower);
+  if (ohMy !== undefined) return ohMy;
+
+  return normalizeAgentName(canonical);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Workspace key / label (port of sessions/mod.rs)
 // ─────────────────────────────────────────────────────────────────────────
 

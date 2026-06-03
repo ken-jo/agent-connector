@@ -34,8 +34,9 @@
  * cost is `data.$.cost` (clamped ≥ 0), emitted only when > 0.
  *
  * model / provider: data.$.modelID (row skipped when absent) and data.$.providerID
- * (default "unknown"). agent prefers data.$.mode then data.$.agent (verbatim — the
- * Rust normalize_opencode_agent_name is identity-preserving for our purposes).
+ * (default "unknown"). agent prefers data.$.mode then data.$.agent, normalized via
+ * normalizeOpencodeAgentName BEFORE the dedup fingerprint (matching opencode.rs:272)
+ * so fork-copied history that differs only in a raw agent string collapses.
  *
  * session: the m.session_id column (the message→session linkage). Workspace
  * (project): session.directory (modern) else the embedded data.$.path.root
@@ -64,7 +65,11 @@
 import type { SqliteDb } from "../sqlite.js";
 import type { UsageReader, UsageRecord } from "../types.js";
 import { emptyTokens } from "../aggregate.js";
-import { normalizeWorkspaceKey, workspaceLabelFromKey } from "../normalize.js";
+import {
+  normalizeOpencodeAgentName,
+  normalizeWorkspaceKey,
+  workspaceLabelFromKey,
+} from "../normalize.js";
 import { firstExistingRoot } from "../paths.js";
 import { openSqlite } from "../sqlite.js";
 
@@ -198,8 +203,11 @@ function parseData(dataJson: string): ParsedMessage | undefined {
   const cache = t["cache"];
   const cacheObj = typeof cache === "object" && cache !== null ? (cache as Record<string, unknown>) : {};
 
-  // agent prefers mode then agent (Rust: msg.mode.or(msg.agent)).
-  const agent = asNonEmptyString(obj["mode"]) ?? asNonEmptyString(obj["agent"]);
+  // agent prefers mode then agent (Rust: msg.mode.or(msg.agent)), then is run
+  // through normalize_opencode_agent_name BEFORE the dedup fingerprint so fork
+  // copies (which differ only in a raw agent string) collapse (opencode.rs:272).
+  const rawAgent = asNonEmptyString(obj["mode"]) ?? asNonEmptyString(obj["agent"]);
+  const agent = rawAgent === undefined ? undefined : normalizeOpencodeAgentName(rawAgent);
 
   const pathRaw = obj["path"];
   const embeddedRoot = typeof pathRaw === "object" && pathRaw !== null

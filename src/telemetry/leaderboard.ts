@@ -73,15 +73,20 @@ const INSTALL_SCOPES: ReadonlySet<string> = new Set<string>(["user", "project"])
 
 /**
  * Does a record satisfy the requested scope slice? `user`/`project` match the
- * record's `installScope`; any other value matches the record's `launchMethod`.
- * A record missing the relevant field reads as "unknown" and only matches a
- * literal `unknown` filter — never silently counted under a concrete bucket.
+ * record's `installScope`; any concrete launch method matches the record's
+ * `launchMethod`. The honest `unknown` filter is special: it matches ONLY a
+ * record that lacks BOTH dimensions (a truly pre-scope row) — a record carrying
+ * a known installScope but no launchMethod (or vice-versa) is NOT "unknown" and
+ * must not be swept into that bucket.
  */
 function matchesScope(record: ToolEventRecord, scope: ScopeFilter): boolean {
-  if (INSTALL_SCOPES.has(scope)) {
-    return (record.installScope ?? "unknown") === scope;
+  if (scope === "unknown") {
+    return record.installScope === undefined && record.launchMethod === undefined;
   }
-  return (record.launchMethod ?? "unknown") === scope;
+  if (INSTALL_SCOPES.has(scope)) {
+    return record.installScope === scope;
+  }
+  return record.launchMethod === scope;
 }
 
 /** Build the store {@link QueryFilter} from the shared options. */

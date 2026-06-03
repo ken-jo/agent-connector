@@ -163,16 +163,17 @@ function firstNonEmptyAttr(attrs: JsonObject, keys: readonly string[]): string |
   return undefined;
 }
 
-/** best_session_attr: the session attr with the highest priority (first wins on ties). */
+/** best_session_attr: the session attr with the highest priority (LAST wins on ties). */
 function bestSessionAttr(attrs: JsonObject): { id: string; priority: SessionPriority } | undefined {
   let best: { id: string; priority: SessionPriority } | undefined;
   for (const [key, priority] of SESSION_ATTRS) {
     const value = asString(attrs[key]);
     if (value === undefined || value.trim() === "") continue;
-    // max_by_key keeps the last max in Rust; here we keep the first to match the
-    // SESSION_ATTRS ordering, which is already priority-descending, so the first
-    // Session-priority hit (gen_ai.conversation.id) wins — matching the tests.
-    if (best === undefined || priority > best.priority) {
+    // Rust's max_by_key keeps the LAST element among equal maxima; SESSION_ATTRS
+    // is NOT priority-descending (four Session-priority keys lead the list), so a
+    // later equal-priority key must win. Use >= so e.g. `session.id` beats an
+    // earlier `gen_ai.conversation.id` when both are present (matches copilot.rs).
+    if (best === undefined || priority >= best.priority) {
       best = { id: value, priority };
     }
   }

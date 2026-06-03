@@ -43,6 +43,9 @@ function rec(over: Partial<ToolEventRecord> = {}): ToolEventRecord {
     outputTokens: over.outputTokens ?? 20,
     confidenceSource: over.confidenceSource ?? "tokenizer-exact",
     isError: over.isError ?? false,
+    // Optional scope dimensions: only present when the caller supplies them.
+    ...(over.installScope !== undefined ? { installScope: over.installScope } : {}),
+    ...(over.launchMethod !== undefined ? { launchMethod: over.launchMethod } : {}),
   };
 }
 
@@ -176,7 +179,7 @@ describe("toCSV", () => {
     const csv = toCSV([]);
     const header = csv.split("\r\n")[0]!;
     expect(header).toBe(
-      "id,ts,connectorId,toolName,scope,hostPlatform,sessionId,projectKey,projectDir,inputTokens,outputTokens,confidenceSource,isError",
+      "id,ts,connectorId,toolName,scope,hostPlatform,sessionId,projectKey,projectDir,inputTokens,outputTokens,confidenceSource,isError,installScope,launchMethod",
     );
   });
 
@@ -201,6 +204,26 @@ describe("toCSV", () => {
     const dataLine = csv.split("\r\n")[1]!;
     // The projectDir cell must be quoted and inner quotes doubled.
     expect(dataLine).toContain('"a,b ""c""');
+  });
+
+  it("emits installScope/launchMethod values in the trailing columns", () => {
+    const csv = toCSV([rec({ id: "scoped", installScope: "user", launchMethod: "npx" })]);
+    const header = csv.split("\r\n")[0]!.split(",");
+    const cells = csv.split("\r\n")[1]!.split(",");
+    const scopeIdx = header.indexOf("installScope");
+    const launchIdx = header.indexOf("launchMethod");
+    expect(scopeIdx).toBeGreaterThan(-1);
+    expect(launchIdx).toBeGreaterThan(-1);
+    expect(cells[scopeIdx]).toBe("user");
+    expect(cells[launchIdx]).toBe("npx");
+  });
+
+  it("renders an absent installScope/launchMethod as an empty cell (not 'undefined')", () => {
+    const csv = toCSV([rec({ id: "bare" })]); // no scope fields set
+    const header = csv.split("\r\n")[0]!.split(",");
+    const cells = csv.split("\r\n")[1]!.split(",");
+    expect(cells[header.indexOf("installScope")]).toBe("");
+    expect(cells[header.indexOf("launchMethod")]).toBe("");
   });
 });
 

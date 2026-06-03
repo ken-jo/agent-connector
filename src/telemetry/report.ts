@@ -147,10 +147,18 @@ const CSV_COLUMNS = [
   "outputTokens",
   "confidenceSource",
   "isError",
+  // installScope / launchMethod mirror the JSON export so the scope dimension is
+  // not silently dropped from CSV; absent on a record → an empty cell.
+  "installScope",
+  "launchMethod",
 ] as const satisfies ReadonlyArray<keyof ToolEventRecord>;
 
 /** RFC-4180-ish CSV escaping: quote when the cell holds a comma, quote, or newline. */
 function csvCell(value: unknown): string {
+  // An absent field (optional column like installScope/launchMethod) renders as
+  // an empty cell rather than the literal "undefined" — the JSON export omits
+  // the key entirely, so the CSV should likewise carry no value.
+  if (value === undefined || value === null) return "";
   const s = String(value);
   if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;

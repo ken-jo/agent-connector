@@ -7,8 +7,17 @@
  * JSON helpers entirely.
  */
 
-import { copyFileSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import type { Dirent } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 import type {
   ChangeRecord,
@@ -130,6 +139,108 @@ export abstract class BaseAdapter implements Adapter {
       rmSync(path, { recursive: true, force: true });
     }
     return { platform: this.id, action: "remove", path, detail: basename(path) };
+  }
+
+  /**
+   * Defense-in-depth path containment: resolve `rel` against `baseDir` and
+   * return the absolute path ONLY when it stays inside `baseDir`. Returns null
+   * when `rel` escapes (absolute path, `..` traversal, etc.) so a caller can
+   * skip-and-warn rather than write/delete outside the surface dir. This is the
+   * runtime backstop behind the config-time validation in normalizeSkills.
+   */
+  protected resolveWithin(baseDir: string, rel: string): string | null {
+    const base = resolve(baseDir);
+    const target = resolve(base, rel);
+    if (target === base) return null; // rel resolved to the dir itself (e.g. "" / ".")
+    const rind = relative(base, target);
+    // Outside when the relative path climbs out (`..`) or is itself absolute.
+    if (rind === "" || rind.startsWith("..") || resolve(base, rind) !== target) {
+      return null;
+    }
+    if (rind === ".." || rind.startsWith(`..${sep}`)) return null;
+    return target;
+  }
+
+  /**
+   * Recursively report whether a directory tree contains any regular FILE (vs
+   * only empty/nested-empty subdirectories). Symlinks count as files (we never
+   * recurse through them). Used by removeDirIfEmpty to decide if a tree is safe
+   * to drop. An unreadable entry is treated as "a file is present" (conservative).
+   */
+  private dirTreeHasFile(dir: string): boolean {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return true; // unreadable → assume it holds data; do not remove
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (this.dirTreeHasFile(join(dir, e.name))) return true;
+      } else {
+        return true; // a file / symlink / special → the tree is not "empty"
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Remove a directory ONLY when its tree holds NO regular files — i.e. it is
+   * empty or contains only (nested) empty directories, such as the intermediate
+   * dirs our own nested skill resources created. Replaces the unconditional
+   * `rm -rf <dir>` that uninstallSkills used to call, which destroyed user-added
+   * files / sibling-tool files / shared skill dirs the connector never wrote.
+   * When ANY file remains (at any depth) the whole tree is left in place and the
+   * skip is noted. Honors dryRun (computes the action but removes nothing). A
+   * missing dir is a no-op "skip".
+   */
+  protected removeDirIfEmpty(dir: string, dryRun: boolean): ChangeRecord {
+    if (!existsSync(dir)) {
+      return { platform: this.id, action: "skip", path: dir, detail: `${basename(dir)} absent` };
+    }
+    let stat: ReturnType<typeof statSync>;
+    try {
+      stat = statSync(dir);
+    } catch {
+      return {
+        platform: this.id,
+        action: "skip",
+        path: dir,
+        detail: `${basename(dir)} unreadable; left in place`,
+      };
+    }
+    if (!stat.isDirectory()) {
+      return {
+        platform: this.id,
+        action: "skip",
+        path: dir,
+        detail: `${basename(dir)} not a directory; left in place`,
+      };
+    }
+    if (this.dirTreeHasFile(dir)) {
+      return {
+        platform: this.id,
+        action: "skip",
+        path: dir,
+        detail: `${basename(dir)} still holds files we did not write; left in place`,
+      };
+    }
+    if (!dryRun) {
+      try {
+        // The tree is files-free: only (possibly nested) empty dirs remain, which
+        // are ours / inert. A recursive remove drops them without touching data.
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // Lost a race or perms — non-fatal; report as a skip.
+        return {
+          platform: this.id,
+          action: "skip",
+          path: dir,
+          detail: `${basename(dir)} could not be removed; left in place`,
+        };
+      }
+    }
+    return { platform: this.id, action: "remove", path: dir, detail: basename(dir) };
   }
 
   /**
