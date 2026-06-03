@@ -73,6 +73,7 @@ import type {
 } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -84,6 +85,8 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
+  SkillDef,
+  SubagentDef,
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -153,6 +156,10 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
     // injected via experimental.chat.system.transform at session start.
     canInjectSessionContext: true,
     transports: ["stdio", "sse", "http"],
+    // Content surfaces: OpenCode authors all three natively under <ocDir>.
+    supportsCommands: true,
+    supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ──────────────────────────────────────────────────────────
@@ -421,6 +428,196 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
     ];
   }
 
+  // ── Content surfaces: commands / skills / subagents ──────────────────────
+  // CONTENT-ONLY: pure native-file writers under <ocDir>/{commands,skills,
+  // agent}. No runtime dispatch, no home-bin pointer, no telemetry wrap. Each
+  // method is idempotent (byte-identical → skip) via BaseAdapter.writeContentFile
+  // and reversible via removeContentFile. Honors platforms["opencode"]
+  // per-surface false to skip. <ocDir> is reused from getConfigDir (user
+  // ~/.config/opencode, project <projectDir>/.opencode).
+  //
+  // NOTE on dirs: commands live in commands/<name>.md and skills in
+  // skills/<name>/SKILL.md, but subagents use the SINGULAR "agent/" dir
+  // (agent/<name>.md) — the OpenCode loader/CLI historically uses singular
+  // (anomalyco/opencode#14410); singular is the safe choice.
+
+  private commandsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "commands");
+  }
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "skills");
+  }
+  private agentDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "agent");
+  }
+
+  /** Native command file path: <ocDir>/commands/<name>.md. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.commandsDir(ctx), `${name}.md`);
+  }
+  /** Native skill dir: <ocDir>/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+  /** Native subagent file path: <ocDir>/agent/<name>.md (SINGULAR dir). */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.agentDir(ctx), `${name}.md`);
+  }
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for opencode" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        this.renderCommand(cmd),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a command to md+frontmatter (description, agent, model, subtask). */
+  private renderCommand(cmd: CommandDef): string {
+    const frontmatter: Record<string, unknown> = {};
+    if (cmd.description !== undefined) frontmatter.description = cmd.description;
+    if (cmd.model !== undefined) frontmatter.model = cmd.model;
+    if (cmd.subtask !== undefined) frontmatter.subtask = cmd.subtask;
+    // `agent` is not a core CommandDef field; it arrives via `extra` (escape
+    // hatch) and is merged last so a connector can pin a specific OpenCode agent.
+    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
+    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for opencode" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+      }
+      changes.push(this.removeContentFile(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md (UNIFORM across platforms): frontmatter
+   * (name, description + optional model, allowed-tools, disable-model-invocation)
+   * + markdown body. Only the parent dir differs per platform.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
+  // ── Subagents ───────────────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for opencode" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a subagent to md+frontmatter. OpenCode's shape is
+   * (description, mode:"subagent", model, permission) with the system prompt as
+   * the body. `name` is NOT a frontmatter field — it comes from the filename.
+   * `permission` is derived from the coarse `readonly` knob: a readonly agent
+   * gets a per-tool deny map (edit/bash) so it cannot mutate the workspace.
+   */
+  private renderSubagent(agent: SubagentDef): string {
+    const frontmatter: Record<string, unknown> = {
+      description: agent.description,
+      mode: "subagent",
+    };
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.readonly === true) {
+      // Per-tool permission map: deny mutating tools for a readonly subagent.
+      frontmatter.permission = { edit: "deny", bash: "deny" };
+    }
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
   // ── ts-plugin synthesis ────────────────────────────────────────────────
 
   /**
@@ -639,7 +836,7 @@ ${handlers.join("\n")}
     const connectorId = ctx.connector.id;
     const hasHooks = ctx.connector.hookEvents.length > 0;
 
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: opencode.json present`,
         check: () =>
@@ -678,6 +875,34 @@ ${handlers.join("\n")}
         },
       },
     ];
+
+    // Content-surface checks: only assert presence of the files this connector
+    // declares (skip silently for surfaces it never asked for).
+    for (const cmd of ctx.connector.commands) {
+      const p = this.commandPath(ctx, cmd.name);
+      checks.push({
+        name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const agent of ctx.connector.subagents) {
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   /** Read a file, returning undefined on any error (idempotency compare). */

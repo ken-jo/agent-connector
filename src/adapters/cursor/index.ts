@@ -28,6 +28,7 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -39,7 +40,9 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
+  SkillDef,
   StopEvent,
+  SubagentDef,
   Transport,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
@@ -143,6 +146,10 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "http"],
+    // Content surfaces: Cursor supports all three (commands, skills, subagents).
+    supportsCommands: true,
+    supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -414,12 +421,187 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surfaces: commands / skills / subagents ──────────────────────
+  // CONTENT-ONLY: pure native-file writers under <configDir>/{commands,skills,
+  // agents}. No runtime dispatch, no home-bin pointer, no telemetry wrap. Each
+  // method is idempotent (byte-identical → skip) via BaseAdapter.writeContentFile
+  // and reversible via removeContentFile. Honors platforms["cursor"] per-surface
+  // false to skip. Cursor commands are BODY-ONLY markdown (no frontmatter);
+  // skills are the uniform <name>/SKILL.md + resources; subagents are md+fm.
+
+  private commandsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "commands");
+  }
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "skills");
+  }
+  private agentsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "agents");
+  }
+
+  /** Native command file path: <configDir>/commands/<name>.md. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.commandsDir(ctx), `${name}.md`);
+  }
+  /** Native skill dir: <configDir>/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+  /** Native subagent file path: <configDir>/agents/<name>.md. */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.agentsDir(ctx), `${name}.md`);
+  }
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for cursor" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        this.renderCommand(cmd),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a Cursor command: BODY-ONLY markdown (no frontmatter). Cursor reads
+   * the file as the command prompt verbatim. We prepend the one-line description
+   * as an HTML comment header when present so authoring intent survives the
+   * round-trip without leaking into the rendered prompt.
+   */
+  private renderCommand(cmd: CommandDef): string {
+    const header = cmd.description ? `<!-- ${cmd.description} -->\n\n` : "";
+    return `${header}${cmd.prompt}\n`;
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for cursor" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+      }
+      changes.push(this.removeContentFile(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. Uniform across platforms;
+   * only the parent dir differs.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
+  // ── Subagents ───────────────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for cursor" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a Cursor subagent to md+frontmatter (name, description, model, readonly) + prompt body. */
+  private renderSubagent(agent: SubagentDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: agent.name,
+      description: agent.description,
+    };
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.readonly !== undefined) frontmatter.readonly = agent.readonly;
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const mcpPath = this.getServerConfigPath(ctx);
     const hooksPath = this.getHookConfigPath(ctx);
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: mcp.json present`,
         check: () =>
@@ -435,6 +617,34 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
             : { status: "FAIL", detail: `not found: ${hooksPath}` },
       },
     ];
+
+    // Content-surface checks: only assert presence of the files this connector
+    // declares (skip silently for surfaces it never asked for).
+    for (const cmd of ctx.connector.commands) {
+      const p = this.commandPath(ctx, cmd.name);
+      checks.push({
+        name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const agent of ctx.connector.subagents) {
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   // ── Runtime: parse Cursor stdin JSON → normalized event ──────────────────

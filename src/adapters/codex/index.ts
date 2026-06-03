@@ -28,6 +28,7 @@ import TOML from "@iarna/toml";
 
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -36,9 +37,12 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
+  SubagentDef,
 } from "../../core/types.js";
 import { ensureDir } from "../../core/paths.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { writeTomlString } from "../../core/toml.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
@@ -136,6 +140,13 @@ export class CodexAdapter extends BaseAdapter {
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "http"],
+    // Content surfaces: Codex implements all three.
+    //   command  → ~/.codex/prompts/<name>.md   (md+frontmatter, USER SCOPE ONLY)
+    //   skill    → <codexDir>/skills/<name>/SKILL.md (+ resources)
+    //   subagent → <codexDir>/agents/<name>.toml (TOML)
+    supportsCommands: true,
+    supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ──────────────────────────────────────────────────────────
@@ -347,7 +358,7 @@ export class CodexAdapter extends BaseAdapter {
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const path = this.getServerConfigPath(ctx);
     const id = ctx.connector.id;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: config.toml exists`,
         check: () =>
@@ -370,6 +381,204 @@ export class CodexAdapter extends BaseAdapter {
         },
       },
     ];
+
+    // Content-surface checks: assert presence only for surfaces this connector
+    // declares. Codex commands are user-scope only, so a project-scope install
+    // won't have written them — only check command files in user scope.
+    if (ctx.scope !== "project") {
+      for (const cmd of ctx.connector.commands) {
+        const p = this.commandPath(cmd.name);
+        checks.push({
+          name: `${this.name}: command ${cmd.name} present`,
+          check: () =>
+            existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+        });
+      }
+    }
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const agent of ctx.connector.subagents) {
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
+  }
+
+  // ── Content surfaces: commands / skills / subagents ──────────────────────
+  // CONTENT-ONLY: pure native-file writers. No runtime dispatch, no home-bin
+  // pointer, no telemetry wrap. Each method is idempotent (byte-identical →
+  // skip) via writeContentFile and reversible via removeContentFile. Honors
+  // platforms["codex"] per-surface false to skip.
+  //
+  // Native locations:
+  //   command  → ~/.codex/prompts/<name>.md   md+frontmatter(description,argument-hint)
+  //              USER SCOPE ONLY — project scope yields a single "warn".
+  //   skill    → <codexDir>/skills/<name>/SKILL.md (+ resources)
+  //   subagent → <codexDir>/agents/<name>.toml  TOML via writeTomlString
+
+  /** Command files always live under the USER codex dir: ~/.codex/prompts. */
+  private commandPath(name: string): string {
+    return join(this.userConfigDir(), "prompts", `${name}.md`);
+  }
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), "skills", name);
+  }
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), "agents", `${name}.toml`);
+  }
+
+  // ── Commands (USER SCOPE ONLY) ───────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[this.id]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for codex" }];
+    }
+    if (ctx.scope === "project") {
+      return [{ platform: this.id, action: "warn", detail: "codex commands are user-scope only" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(this.commandPath(cmd.name), this.renderCommand(cmd), ctx.dryRun),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (ctx.scope === "project") {
+      return [{ platform: this.id, action: "warn", detail: "codex commands are user-scope only" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(cmd.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a command to md+frontmatter (description, argument-hint). */
+  private renderCommand(cmd: CommandDef): string {
+    const frontmatter: Record<string, unknown> = {};
+    if (cmd.description !== undefined) frontmatter.description = cmd.description;
+    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
+    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
+    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+  }
+
+  // ── Skills ───────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[this.id]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for codex" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+      }
+      changes.push(this.removeContentFile(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with every other
+   * skill-supporting platform — only the parent dir differs.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
+  // ── Subagents (TOML) ─────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[this.id]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for codex" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(this.subagentPath(ctx, agent.name), this.renderSubagent(agent), ctx.dryRun),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a subagent to a Codex agent TOML file:
+   *   { name, description, developer_instructions: prompt, model }.
+   * model is omitted when undefined so Codex applies its default.
+   */
+  private renderSubagent(agent: SubagentDef): string {
+    const table: Record<string, unknown> = {
+      name: agent.name,
+      description: agent.description,
+      developer_instructions: agent.prompt,
+    };
+    if (agent.model !== undefined) table.model = agent.model;
+    if (agent.extra) Object.assign(table, agent.extra);
+    return writeTomlString(table);
   }
 
   // ── Runtime dispatch ────────────────────────────────────────────────────

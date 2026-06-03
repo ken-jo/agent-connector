@@ -46,6 +46,7 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -61,10 +62,12 @@ import type {
   SessionEndEvent,
   SessionStartEvent,
   StopEvent,
+  SubagentDef,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { writeTomlString } from "../../core/toml.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
@@ -163,6 +166,11 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: true,
     canInjectSessionContext: true,
     transports: ["stdio", "sse", "http"],
+    // Content surfaces: Qwen ships native slash commands (TOML) and subagents
+    // (md+frontmatter). It has no Agent-Skills surface, so supportsSkills stays
+    // false and the BaseAdapter skip/warn default handles any declared skills.
+    supportsCommands: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -454,6 +462,109 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surfaces: commands / subagents ───────────────────────────────
+  // CONTENT-ONLY: pure native-file writers under <qwenDir>/{commands,agents}. No
+  // runtime dispatch, no home-bin pointer, no telemetry wrap. Each method is
+  // idempotent (byte-identical → skip) via BaseAdapter.writeContentFile and
+  // reversible via removeContentFile. Honors platforms["qwen-code"] per-surface
+  // false to skip. Qwen has NO Agent-Skills surface, so skills are left to the
+  // BaseAdapter skip/warn default (supportsSkills stays false).
+
+  private commandsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "commands");
+  }
+  private agentsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "agents");
+  }
+
+  /** Native command file path: <qwenDir>/commands/<name>.toml. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.commandsDir(ctx), `${name}.toml`);
+  }
+  /** Native subagent file path: <qwenDir>/agents/<name>.md. */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.agentsDir(ctx), `${name}.md`);
+  }
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for qwen-code" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        this.renderCommand(cmd),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a command to Qwen's native TOML (description, prompt). */
+  private renderCommand(cmd: CommandDef): string {
+    const obj: Record<string, unknown> = {};
+    if (cmd.description !== undefined) obj.description = cmd.description;
+    obj.prompt = cmd.prompt;
+    return writeTomlString(obj);
+  }
+
+  // ── Subagents ──────────────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for qwen-code" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a subagent to md+frontmatter (name, description, tools, model) + prompt body. */
+  private renderSubagent(agent: SubagentDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: agent.name,
+      description: agent.description,
+    };
+    const allow = agent.tools?.allow;
+    if (allow && allow.length > 0) frontmatter.tools = allow.join(", ");
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
@@ -461,7 +572,7 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     const connectorId = ctx.connector.id;
     const homeBin = ctx.homeBinPath;
     const hookEvents = ctx.connector.hookEvents;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: settings.json present`,
         check: () =>
@@ -491,6 +602,27 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: only assert presence of the files this connector
+    // declares for the surfaces Qwen supports (commands + subagents). Skills are
+    // unsupported here, so they are intentionally not checked.
+    for (const cmd of ctx.connector.commands) {
+      const p = this.commandPath(ctx, cmd.name);
+      checks.push({
+        name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const agent of ctx.connector.subagents) {
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   // ── Runtime: parse Qwen stdin JSON → normalized event ────────────────────

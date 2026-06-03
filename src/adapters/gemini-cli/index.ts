@@ -62,6 +62,7 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -76,10 +77,13 @@ import type {
   ServerDef,
   SessionEndEvent,
   SessionStartEvent,
+  SkillDef,
+  SubagentDef,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { writeTomlString } from "../../core/toml.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
@@ -194,6 +198,12 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // Transport is selected by key: command/args (stdio), url (sse), httpUrl (http).
     transports: ["stdio", "sse", "http"],
+    // Content surfaces: Gemini CLI supports all three. Commands are authored as
+    // TOML (description + prompt with {{args}} placeholders); skills follow the
+    // uniform <geminiDir>/skills/<name>/SKILL.md layout; subagents are md+fm.
+    supportsCommands: true,
+    supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -487,6 +497,175 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surfaces: commands / skills / subagents ──────────────────────
+  // CONTENT-ONLY: pure native-file writers under <geminiDir>/{commands,skills,
+  // agents}. No runtime dispatch, no home-bin pointer, no telemetry wrap. Each
+  // method is idempotent (byte-identical → skip) via BaseAdapter.writeContentFile
+  // and reversible via removeContentFile. Honors platforms["gemini-cli"]
+  // per-surface false to skip. Commands are TOML (Gemini's native format, with
+  // {{args}} placeholders preserved verbatim); skills/subagents mirror the
+  // Claude reference (uniform SKILL.md + md+frontmatter subagents).
+
+  private commandsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "commands");
+  }
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "skills");
+  }
+  private agentsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "agents");
+  }
+
+  /** Native command file path: <geminiDir>/commands/<name>.toml. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.commandsDir(ctx), `${name}.toml`);
+  }
+  /** Native skill dir: <geminiDir>/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+  /** Native subagent file path: <geminiDir>/agents/<name>.md. */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.agentsDir(ctx), `${name}.md`);
+  }
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for gemini-cli" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(this.commandPath(ctx, cmd.name), this.renderCommand(cmd), ctx.dryRun),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a command to Gemini's native TOML: { description, prompt }. Gemini
+   * uses `{{args}}` placeholders in the prompt; the prompt body is passed
+   * through verbatim so any placeholders are preserved.
+   */
+  private renderCommand(cmd: CommandDef): string {
+    const obj: Record<string, unknown> = {};
+    if (cmd.description !== undefined) obj.description = cmd.description;
+    obj.prompt = cmd.prompt;
+    return writeTomlString(obj);
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for gemini-cli" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+      }
+      changes.push(this.removeContentFile(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. Uniform across platforms.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
+  // ── Subagents ───────────────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for gemini-cli" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(this.subagentPath(ctx, agent.name), this.renderSubagent(agent), ctx.dryRun),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a subagent to md+frontmatter (name, description, tools, model) + prompt body. */
+  private renderSubagent(agent: SubagentDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: agent.name,
+      description: agent.description,
+    };
+    const allow = agent.tools?.allow;
+    if (allow && allow.length > 0) frontmatter.tools = allow.join(", ");
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
@@ -494,7 +673,7 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     const connectorId = ctx.connector.id;
     const homeBin = ctx.homeBinPath;
     const hookEvents = ctx.connector.hookEvents;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: settings.json present`,
         check: () =>
@@ -524,6 +703,34 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: only assert presence of the files this connector
+    // declares (skip silently for surfaces it never asked for).
+    for (const cmd of ctx.connector.commands) {
+      const p = this.commandPath(ctx, cmd.name);
+      checks.push({
+        name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const agent of ctx.connector.subagents) {
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   // ── Runtime: parse Gemini stdin JSON → normalized event ──────────────────
