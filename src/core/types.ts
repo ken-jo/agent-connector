@@ -36,6 +36,7 @@ export type PlatformId =
   | "openclaw"
   | "zed"
   | "antigravity"
+  | "antigravity-cli"
   | "kiro"
   | "qwen-code"
   | "kimi"
@@ -59,7 +60,7 @@ export type PlatformId =
  *     Gemini). One universal entrypoint binary handles all of them.
  *   - "ts-plugin": host loads a JS/TS module exporting lifecycle functions
  *     (OpenCode, Kilo, Hermes/python, OpenClaw). Framework generates the module.
- *   - "mcp-only": no hook layer at all (Warp, zed, antigravity, Kilo-today, Pi).
+ *   - "mcp-only": no hook layer at all (Warp, zed, Kilo-today, Pi).
  *     Only the MCP server is installed; hooks are reported unavailable.
  */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";

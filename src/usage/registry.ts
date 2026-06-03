@@ -162,10 +162,22 @@ export const USAGE_READER_REGISTRY: readonly UsageReaderFactory[] = [
     load: () => import("./readers/cursor.js").then((m) => m.default),
   },
   {
+    // Antigravity IDE: primary source is the native `~/.gemini/antigravity-ide`
+    // (or launch-era `~/.gemini/antigravity`) brain `transcript*.jsonl` store,
+    // read directly (kind:"local", format:"jsonl"); the tokscale synced cache is
+    // an additional best-effort fallback inside the reader.
     platformId: "antigravity",
-    format: "synced-cache",
-    kind: "synced",
+    format: "jsonl",
+    kind: "local",
     load: () => import("./readers/antigravity.js").then((m) => m.default),
+  },
+  {
+    // Antigravity CLI (`agy`): native `~/.gemini/antigravity-cli/brain/<conv>/
+    // transcript*.jsonl` store, read directly.
+    platformId: "antigravity-cli",
+    format: "jsonl",
+    kind: "local",
+    load: () => import("./readers/antigravity-cli.js").then((m) => m.default),
   },
   {
     platformId: "trae",

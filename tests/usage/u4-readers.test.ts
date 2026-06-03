@@ -35,6 +35,7 @@ import { dirname, join } from "node:path";
 
 import cursorReader from "../../src/usage/readers/cursor.js";
 import antigravityReader from "../../src/usage/readers/antigravity.js";
+import antigravityCliReader from "../../src/usage/readers/antigravity-cli.js";
 import traeReader from "../../src/usage/readers/trae.js";
 import warpReader from "../../src/usage/readers/warp.js";
 
@@ -57,6 +58,7 @@ const SAVED_ENV = [
   "AGENT_CONNECTOR_TOKSCALE_DIR",
   "AGENT_CONNECTOR_CURSOR_DIR",
   "AGENT_CONNECTOR_ANTIGRAVITY_DIR",
+  "AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR",
   "AGENT_CONNECTOR_TRAE_DIR",
   "AGENT_CONNECTOR_WARP_DIR",
 ] as const;
@@ -265,6 +267,169 @@ describe("antigravity reader (synced)", () => {
     expect(r.tokens.input).toBe(10);
     expect(r.tokens.output).toBe(3);
     expect(r.dedupKey).toBe("resp-2");
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// 2b. antigravity NATIVE IDE brain transcripts — the PRIMARY source. Walk
+//     ~/.gemini/antigravity-ide/brain/<conv>/transcript*.jsonl, extract the
+//     Gemini-style usage_metadata per turn (prompt cache-inclusive → net
+//     input), skip .pb protobuf, fail-open. MEDIUM confidence native shape.
+// ═════════════════════════════════════════════════════════════════════════
+
+describe("antigravity reader (native IDE brain transcripts)", () => {
+  /** Path to a brain transcript under the temp HOME's native IDE dir. */
+  function brainTranscript(conv: string, file: string): string {
+    return join(tmpHome, ".gemini", "antigravity-ide", "brain", conv, file);
+  }
+
+  it("returns [] when no native brain and no cache exist (fail-open)", async () => {
+    expect(await antigravityReader.read({})).toEqual([]);
+  });
+
+  it("extracts usage_metadata per turn (prompt is cache-inclusive → net input)", async () => {
+    const conv = "f760e351-conv";
+    // A .pb protobuf dump in the same conv dir — MUST be skipped (no schema).
+    writeFile(brainTranscript(conv, `${conv}.pb`), "binary-protobuf-bytes");
+    const jsonl =
+      JSON.stringify({ type: "session_meta", modelId: "MODEL_PLACEHOLDER_M26" }) +
+      "\n" +
+      JSON.stringify({
+        type: "turn",
+        timestamp: 1775000000000,
+        usage_metadata: {
+          promptTokenCount: 100, // cache-inclusive
+          candidatesTokenCount: 40,
+          cachedContentTokenCount: 30,
+          thoughtsTokenCount: 5,
+        },
+        responseId: "r1",
+      }) +
+      "\n" +
+      // zero-token row → dropped; malformed line → skipped.
+      JSON.stringify({ type: "turn", usage_metadata: { promptTokenCount: 0 } }) +
+      "\n{ not json\n";
+    writeFile(brainTranscript(conv, "transcript.jsonl"), jsonl);
+
+    const records = await antigravityReader.read({});
+    expect(records).toHaveLength(1);
+    const r = records[0]!;
+    expect(r.platformId).toBe("antigravity");
+    expect(r.sessionId).toBe(conv); // from the brain/<conv>/ dir
+    expect(r.modelId).toBe("claude-opus-4-6"); // MODEL_PLACEHOLDER_M26 alias
+    expect(r.providerId).toBe("anthropic");
+    expect(r.tokens.input).toBe(70); // 100 prompt - 30 cached
+    expect(r.tokens.output).toBe(40);
+    expect(r.tokens.cacheRead).toBe(30);
+    expect(r.tokens.cacheWrite).toBe(0); // Gemini never reports cache write
+    expect(r.tokens.reasoning).toBe(5);
+    expect(r.ts).toBe(1775000000000);
+    expect(r.dedupKey).toBe(`${conv}:r1`);
+    expect(r.confidence).toBe("host-reported");
+  });
+
+  it("honors AGENT_CONNECTOR_ANTIGRAVITY_DIR override for the native root", async () => {
+    const overrideRoot = mkdtempSync(join(tmpdir(), "ac-u4-agy-ide-"));
+    process.env.AGENT_CONNECTOR_ANTIGRAVITY_DIR = overrideRoot;
+    writeFile(
+      join(overrideRoot, "brain", "c1", "transcript-0.jsonl"),
+      JSON.stringify({
+        model: "gemini-3-pro",
+        timestamp: 1775000500000,
+        usage_metadata: { promptTokenCount: 10, candidatesTokenCount: 2 },
+      }) + "\n",
+    );
+
+    const records = await antigravityReader.read({});
+    expect(records).toHaveLength(1);
+    const r = records[0]!;
+    expect(r.modelId).toBe("gemini-3-pro");
+    expect(r.providerId).toBe("google");
+    expect(r.tokens.input).toBe(10);
+    expect(r.tokens.output).toBe(2);
+
+    rmSync(overrideRoot, { recursive: true, force: true });
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// 2c. antigravity-cli (`agy`) — distinct native store at
+//     ~/.gemini/antigravity-cli/brain/<conv>/transcript*.jsonl (+ history.jsonl
+//     index for a per-conversation model fallback). Same usage_metadata
+//     extraction, skip .pb, fail-open. MEDIUM confidence native shape.
+// ═════════════════════════════════════════════════════════════════════════
+
+describe("antigravity-cli reader (native brain transcripts)", () => {
+  function cliRoot(): string {
+    return join(tmpHome, ".gemini", "antigravity-cli");
+  }
+
+  it("returns [] when no ~/.gemini/antigravity-cli exists (fail-open)", async () => {
+    expect(await antigravityCliReader.read({})).toEqual([]);
+  });
+
+  it("parses brain transcripts and uses history.jsonl for the model fallback", async () => {
+    const conv = "cli-conv-1";
+    // history.jsonl supplies the model when a transcript row carries none.
+    writeFile(
+      join(cliRoot(), "history.jsonl"),
+      JSON.stringify({ conversationId: conv, model: "claude-sonnet-4.6" }) + "\n",
+    );
+    // A .pb sibling MUST be skipped.
+    writeFile(join(cliRoot(), "brain", conv, `${conv}.pb`), "binary");
+    writeFile(
+      join(cliRoot(), "brain", conv, "transcript.jsonl"),
+      JSON.stringify({
+        type: "turn",
+        timestamp: 1775111111000,
+        usage_metadata: {
+          promptTokenCount: 200,
+          candidatesTokenCount: 50,
+          cachedContentTokenCount: 80,
+          thoughtsTokenCount: 12,
+        },
+        id: "m1",
+      }) + "\n",
+    );
+
+    const records = await antigravityCliReader.read({});
+    expect(records).toHaveLength(1);
+    const r = records[0]!;
+    expect(r.platformId).toBe("antigravity-cli");
+    expect(r.sessionId).toBe(conv);
+    expect(r.modelId).toBe("claude-sonnet-4-6"); // from history.jsonl, alias-resolved
+    expect(r.providerId).toBe("anthropic");
+    expect(r.tokens.input).toBe(120); // 200 - 80 cached
+    expect(r.tokens.output).toBe(50);
+    expect(r.tokens.cacheRead).toBe(80);
+    expect(r.tokens.reasoning).toBe(12);
+    expect(r.ts).toBe(1775111111000);
+    expect(r.dedupKey).toBe(`${conv}:m1`);
+    expect(r.confidence).toBe("host-reported");
+  });
+
+  it("honors AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR and falls open on a .pb-only conv", async () => {
+    const overrideRoot = mkdtempSync(join(tmpdir(), "ac-u4-agy-cli-"));
+    process.env.AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR = overrideRoot;
+    // Only a .pb dump (no transcript jsonl) → no rows, no throw.
+    writeFile(join(overrideRoot, "brain", "c", "c.pb"), "binary");
+
+    expect(await antigravityCliReader.read({})).toEqual([]);
+
+    rmSync(overrideRoot, { recursive: true, force: true });
+  });
+
+  it("respects sinceMs (drops rows older than the cutoff)", async () => {
+    const conv = "cli-conv-2";
+    writeFile(
+      join(cliRoot(), "brain", conv, "transcript.jsonl"),
+      JSON.stringify({
+        type: "turn",
+        timestamp: 1000, // very old
+        usage_metadata: { promptTokenCount: 5, candidatesTokenCount: 1 },
+      }) + "\n",
+    );
+    expect(await antigravityCliReader.read({ sinceMs: 1_000_000_000_000 })).toEqual([]);
   });
 });
 

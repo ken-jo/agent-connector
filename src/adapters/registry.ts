@@ -88,6 +88,14 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "trae",
     load: () => import("./trae/index.js").then((m) => m.default),
   },
+  // antigravity-cli BEFORE antigravity: the `agy` CLI is a fork of the IDE
+  // adapter with its own runtime markers (the universal hook command tags the
+  // host as "antigravity-cli"), so the more-specific CLI marker must be checked
+  // before the IDE/parent during host detection.
+  {
+    id: "antigravity-cli",
+    load: () => import("./antigravity-cli/index.js").then((m) => m.default),
+  },
   {
     id: "antigravity",
     load: () => import("./antigravity/index.js").then((m) => m.default),

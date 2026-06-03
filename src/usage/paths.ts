@@ -109,6 +109,52 @@ export function tokscaleCacheDir(name: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Antigravity native brain roots (read directly, NOT via the tokscale cache)
+//
+// Antigravity is fast-moving and its docs are JS-rendered (MEDIUM confidence),
+// so we PATH-PROBE every native root: prefer an existing well-known dir, else
+// fall back to the current canonical one — we NEVER hard-code a single guessed
+// path. Both functions honor the same AGENT_CONNECTOR_<PLATFORM>_DIR override
+// machinery used everywhere else (the override, when set, is prepended and so
+// is preferred over the canonical defaults).
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Candidate native "brain" roots for the Antigravity IDE, most-preferred-first.
+ * The IDE persists per-conversation transcripts under a `brain/` subtree of its
+ * global dir. The 2.0 canonical dir is `~/.gemini/antigravity-ide/`; older / the
+ * launch-era build used `~/.gemini/antigravity/` (both seen in the wild), so we
+ * probe both. The reader walks each for `transcript*.jsonl`.
+ *
+ * Honors AGENT_CONNECTOR_ANTIGRAVITY_DIR (verbatim, when set) as the override —
+ * pointed at whatever the user's install actually uses.
+ */
+export function antigravityNativeRoots(): string[] {
+  const out: string[] = [];
+  const override = envOverride("AGENT_CONNECTOR_ANTIGRAVITY_DIR");
+  if (override) out.push(override);
+  out.push(join(homedir(), ".gemini", "antigravity-ide"));
+  out.push(join(homedir(), ".gemini", "antigravity"));
+  return out;
+}
+
+/**
+ * Candidate native global roots for the Antigravity CLI (`agy`), most-preferred
+ * first. The CLI keeps its own per-conversation `brain/<conv>/transcript*.jsonl`
+ * store (+ a `history.jsonl` index) under `~/.gemini/antigravity-cli/`.
+ *
+ * Honors AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR (verbatim, when set) as the override
+ * via the same machinery as every other platform.
+ */
+export function antigravityCliNativeRoots(): string[] {
+  const out: string[] = [];
+  const override = envOverride("AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR");
+  if (override) out.push(override);
+  out.push(join(homedir(), ".gemini", "antigravity-cli"));
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Per-platform host roots
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -189,7 +235,18 @@ export function hostRoots(platformId: string): string[] {
       out.push(tokscaleCacheDir("cursor-cache"));
       break;
     case "antigravity":
+      // Synced FALLBACK: a tokscale cache mirror, if a separate tokscale run
+      // produced one. The reader ALSO reads the native IDE brain transcripts
+      // directly (see antigravityNativeRoots) — that is its primary source.
       out.push(tokscaleCacheDir("antigravity-cache"));
+      break;
+    case "antigravity-cli":
+      // LOCAL: the Antigravity CLI's own native global dir, read directly. The
+      // reader walks `<root>/brain/<conv>/transcript*.jsonl` (+ history.jsonl).
+      // The AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR override is already prepended
+      // above by the generic `override` handling; here we add the canonical
+      // default only (so it is not pushed twice).
+      out.push(join(homedir(), ".gemini", "antigravity-cli"));
       break;
     case "trae":
       out.push(tokscaleCacheDir("trae-cache"));
