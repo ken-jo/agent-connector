@@ -154,6 +154,31 @@ export const USAGE_READER_REGISTRY: readonly UsageReaderFactory[] = [
     kind: "local",
     load: () => import("./readers/zed.js").then((m) => m.default),
   },
+  // U4 — synced/cloud readers (read tokscale local cache if present, else skip)
+  {
+    platformId: "cursor",
+    format: "synced-cache",
+    kind: "synced",
+    load: () => import("./readers/cursor.js").then((m) => m.default),
+  },
+  {
+    platformId: "antigravity",
+    format: "synced-cache",
+    kind: "synced",
+    load: () => import("./readers/antigravity.js").then((m) => m.default),
+  },
+  {
+    platformId: "trae",
+    format: "synced-cache",
+    kind: "synced",
+    load: () => import("./readers/trae.js").then((m) => m.default),
+  },
+  {
+    platformId: "warp",
+    format: "synced-cache",
+    kind: "synced",
+    load: () => import("./readers/warp.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
