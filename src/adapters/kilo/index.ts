@@ -23,6 +23,14 @@
  *
  * Kilo documents no native `${env:VAR}` interpolation token, so env/url refs are
  * resolved to literals at install time (the no-native-token path).
+ *
+ * Content surfaces (report §4-5): Kilo authors slash COMMANDS and SUBAGENTS
+ * natively but has NO Agent Skill (SKILL.md) surface — skills inherit the
+ * BaseAdapter warn/skip. Commands are md+frontmatter files under
+ * .kilocode/commands (project) / <userConfigDir>/commands (user); subagents are
+ * md+frontmatter files under the existing Kilo config dir's agents/. These are
+ * pure file writers (no telemetry wrap, no home-bin pointer), idempotent on
+ * byte-identical content, and removed on uninstall.
  */
 
 import { existsSync } from "node:fs";
@@ -33,12 +41,14 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookParadigm,
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SubagentDef,
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -90,6 +100,13 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Kilo registers stdio (local), SSE, and Streamable HTTP MCP servers.
     transports: ["stdio", "sse", "http"],
+    // Content surfaces: Kilo authors slash commands and subagents natively, but
+    // has NO Agent Skill (SKILL.md) surface — skills inherit the BaseAdapter
+    // warn/skip. Commands live under .kilocode/commands; subagents under the
+    // existing Kilo config dir's agents/.
+    supportsCommands: true,
+    supportsSkills: false,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -268,12 +285,134 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surfaces: commands / subagents (NO skills) ───────────────────
+  // CONTENT-ONLY: pure native-file writers. No runtime dispatch, no home-bin
+  // pointer, no telemetry wrap. Each method is idempotent (byte-identical →
+  // skip) via BaseAdapter.writeContentFile and reversible via removeContentFile.
+  // Honors platforms["kilo"] per-surface false to skip. Kilo has NO SKILL.md
+  // surface, so skills inherit BaseAdapter's warn/skip default.
+  //
+  // NOTE on dirs: Kilo slash commands live under .kilocode/commands (project)
+  // or the user Kilo config dir's commands/ — a SEPARATE root from the MCP
+  // config dir (.kilo | ~/.config/kilo). Subagents reuse the existing config
+  // dir (getConfigDir) under agents/.
+
+  /** Commands root: project → <projectDir>/.kilocode/commands; user → <configDir>/commands. */
+  private commandsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".kilocode", "commands")
+      : join(this.getConfigDir(ctx), "commands");
+  }
+  /** Subagents dir reuses the existing Kilo config dir: <configDir>/agents. */
+  private agentsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "agents");
+  }
+
+  /** Native command file path: <commandsDir>/<name>.md. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.commandsDir(ctx), `${name}.md`);
+  }
+  /** Native subagent file path: <configDir>/agents/<name>.md. */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.agentsDir(ctx), `${name}.md`);
+  }
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for kilo" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        this.renderCommand(cmd),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a command to md+frontmatter (description, argument-hint, mode, model). */
+  private renderCommand(cmd: CommandDef): string {
+    const frontmatter: Record<string, unknown> = {};
+    if (cmd.description !== undefined) frontmatter.description = cmd.description;
+    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
+    // `mode` is not a core CommandDef field; it arrives via `extra` (escape
+    // hatch) so a connector can pin a specific Kilo mode. Merged below.
+    if (cmd.model !== undefined) frontmatter.model = cmd.model;
+    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
+    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+  }
+
+  // ── Subagents ───────────────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for kilo" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a subagent to md+frontmatter. Kilo's shape is
+   * (description, mode:"subagent", model, permission) with the system prompt as
+   * the body. `name` is NOT a frontmatter field — it comes from the filename.
+   * `permission` is derived from the coarse `readonly` knob: a readonly agent
+   * gets a per-tool deny map (edit/bash) so it cannot mutate the workspace.
+   */
+  private renderSubagent(agent: SubagentDef): string {
+    const frontmatter: Record<string, unknown> = {
+      description: agent.description,
+      mode: "subagent",
+    };
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.readonly === true) {
+      frontmatter.permission = { edit: "deny", bash: "deny" };
+    }
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const configPath = this.getServerConfigPath(ctx);
     const connectorId = ctx.connector.id;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: ${CONFIG_FILE} present`,
         check: () =>
@@ -298,6 +437,26 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: only assert presence of the files this connector
+    // declares (skills are unsupported on Kilo, so none are asserted here).
+    for (const cmd of ctx.connector.commands) {
+      const p = this.commandPath(ctx, cmd.name);
+      checks.push({
+        name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const agent of ctx.connector.subagents) {
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 }
 

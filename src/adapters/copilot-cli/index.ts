@@ -27,6 +27,18 @@
  * install time via resolveEnvRefsDeep (the safe default for a no-native-interp
  * host, matching the Codex adapter's approach).
  *
+ * Content surfaces (surfaces-design §4-5): Copilot CLI exposes skills and
+ * subagents but NO prompt-file command surface, so commands inherit the
+ * BaseAdapter skip/warn default (supportsCommands stays false).
+ *   - skills: folder-per-skill `<dir>/skills/<name>/SKILL.md` (+ resource files).
+ *     user scope → ~/.copilot/skills; project scope → <projectDir>/.github/skills.
+ *   - subagents: user scope → ~/.copilot/agents/<name>.agent.md; project scope →
+ *     <projectDir>/.github/agents/<name>.agent.md (md + frontmatter:
+ *     name, description, tools, model).
+ * The .github/ tree is shared with the vscode-copilot and jetbrains-copilot
+ * connectors; we write identical, idempotent content and on uninstall remove
+ * only the files this connector wrote.
+ *
  * Grounded in docs/research/understand-report.md §2 (Platform Integration
  * Matrix, "GitHub Copilot CLI" row).
  */
@@ -53,7 +65,9 @@ import type {
   ServerDef,
   SessionEndEvent,
   SessionStartEvent,
+  SkillDef,
   StopEvent,
+  SubagentDef,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -156,6 +170,12 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "http"],
+    // Content surfaces: Copilot CLI exposes skills + subagents, but has no
+    // prompt-file command surface, so commands stay false (inherits BaseAdapter
+    // skip/warn).
+    supportsCommands: false,
+    supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -442,6 +462,146 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surfaces: skills / subagents ─────────────────────────────────
+  // CONTENT-ONLY: pure native-file writers. No runtime dispatch, no home-bin
+  // pointer, no telemetry wrap. Each method is idempotent (byte-identical →
+  // skip) via BaseAdapter.writeContentFile and reversible via removeContentFile.
+  // Honors platforms["copilot-cli"] per-surface false to skip. Commands are
+  // unsupported here — they inherit the BaseAdapter skip/warn default.
+  //
+  // Path scoping: user scope lives under ~/.copilot (getConfigDir); project
+  // scope lives under the shared <projectDir>/.github tree (the same files
+  // vscode-copilot / jetbrains-copilot would write). We write identical content
+  // and on uninstall remove only the files this connector wrote.
+
+  /** Root dir for content surfaces: ~/.copilot (user) or <projectDir>/.github (project). */
+  private contentDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".github")
+      : this.getConfigDir(ctx);
+  }
+
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.contentDir(ctx), "skills");
+  }
+  private agentsDir(ctx: InstallContext): string {
+    return join(this.contentDir(ctx), "agents");
+  }
+
+  /** Native skill dir: <contentDir>/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+  /** Native subagent file path: <contentDir>/agents/<name>.agent.md. */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.agentsDir(ctx), `${name}.agent.md`);
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for copilot-cli" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+      }
+      changes.push(this.removeContentFile(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. Uniform Agent Skills shape
+   * shared across every skill-supporting connector.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
+  // ── Subagents ───────────────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for copilot-cli" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a subagent to md+frontmatter (name, description, tools, model) + prompt body. */
+  private renderSubagent(agent: SubagentDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: agent.name,
+      description: agent.description,
+    };
+    const allow = agent.tools?.allow;
+    if (allow && allow.length > 0) frontmatter.tools = allow.join(", ");
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
@@ -450,7 +610,7 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     const connectorId = ctx.connector.id;
     const homeBin = ctx.homeBinPath;
     const hookEvents = ctx.connector.hookEvents;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: mcp-config.json present`,
         check: () =>
@@ -480,6 +640,27 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: only assert presence of the surfaces this
+    // connector declares (skip silently for surfaces it never asked for).
+    // Commands are unsupported on Copilot CLI, so no command check.
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const agent of ctx.connector.subagents) {
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   // ── Runtime: parse Copilot CLI stdin JSON → normalized event ─────────────

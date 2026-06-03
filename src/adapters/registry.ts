@@ -108,6 +108,12 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "mux",
     load: () => import("./mux/index.js").then((m) => m.default),
   },
+  // Pi — mcp-only host with no writable MCP config; drives the Agent Skills
+  // surface only (writes <piDir>/skills/<name>/SKILL.md).
+  {
+    id: "pi",
+    load: () => import("./pi/index.js").then((m) => m.default),
+  },
   // Wave 2 — json-stdio adapters (full hook dispatch via the universal entrypoint).
   // jetbrains-copilot before vscode-copilot is unnecessary (distinct hosts); grouped here.
   {

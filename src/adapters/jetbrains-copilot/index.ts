@@ -41,6 +41,7 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -54,6 +55,7 @@ import type {
   PreToolUseEvent,
   SessionEndEvent,
   SessionStartEvent,
+  SkillDef,
   StopEvent,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -149,6 +151,14 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     // MCP is managed via the IDE Settings UI; the only transport that surfaces
     // there is a local stdio server.
     transports: ["stdio"],
+    // Content surfaces: JetBrains Copilot consumes the GitHub Copilot .github/
+    // files (it has no distinct authoring location), so it is an ALIAS of the
+    // vscode-copilot writer for prompt files and Agent Skills. It has no native
+    // subagent/chat-mode surface, so subagents stay unsupported (BaseAdapter
+    // returns the skip/warn default).
+    supportsCommands: true,
+    supportsSkills: true,
+    supportsSubagents: false,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -404,6 +414,155 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surfaces: commands / skills ──────────────────────────────────
+  // CONTENT-ONLY: pure native-file writers under the workspace .github/ tree
+  // ({prompts,skills}). No runtime dispatch, no home-bin pointer, no telemetry
+  // wrap. Each method is idempotent (byte-identical → skip) via
+  // BaseAdapter.writeContentFile and reversible via removeContentFile. Honors
+  // platforms["jetbrains-copilot"] per-surface false to skip.
+  //
+  // ALIAS of vscode-copilot: JetBrains consumes the GitHub Copilot .github/
+  // files and has no distinct authoring location, so the rendered content +
+  // paths here are IDENTICAL to the vscode-copilot writer.
+  //
+  // SHARED .github TREE: vscode-copilot, copilot-cli, and jetbrains-copilot all
+  // write under the SAME project <projectDir>/.github tree. The rendered content
+  // is identical and idempotent across those connectors, and uninstall here only
+  // removes the files THIS connector declared — never another writer's files.
+  //
+  // SCOPE NOTE: .github is a workspace concept and this adapter is project-
+  // scoped (no user-profile .github authoring location exists in the Copilot
+  // prompt/skill discovery), so the content root is always the project .github
+  // tree — the same dir getConfigDir already anchors on.
+
+  /** Root of the content tree — the project .github tree (see getConfigDir). */
+  private contentRootDir(ctx: InstallContext): string {
+    return this.getConfigDir(ctx);
+  }
+
+  private promptsDir(ctx: InstallContext): string {
+    return join(this.contentRootDir(ctx), "prompts");
+  }
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.contentRootDir(ctx), "skills");
+  }
+
+  /** Native command file path: <ghDir>/prompts/<name>.prompt.md. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.promptsDir(ctx), `${name}.prompt.md`);
+  }
+  /** Native skill dir: <ghDir>/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for jetbrains-copilot" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        this.renderCommand(cmd),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a Copilot prompt file: md+frontmatter(description, tools, model, argument-hint). */
+  private renderCommand(cmd: CommandDef): string {
+    const frontmatter: Record<string, unknown> = {};
+    if (cmd.description !== undefined) frontmatter.description = cmd.description;
+    // Copilot prompt files express tool access as a `tools` array, sourced from
+    // the portable tools.allow policy.
+    const allow = cmd.tools?.allow;
+    if (allow && allow.length > 0) frontmatter.tools = [...allow];
+    if (cmd.model !== undefined) frontmatter.model = cmd.model;
+    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
+    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
+    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for jetbrains-copilot" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        changes.push(this.writeContentFile(join(dir, rel), contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        changes.push(this.removeContentFile(join(dir, rel), ctx.dryRun));
+      }
+      changes.push(this.removeContentFile(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md — the uniform Agent Skills format: frontmatter
+   * (name, description + optional model, allowed-tools, disable-model-invocation)
+   * + body. Byte-identical to the other .github-sharing connectors so a shared
+   * skill folder never thrashes.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
@@ -414,7 +573,7 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     const hasServer =
       ctx.connector.server != null &&
       ctx.connector.platforms[HOST]?.server !== false;
-    return [
+    const checks: HealthCheck[] = [
       {
         // MCP cannot be verified from disk — JetBrains owns it behind the UI.
         // BaseAdapter.doctor maps != OK to a hard FAIL, but an unverifiable
@@ -455,6 +614,27 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: only assert presence of the files this connector
+    // declares (skip silently for surfaces it never asked for). Subagents are
+    // unsupported here, so they are never checked.
+    for (const cmd of ctx.connector.commands) {
+      const p = this.commandPath(ctx, cmd.name);
+      checks.push({
+        name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   // ── Runtime: parse JetBrains Copilot stdin JSON → normalized event ────────
