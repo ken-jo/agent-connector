@@ -12,9 +12,45 @@ import type { PlatformId } from "../core/types.js";
 /** Provenance of a token count — surfaced so "estimate" is never read as "exact". */
 export type ConfidenceSource =
   | "tokenizer-exact" // real BPE for a matching model family
+  | "tokenizer-calibrated" // approx adjusted by a sampled Anthropic count_tokens factor
   | "tokenizer-approx" // real BPE used as a documented approximation (e.g. Anthropic)
   | "heuristic" // chars/4 fallback
   | "host-native"; // a host actually reported usage (e.g. Gemini AfterModel)
+
+/**
+ * Confidence ranking, least-trustworthy (0) → most-trustworthy. The single
+ * source of truth for ordering {@link ConfidenceSource} values; every
+ * worst-of comparison across the telemetry subsystem (store rollup, both
+ * leaderboards, report, measure) reads through {@link rankOf} /
+ * {@link worstConfidence} so a new value orders correctly everywhere.
+ *
+ *   heuristic < tokenizer-approx < tokenizer-calibrated < tokenizer-exact < host-native
+ *
+ * `tokenizer-calibrated` sits between the raw approximation and an exact
+ * family-matched BPE count: it is an approximation nudged toward truth by a
+ * sampled real count_tokens factor, so it is more trustworthy than bare approx
+ * but still not the exact encoding for the target family.
+ */
+export const CONFIDENCE_RANK: Record<ConfidenceSource, number> = {
+  heuristic: 0,
+  "tokenizer-approx": 1,
+  "tokenizer-calibrated": 2,
+  "tokenizer-exact": 3,
+  "host-native": 4,
+};
+
+/** Trust rank of a single {@link ConfidenceSource} (higher = more trustworthy). */
+export function rankOf(c: ConfidenceSource): number {
+  return CONFIDENCE_RANK[c];
+}
+
+/** Return whichever source is the worse (least-confident) of the two. */
+export function worstConfidence(
+  a: ConfidenceSource,
+  b: ConfidenceSource,
+): ConfidenceSource {
+  return CONFIDENCE_RANK[b] < CONFIDENCE_RANK[a] ? b : a;
+}
 
 export type ModelFamily = "openai" | "anthropic" | "generic";
 
@@ -31,8 +67,18 @@ export interface Tokenizer {
   countValue(value: unknown, family: ModelFamily): TokenCount;
 }
 
-/** Whether a record measures a single tool call or the fixed tool-defs overhead. */
-export type EventScope = "call" | "tool_defs";
+/**
+ * What a record measures. Three DISTINCT origins that must never be summed:
+ *   • `call`       — one per-MCP `tools/call` round-trip (serve-proxy bytes).
+ *   • `tool_defs`  — the one-time `tools/list` schema overhead (serve-proxy).
+ *   • `model_turn` — a WHOLE-CONVERSATION host-native turn reported by the host
+ *     (e.g. Gemini/Antigravity AfterModel `usageMetadata`). This is NOT per-MCP:
+ *     it covers the entire model turn, so the MCP leaderboard EXCLUDES it (just
+ *     as it treats `tool_defs` specially) and it is surfaced as its own labeled
+ *     section rather than added to the per-MCP `call` totals or to the
+ *     usage-reader host-scan numbers.
+ */
+export type EventScope = "call" | "tool_defs" | "model_turn";
 
 /**
  * The install scope a wrapped server was deployed under, narrowed to the two

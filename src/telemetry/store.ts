@@ -19,8 +19,8 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { ensureDir, telemetryPath } from "../core/paths.js";
+import { worstConfidence } from "./types.js";
 import type {
-  ConfidenceSource,
   QueryFilter,
   RollupRow,
   TelemetryStore,
@@ -33,24 +33,8 @@ export interface OpenStoreOptions {
   path?: string;
 }
 
-/**
- * Confidence ranking, least-trustworthy (0) → most-trustworthy. Used to track
- * the WORST source in a rollup group so an estimate is never labeled exact.
- */
-const CONFIDENCE_RANK: Record<ConfidenceSource, number> = {
-  heuristic: 0,
-  "tokenizer-approx": 1,
-  "tokenizer-exact": 2,
-  "host-native": 3,
-};
-
-/** Return whichever source is the worse (least-confident) of the two. */
-function worstConfidence(
-  a: ConfidenceSource,
-  b: ConfidenceSource,
-): ConfidenceSource {
-  return CONFIDENCE_RANK[b] < CONFIDENCE_RANK[a] ? b : a;
-}
+// Confidence ranking + worst-of comparison live in ./types (the single source
+// of truth) so a new ConfidenceSource value orders correctly everywhere.
 
 /** Is `process.env.AGENT_CONNECTOR_TELEMETRY` an explicit off switch? */
 function telemetryDisabled(): boolean {

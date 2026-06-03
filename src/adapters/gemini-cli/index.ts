@@ -39,10 +39,15 @@
  *
  * NOTE: Gemini's AfterModel hook payload carries `usageMetadata.totalTokenCount`
  * (per-LLM-call real token usage — the one host-native usage signal in the
- * matrix). A future host-native telemetry enricher could read it; we do NOT
- * implement that enricher here, and telemetry continues to flow through the
- * `serve` proxy that wraps the stdio server. AfterModel is not part of our
- * normalized event set, so it is not registered.
+ * matrix). This is the OPT-IN host-native usage enricher (4a): when host-native
+ * capture is enabled (telemetry.hostNativeUsage, or AGENT_CONNECTOR_HOST_NATIVE=1
+ * at install), installHooks ALSO writes an AfterModel hook whose command is the
+ * hidden `<homeBin> usage-event gemini-cli --connector <id>` entrypoint. That
+ * records a DISTINCT `model_turn` telemetry row (confidence host-native) covering
+ * the whole conversation turn — never summed with the per-MCP `serve`-proxy rows.
+ * AfterModel is NOT a normalized connector event (no handler dispatch); it is a
+ * host-native-only sink. When the opt-in is OFF, the hook is NOT installed and
+ * telemetry continues to flow only through the `serve` proxy.
  *
  * Env handling: Gemini's native settings interpolation token is `${VAR}`/`$VAR`,
  * not the framework's `${env:VAR}` syntax. Rather than depend on that, env /
@@ -87,7 +92,10 @@ import { writeTomlString } from "../../core/toml.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
+  buildUsageEventCommand,
   isHomeBinHookCommand,
+  isHostNativeUsageEnabled,
+  isUsageEventCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 
@@ -106,6 +114,8 @@ const GEMINI_EVENT = {
   SessionEnd: "SessionEnd",
   BeforeAgent: "BeforeAgent",
   Notification: "Notification",
+  /** Fires AFTER each model turn; payload carries `usageMetadata` (opt-in 4a). */
+  AfterModel: "AfterModel",
 } as const;
 
 /**
@@ -363,7 +373,11 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     if (connector.platforms[HOST]?.hooks === false) {
       return [{ platform: this.id, action: "skip", detail: "hooks disabled for gemini-cli" }];
     }
-    if (connector.hookEvents.length === 0) {
+    // The opt-in host-native usage hook (4a) is a host-native-only sink that does
+    // NOT need a connector handler — so it may be installed even for a connector
+    // that declares no normalized hook events.
+    const hostNative = isHostNativeUsageEnabled(connector.telemetry);
+    if (connector.hookEvents.length === 0 && !hostNative) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
     }
 
@@ -426,8 +440,66 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
       mutated = true;
     }
 
+    // OPT-IN host-native usage hook (4a): when enabled, register an AfterModel
+    // hook whose command is the hidden `usage-event` entrypoint. It carries no
+    // matcher (it is not a tool event) and records a DISTINCT `model_turn` row.
+    if (hostNative) {
+      if (this.installUsageHook(hooks, ctx, settingsPath, changes)) mutated = true;
+    }
+
     if (mutated) this.writeJson(settingsPath, settings, ctx.dryRun);
     return changes;
+  }
+
+  /**
+   * Register the opt-in AfterModel host-native usage hook (4a) into `hooks`.
+   * Idempotent: a byte-identical entry skips, a drifted one updates. Returns true
+   * when the file was mutated. The command is the hidden `usage-event` entrypoint
+   * (NOT a connector hook), so it carries an empty matcher.
+   */
+  private installUsageHook(
+    hooks: Record<string, GeminiHookEntry[]>,
+    ctx: InstallContext,
+    settingsPath: string,
+    changes: ChangeRecord[],
+  ): boolean {
+    const command = buildUsageEventCommand(ctx.homeBinPath, HOST, ctx.connector.id);
+    const entry: GeminiHookEntry = {
+      matcher: "",
+      hooks: [{ type: "command", command }],
+    };
+    const bucket = (hooks[GEMINI_EVENT.AfterModel] ??= []);
+    const existingIdx = bucket.findIndex((e) =>
+      (e.hooks ?? []).some((h) => isUsageEventCommand(h.command, ctx.homeBinPath, ctx.connector.id)),
+    );
+
+    if (existingIdx >= 0) {
+      if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+        changes.push({
+          platform: this.id,
+          action: "skip",
+          path: settingsPath,
+          detail: `hooks.${GEMINI_EVENT.AfterModel} (host-native usage) already registered`,
+        });
+        return false;
+      }
+      bucket[existingIdx] = entry;
+      changes.push({
+        platform: this.id,
+        action: "update",
+        path: settingsPath,
+        detail: `hooks.${GEMINI_EVENT.AfterModel} (host-native usage)`,
+      });
+    } else {
+      bucket.push(entry);
+      changes.push({
+        platform: this.id,
+        action: "create",
+        path: settingsPath,
+        detail: `hooks.${GEMINI_EVENT.AfterModel} (host-native usage)`,
+      });
+    }
+    return true;
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
@@ -492,10 +564,17 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     return (entry.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx));
   }
 
-  /** True when a hook command references our home binary AND this connector id
-   *  (anchored so a shared-prefix id can't collide — see isHomeBinHookCommand). */
+  /**
+   * True when a hook command is ONE OF OURS for this connector — either the
+   * universal `hook` dispatcher OR the opt-in `usage-event` sink. Both are
+   * anchored on the connector id (see isHomeBinHookCommand) so a shared-prefix id
+   * can't collide, and so uninstall reverses the AfterModel usage hook too.
+   */
   private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
-    return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
+    return (
+      isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id) ||
+      isUsageEventCommand(command, ctx.homeBinPath, ctx.connector.id)
+    );
   }
 
   // ── Content surfaces: commands / skills / subagents ──────────────────────

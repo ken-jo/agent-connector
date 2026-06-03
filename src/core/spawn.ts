@@ -96,6 +96,56 @@ export function isHomeBinHookCommand(
 }
 
 /**
+ * Build the OPT-IN host-native usage-event command an AfterModel / PostInvocation
+ * hook points at:
+ *   "<homeBin>" usage-event <platformId> --connector <id>
+ * Mirrors {@link buildHomeBinHookCommand} (same anchoring rules apply) but routes
+ * to the hidden `usage-event` entrypoint, which records a DISTINCT `model_turn`
+ * row instead of dispatching a connector handler.
+ */
+export function buildUsageEventCommand(
+  homeBinPath: string,
+  platformId: string,
+  connectorId: string,
+): string {
+  return `${quoteArg(homeBinPath)} usage-event ${platformId} --connector ${connectorId}`;
+}
+
+/**
+ * True when `command` is OUR host-native usage-event command for exactly
+ * `connectorId`. Same end-of-token anchoring as {@link isHomeBinHookCommand} so a
+ * shared-prefix id can't collide; additionally requires the ` usage-event ` verb
+ * so it is never confused with a plain `hook` command during uninstall.
+ */
+export function isUsageEventCommand(
+  command: string | undefined,
+  homeBinPath: string,
+  connectorId: string,
+): boolean {
+  if (!command) return false;
+  if (!command.includes(homeBinPath)) return false;
+  if (!command.includes(" usage-event ")) return false;
+  return isHomeBinHookCommand(command, homeBinPath, connectorId);
+}
+
+/**
+ * Single source of truth for "is OPT-IN host-native turn-usage capture enabled
+ * for this connector?" — read by the Gemini / Antigravity adapters at install
+ * time to decide whether to ALSO write the AfterModel / PostInvocation usage hook.
+ * Enabled when the connector opts in via telemetry.hostNativeUsage OR when the
+ * install-time env switch AGENT_CONNECTOR_HOST_NATIVE=1 forces it on. Off by
+ * default (privacy: host-native capture is never installed silently).
+ */
+export function isHostNativeUsageEnabled(
+  telemetry: { enabled: boolean; hostNativeUsage?: boolean },
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (telemetry.enabled !== true) return false;
+  if (env.AGENT_CONNECTOR_HOST_NATIVE === "1") return true;
+  return telemetry.hostNativeUsage === true;
+}
+
+/**
  * Single source of truth for "should this server be wrapped by `serve` for
  * telemetry?" — so every adapter behaves identically even for a server that
  * skipped normalizeServer (e.g. a per-platform override). On by default for an

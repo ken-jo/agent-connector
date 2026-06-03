@@ -25,10 +25,15 @@ const KEY_HEADER: Record<RollupDimension, string> = {
   project: "PROJECT",
 };
 
-/** Sources whose counts are estimates (vs. real / host-reported numbers). */
+/**
+ * Sources whose counts are estimates (vs. real / host-reported numbers).
+ * `tokenizer-calibrated` is still an estimate — an approximation nudged toward
+ * truth by a sampled Anthropic count_tokens factor — so it belongs here too.
+ */
 const ESTIMATE_SOURCES: ReadonlySet<ConfidenceSource> = new Set<ConfidenceSource>([
   "heuristic",
   "tokenizer-approx",
+  "tokenizer-calibrated",
 ]);
 
 /** Compact, fixed-width integer formatting with thousands separators. */
@@ -127,6 +132,13 @@ export function formatReport(rows: RollupRow[], by: RollupDimension): string {
       "note: heuristic and tokenizer-approx token counts are estimates, " +
         "not exact host-reported usage.",
     );
+    if (sorted.some((r) => r.confidence === "tokenizer-calibrated")) {
+      lines.push(
+        "note: tokenizer-calibrated = local approx adjusted by a sampled " +
+          "Anthropic count_tokens factor (opt-in; content sampled off-box only " +
+          "when AGENT_CONNECTOR_CALIBRATE=anthropic).",
+      );
+    }
   }
 
   return lines.join("\n");

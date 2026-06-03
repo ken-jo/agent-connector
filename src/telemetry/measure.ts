@@ -17,6 +17,7 @@
  */
 
 import { getTokenizer } from "./tokenizer.js";
+import { worstConfidence } from "./types.js";
 import type {
   ConfidenceSource,
   ModelFamily,
@@ -44,25 +45,12 @@ const MODALITY_ESTIMATE: Record<string, number> = {
 /** Fallback estimate for an unknown non-text block type. */
 const UNKNOWN_BLOCK_ESTIMATE = 85;
 
-/**
- * Confidence ordering, least → most confident:
- *   heuristic < tokenizer-approx < tokenizer-exact < host-native
- * Used to pick the worst source when combining counts.
- */
-const CONFIDENCE_RANK: Record<ConfidenceSource, number> = {
-  heuristic: 0,
-  "tokenizer-approx": 1,
-  "tokenizer-exact": 2,
-  "host-native": 3,
-};
-
-/** Return the lower-confidence (worse) of two sources. */
-export function worstConfidence(
-  a: ConfidenceSource,
-  b: ConfidenceSource,
-): ConfidenceSource {
-  return CONFIDENCE_RANK[a] <= CONFIDENCE_RANK[b] ? a : b;
-}
+// Confidence ordering + the worst-of comparison live in ./types (the single
+// source of truth, imported as `worstConfidence` above). Re-exported here so
+// callers that already import `worstConfidence` from this module keep working
+// as a new ConfidenceSource value (e.g. tokenizer-calibrated) slots into the
+// shared ordering.
+export { worstConfidence };
 
 /** Reduce a list of sources to the single worst (least-confident) one. */
 function combineSources(sources: readonly ConfidenceSource[]): ConfidenceSource {

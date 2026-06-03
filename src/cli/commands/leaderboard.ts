@@ -1,13 +1,19 @@
 /**
  * cli/commands/leaderboard — the unified top-level `agent-connector leaderboard`.
  *
- * Prints BOTH leaderboards, each clearly origin-labeled and NEVER summed:
- *   🔌 MCP / Plugin leaderboard   ← from the serve-proxy telemetry store
- *                                   (which MCP server WE wrap costs the most).
- *   🖥️  Host / User leaderboard    ← from the host usage readers
- *                                   (which CLI / host spent the most).
- * They measure different things (server bytes vs whole-conversation usage), so
- * the two sections are reported side by side but their totals are never added.
+ * Prints THREE leaderboards, each clearly origin-labeled and NEVER summed:
+ *   🔌 MCP / Plugin leaderboard       ← origin `mcp-self`: the serve-proxy
+ *        telemetry store (which MCP server WE wrap costs the most — per-MCP `call`
+ *        + `tool_defs` rows; the `model_turn` rows are EXCLUDED here).
+ *   🖥️  Host / User leaderboard        ← origin `host-scan-logs`: the host usage
+ *        readers scanning agent CLI logs (which CLI / host spent the most).
+ *   🛰️  Host-native turns (live, exact) ← origin `host-native-live`: the opt-in
+ *        AfterModel / PostInvocation usage hook (scope `model_turn`, confidence
+ *        host-native) — whole-conversation usage the host reported in real time.
+ *
+ * All three measure DIFFERENT things (per-MCP server bytes vs whole-conversation
+ * usage from logs vs whole-conversation usage from a live hook). They are reported
+ * side by side but their totals are NEVER added together.
  *
  * Flags:
  *   --since 7d|24h|…   lower-bound window applied to both sources.
@@ -19,7 +25,9 @@
 import { parseArgs } from "node:util";
 
 import {
+  formatHostNativeTurns,
   formatMcpLeaderboard,
+  hostNativeTurns,
   isScopeFilter,
   mcpLeaderboard,
   SCOPE_FILTER_VALUES,
@@ -89,19 +97,27 @@ export async function run(argv: string[]): Promise<number> {
   if (scope !== undefined) mcpOpts.scope = scope;
   const mcp = mcpLeaderboard(mcpOpts);
 
-  // 🖥️ Host / User leaderboard — host usage readers (origin: host-native).
+  // 🖥️ Host / User leaderboard — host usage readers (origin: host-scan-logs).
   const hostOpts: { sinceMs?: number } = {};
   if (sinceMs !== undefined) hostOpts.sinceMs = sinceMs;
   const host = await hostLeaderboard(hostOpts);
 
+  // 🛰️ Host-native turns — opt-in AfterModel usage hook (origin: host-native-live).
+  // Scope `model_turn` rows ONLY; the MCP section above already excludes them.
+  const turnsOpts: { sinceMs?: number; scope?: ScopeFilter } = {};
+  if (sinceMs !== undefined) turnsOpts.sinceMs = sinceMs;
+  if (scope !== undefined) turnsOpts.scope = scope;
+  const turns = hostNativeTurns(turnsOpts);
+
   if (values.json) {
-    // Two separate arrays — by construction the consumer cannot sum origins.
+    // Three separate arrays — by construction the consumer cannot sum origins.
     print(
       JSON.stringify(
         {
-          mcp,
-          host: host.rows,
+          mcp, // origin: mcp-self
+          host: host.rows, // origin: host-scan-logs
           hostSkipped: host.skipped,
+          hostNativeTurns: turns, // origin: host-native-live (scope model_turn)
         },
         null,
         2,
@@ -111,18 +127,30 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const lines: string[] = [];
-  lines.push("🔌 MCP / Plugin leaderboard  (origin: mcp-self — server bytes we wrap)");
+  lines.push(
+    "🔌 MCP / Plugin leaderboard  (origin: mcp-self — per-MCP server bytes we wrap; " +
+      "excludes host-native model_turn rows)",
+  );
   if (scope !== undefined) lines.push(`   scope: ${scope}`);
   lines.push("");
   lines.push(formatMcpLeaderboard(mcp));
   lines.push("");
-  lines.push("🖥️  Host / User leaderboard  (origin: host-native — whole-conversation usage)");
+  lines.push(
+    "🖥️  Host / User leaderboard  (origin: host-scan-logs — whole-conversation usage from CLI logs)",
+  );
   lines.push("");
   lines.push(formatHostLeaderboard(host));
   lines.push("");
   lines.push(
-    "note: the two leaderboards measure DIFFERENT things (MCP-server bytes vs " +
-      "whole-conversation usage) and are never summed together.",
+    "🛰️  Host-native turns (live, exact)  (origin: host-native-live — opt-in AfterModel usage hook)",
+  );
+  lines.push("");
+  lines.push(formatHostNativeTurns(turns));
+  lines.push("");
+  lines.push(
+    "note: the THREE leaderboards measure DIFFERENT things (per-MCP server bytes vs " +
+      "whole-conversation usage from logs vs live host-native turns) and are never " +
+      "summed together (their totals are NEVER added across origins).",
   );
   print(lines.join("\n"));
   return 0;

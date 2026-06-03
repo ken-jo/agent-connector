@@ -79,7 +79,10 @@ import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
+  buildUsageEventCommand,
   isHomeBinHookCommand,
+  isHostNativeUsageEnabled,
+  isUsageEventCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 
@@ -110,6 +113,15 @@ const SUPPORTED_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
   "SessionStart",
   "Stop",
 ]);
+
+/**
+ * Native hooks.json key for the OPT-IN host-native turn-usage hook (enricher 4a).
+ * Antigravity shares the Gemini-family `AfterModel` model-turn hook, whose payload
+ * carries `usageMetadata`. This is a host-native-only sink (no connector handler);
+ * it is installed ONLY when host-native capture is enabled and records a DISTINCT
+ * `model_turn` telemetry row that is never summed with the per-MCP `serve` rows.
+ */
+const USAGE_HOOK_EVENT = "AfterModel";
 
 /** A single Antigravity native hook registration entry (nested, Claude-shaped). */
 interface AntigravityHookEntry {
@@ -405,7 +417,10 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
     if (connector.platforms[this.id]?.hooks === false) {
       return [{ platform: this.id, action: "skip", detail: `hooks disabled for ${this.id}` }];
     }
-    if (connector.hookEvents.length === 0) {
+    // The opt-in host-native usage hook (4a) needs no connector handler, so it may
+    // be installed even when the connector declares no normalized hook events.
+    const hostNative = isHostNativeUsageEnabled(connector.telemetry);
+    if (connector.hookEvents.length === 0 && !hostNative) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
     }
 
@@ -479,8 +494,67 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
       mutated = true;
     }
 
+    // OPT-IN host-native usage hook (4a): register the AfterModel `usage-event`
+    // sink when enabled. Records a DISTINCT `model_turn` row (whole-conversation),
+    // never summed with the per-MCP `serve`-proxy rows.
+    if (hostNative) {
+      if (this.installUsageHook(hooks, ctx, hooksPath, changes)) mutated = true;
+    }
+
     if (mutated) this.writeJson(hooksPath, file, ctx.dryRun);
     return changes;
+  }
+
+  /**
+   * Register the opt-in AfterModel host-native usage hook (4a) into `hooks`.
+   * Idempotent (byte-identical → skip, drift → update); returns true on mutation.
+   * The command is the hidden `usage-event` entrypoint (NOT a connector hook), so
+   * it carries an empty matcher. Reads `this.id` so the CLI fork installs its own
+   * `usage-event antigravity-cli …` variant.
+   */
+  private installUsageHook(
+    hooks: Record<string, AntigravityHookEntry[]>,
+    ctx: InstallContext,
+    hooksPath: string,
+    changes: ChangeRecord[],
+  ): boolean {
+    const command = buildUsageEventCommand(ctx.homeBinPath, this.id, ctx.connector.id);
+    const entry: AntigravityHookEntry = {
+      matcher: "",
+      hooks: [{ type: "command", command }],
+    };
+    const bucket = (hooks[USAGE_HOOK_EVENT] ??= []);
+    const existingIdx = bucket.findIndex((e) =>
+      (e.hooks ?? []).some((h) => isUsageEventCommand(h.command, ctx.homeBinPath, ctx.connector.id)),
+    );
+
+    if (existingIdx >= 0) {
+      if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+        changes.push({
+          platform: this.id,
+          action: "skip",
+          path: hooksPath,
+          detail: `hooks.${USAGE_HOOK_EVENT} (host-native usage) already registered`,
+        });
+        return false;
+      }
+      bucket[existingIdx] = entry;
+      changes.push({
+        platform: this.id,
+        action: "update",
+        path: hooksPath,
+        detail: `hooks.${USAGE_HOOK_EVENT} (host-native usage)`,
+      });
+    } else {
+      bucket.push(entry);
+      changes.push({
+        platform: this.id,
+        action: "create",
+        path: hooksPath,
+        detail: `hooks.${USAGE_HOOK_EVENT} (host-native usage)`,
+      });
+    }
+    return true;
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
@@ -546,11 +620,16 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * True when a hook command references our home binary AND this connector id
-   * (anchored so a shared-prefix id can't collide — see isHomeBinHookCommand).
+   * True when a hook command is ONE OF OURS for this connector — the universal
+   * `hook` dispatcher OR the opt-in `usage-event` sink. Both are anchored on the
+   * connector id (see isHomeBinHookCommand) so a shared-prefix id can't collide,
+   * and so uninstall reverses the AfterModel usage hook too.
    */
   private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
-    return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
+    return (
+      isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id) ||
+      isUsageEventCommand(command, ctx.homeBinPath, ctx.connector.id)
+    );
   }
 
   // ── Content surfaces: commands (Workflows) / skills ───────────────────────

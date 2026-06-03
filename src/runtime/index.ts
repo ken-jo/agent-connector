@@ -17,3 +17,6 @@ export type { RunHookOptions, RunHookResult } from "./hook-entrypoint.js";
 
 export { runServe } from "./serve.js";
 export type { RunServeOptions } from "./serve.js";
+
+export { runUsageEvent } from "./usage-event.js";
+export type { RunUsageEventOptions, RunUsageEventResult } from "./usage-event.js";

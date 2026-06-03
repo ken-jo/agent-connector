@@ -361,6 +361,15 @@ export interface TelemetryConfig {
   measureToolDefs?: boolean;
   /** Opt-in network calibration (sends content off-box — off by default). */
   calibration?: { anthropicCountTokens?: boolean };
+  /**
+   * OPT-IN host-native turn-usage capture (off by default). When enabled, the
+   * Gemini / Antigravity adapters ALSO install an AfterModel / PostInvocation hook
+   * that reads the host's `usageMetadata` and records a DISTINCT `model_turn`
+   * telemetry row (confidence `host-native`). Whole-conversation, never summed with
+   * the per-MCP `call` rows. May also be forced on at install via the env switch
+   * AGENT_CONNECTOR_HOST_NATIVE=1. Aggregate counts only; no raw content stored.
+   */
+  hostNativeUsage?: boolean;
   /** Storage backend. NDJSON (default) needs no native deps; sqlite is an upgrade. */
   store?: "ndjson" | "sqlite";
 }

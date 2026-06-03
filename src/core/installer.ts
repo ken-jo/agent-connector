@@ -414,6 +414,7 @@ function syntheticConnector(id: string): ResolvedConnector {
       enabled: true,
       modelFamilyHint: "auto",
       measureToolDefs: true,
+      hostNativeUsage: false,
       store: "ndjson",
       calibration: { anthropicCountTokens: false },
     },

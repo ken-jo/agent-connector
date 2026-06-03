@@ -23,10 +23,19 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 import type { PlatformId } from "../core/types.js";
+import {
+  applyCalibration,
+  countTokensAnthropic,
+  isCalibrationEnabled,
+  modelForFamily,
+  recordSample,
+  shouldSample,
+} from "./calibration.js";
 import { measureToolCall, measureToolDefs } from "./measure.js";
 import { newRecordId } from "./store.js";
 import { inferModelFamily } from "./tokenizer.js";
 import type {
+  ConfidenceSource,
   LaunchMethod,
   ModelFamily,
   TelemetryInstallScope,
@@ -95,6 +104,21 @@ interface PendingCall {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+
+/**
+ * Canonical string form of a tool call's arguments for an off-box count_tokens
+ * sample — mirrors the tokenizer's own serialization so the sampled text equals
+ * the bytes we approximated locally. A string passes through; anything else is
+ * JSON-stringified; a value that stringifies to undefined becomes "".
+ */
+function canonicalArgs(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 /** JSON-RPC ids are number | string; normalize to a Map key. `null` → no key. */
@@ -167,6 +191,10 @@ export async function runServeProxy(
 
   // Global kill switch: still proxy transparently, but skip ALL measurement.
   const measuringEnabled = process.env.AGENT_CONNECTOR_TELEMETRY !== "0";
+  // OPT-IN Anthropic count_tokens calibration. Resolved once per session — the
+  // gate (AGENT_CONNECTOR_CALIBRATE + ANTHROPIC_API_KEY) is process-level and
+  // does not change mid-session. Off by default; privacy-safe.
+  const calibrationEnabled = isCalibrationEnabled();
 
   const child = spawn(command, args, {
     stdio: ["pipe", "pipe", "inherit"],
@@ -280,6 +308,28 @@ export async function runServeProxy(
       family,
       tokenizer,
     );
+
+    // OPT-IN calibration: for an anthropic session, nudge the locally-tokenized
+    // approx counts toward Anthropic's real numbers via the learned factor, and
+    // fire a sampled off-box count_tokens to keep that factor fresh. Both steps
+    // are best-effort and wrapped so they can never break the record path.
+    let inputTokens = measurement.inputTokens;
+    let outputTokens = measurement.outputTokens;
+    let confidenceSource: ConfidenceSource = measurement.source;
+    if (calibrationEnabled && family === "anthropic") {
+      try {
+        ({ inputTokens, outputTokens, confidenceSource } = calibrateCounts(
+          measurement.inputTokens,
+          measurement.outputTokens,
+          measurement.source,
+        ));
+        maybeSampleCalibration(call.args, measurement.inputTokens);
+      } catch {
+        // Calibration is a non-essential enrichment — fall back to the raw
+        // measurement values already captured above.
+      }
+    }
+
     // MCP signals a tool-level failure via result.isError===true; a JSON-RPC
     // protocol error (response.error) is also a failure.
     const resultIsError =
@@ -288,11 +338,61 @@ export async function runServeProxy(
       ...baseRecord(),
       toolName: call.toolName,
       scope: "call",
-      inputTokens: measurement.inputTokens,
-      outputTokens: measurement.outputTokens,
-      confidenceSource: measurement.source,
+      inputTokens,
+      outputTokens,
+      confidenceSource,
       isError: hasError || resultIsError,
     });
+  }
+
+  /**
+   * Apply the learned anthropic factor to the approx input/output counts. Only
+   * a `tokenizer-approx` measurement is calibratable (a heuristic fallback or
+   * host-native count is left exactly as-is); the combined source becomes
+   * `tokenizer-calibrated` only when at least one side was actually scaled.
+   */
+  function calibrateCounts(
+    rawIn: number,
+    rawOut: number,
+    rawSource: ConfidenceSource,
+  ): { inputTokens: number; outputTokens: number; confidenceSource: ConfidenceSource } {
+    if (rawSource !== "tokenizer-approx") {
+      return { inputTokens: rawIn, outputTokens: rawOut, confidenceSource: rawSource };
+    }
+    const cin = applyCalibration(rawIn, family);
+    const cout = applyCalibration(rawOut, family);
+    const calibrated =
+      cin.source === "tokenizer-calibrated" || cout.source === "tokenizer-calibrated";
+    return {
+      inputTokens: cin.tokens,
+      outputTokens: cout.tokens,
+      confidenceSource: calibrated ? "tokenizer-calibrated" : "tokenizer-approx",
+    };
+  }
+
+  /**
+   * On a SAMPLED call, fire-and-forget an off-box count_tokens for the call's
+   * input args and fold the resulting exact/approx ratio into the learned
+   * factor. Returns immediately — the network round-trip never blocks
+   * forwarding or measurement. Fail-open: any error is swallowed.
+   */
+  function maybeSampleCalibration(args: unknown, approxInputTokens: number): void {
+    if (approxInputTokens <= 0) return; // nothing to ratio against
+    if (!shouldSample()) return;
+    const text = canonicalArgs(args);
+    if (text === "") return;
+    // Detached promise — intentionally NOT awaited so the proxy never blocks on
+    // the network. Errors are handled inside countTokensAnthropic (returns null)
+    // and the .catch is a belt-and-braces guard against an unhandled rejection.
+    void countTokensAnthropic(text, modelForFamily(family))
+      .then((exact) => {
+        if (exact !== null && exact > 0) {
+          recordSample(family, exact / approxInputTokens);
+        }
+      })
+      .catch(() => {
+        /* fail-open: a calibration sample must never surface an error */
+      });
   }
 
   /** Measure the one-time tools/list overhead and append the record. */

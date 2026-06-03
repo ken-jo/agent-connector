@@ -15,6 +15,7 @@
  */
 
 import { openStore } from "./store.js";
+import { worstConfidence } from "./types.js";
 import type {
   ConfidenceSource,
   LaunchMethod,
@@ -99,12 +100,25 @@ function toFilter(opts: LeaderboardOptions): QueryFilter {
   return filter;
 }
 
-/** Query the store and apply the (in-memory) scope slice the store cannot. */
-function selectRecords(opts: LeaderboardOptions): ToolEventRecord[] {
+/**
+ * Query the store and apply the (in-memory) scope slice the store cannot. By
+ * default EXCLUDES the host-native `model_turn` rows: this selector feeds the
+ * per-MCP/plugin views (mcp/tool/scope), which measure per-MCP `call` + the
+ * `tool_defs` overhead and must NEVER sum the whole-conversation host-native
+ * turns. Pass `includeModelTurn: true` to read those rows instead (used by
+ * {@link hostNativeTurns}).
+ */
+function selectRecords(
+  opts: LeaderboardOptions,
+  includeModelTurn = false,
+): ToolEventRecord[] {
   const store = opts.store ?? openStore({});
   const owned = opts.store === undefined;
   try {
-    const rows = store.query(toFilter(opts));
+    let rows = store.query(toFilter(opts));
+    rows = includeModelTurn
+      ? rows.filter((r) => r.scope === "model_turn")
+      : rows.filter((r) => r.scope !== "model_turn");
     if (opts.scope === undefined) return rows;
     const scope = opts.scope;
     return rows.filter((r) => matchesScope(r, scope));
@@ -113,22 +127,9 @@ function selectRecords(opts: LeaderboardOptions): ToolEventRecord[] {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Confidence (worst-of, mirroring telemetry/store.ts)
-// ─────────────────────────────────────────────────────────────────────────
-
-/** Least-trustworthy (0) → most-trustworthy, mirrored from telemetry/store.ts. */
-const CONFIDENCE_RANK: Record<ConfidenceSource, number> = {
-  heuristic: 0,
-  "tokenizer-approx": 1,
-  "tokenizer-exact": 2,
-  "host-native": 3,
-};
-
-/** The worse (least-confident) of two sources, so an estimate is never hidden. */
-function worstConfidence(a: ConfidenceSource, b: ConfidenceSource): ConfidenceSource {
-  return CONFIDENCE_RANK[b] < CONFIDENCE_RANK[a] ? b : a;
-}
+// Confidence ranking + worst-of comparison live in ./types (the single source
+// of truth, imported as worstConfidence above) so a new ConfidenceSource value
+// orders correctly here as well.
 
 // ─────────────────────────────────────────────────────────────────────────
 // Leaderboard rows
@@ -184,6 +185,40 @@ export interface ScopeBreakdownRow {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  confidence: ConfidenceSource;
+  lastTs: number;
+}
+
+/**
+ * One row of the host-native turns aggregation — a (host, session) pair ranked by
+ * total host-reported tokens for that whole-conversation turn stream. This is the
+ * THIRD origin (`host-native-live`): it comes from the opt-in AfterModel /
+ * PostInvocation usage hook (scope `model_turn`, confidence `host-native`) and is
+ * NEVER summed with the per-MCP `call` rows or the usage-reader host-scan numbers.
+ */
+export interface HostNativeTurnsRow {
+  hostPlatform: string;
+  sessionId: string;
+  /** Number of recorded model turns (scope `model_turn` rows) in this group. */
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** Distinct connector ids that produced turns under this host/session. */
+  connectors: string[];
+  confidence: ConfidenceSource;
+  lastTs: number;
+}
+
+/** Mutable accumulator for the host-native turns fold (set finalized to count). */
+interface HostNativeAcc {
+  hostPlatform: string;
+  sessionId: string;
+  turns: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  connectors: Set<string>;
   confidence: ConfidenceSource;
   lastTs: number;
 }
@@ -334,14 +369,73 @@ export function scopeBreakdown(opts: LeaderboardOptions = {}): ScopeBreakdownRow
   return rows;
 }
 
+/**
+ * The THIRD origin: host-native turns. Aggregates ONLY the `model_turn` rows (the
+ * opt-in AfterModel / PostInvocation host-native usage hook) by (host, session),
+ * ranked by total host-reported tokens desc. This is whole-conversation usage the
+ * host itself reported — exact, but a DIFFERENT thing than the per-MCP `call`
+ * rows; it is surfaced separately and NEVER summed with the other two origins.
+ */
+export function hostNativeTurns(opts: LeaderboardOptions = {}): HostNativeTurnsRow[] {
+  const groups = new Map<string, HostNativeAcc>();
+
+  for (const r of selectRecords(opts, /* includeModelTurn */ true)) {
+    const key = `${r.hostPlatform} ${r.sessionId}`;
+    let g = groups.get(key);
+    if (g === undefined) {
+      g = {
+        hostPlatform: r.hostPlatform,
+        sessionId: r.sessionId,
+        turns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        connectors: new Set<string>(),
+        confidence: r.confidenceSource,
+        lastTs: r.ts,
+      };
+      groups.set(key, g);
+    }
+    g.turns += 1;
+    g.inputTokens += r.inputTokens;
+    g.outputTokens += r.outputTokens;
+    g.totalTokens += r.inputTokens + r.outputTokens;
+    g.connectors.add(r.connectorId);
+    g.confidence = worstConfidence(g.confidence, r.confidenceSource);
+    if (r.ts > g.lastTs) g.lastTs = r.ts;
+  }
+
+  const rows: HostNativeTurnsRow[] = [];
+  for (const g of groups.values()) {
+    rows.push({
+      hostPlatform: g.hostPlatform,
+      sessionId: g.sessionId,
+      turns: g.turns,
+      inputTokens: g.inputTokens,
+      outputTokens: g.outputTokens,
+      totalTokens: g.totalTokens,
+      connectors: [...g.connectors].sort(),
+      confidence: g.confidence,
+      lastTs: g.lastTs,
+    });
+  }
+  rows.sort((a, b) => b.totalTokens - a.totalTokens || b.lastTs - a.lastTs);
+  return rows;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Formatting (mirrors telemetry/report.ts: aligned table + honesty legend)
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Sources whose counts are estimates (vs real / host-reported numbers). */
+/**
+ * Sources whose counts are estimates (vs real / host-reported numbers).
+ * `tokenizer-calibrated` is still an estimate — an approximation nudged toward
+ * truth by a sampled Anthropic count_tokens factor — so it belongs here too.
+ */
 const ESTIMATE_SOURCES: ReadonlySet<ConfidenceSource> = new Set<ConfidenceSource>([
   "heuristic",
   "tokenizer-approx",
+  "tokenizer-calibrated",
 ]);
 
 /** Compact integer formatting with thousands separators. */
@@ -415,6 +509,13 @@ function appendEstimateLegend(
       "note: heuristic and tokenizer-approx token counts are estimates, " +
         "not exact host-reported usage.",
     );
+    if (confidences.some((c) => c === "tokenizer-calibrated")) {
+      lines.push(
+        "note: tokenizer-calibrated = local approx adjusted by a sampled " +
+          "Anthropic count_tokens factor (opt-in; content sampled off-box only " +
+          "when AGENT_CONNECTOR_CALIBRATE=anthropic).",
+      );
+    }
   }
 }
 
@@ -610,6 +711,74 @@ export function formatScopeBreakdown(rows: ScopeBreakdownRow[]): string {
   appendEstimateLegend(
     lines,
     sorted.map((r) => r.confidence),
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Format the host-native turns aggregation (the THIRD origin):
+ *   RANK | HOST | SESSION | TURNS | IN | OUT | TOTAL | CONNECTORS | CONFIDENCE
+ * sorted by total tokens desc, with a TOTAL footer. These are whole-conversation,
+ * host-reported (exact) counts — a DIFFERENT thing than the per-MCP rows, so the
+ * footer total is for THIS section alone and is never added to the others.
+ */
+export function formatHostNativeTurns(rows: HostNativeTurnsRow[]): string {
+  const sorted = [...rows].sort(
+    (a, b) => b.totalTokens - a.totalTokens || b.lastTs - a.lastTs,
+  );
+  const headers = [
+    "RANK",
+    "HOST",
+    "SESSION",
+    "TURNS",
+    "IN",
+    "OUT",
+    "TOTAL",
+    "CONNECTORS",
+    "CONFIDENCE",
+  ];
+  const dataRows = sorted.map((r, i) => [
+    `${i + 1}`,
+    r.hostPlatform,
+    r.sessionId === "" ? "-" : r.sessionId,
+    fmtInt(r.turns),
+    fmtInt(r.inputTokens),
+    fmtInt(r.outputTokens),
+    fmtInt(r.totalTokens),
+    r.connectors.length === 0 ? "-" : r.connectors.join(","),
+    r.confidence,
+  ]);
+
+  const totals = sorted.reduce(
+    (acc, r) => {
+      acc.turns += r.turns;
+      acc.inputTokens += r.inputTokens;
+      acc.outputTokens += r.outputTokens;
+      acc.totalTokens += r.totalTokens;
+      return acc;
+    },
+    { turns: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+  );
+  const totalRow = [
+    "",
+    "TOTAL",
+    "",
+    fmtInt(totals.turns),
+    fmtInt(totals.inputTokens),
+    fmtInt(totals.outputTokens),
+    fmtInt(totals.totalTokens),
+    "",
+    "",
+  ];
+
+  // Left-align RANK (0), HOST (1), SESSION (2), CONNECTORS (7), CONFIDENCE (8).
+  const leftCols = new Set<number>([0, 1, 2, 7, 8]);
+  const lines = renderTable(
+    headers,
+    dataRows,
+    leftCols,
+    totalRow,
+    "(no host-native turns recorded — enable opt-in host-native usage)",
   );
   return lines.join("\n");
 }

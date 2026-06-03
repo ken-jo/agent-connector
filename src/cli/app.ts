@@ -125,6 +125,10 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   leaderboard: () => import("./commands/leaderboard.js"),
   hook: () => import("./commands/hook.js"),
   serve: () => import("./commands/serve.js"),
+  // Hidden (omitted from USAGE): the opt-in host-native turn-usage entrypoint an
+  // AfterModel / PostInvocation hook points at. Always exits 0; records a
+  // distinct `model_turn` row. See cli/commands/usage-event.ts.
+  "usage-event": () => import("./commands/usage-event.js"),
 };
 
 const USAGE = `agent-connector — write your MCP server + hooks once, install everywhere.
