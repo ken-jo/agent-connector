@@ -139,6 +139,15 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "hermes",
     load: () => import("./hermes/index.js").then((m) => m.default),
   },
+  // Wave 4 — ts-plugin adapters (generate a bridge module to the universal entrypoint).
+  {
+    id: "omp",
+    load: () => import("./omp/index.js").then((m) => m.default),
+  },
+  {
+    id: "openclaw",
+    load: () => import("./openclaw/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */

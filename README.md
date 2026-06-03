@@ -21,17 +21,18 @@ agent-connector is the middleware that does it for you:
    platform-independent answer to *"which of my tools cost the most context?"*,
    with **aggregate counts only, stored locally, zero egress by default.**
 
-> Status: **MVP — 9 platforms, all 3 hook paradigms.**
+> Status: **26 platforms, all 3 hook paradigms** (parity with the
+> [tokscale](https://github.com/junhoyeo/tokscale) token-leaderboard coverage).
 >
 > | Paradigm | Platforms |
 > |---|---|
-> | `json-stdio` | Claude Code · Codex CLI · Cursor · VS Code Copilot · GitHub Copilot CLI · Gemini CLI |
-> | `mcp-only` | Warp · Kilo Code |
-> | `ts-plugin` (generated plugin module) | OpenCode |
+> | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes |
+> | `mcp-only` (MCP registration only) | Warp · Kilo · Droid (Factory) · Roo Code · Trae · Antigravity · Zed · Amp · Codebuff · Mux |
+> | `ts-plugin` (generated bridge module) | OpenCode · OMP · OpenClaw |
 >
 > …plus the telemetry core. Adding a platform = **one registry entry + one
-> adapter**. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and
-> roadmap (Hermes, JetBrains, Pi, OpenClaw, Zed next).
+> adapter**. (Pi is excluded — it exposes no writable MCP config; it's a future
+> telemetry-only target.) See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Quick start
 
