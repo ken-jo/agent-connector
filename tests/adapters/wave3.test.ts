@@ -59,7 +59,7 @@ const ENV_LITERAL = "postgres://acme/db";
 const SERVER_CWD = "/srv/acme";
 const PRE_MATCHER = "acme_query|acme_write";
 
-const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@x/y"];
+const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--", "npx", "-y", "@x/y"];
 
 /**
  * A connector with a stdio server (env-ref) + PreToolUse and SessionStart hooks.

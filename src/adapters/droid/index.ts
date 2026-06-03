@@ -190,6 +190,7 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
           ctx.connector.id,
           command,
           args,
+          ctx.scope,
         );
         command = wrapped.command;
         args = wrapped.args;

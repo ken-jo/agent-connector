@@ -95,7 +95,7 @@ const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
 
-const WRAPPED_TAIL = ["serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@x/y"];
+const WRAPPED_TAIL = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
 
 /** A connector with a stdio server (env-ref) + PreToolUse and SessionStart hooks. */
 function buildConnector(): ResolvedConnector {

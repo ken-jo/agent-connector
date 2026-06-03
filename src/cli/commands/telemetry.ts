@@ -17,6 +17,16 @@ import type { QueryFilter } from "../../telemetry/types.js";
 import type { RollupDimension } from "../../telemetry/report.js";
 import { openStore } from "../../telemetry/store.js";
 import { summarize, toCSV, toJSONExport } from "../../telemetry/report.js";
+import {
+  formatMcpLeaderboard,
+  formatToolLeaderboard,
+  isScopeFilter,
+  mcpLeaderboard,
+  SCOPE_FILTER_VALUES,
+  toolLeaderboard,
+  type LeaderboardOptions,
+  type ScopeFilter,
+} from "../../telemetry/leaderboard.js";
 import { fail, print } from "../app.js";
 
 /**
@@ -129,6 +139,60 @@ function runExport(argv: string[]): number {
   return 0;
 }
 
+/**
+ * `telemetry leaderboard` — rank the per-MCP telemetry by connector (--by mcp,
+ * the default and signature "which MCP server costs the most" metric) or by tool
+ * (--by tool). Honors --since / --connector and the scope slice (--scope).
+ */
+function runLeaderboard(argv: string[]): number {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      by: { type: "string", default: "mcp" },
+      since: { type: "string" },
+      connector: { type: "string" },
+      scope: { type: "string" },
+      json: { type: "boolean", default: false },
+    },
+    allowPositionals: false,
+  });
+
+  const by = values.by;
+  if (by !== "mcp" && by !== "tool") {
+    return fail(`invalid --by "${by}" (use mcp|tool)`);
+  }
+
+  const sinceMs = parseSince(values.since);
+  if (sinceMs === null) {
+    return fail(`invalid --since "${values.since}" (use forms like 30s, 15m, 24h, 7d)`);
+  }
+
+  let scope: ScopeFilter | undefined;
+  if (values.scope !== undefined && values.scope.trim() !== "") {
+    const s = values.scope.trim();
+    if (!isScopeFilter(s)) {
+      return fail(`invalid --scope "${s}" (use ${SCOPE_FILTER_VALUES.join("|")})`);
+    }
+    scope = s;
+  }
+
+  const opts: LeaderboardOptions = {};
+  if (sinceMs !== undefined) opts.sinceMs = sinceMs;
+  if (values.connector && values.connector.trim() !== "") {
+    opts.connectorId = values.connector.trim();
+  }
+  if (scope !== undefined) opts.scope = scope;
+
+  if (by === "tool") {
+    const rows = toolLeaderboard(opts);
+    print(values.json ? JSON.stringify(rows, null, 2) : formatToolLeaderboard(rows));
+  } else {
+    const rows = mcpLeaderboard(opts);
+    print(values.json ? JSON.stringify(rows, null, 2) : formatMcpLeaderboard(rows));
+  }
+  return 0;
+}
+
 export async function run(argv: string[]): Promise<number> {
   const sub = argv[0];
   const rest = argv.slice(1);
@@ -138,14 +202,17 @@ export async function run(argv: string[]): Promise<number> {
       return runReport(rest);
     case "export":
       return runExport(rest);
+    case "leaderboard":
+      return runLeaderboard(rest);
     case undefined:
     case "--help":
     case "-h":
-      print("usage: agent-connector telemetry <report|export> [flags]");
-      print("  report  --by tool|session|project  --since 7d  --connector <id>  --json");
-      print("  export  --format csv|json  --out <file>  --since 7d  --connector <id>");
+      print("usage: agent-connector telemetry <report|export|leaderboard> [flags]");
+      print("  report       --by tool|session|project  --since 7d  --connector <id>  --json");
+      print("  export       --format csv|json  --out <file>  --since 7d  --connector <id>");
+      print("  leaderboard  --by mcp|tool  --since 7d  --connector <id>  --scope <slice>  --json");
       return sub === undefined ? 1 : 0;
     default:
-      return fail(`unknown telemetry subcommand "${sub}" (use report|export)`);
+      return fail(`unknown telemetry subcommand "${sub}" (use report|export|leaderboard)`);
   }
 }

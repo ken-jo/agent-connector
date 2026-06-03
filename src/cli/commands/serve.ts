@@ -1,17 +1,21 @@
 /**
  * cli/commands/serve — the telemetry-wrapping MCP stdio proxy entrypoint.
  *
- *   agent-connector serve --connector <id> -- <realCommand> <realArgs...>
+ *   agent-connector serve --connector <id> [--scope <user|project>] -- <realCommand> <realArgs...>
  *
  * A stdio MCP server that opts into transparent telemetry has its host config
  * rewritten to launch THIS instead of the server directly. We split argv at the
  * literal `--` separator: flags on the left, the real server command + args on
- * the right (taken verbatim). runServe stands up the per-session telemetry
- * context and proxies bytes both ways, resolving with the child's exit code.
+ * the right (taken verbatim). The optional `--scope` flag records the install
+ * dimension (global user vs project-local) onto telemetry; it is absent for
+ * configs written before scope plumbing existed → the runtime reads "unknown".
+ * runServe stands up the per-session telemetry context and proxies bytes both
+ * ways, resolving with the child's exit code.
  */
 
 import { parseArgs } from "node:util";
 
+import type { TelemetryInstallScope } from "../../telemetry/types.js";
 import { runServe } from "../../runtime/index.js";
 import { fail } from "../app.js";
 
@@ -21,7 +25,7 @@ export async function run(argv: string[]): Promise<number> {
   const sepIndex = argv.indexOf("--");
   if (sepIndex === -1) {
     return fail(
-      "usage: agent-connector serve --connector <id> -- <command> [args...]",
+      "usage: agent-connector serve --connector <id> [--scope <user|project>] -- <command> [args...]",
     );
   }
   const flagArgs = argv.slice(0, sepIndex);
@@ -31,6 +35,7 @@ export async function run(argv: string[]): Promise<number> {
     args: flagArgs,
     options: {
       connector: { type: "string" },
+      scope: { type: "string" },
     },
     allowPositionals: false,
   });
@@ -40,12 +45,24 @@ export async function run(argv: string[]): Promise<number> {
     return fail("serve requires --connector <id>");
   }
 
+  // `--scope` is optional and only ever "user" | "project" (the wrapper emits
+  // exactly those). An unrecognized value is ignored rather than fatal so a
+  // future/older wrapper can never break a real tool call over a flag mismatch.
+  const rawScope = values.scope;
+  const installScope: TelemetryInstallScope | undefined =
+    rawScope === "user" || rawScope === "project" ? rawScope : undefined;
+
   const serverCommand = serverInvocation[0];
   if (!serverCommand) {
     return fail("serve requires a command after `--`");
   }
   const serverArgs = serverInvocation.slice(1);
 
-  const code = await runServe({ connectorId, serverCommand, serverArgs });
+  const code = await runServe({
+    connectorId,
+    serverCommand,
+    serverArgs,
+    installScope,
+  });
   process.exit(code);
 }

@@ -19,9 +19,11 @@ import { randomUUID } from "node:crypto";
 import { detectRuntimeHost } from "../adapters/detect.js";
 import { loadRegisteredConnector } from "../core/load-connector.js";
 import { projectIdentity } from "../core/paths.js";
+import { detectLaunchMethod } from "../core/spawn.js";
 import { runServeProxy } from "../telemetry/proxy.js";
 import { openStore } from "../telemetry/store.js";
 import { getTokenizer } from "../telemetry/tokenizer.js";
+import type { TelemetryInstallScope } from "../telemetry/types.js";
 
 /** Flags the CLI hands to {@link runServe}. */
 export interface RunServeOptions {
@@ -31,6 +33,12 @@ export interface RunServeOptions {
   serverCommand: string;
   /** Arguments passed to that executable. */
   serverArgs: string[];
+  /**
+   * Install scope from `--scope <user|project>`. OPTIONAL: absent for configs
+   * written before scope plumbing existed — left unstamped so older rows read
+   * as "unknown". Stamped verbatim onto every telemetry record when present.
+   */
+  installScope?: TelemetryInstallScope;
 }
 
 /**
@@ -60,13 +68,17 @@ function resolveSessionId(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export async function runServe(opts: RunServeOptions): Promise<number> {
-  const { connectorId, serverCommand, serverArgs } = opts;
+  const { connectorId, serverCommand, serverArgs, installScope } = opts;
 
   const connector = await loadRegisteredConnector(connectorId);
 
   const id = projectIdentity(process.cwd());
   const host = detectRuntimeHost();
   const sessionId = resolveSessionId();
+
+  // `serve` only ever wraps a locally-spawned stdio server (a remote/http server
+  // is never launched through the proxy), so isRemote is always false here.
+  const launchMethod = detectLaunchMethod(serverCommand, serverArgs);
 
   const store = openStore({});
   const tok = getTokenizer();
@@ -83,5 +95,7 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
     projectKey: id.key,
     projectDir: id.dir,
     measureToolDefs: connector.telemetry.measureToolDefs,
+    installScope,
+    launchMethod,
   });
 }

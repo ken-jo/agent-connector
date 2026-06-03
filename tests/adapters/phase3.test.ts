@@ -146,7 +146,7 @@ function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-const WRAPPED_TAIL = ["serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@x/y"];
+const WRAPPED_TAIL = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
 
 // ─────────────────────────────────────────────────────────────────────────
 // Kilo (mcp-only)

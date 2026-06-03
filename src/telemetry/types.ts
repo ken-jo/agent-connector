@@ -35,6 +35,32 @@ export interface Tokenizer {
 export type EventScope = "call" | "tool_defs";
 
 /**
+ * The install scope a wrapped server was deployed under, narrowed to the two
+ * dimensions that matter for slicing telemetry: a `user`-global install vs a
+ * `project`-local one. The framework's broader {@link InstallScope}
+ * (`system|user|project|profile|managed`) is mapped down to this at wrap time —
+ * everything that is not project-local reads as `user`. Optional on the record
+ * so rows written before this field existed are treated as "unknown".
+ */
+export type TelemetryInstallScope = "user" | "project";
+
+/**
+ * How the real MCP server underneath the proxy was launched. `npx`/`bunx`/`uvx`
+ * are ephemeral package runners; `node`/`bun`/`deno` are interpreters running a
+ * local script; `binary` is a resolved executable on PATH; `http` marks a remote
+ * server reached over the network (no local launch); `unknown` is the honest
+ * fallback. Optional on the record so older rows read as "unknown".
+ */
+export type LaunchMethod =
+  | "npx"
+  | "bunx"
+  | "uvx"
+  | "node"
+  | "binary"
+  | "http"
+  | "unknown";
+
+/**
  * One telemetry row. Aggregate counts only — no content. `projectKey` is the
  * hashed stable project identity (git remote || normalized abs path); `projectDir`
  * is kept human-readable for reports but is the same partition.
@@ -55,6 +81,17 @@ export interface ToolEventRecord {
   outputTokens: number;
   confidenceSource: ConfidenceSource;
   isError: boolean;
+  /**
+   * The (narrowed) install scope the wrapped server was deployed under — a
+   * slicing dimension for global(user) vs project usage. OPTIONAL: rows written
+   * before this field existed lack it and must be read as "unknown".
+   */
+  installScope?: TelemetryInstallScope;
+  /**
+   * How the real server was launched (npx/bunx/uvx/node/binary/http) — the
+   * "launch-method" slicing dimension. OPTIONAL: older rows lack it → "unknown".
+   */
+  launchMethod?: LaunchMethod;
 }
 
 export interface QueryFilter {

@@ -7,7 +7,20 @@
  * double-quoting. No-ops on macOS/Linux.
  */
 
-import type { ServerDef } from "./types.js";
+import type { InstallScope, ServerDef } from "./types.js";
+import type {
+  LaunchMethod,
+  TelemetryInstallScope,
+} from "../telemetry/types.js";
+
+/**
+ * Narrow the framework's 5-value {@link InstallScope} down to the two telemetry
+ * slicing buckets: only a `project`-local install is `project`; everything else
+ * (system/user/profile/managed) is global and reads as `user`.
+ */
+export function narrowInstallScope(scope: InstallScope): TelemetryInstallScope {
+  return scope === "project" ? "project" : "user";
+}
 
 /** Build `"<nodePath>" "<scriptPath>"`. */
 export function buildNodeCommand(
@@ -103,17 +116,70 @@ export function shouldWrapForTelemetry(
 
 /**
  * Build the telemetry-wrapping server command:
- *   "<homeBin>" serve --connector <id> -- <realCommand> <realArgs...>
+ *   "<homeBin>" serve --connector <id> --scope <scope> -- <realCommand> <realArgs...>
  * Used when a stdio server opts into transparent telemetry capture.
+ *
+ * `scope` records the install dimension (global user vs project-local) on every
+ * telemetry row so usage can be sliced by it later. It is OPTIONAL for backward
+ * compatibility: when omitted, the `--scope` flag is not emitted and the runtime
+ * treats the scope as "unknown".
  */
 export function buildServeWrapperCommand(
   homeBinPath: string,
   connectorId: string,
   realCommand: string,
   realArgs: string[],
+  scope?: InstallScope,
 ): { command: string; args: string[] } {
+  const flags = ["serve", "--connector", connectorId];
+  if (scope !== undefined) flags.push("--scope", narrowInstallScope(scope));
   return {
     command: homeBinPath,
-    args: ["serve", "--connector", connectorId, "--", realCommand, ...realArgs],
+    args: [...flags, "--", realCommand, ...realArgs],
   };
+}
+
+/** Basenames (case-insensitive, sans common extensions) of the ephemeral package runners. */
+const PACKAGE_RUNNERS: Record<string, Extract<LaunchMethod, "npx" | "bunx" | "uvx">> = {
+  npx: "npx",
+  bunx: "bunx",
+  uvx: "uvx",
+};
+
+/** Basenames of language interpreters that launch a local script. */
+const INTERPRETERS: ReadonlySet<string> = new Set(["node", "bun", "deno"]);
+
+/**
+ * Strip a directory prefix and a trailing executable extension to get the bare
+ * program name. Tolerates both POSIX and Windows separators (the wrapped command
+ * may be an absolute Windows path) and lowercases for case-insensitive matching.
+ */
+function commandBasename(realCommand: string): string {
+  const noDir = realCommand.replace(/\\/g, "/").split("/").pop() ?? realCommand;
+  return noDir.replace(/\.(exe|cmd|bat|com)$/i, "").toLowerCase();
+}
+
+/**
+ * Classify how the real MCP server is launched, for the "launch-method" slicing
+ * dimension. Package runners (npx/bunx/uvx) and interpreters (node/bun/deno) are
+ * detected by the command basename. A remote (http) server is not launched
+ * locally, so the caller — which alone knows the transport — passes
+ * `isRemote: true` to force "http". Anything else resolves to "binary".
+ */
+export function detectLaunchMethod(
+  realCommand: string,
+  realArgs: string[],
+  opts?: { isRemote?: boolean },
+): LaunchMethod {
+  void realArgs; // reserved: args may later refine node-vs-script heuristics
+  if (opts?.isRemote === true) return "http";
+  if (typeof realCommand !== "string" || realCommand.trim() === "") {
+    return "unknown";
+  }
+  const base = commandBasename(realCommand);
+  if (base === "") return "unknown";
+  const runner = PACKAGE_RUNNERS[base];
+  if (runner !== undefined) return runner;
+  if (INTERPRETERS.has(base)) return "node";
+  return "binary";
 }

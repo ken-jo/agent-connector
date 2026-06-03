@@ -276,6 +276,7 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
         ctx.connector.id,
         cmd,
         args,
+        ctx.scope,
       );
       cmd = wrapped.command;
       args = wrapped.args;

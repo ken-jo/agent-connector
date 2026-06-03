@@ -132,6 +132,20 @@ const WRAPPED_ARGS = [
   "serve",
   "--connector",
   CONNECTOR_ID,
+  "--scope",
+  "project",
+  "--",
+  "npx",
+  "-y",
+  "@x/y",
+];
+// User-scoped adapters (copilot-cli) stamp `--scope user` instead of project.
+const WRAPPED_ARGS_USER = [
+  "serve",
+  "--connector",
+  CONNECTOR_ID,
+  "--scope",
+  "user",
   "--",
   "npx",
   "-y",
@@ -277,7 +291,7 @@ describe("copilot-cli adapter render/round-trip", () => {
 
     // Telemetry serve-wrapper: command points at the home binary.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
 
     // No native interpolation → env-ref resolves to a LITERAL value.
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);

@@ -122,6 +122,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   update: () => import("./commands/update.js"),
   telemetry: () => import("./commands/telemetry.js"),
   usage: () => import("./commands/usage.js"),
+  leaderboard: () => import("./commands/leaderboard.js"),
   hook: () => import("./commands/hook.js"),
   serve: () => import("./commands/serve.js"),
 };
@@ -137,8 +138,9 @@ commands:
   uninstall    Remove a connector's MCP + hook registrations.
   doctor       Health-check every detected platform; non-zero exit on any failure.
   update       Managed-update guidance + refresh of the stable home pointer.
-  telemetry    Inspect local per-tool token telemetry (report | export).
-  usage        Inspect host-native token usage from agent CLI logs (report | export).
+  telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
+  usage        Inspect host-native token usage from agent CLI logs (report | export | leaderboard).
+  leaderboard  Two leaderboards: 🔌 MCP/plugin (telemetry) + 🖥️ host/user (usage) — never summed.
   hook         Universal json-stdio hook entrypoint (hosts call this).
   serve        Telemetry-wrapping MCP stdio proxy (wraps a real server command).
 

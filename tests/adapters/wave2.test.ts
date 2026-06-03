@@ -57,7 +57,9 @@ const ENV_LITERAL = "postgres://acme/db";
 const SERVER_CWD = "/srv/acme";
 const PRE_MATCHER = "acme_query|acme_write";
 
-const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@x/y"];
+const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
+// User-scoped adapters (kimi, qwen-code, kiro) stamp `--scope user` instead.
+const WRAPPED_ARGS_USER = ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--", "npx", "-y", "@x/y"];
 
 /**
  * A connector with a stdio server (env-ref + cwd) + PreToolUse and SessionStart
@@ -225,7 +227,7 @@ describe("qwen-code adapter render + round-trip", () => {
 
     // Telemetry serve-wrapper: command points at the home binary.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
 
     // Qwen has no ${env:VAR} support → env-ref resolves to a LITERAL value.
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
@@ -368,7 +370,7 @@ describe("kiro adapter render + round-trip", () => {
     // Kiro stdio entry is { command, args, env, cwd } — no `type` discriminator.
     expect(entry).not.toHaveProperty("type");
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.cwd).toBe(SERVER_CWD);
   });
@@ -543,7 +545,7 @@ describe("kimi adapter render + round-trip", () => {
     const entry = cfg.mcpServers[CONNECTOR_ID];
     expect(entry).toBeTruthy();
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });

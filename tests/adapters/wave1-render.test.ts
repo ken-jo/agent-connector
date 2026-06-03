@@ -141,7 +141,7 @@ function seedJson(path: string, data: unknown): void {
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@x/y"];
+const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
 
 // ─────────────────────────────────────────────────────────────────────────
 // droid (root key "mcpServers"; { type:"stdio", ..., disabled })
@@ -650,7 +650,7 @@ describe("mux adapter render/round-trip", () => {
     //   "<homeBin> serve --connector <id> -- npx -y @x/y"
     expect(entry).toBe([HOME_BIN, ...WRAPPED_ARGS].join(" "));
     expect(entry.startsWith(HOME_BIN)).toBe(true);
-    expect(entry).toContain("serve --connector acme-db --");
+    expect(entry).toContain("serve --connector acme-db --scope project --");
   });
 
   it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {

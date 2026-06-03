@@ -23,6 +23,7 @@ import type { PlatformId } from "../../core/types.js";
 import type { UsageGroupBy } from "../../usage/types.js";
 import { aggregateBy } from "../../usage/aggregate.js";
 import { formatUsageReport, usageToCSV, usageToJSON } from "../../usage/report.js";
+import { formatHostLeaderboard, hostLeaderboard } from "../../usage/leaderboard.js";
 import { scanUsage } from "../../usage/scan.js";
 import { fail, print } from "../app.js";
 
@@ -136,6 +137,49 @@ async function runExport(argv: string[]): Promise<number> {
   return 0;
 }
 
+/**
+ * `usage leaderboard` — the HOST / USER leaderboard: rank host usage by platform
+ * (--by platform, the default "which CLI/host spent the most") or by model
+ * (--by model). Honors --since / --platform; notes synced/host-estimated rows.
+ */
+async function runLeaderboard(argv: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      by: { type: "string", default: "platform" },
+      since: { type: "string" },
+      platform: { type: "string" },
+      json: { type: "boolean", default: false },
+    },
+    allowPositionals: false,
+  });
+
+  const by = values.by;
+  if (by !== "platform" && by !== "model") {
+    return fail(`invalid --by "${by}" (use platform|model)`);
+  }
+
+  const scanOpts = buildScanOpts(values.since, values.platform);
+  if (scanOpts === null) {
+    return fail(`invalid --since "${values.since}" (use forms like 30s, 15m, 24h, 7d)`);
+  }
+
+  const lbOpts: { by: "platform" | "model"; sinceMs?: number; platforms?: PlatformId[] } = {
+    by,
+  };
+  if (scanOpts.sinceMs !== undefined) lbOpts.sinceMs = scanOpts.sinceMs;
+  if (scanOpts.platforms !== undefined) lbOpts.platforms = scanOpts.platforms;
+
+  const result = await hostLeaderboard(lbOpts);
+
+  if (values.json) {
+    print(JSON.stringify({ by: result.by, rows: result.rows, skipped: result.skipped }, null, 2));
+  } else {
+    print(formatHostLeaderboard(result));
+  }
+  return 0;
+}
+
 export async function run(argv: string[]): Promise<number> {
   const sub = argv[0];
   const rest = argv.slice(1);
@@ -145,14 +189,17 @@ export async function run(argv: string[]): Promise<number> {
       return runReport(rest);
     case "export":
       return runExport(rest);
+    case "leaderboard":
+      return runLeaderboard(rest);
     case undefined:
     case "--help":
     case "-h":
-      print("usage: agent-connector usage <report|export> [flags]");
-      print("  report  --by platform|project|session|model|day  --since 7d  --platform <id>  --json");
-      print("  export  --format csv|json  --out <file>  --since 7d  --platform <id>");
+      print("usage: agent-connector usage <report|export|leaderboard> [flags]");
+      print("  report       --by platform|project|session|model|day  --since 7d  --platform <id>  --json");
+      print("  export       --format csv|json  --out <file>  --since 7d  --platform <id>");
+      print("  leaderboard  --by platform|model  --since 7d  --platform <id>  --json");
       return sub === undefined ? 1 : 0;
     default:
-      return fail(`unknown usage subcommand "${sub}" (use report|export)`);
+      return fail(`unknown usage subcommand "${sub}" (use report|export|leaderboard)`);
   }
 }

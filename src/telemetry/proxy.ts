@@ -27,7 +27,9 @@ import { measureToolCall, measureToolDefs } from "./measure.js";
 import { newRecordId } from "./store.js";
 import { inferModelFamily } from "./tokenizer.js";
 import type {
+  LaunchMethod,
   ModelFamily,
+  TelemetryInstallScope,
   TelemetryStore,
   Tokenizer,
   ToolEventRecord,
@@ -60,6 +62,17 @@ export interface RunServeProxyOptions {
   projectDir: string;
   /** When true, tokenize the `tools/list` schema once → tool-defs overhead. */
   measureToolDefs: boolean;
+  /**
+   * Install scope (global user vs project-local) stamped on every record.
+   * OPTIONAL: omitted for configs written before scope plumbing existed, leaving
+   * the field off the row so it reads as "unknown".
+   */
+  installScope?: TelemetryInstallScope;
+  /**
+   * How the wrapped server was launched (npx/bunx/uvx/node/binary/http), stamped
+   * on every record. OPTIONAL for the same backward-compat reason as above.
+   */
+  launchMethod?: LaunchMethod;
 }
 
 // ── JSON-RPC shapes we read (kept local + narrow; everything else opaque) ─────
@@ -148,6 +161,8 @@ export async function runServeProxy(
     projectKey,
     projectDir,
     measureToolDefs: shouldMeasureToolDefs,
+    installScope,
+    launchMethod,
   } = opts;
 
   // Global kill switch: still proxy transparently, but skip ALL measurement.
@@ -168,7 +183,12 @@ export async function runServeProxy(
   // tools/list overhead is measured exactly once per session.
   let toolDefsMeasured = false;
 
-  /** Build a base record stamped with the per-session identity fields. */
+  /**
+   * Build a base record stamped with the per-session identity fields plus the
+   * scope dimensions. `installScope` / `launchMethod` are spread in ONLY when
+   * defined, so a session without them leaves those fields off the row entirely
+   * (read as "unknown") rather than writing an explicit `undefined`.
+   */
   function baseRecord(): Omit<
     ToolEventRecord,
     "toolName" | "scope" | "inputTokens" | "outputTokens" | "confidenceSource" | "isError"
@@ -181,6 +201,8 @@ export async function runServeProxy(
       sessionId,
       projectKey,
       projectDir,
+      ...(installScope !== undefined ? { installScope } : {}),
+      ...(launchMethod !== undefined ? { launchMethod } : {}),
     };
   }
 
