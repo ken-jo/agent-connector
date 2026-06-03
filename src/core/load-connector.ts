@@ -19,11 +19,14 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
+  CommandDef,
   HookEventName,
   PlatformId,
   PlatformOverride,
   ResolvedConnector,
   ServerDef,
+  SkillDef,
+  SubagentDef,
 } from "./types.js";
 import { defineConnector } from "./define-connector.js";
 import { connectorDir, connectorsDir, ensureDir } from "./paths.js";
@@ -51,6 +54,14 @@ export interface RegisteredMeta {
   hookEvents: HookEventName[];
   hasServer: boolean;
   server: ServerDef | null;
+  /**
+   * Content surfaces (commands/skills/subagents). These are JSON-serializable
+   * (no functions) so they persist cleanly and let uninstall locate the files
+   * to remove even when the source module is gone.
+   */
+  commands: CommandDef[];
+  skills: SkillDef[];
+  subagents: SubagentDef[];
   targets: ResolvedConnector["targets"];
   /** Per-platform overrides with any hook handler functions stripped. */
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
@@ -163,6 +174,9 @@ export function registerConnector(
     hookEvents: connector.hookEvents,
     hasServer: !!connector.server,
     server: connector.server ?? null,
+    commands: connector.commands,
+    skills: connector.skills,
+    subagents: connector.subagents,
     targets: connector.targets,
     platforms: serializablePlatforms(connector.platforms),
   };
@@ -226,6 +240,9 @@ export function connectorFromMeta(meta: RegisteredMeta): ResolvedConnector {
     hooks: {},
     hookEvents: meta.hookEvents ?? [],
     telemetry: meta.telemetry,
+    commands: meta.commands ?? [],
+    skills: meta.skills ?? [],
+    subagents: meta.subagents ?? [],
     platforms: meta.platforms ?? {},
     targets: meta.targets,
   };

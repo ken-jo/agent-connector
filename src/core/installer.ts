@@ -143,6 +143,25 @@ export async function installConnector(
     runStep(id, "installHooks", result, () => {
       pushAll(result.changes, adapter.installHooks(ctx));
     });
+
+    // Content surfaces: guarded by declaration so undeclared surfaces add no
+    // noise. BaseAdapter defines all six, so the `!` is safe; per-step
+    // try/catch (runStep) turns any adapter failure into a warn, never aborting.
+    if (connector.commands.length) {
+      runStep(id, "installCommands", result, () => {
+        pushAll(result.changes, adapter.installCommands!(ctx));
+      });
+    }
+    if (connector.skills.length) {
+      runStep(id, "installSkills", result, () => {
+        pushAll(result.changes, adapter.installSkills!(ctx));
+      });
+    }
+    if (connector.subagents.length) {
+      runStep(id, "installSubagents", result, () => {
+        pushAll(result.changes, adapter.installSubagents!(ctx));
+      });
+    }
   }
 
   return result;
@@ -191,7 +210,24 @@ export async function uninstallConnector(
 
     const ctx = buildContext(connector, id, scope, projectDir, dryRun);
 
-    // Inverse order of install: remove hooks first, then the server entry.
+    // Inverse order of install: remove content surfaces, then hooks, then the
+    // server entry. Surface removals are guarded by declaration; BaseAdapter
+    // defines all six so the `!` is safe.
+    if (connector.subagents.length) {
+      runStep(id, "uninstallSubagents", result, () => {
+        pushAll(result.changes, adapter.uninstallSubagents!(ctx));
+      });
+    }
+    if (connector.commands.length) {
+      runStep(id, "uninstallCommands", result, () => {
+        pushAll(result.changes, adapter.uninstallCommands!(ctx));
+      });
+    }
+    if (connector.skills.length) {
+      runStep(id, "uninstallSkills", result, () => {
+        pushAll(result.changes, adapter.uninstallSkills!(ctx));
+      });
+    }
     runStep(id, "uninstallHooks", result, () => {
       pushAll(result.changes, adapter.uninstallHooks(ctx));
     });
@@ -381,6 +417,9 @@ function syntheticConnector(id: string): ResolvedConnector {
       store: "ndjson",
       calibration: { anthropicCountTokens: false },
     },
+    commands: [],
+    skills: [],
+    subagents: [],
     platforms: {},
     targets: "auto",
   };

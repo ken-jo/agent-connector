@@ -273,6 +273,78 @@ export interface PlatformCapabilities {
   canInjectSessionContext: boolean;
   /** MCP transports this host can register. */
   transports: Transport[];
+  /**
+   * Content-surface support (all OPTIONAL so existing adapter capability
+   * literals compile unchanged; read as `?? false`). Only surface-supporting
+   * adapters set these true. The BaseAdapter install/uninstall defaults
+   * handle the "unsupported" skip/warn regardless of the flag.
+   */
+  supportsCommands?: boolean;
+  supportsSkills?: boolean;
+  supportsSubagents?: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Content surfaces (commands / skills / subagents) — declared once, written
+// as native content files by each supporting adapter. CONTENT-ONLY: no runtime
+// dispatch, no telemetry wrapping, no home-bin pointer — pure file writers.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Tool access expressed once; adapters render to allowed-tools / tools[] / readonly. */
+export interface SurfaceToolPolicy {
+  allow?: string[]; // allowed-tools (CSV/array per platform)
+  deny?: string[]; // disallowedTools / disallowed-tools
+}
+
+/** A slash command (= a Skill on 2026 Claude; adapters pick the right surface). */
+export interface CommandDef {
+  /** kebab-case; becomes the slash name and the filename stem. Source of truth. */
+  name: string;
+  /** One-line description for /help + model auto-selection. */
+  description?: string;
+  /** Prompt template body (markdown). The portable core of the command. */
+  prompt: string;
+  /** Shown in argument completion, e.g. "[environment]". */
+  argumentHint?: string;
+  tools?: SurfaceToolPolicy;
+  /** Model override (raw id or alias; adapters pass through or drop+warn). */
+  model?: string;
+  /** Force subagent / forked context where the platform supports it. */
+  subtask?: boolean;
+  /** Verbatim per-platform frontmatter additions (escape hatch). */
+  extra?: Record<string, unknown>;
+}
+
+/** An Agent Skill (folder + SKILL.md, Agent Skills open standard). */
+export interface SkillDef {
+  /** <=64 chars, [a-z0-9-]; MUST equal the skill dir name. Source of truth. */
+  name: string;
+  /** <=1024 chars, 3rd-person "what + when"; drives model auto-selection. Required. */
+  description: string;
+  /** SKILL.md markdown body (instructions). */
+  body: string;
+  tools?: SurfaceToolPolicy;
+  model?: string;
+  disableModelInvocation?: boolean; // → disable-model-invocation
+  /** Extra files bundled beside SKILL.md, relative path → contents. */
+  resources?: Record<string, string>; // e.g. { "scripts/run.sh": "...", "references/api.md": "..." }
+  extra?: Record<string, unknown>;
+}
+
+/** A named subagent (system-prompt + tool/model scoping). */
+export interface SubagentDef {
+  /** kebab-case identifier. Source of truth (filename stem on most platforms). */
+  name: string;
+  /** Delegation hint shown to the orchestrator. Required. */
+  description: string;
+  /** System prompt = the agent's instructions (markdown body / developer_instructions). */
+  prompt: string;
+  tools?: SurfaceToolPolicy;
+  /** Model: alias|full-id|"inherit". Default left to platform. */
+  model?: string;
+  /** Coarse permission knob → Cursor readonly, opencode/kilo permission map. */
+  readonly?: boolean;
+  extra?: Record<string, unknown>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -304,6 +376,12 @@ export interface PlatformOverride {
   server?: Partial<ServerDef> | false;
   /** Force a specific scope for this platform. */
   scope?: InstallScope;
+  /** false → skip command files on this platform. */
+  commands?: boolean;
+  /** false → skip skill files on this platform. */
+  skills?: boolean;
+  /** false → skip subagent files on this platform. */
+  subagents?: boolean;
   /** Verbatim fields merged into the native config (reach platform-exclusive features). */
   extra?: Record<string, unknown>;
 }
@@ -320,6 +398,12 @@ export interface ConnectorConfig {
   hooks?: HooksConfig;
   /** Telemetry options. Telemetry is ON by default even if this is omitted. */
   telemetry?: TelemetryConfig;
+  /** Slash commands to deploy as native content files. */
+  commands?: CommandDef[];
+  /** Agent Skills to deploy as native content files. */
+  skills?: SkillDef[];
+  /** Named subagents to deploy as native content files. */
+  subagents?: SubagentDef[];
   /** Per-platform overrides / escape hatches. */
   platforms?: Partial<Record<PlatformId, PlatformOverride>>;
   /** "auto" (all detected) or an explicit allow-list. Default "auto". */
@@ -340,6 +424,12 @@ export interface ResolvedConnector {
   telemetry: Required<Omit<TelemetryConfig, "calibration">> & {
     calibration: { anthropicCountTokens: boolean };
   };
+  /** Normalized commands; defaults applied; [] when none. */
+  commands: CommandDef[];
+  /** Normalized skills; defaults applied; [] when none. */
+  skills: SkillDef[];
+  /** Normalized subagents; defaults applied; [] when none. */
+  subagents: SubagentDef[];
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
 }

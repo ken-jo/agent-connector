@@ -7,7 +7,7 @@
  * JSON helpers entirely.
  */
 
-import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import type {
@@ -21,7 +21,11 @@ import type {
 } from "../core/types.js";
 import { backupsDir, ensureDir } from "../core/paths.js";
 import { parseJsonc } from "../core/jsonc.js";
+import { stringify as stringifyYaml } from "yaml";
 import type { Adapter, InstallContext } from "./spi.js";
+
+/** Content-surface kinds with BaseAdapter default install/uninstall handling. */
+type ContentSurface = "commands" | "skills" | "subagents";
 
 export abstract class BaseAdapter implements Adapter {
   abstract readonly id: PlatformId;
@@ -37,6 +41,108 @@ export abstract class BaseAdapter implements Adapter {
   abstract uninstallServer(ctx: InstallContext): ChangeRecord[];
   abstract installHooks(ctx: InstallContext): ChangeRecord[];
   abstract uninstallHooks(ctx: InstallContext): ChangeRecord[];
+
+  // ── Content surfaces (commands / skills / subagents) ─────────────────────
+  // CONCRETE (overridable) defaults so every adapter inherits all six methods
+  // and the installer can call them without optional-chaining. Each returns a
+  // single skip when the connector declares no entries of that surface, else a
+  // single "warn" — mirroring the mcp-only hook handling. Supporting adapters
+  // override only the surfaces they honor.
+
+  installCommands(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "commands", ctx.connector.commands.length);
+  }
+  uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "commands", ctx.connector.commands.length);
+  }
+  installSkills(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "skills", ctx.connector.skills.length);
+  }
+  uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "skills", ctx.connector.skills.length);
+  }
+  installSubagents(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "subagents", ctx.connector.subagents.length);
+  }
+  uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "subagents", ctx.connector.subagents.length);
+  }
+
+  /**
+   * Default response for a content surface this platform cannot honor: a single
+   * skip when the connector declares none of that surface, else a single "warn"
+   * ChangeRecord noting how many were skipped. Mirrors mcp-only hook handling.
+   */
+  protected unsupportedSurface(
+    _ctx: InstallContext,
+    surface: ContentSurface,
+    count: number,
+  ): ChangeRecord[] {
+    if (count === 0) {
+      return [{ platform: this.id, action: "skip", detail: `connector declares no ${surface}` }];
+    }
+    return [
+      {
+        platform: this.id,
+        action: "warn",
+        detail: `${surface} not supported on ${this.id}; ${count} skipped`,
+      },
+    ];
+  }
+
+  // ── Content-file helpers (used by surface-supporting adapters) ────────────
+
+  /**
+   * Write a content file idempotently: "skip" when the existing bytes are
+   * already identical, else "create"/"update". Creates parent dirs (mkdir -p).
+   * Honors dryRun (computes the action but writes nothing).
+   */
+  protected writeContentFile(path: string, contents: string, dryRun: boolean): ChangeRecord {
+    let action: ChangeRecord["action"];
+    if (!existsSync(path)) {
+      action = "create";
+    } else {
+      let current: string | null = null;
+      try {
+        current = readFileSync(path, "utf8");
+      } catch {
+        current = null;
+      }
+      action = current === contents ? "skip" : "update";
+    }
+    if (action !== "skip" && !dryRun) {
+      ensureDir(dirname(path));
+      writeFileSync(path, contents, "utf8");
+    }
+    return { platform: this.id, action, path, detail: basename(path) };
+  }
+
+  /**
+   * Remove a content file we wrote; "skip" when already absent. Honors dryRun.
+   * Uses rmSync with `force` to also tolerate a path that is a directory tree
+   * (e.g. a skill folder removed by the supporting adapter).
+   */
+  protected removeContentFile(path: string, dryRun: boolean): ChangeRecord {
+    if (!existsSync(path)) {
+      return { platform: this.id, action: "skip", path, detail: `${basename(path)} absent` };
+    }
+    if (!dryRun) {
+      rmSync(path, { recursive: true, force: true });
+    }
+    return { platform: this.id, action: "remove", path, detail: basename(path) };
+  }
+
+  /**
+   * Render a YAML-frontmatter + markdown body document:
+   *   "---\n" + <yaml> + "---\n\n" + <body> + "\n".
+   * Reuses the `yaml` package's stringify (the same serializer core/yaml uses).
+   */
+  protected renderFrontmatterMd(
+    frontmatter: Record<string, unknown>,
+    body: string,
+  ): string {
+    return `---\n${stringifyYaml(frontmatter)}---\n\n${body}\n`;
+  }
 
   // ── JSON config helpers (used by JSON-format adapters) ───────────────────
 

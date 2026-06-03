@@ -110,6 +110,24 @@ export interface Adapter {
   /** Inverse of installHooks — fully removes registrations so the host stops loading them. */
   uninstallHooks(ctx: InstallContext): ChangeRecord[];
 
+  // ── Content surfaces (commands / skills / subagents) ─────────────────────
+  // OPTIONAL on the adapter interface, but BaseAdapter provides CONCRETE
+  // defaults for all six so the installer can call them unconditionally (no
+  // optional-chaining). Supporting adapters override only the surfaces they
+  // honor; the rest inherit a skip/warn from BaseAdapter.unsupportedSurface.
+  /** Write native slash-command content file(s). */
+  installCommands?(ctx: InstallContext): ChangeRecord[];
+  /** Remove the slash-command content file(s) this connector wrote. */
+  uninstallCommands?(ctx: InstallContext): ChangeRecord[];
+  /** Write native Agent Skill folder(s) (SKILL.md + resources). */
+  installSkills?(ctx: InstallContext): ChangeRecord[];
+  /** Remove the Agent Skill folder(s) this connector wrote. */
+  uninstallSkills?(ctx: InstallContext): ChangeRecord[];
+  /** Write native subagent content file(s). */
+  installSubagents?(ctx: InstallContext): ChangeRecord[];
+  /** Remove the subagent content file(s) this connector wrote. */
+  uninstallSubagents?(ctx: InstallContext): ChangeRecord[];
+
   /** Back up the settings file(s) before mutation. Returns backup path or null. */
   backupSettings(ctx: InstallContext): string | null;
 
