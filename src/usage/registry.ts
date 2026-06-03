@@ -111,6 +111,49 @@ export const USAGE_READER_REGISTRY: readonly UsageReaderFactory[] = [
     kind: "local",
     load: () => import("./readers/kiro.js").then((m) => m.default),
   },
+  // U3 — SQLite readers (via sql.js wasm)
+  {
+    platformId: "opencode",
+    format: "sqlite",
+    kind: "local",
+    load: () => import("./readers/opencode.js").then((m) => m.default),
+  },
+  {
+    platformId: "goose",
+    format: "sqlite",
+    kind: "local",
+    load: () => import("./readers/goose.js").then((m) => m.default),
+  },
+  {
+    platformId: "hermes",
+    format: "sqlite",
+    kind: "local",
+    load: () => import("./readers/hermes.js").then((m) => m.default),
+  },
+  {
+    platformId: "kilo-cli",
+    format: "sqlite",
+    kind: "local",
+    load: () => import("./readers/kilo-cli.js").then((m) => m.default),
+  },
+  {
+    platformId: "synthetic",
+    format: "sqlite",
+    kind: "local",
+    load: () => import("./readers/synthetic.js").then((m) => m.default),
+  },
+  {
+    platformId: "crush",
+    format: "sqlite",
+    kind: "local",
+    load: () => import("./readers/crush.js").then((m) => m.default),
+  },
+  {
+    platformId: "zed",
+    format: "sqlite",
+    kind: "local",
+    load: () => import("./readers/zed.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
