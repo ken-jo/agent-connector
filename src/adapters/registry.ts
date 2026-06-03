@@ -130,6 +130,15 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "crush",
     load: () => import("./crush/index.js").then((m) => m.default),
   },
+  // Wave 3 — json-stdio adapters with YAML config (MCP in YAML; hooks per host).
+  {
+    id: "goose",
+    load: () => import("./goose/index.js").then((m) => m.default),
+  },
+  {
+    id: "hermes",
+    load: () => import("./hermes/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
