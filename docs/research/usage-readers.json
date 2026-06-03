@@ -1,0 +1,500 @@
+[
+  {
+    "platformId": "claude-code",
+    "displayName": "Claude Code (.claude/projects JSONL)",
+    "format": "jsonl",
+    "storagePaths": [
+      "~/.claude/projects/*/[session-id].jsonl",
+      "~/.claude/projects/*/subagents/agent-*.jsonl",
+      "~/.claude/projects/*/[session-id].json",
+      "~/.cc-mirror/*/config/projects/*/[variant]/[session-id].jsonl"
+    ],
+    "discovery": "Iterate files recursively under ~/.claude/projects/ matching *.jsonl and *.json. Nested subagent transcripts located at projects/[key]/[session]/subagents/agent-*.jsonl (flat layout: projects/[key]/agent-*.jsonl). CC Mirror variants at ~/.cc-mirror/[variant-dir]/config/projects/[key]/[variant-name]/[session].jsonl. Use file_modified_timestamp_ms() as fallback when timestamp missing.",
+    "tokenExtraction": "EXACT JSON paths: message.usage.input_tokens (input), message.usage.output_tokens (output), message.usage.cache_read_input_tokens (cache_read), message.usage.cache_creation_input_tokens (cache_write). Per-field MAX merge for duplicates (streaming rewrites same messageId:requestId multiple times with cumulative token counts). Tool results extract input tokens from message.content[].tool_result blocks (tool_use_id, input_tokens fields) via extract_claude_tool_result_usage(). Headless JSON: same usage paths in message.usage or top-level usage. Reasoning not supported (always 0).",
+    "modelField": "message.model or entry.message.model. Canonicalized via pricing::aliases::resolve_alias(). Provider inferred from: message.providerId (alias provider_id, provider) > entry.providerId > cc_mirror variant metadata provider_id > metadata_provider_hint fallback. Provider choice via claude_provider_choice_from_parts(model, provider_id). Headless: extract_claude_model(value) with same provider resolution.",
+    "timestampField": "entry.timestamp (RFC3339). Fallback: file_modified_timestamp_ms(). Parsed via chrono::DateTime::parse_from_rfc3339(ts).ok().map(|dt| dt.timestamp_millis()). Headless: extract_claude_timestamp(value) path-dependent.",
+    "sessionAttribution": "path.file_stem() or from isSidechain entries use entry.session_id (parent session). Subagents normalized via resolve_subagent_name() (Tier 1: agent-*.meta.json agentType field, Tier 2: parent JSONL tool_use lookup, Tier 3: 'claude-code-subagent' fallback). Workspace derived from path components: .claude/projects/[key]/ or .cc-mirror/[dir]/config/projects/[key]/.",
+    "projectAttribution": "Workspace key extracted from path: projects/[key] with normalize_workspace_key() and workspace_label_from_key(). Mirror variants also captured in client_id as cc-mirror/[sanitized-name].",
+    "dedup": "Format messageId:requestId or message:messageId. Tool results: claude:tool_result:[session_id]:[tool_use_id] with explicit dedup_key. Streaming duplicates merged via per-field max, consuming pending_request_start_timestamp_ms only after first chunk commits.",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/claudecode.rs",
+    "notes": "Supports both nested (projects/key/session/subagents/) and flat (projects/key/agent-*.jsonl) subagent layouts. CC Mirror variants via ~.cc-mirror metadata. Headless (non-JSONL JSON files) detected and parsed separately. Turn tracking: marks first assistant message after human user input as is_turn_start. Human turns exclude internal system tags (local-command-stdout, system-reminder, bash-*). Duration calculated from pending_request_start_timestamp_ms (user message) to response completion."
+  },
+  {
+    "platformId": "codex",
+    "displayName": "Codex CLI (~.codex/sessions JSONL)",
+    "format": "jsonl",
+    "storagePaths": [
+      "~/.codex/sessions/*.jsonl",
+      "~/.codex/sessions/*.json"
+    ],
+    "discovery": "Read ~/.codex/sessions/ directory for *.jsonl and *.json files. JSONL is primary format with stateful parsing via parse_codex_file_incremental() (track consumed_offset for incremental appends). parse_codex_reader() statefully tracks: current_model, current_turn_start_ms, previous_totals (CodexTotals struct), session metadata, forked_child_inherited_baseline. File modification timestamp fallback when parsing fails.",
+    "tokenExtraction": "EXACT paths from payload.info.last_token_usage (primary delta source): input_tokens, output_tokens, cached_input_tokens, cache_read_input_tokens, reasoning_output_tokens. payload.info.total_token_usage (cumulative snapshot, used for dedup/monotonicity checks only, never direct delta source unless last_token_usage absent). CodexTotals::delta_from() computes delta against previous baseline with stale-regression detection (current ~= previous ±2%, skip). input = input - cached (cache clamped to not exceed input). cache_write = 0. Token fields clamped .max(0). Schema: input_tokens, output_tokens, cached_input_tokens (merged with cache_read_input_tokens), reasoning_output_tokens.",
+    "modelField": "payload.model_info.slug (primary) > payload.model > payload.model_name > info.model > info.model_name. Extracted from turn_context events (type=turn_context) and token_count events. session_meta: model_provider field. Headless JSON: extract_model_from_value() tries model, model_name, data.model, data.model_name, response.model fields. Unknown fallback when model absent.",
+    "timestampField": "entry.timestamp (RFC3339). Fallback: file_modified_timestamp_ms(). Parsed via chrono::DateTime::parse_from_rfc3339(ts).ok().map(|dt| dt.timestamp_millis()). Headless: extract_timestamp_from_value() tries timestamp, time, created_at, data.timestamp fields. parse_timestamp_value() for value normalization.",
+    "sessionAttribution": "session_id from path file_stem, OR session_meta.id (prioritized if present), OR forked_from_id detected from source.subagent.thread_spawn.parent_thread_id (forked session tracking). Headless (source=exec) tracked with session_is_headless flag. Agent: session_meta.agent_nickname or 'headless' if session_is_headless.",
+    "projectAttribution": "Workspace from session_meta.cwd via normalize_codex_workspace_key(). Must match explicit workspace path pattern (starts with // or /, or Windows C:/). workspace_label_from_key() applied. Falls through to (None, None) if cwd absent or doesn't match pattern.",
+    "dedup": "Format: codex:token_count:[timestamp]:[provider]:[model]:[input]:[output]:[cache_read]:[cache_write]:[reasoning]. Set only when parsed_timestamp.is_some() (fallback_timestamp skips dedup). Incremental parsing persists CodexParseState across calls for proper dedup continuity.",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/codex.rs",
+    "notes": "Stateful parser with CodexParseState struct (serializable #[serde]). Supports forked-session child tracking via inherited_baseline + inherited_reported_total (skips replay of parent token rows <= baseline). turn_context event marks turn start (model and timestamp). Pending model messages queued until model resolved. Headless detection: session_meta.source=exec. Codex system-injected messages (environment_context, system-reminder, user_instructions) not counted as human turns. Token schema supports: [last_token_usage (delta), total_token_usage (cumulative), input-only, output-only, hybrid] with fallback priority. Multiple path sources via payload.model, info fields, or turn_context."
+  },
+  {
+    "platformId": "gemini-cli",
+    "displayName": "Gemini CLI (~.gemini/tmp JSONL/JSON)",
+    "format": "jsonl | json",
+    "storagePaths": [
+      "~/.gemini/tmp/*/session-*.json",
+      "~/.gemini/tmp/*/session-*.jsonl",
+      "~/.gemini/tmp/*/chats/*.json",
+      "~/.gemini/tmp/*/chats/*.jsonl"
+    ],
+    "discovery": "Read ~/.gemini/tmp/ recursively. Accept legacy files starting with 'session-' (any path). For non-legacy files, enforce layout: .../.gemini/tmp/[some_id]/chats/[file].[json|jsonl]. JSONL parsed via parse_gemini_headless_jsonl() (streaming events). JSON parsed as GeminiSession struct or headless value. Skip malformed lines but set cacheable=false when corruption detected (for cache coherence).",
+    "tokenExtraction": "GeminiSession.messages[].tokens: input (alias: prompt, input_tokens, prompt_tokens, promptTokenCount), output (alias: candidates, output_tokens, completion_tokens, candidatesTokenCount), cached (alias: cached_tokens, cachedContentTokenCount), reasoning (alias: thoughts, thoughts_tokens, reasoning, reasoning_tokens), tool (alias: tool_tokens), total (alias: totalTokenCount, total_tokens). First match via first_i64(value, [key_list]). Headless stats: normalize_gemini_session_input_and_cache() handles cache-inclusive input via total sanity check; normalize_gemini_headless_input_and_cache() subtracts cached overlap for net values. Input clamped to not exceed combined (input + output + reasoning + tool).",
+    "modelField": "message.model (direct) or headless extract_string(value.get('model')), data.model, data.model_name. Headless stats.models[model_name] iteration for per-model breakdowns. Unknown fallback when model absent.",
+    "timestampField": "message.timestamp (RFC3339) > file_modified_timestamp_ms(). Headless: extract_timestamp_from_value() tries timestamp, created_at fields, then parse_timestamp_value() for value normalization.",
+    "sessionAttribution": "GeminiSession.session_id (direct) or path file_stem for headless JSONL. Headless events: type=init carries session_id field override. Updated per-line if present.",
+    "projectAttribution": "Extracted from path via normalize_workspace_key(). Workspace label via workspace_label_from_key(). Gemini doesn't embed workspace metadata, so always (None, None) unless inferred from cwd (not supported).",
+    "dedup": "Direct message events (type=gemini or .tokens field present): keyed by message id (replace on duplicate). Stats-derived messages (type=result with .stats): no dedup (timestamp-based). Replacement on duplicate id only.",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/gemini.rs",
+    "notes": "Dual format support: legacy session-*.json/jsonl vs modern tmp/[id]/chats/ layout. GeminiSession struct deserialization for structured JSON. Headless JSONL: stateful tracking (current_model from init events, direct_message_indices HashMap for duplicate replacement by id). Multiple token field aliases per schema version (camelCase promptTokenCount vs snake_case prompt_tokens). Cache-inclusive input normalization: checks if total == input+output+reasoning+tool (cache not counted) to distinguish from net input formula. Tool tokens included in final input breakdown (add to input after normalization)."
+  },
+  {
+    "platformId": "qwen",
+    "displayName": "Qwen CLI (~.qwen/projects JSONL)",
+    "format": "jsonl",
+    "storagePaths": [
+      "~/.qwen/projects/*/chats/*.jsonl"
+    ],
+    "discovery": "Read ~/.qwen/projects/ recursively. Files at projects/[project]/chats/[filename].jsonl. Session ID derived from file if not in JSON (project-filename composite to avoid collisions). Workspace from path pattern: projects/[project]/chats/. File modification timestamp fallback when timestamp missing.",
+    "tokenExtraction": "EXACT paths: usageMetadata.promptTokenCount (input), usageMetadata.candidatesTokenCount (output), usageMetadata.thoughtsTokenCount (reasoning), usageMetadata.cachedContentTokenCount (cache_read). Cache_write = 0 (not reported). Skip entries where input+output+cache_read+reasoning == 0. No delta logic; cumulative counts assumed per message.",
+    "modelField": "line.model field (direct string). Fallback: unknown when absent. No canonicalization or aliasing.",
+    "timestampField": "line.timestamp (RFC3339). Fallback: file_modified_timestamp_ms(). Parsed via parse_timestamp_str() helper.",
+    "sessionAttribution": "Priority 1: json sessionId if present and non-empty. Priority 2: fallback to format('{project}-{filename}') where project from path parent/.../projects/[project], filename from file_stem. Ensures uniqueness across projects with same filename.",
+    "projectAttribution": "Workspace from path: projects/[project]/chats/. Extracted via windows(4).rev() search for [projects, [key], chats, ...] pattern. normalize_workspace_key([key]) + workspace_label_from_key().",
+    "dedup": "None. Each message is unique per line. No dedup key logic.",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/qwen.rs",
+    "notes": "Simplest JSONL schema: only assistant messages with usageMetadata processed. Type must equal 'assistant'. No streaming, no deltas, no per-field max merging. Session ID fallback includes project name to prevent collisions (unlike Claude Code path-only fallback). Qwen does not report cache_write or reasoning output tokens separately (only thoughts in input context). All token fields required; zero-sum entries skipped silently."
+  },
+  {
+    "platformId": "copilot-cli",
+    "displayName": "GitHub Copilot CLI (OTEL JSONL)",
+    "format": "jsonl",
+    "storagePaths": [
+      "~/.local/share/Copilot/telemetry/*.jsonl",
+      "~/.config/copilot/telemetry/*.jsonl"
+    ],
+    "discovery": "Iterate JSONL lines; parse `serde_json`; filter by `type` (span/log), span name patterns, event.name attributes",
+    "tokenExtraction": "gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.usage.cache_read.input_tokens, gen_ai.usage.cache_write.input_tokens (or cache_creation.input_tokens), gen_ai.usage.reasoning.output_tokens (or reasoning_tokens)",
+    "modelField": "gen_ai.response.model or gen_ai.request.model; provider inferred via provider_identity::inferred_provider_from_model()",
+    "timestampField": "endTime (array [seconds, nanos] or ISO), startTime, hrTime, _hrTime, time, timestamp (scalar ms/us/ns with auto-detect), observedTimestamp, timeUnixNano (unsigned nanos → divide by 1M)",
+    "sessionAttribution": "gen_ai.conversation.id (priority Session), copilot_chat.session_id/chat_session_id (Session), session.id (Session), github.copilot.interaction_id (Interaction), gen_ai.response.id fallback (Response); trace_id used as last resort when session attrs absent",
+    "projectAttribution": "Not captured; implicit from Copilot context",
+    "dedup": "trace_id:span_id for ChatSpan/AgentSummarySpan; log:trace_id:span_id for InferenceLog; agent-turn:trace_id:turn.index for AgentTurnLog; fallback to span/log/agent-turn:session_id:timestamp:index when trace/span unavailable",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/copilot.rs",
+    "notes": "Cross-source suppression via trace_id + gen_ai.response.id prevents double-counting when chat span, inference log, agent turn log describe same response; agent-turn uses turn.index for stable keys; inference logs are fallback when spans unavailable (e.g. VS Code); handles both traced (spanContext) and top-level traceId variants"
+  },
+  {
+    "platformId": "amp",
+    "displayName": "Amp (Sourcegraph) JSON",
+    "format": "json",
+    "storagePaths": [
+      "~/.local/share/amp/threads/*.json"
+    ],
+    "discovery": "Parse JSON file; extract `usageLedger.events[]` and `messages[].usage` (assistant role only); merge ledger + message records via message_id or token heuristic match",
+    "tokenExtraction": "From usageLedger.events[]: tokens.input, tokens.output, tokens.cacheReadInputTokens, tokens.cacheCreationInputTokens; from messages[].usage (assistant role): inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens",
+    "modelField": "model (from event or message.usage); provider via inferred_provider_from_model()",
+    "timestampField": "usageLedger: RFC3339 timestamp string → parse → timestamp_millis(); messages: thread.created + (messageId * 1000); fallback: file mtime",
+    "sessionAttribution": "thread.id (or filename stem)",
+    "projectAttribution": "Not captured",
+    "dedup": "Implicit via ledger event + message pairing; no explicit dedup key field",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/amp.rs",
+    "notes": "Reconciles partial ledger (some events missing corresponding messages) with message usage via message_id matching or token-count heuristic; prefers ledger timestamp when explicit, falls back to message-derived timestamp or thread created time; both records must carry same model/tokens to merge"
+  },
+  {
+    "platformId": "droid",
+    "displayName": "Droid (Factory.ai) JSON",
+    "format": "json",
+    "storagePaths": [
+      "~/.factory/sessions/*.settings.json"
+    ],
+    "discovery": "Parse JSON file settings.json; extract tokenUsage; model from settings.model field or extracted from corresponding .jsonl via system-reminder pattern",
+    "tokenExtraction": "tokenUsage.inputTokens, tokenUsage.outputTokens, tokenUsage.cacheCreationTokens, tokenUsage.cacheReadTokens, tokenUsage.thinkingTokens (reasoning)",
+    "modelField": "model field (normalize via custom logic: strip 'custom:' prefix, remove [brackets], lowercase, dots→hyphens, collapse hyphens); fallback to JSONL extraction or provider-based default; provider from providerLock or inferred from model",
+    "timestampField": "providerLockTimestamp (RFC3339 string → timestamp_millis()); fallback: file mtime",
+    "sessionAttribution": "Filename stem (e.g. uuid.settings.json → uuid)",
+    "projectAttribution": "Not captured",
+    "dedup": "Not captured; session ID serves as primary key",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/droid.rs",
+    "notes": "Model name normalization handles Droid's custom format (e.g. 'custom:Claude-Opus-4.5-Thinking-[Anthropic]-0' → 'claude-opus-4-5-thinking-0'); JSONL fallback scans first 500 lines for 'Model:' in system-reminder; token zero check skips empty sessions"
+  },
+  {
+    "platformId": "codebuff",
+    "displayName": "Codebuff (Manicode) JSON",
+    "format": "json",
+    "storagePaths": [
+      "~/.config/manicode/projects/*/chats/*/chat-messages.json",
+      "~/.config/manicode-dev/projects/*/chats/*/chat-messages.json",
+      "~/.config/manicode-staging/projects/*/chats/*/chat-messages.json"
+    ],
+    "discovery": "Parse chat-messages.json array; filter for assistant role (variant='ai|agent|assistant'); extract usage from metadata.usage, metadata.codebuff.usage, or metadata.runState.sessionState.mainAgentState.messageHistory[].providerOptions",
+    "tokenExtraction": "Supports both camelCase (inputTokens, outputTokens, cacheReadInputTokens, cacheCreationInputTokens) and snake_case (input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens); also promptTokens/prompt_tokens, completionTokens/completion_tokens, cachedTokens, prompt_tokens_details.cached_tokens; credits field for cost",
+    "modelField": "metadata.model or metadata.codebuff.model or metadata.runState.sessionState.mainAgentState.messageHistory[].providerOptions.codebuff.model; default 'codebuff-unknown'; provider via inferred_provider_from_model()",
+    "timestampField": "message.timestamp or message.createdAt (parsed via parse_timestamp_str/parse_timestamp_value); fallback: metadata.timestamp; fallback: chatId (ISO-8601 with T10-00-00 → T10:00:00); fallback: file mtime",
+    "sessionAttribution": "Derived from path: channel/project/chat_id (e.g. 'manicode/sandbox/2025-12-14T10-00-00.000Z')",
+    "projectAttribution": "Extracted from path: project basename from path ancestor",
+    "dedup": "Upstream ChatMessage.id if present; fallback: codebuff:session_id:timestamp:model:ordinal:input:output:cache_read:cache_write",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/codebuff.rs",
+    "notes": "Supports multiple usage nesting levels (direct metadata.usage, metadata.codebuff.usage, RunState message history); handles both camelCase and snake_case JSON variants; chatId filesystem-safe format (T10-00-00.000Z) requires careful RFC3339 reconstruction to avoid date corruption"
+  },
+  {
+    "platformId": "crush",
+    "displayName": "Crush (Claude.ai) SQLite",
+    "format": "sqlite",
+    "storagePaths": [
+      "~/.cache/crush/crush.db"
+    ],
+    "discovery": "Open SQLite read-only; query root sessions (parent_session_id IS NULL); enumerate assistant messages via recursive CTE; bucket by local day; allocate session cost proportionally across day buckets",
+    "tokenExtraction": "No per-message token data; all token fields remain 0 (Crush does not expose reliable per-message token breakdown)",
+    "modelField": "Constant CRUSH_MODEL_ID ('session-total'); CRUSH_PROVIDER_ID ('crush')",
+    "timestampField": "Bucket timestamp: min(created_at) of assistant messages in that day (converted to ms if needed); fallback: session.updated_at or session.created_at",
+    "sessionAttribution": "db_path:root_session_id (e.g. '~/.cache/crush/crush.db:session-uuid')",
+    "projectAttribution": "Not captured",
+    "dedup": "Implicit via bucket (session + local day); cost allocated across buckets",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/crush.rs",
+    "notes": "Crush stores reliable cost but not reliable per-message tokens; v1 strategy groups assistant messages by local day, allocates cost proportionally, leaves token fields zero; handles both second-precision (auto-multiply by 1000) and millisecond-precision timestamps; includes child session assistant messages when computing cost allocation; recursive CTE traverses session tree"
+  },
+  {
+    "platformId": "opencode",
+    "displayName": "OpenCode SQLite session parser",
+    "format": "sqlite",
+    "storagePaths": [
+      "~/.local/share/opencode/opencode.db"
+    ],
+    "discovery": "Single database file; iterate message table rows with optional session table join; dedup via message.id or embedded row_id",
+    "tokenExtraction": "JSON extraction via json_extract(m.data, '$.tokens.input/output/cache.read/cache.write/reasoning'); columns: message.id (TEXT), message.session_id (TEXT), message.data (TEXT JSON), session.directory (TEXT optional). SQL: SELECT m.id, m.session_id, m.data, NULLIF(s.directory, '') AS workspace_root FROM message m LEFT JOIN session s ON s.id = m.session_id WHERE json_extract(m.data, '$.role')='assistant' AND json_extract(m.data, '$.tokens') IS NOT NULL",
+    "modelField": "json_extract(m.data, '$.modelID') — provider from json_extract(m.data, '$.providerID'), default 'unknown'",
+    "timestampField": "json_extract(m.data, '$.time.created') — Unix milliseconds (float64); optional completed for duration_ms",
+    "sessionAttribution": "json_extract(m.data, '$.sessionID') or fallback to message.session_id column",
+    "projectAttribution": "Workspace derived from session.directory or json_extract(m.data, '$.path.root'); normalized via normalize_workspace_key() to extract repo name (e.g., /Users/alice/opencode-json-repo → opencode-json-repo)",
+    "dedup": "Per-message: dedup_key = message.id || message row-id (from JSON); cross-duplicate detection uses OpenCodeSqliteFingerprint: (created_bits, completed_bits, model_id, provider_id, input, output, reasoning, cache_read, cache_write, cost_bits, agent) — HashMap to first occurrence; embedded message_id preferred on duplicates",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/opencode.rs (lines 192-336)",
+    "notes": "WASM-feasible: ✓ YES via sql.js. All column/table names are stable (message, session, data TEXT JSON); schema supports both modern (with session table) and legacy (message only) paths. JSON extraction via json_extract() is standard SQLite; must use sql.js's json_extract. Message.data column is raw JSON string — must deserialize via OpenCodeMessage struct (simd_json in Rust, JSON.parse in TS). Cache token schema: tokens.cache.read/write (not typical token fields, custom). Reasoning tokens optional (tokens.reasoning). Cost optional (cost field). Duration calculated from time.created and time.completed. Workspace dedup logic requires memo of seen fingerprints across all rows to avoid re-reporting fork copies."
+  },
+  {
+    "platformId": "goose",
+    "displayName": "Goose CLI session parser",
+    "format": "sqlite",
+    "storagePaths": [
+      "~/.local/share/goose/sessions/sessions.db",
+      "~/Library/Application Support/goose/sessions/sessions.db",
+      "~/.local/share/Block/goose/sessions/sessions.db",
+      "$GOOSE_PATH_ROOT/data/sessions/sessions.db"
+    ],
+    "discovery": "Single database file; iterate sessions table rows (one row per session, not per message); filter: model_config_json not null and non-empty",
+    "tokenExtraction": "Direct columns (not JSON): id (TEXT), model_config_json (TEXT, JSON-parsed for model_name), provider_name (TEXT nullable), created_at (TEXT timestamp), total_tokens, input_tokens, output_tokens, accumulated_total_tokens, accumulated_input_tokens, accumulated_output_tokens (all i64 nullable). Token precedence: accumulated_*_tokens preferred over _tokens columns. Reasoning inferred: if total > input+output then reasoning = total-input-output else 0. SQL: SELECT id, model_config_json, provider_name, created_at, total_tokens, input_tokens, output_tokens, accumulated_total_tokens, accumulated_input_tokens, accumulated_output_tokens FROM sessions WHERE model_config_json IS NOT NULL AND TRIM(model_config_json) != ''",
+    "modelField": "Extracted from model_config_json via parse_model_config(): json_extract(model_config_json, '$.model_name'); provider resolved via canonical_provider(provider_name) or inferred from model_id, fallback 'goose'",
+    "timestampField": "created_at (TEXT, RFC3339 or YYYY-MM-DD HH:MM:SS or YYYY-MM-DD); parsed via chrono, returned as milliseconds. Function: parse_created_at() handles multiple formats; result as f64 then converted to i64 via timestamp_secs_to_ms()",
+    "sessionAttribution": "id column — one session per row",
+    "projectAttribution": "None (no workspace tracking in Goose schema)",
+    "dedup": "dedup_key = session_id (id column)",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/goose.rs (lines 65-206)",
+    "notes": "WASM-feasible: ✓ YES via sql.js. Simple relational schema (no JSON columns, no complex extraction). Column names stable: id, model_config_json, provider_name, created_at, *_tokens. Single model_config_json parse per row (JSON.parse model_name). Timestamp parsing requires flexible date parser (Chrono in Rust → must implement RFC3339 + SQLite timestamp + date-only variants in TS). Token counts flat columns (no nesting). No cache tokens, no reasoning detail — inferred only. No cost tracking."
+  },
+  {
+    "platformId": "zed",
+    "displayName": "Zed Agent hosted threads parser",
+    "format": "sqlite",
+    "storagePaths": [
+      "$XDG_DATA_HOME/zed/threads/threads.db",
+      "~/Library/Application Support/Zed/threads/threads.db",
+      "%LOCALAPPDATA%\\Zed\\threads\\threads.db"
+    ],
+    "discovery": "Single database file; PRAGMA table_info(threads) checks for optional created_at, folder_paths, folder_paths_order columns (backward-compat); iterate threads table; filter: provider=='zed.dev' and model non-empty and not imported; data column is BLOB (zstd or json); decompress if needed",
+    "tokenExtraction": "Nested JSON in data BLOB (after decompression): thread.request_token_usage (object or array of {input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}) summed per request, fallback to cumulative_token_usage if request empty; reasoning always 0 (not in Zed schema). SQL: SELECT id, updated_at, [created_at], [folder_paths], [folder_paths_order], data_type, data FROM threads. Data BLOB columns: data (BLOB), data_type (TEXT: 'json' or 'zstd'). JSON fields in decompressed data: model.provider, model.model, request_token_usage (object map), cumulative_token_usage {input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens}, updated_at (optional in JSON)",
+    "modelField": "json_extract(decompressed_data, '$.model.model') — provider hard-coded to 'zed.dev' (external ACP agents counted separately), model_id required non-empty",
+    "timestampField": "created_at column (preferred), fallback updated_at column or json_extract(decompressed_data, '$.updated_at'); parsed via parse_timestamp_str() (RFC3339 or numeric ms/s). Message count inferred from request_token_usage object/array count (max 1 if using cumulative)",
+    "sessionAttribution": "id column (thread ID)",
+    "projectAttribution": "folder_paths (TEXT, newline-separated; optional column); folder_paths_order (TEXT, comma-separated indices); workspace_key selected by first-ordered index or first in list, normalized via normalize_workspace_key()",
+    "dedup": "dedup_key = 'zed:' + thread_id",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/zed.rs (lines 36-99)",
+    "notes": "WASM-feasible: ✓ PARTIALLY. sql.js handles SQLite; decompression is the bottleneck. Zstd decompression is NOT natively available in browser JS — requires wasm-zstd or equivalent. Data blob is BLOB type (binary), must handle as Uint8Array in sql.js. JSON fields within decompressed payload: request_token_usage is object (map over user IDs) or array; cumulative_token_usage is flat object with token fields. message_count = number of keys in request_token_usage map or 1 for cumulative. Column names: id, updated_at, created_at (optional), folder_paths (optional), folder_paths_order (optional), data_type (TEXT), data (BLOB). Cache token field names: cache_read_input_tokens, cache_creation_input_tokens. Imported threads (json.imported=true) skipped. TS porter needs zstd wasm lib or must ask user to decompress offline."
+  },
+  {
+    "platformId": "hermes",
+    "displayName": "Hermes Agent session parser",
+    "format": "sqlite",
+    "storagePaths": [
+      "~/.hermes/state.db",
+      "$HERMES_HOME/state.db"
+    ],
+    "discovery": "Single database file; iterate sessions table rows; filter: model not null/empty and at least one token/cost field > 0",
+    "tokenExtraction": "Direct columns (no JSON): id, model, billing_provider, started_at, message_count, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, estimated_cost_usd, actual_cost_usd (all i64 except started_at float64, cost float64). SQL: SELECT id, model, billing_provider, started_at, message_count, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, estimated_cost_usd, actual_cost_usd FROM sessions WHERE model IS NOT NULL AND TRIM(model)!='' AND (COALESCE(input_tokens,0)>0 OR COALESCE(output_tokens,0)>0 OR COALESCE(cache_read_tokens,0)>0 OR COALESCE(cache_write_tokens,0)>0 OR COALESCE(reasoning_tokens,0)>0 OR COALESCE(actual_cost_usd,estimated_cost_usd,0)>0)",
+    "modelField": "model column (TEXT); provider resolved via canonical_provider(billing_provider) or inferred_provider_from_model(model_id), fallback 'hermes'",
+    "timestampField": "started_at (f64, seconds or milliseconds — disambiguated: >1e12 treated as ms, else multiplied by 1000)",
+    "sessionAttribution": "id column",
+    "projectAttribution": "None",
+    "dedup": "dedup_key = session_id (id column); agent fixed to 'Hermes Agent' string",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/hermes.rs (lines 31-162)",
+    "notes": "WASM-feasible: ✓ YES via sql.js. Flat relational schema (no JSON columns). All token columns are i64, nullable — handle via COALESCE or null checks. Cost columns: estimated_cost_usd, actual_cost_usd (prefer actual, fallback estimated). Message count directly available (message_count i32 column). Timestamp conversion: started_at > 1e12 ? as-is : *1000. Column names: id, model, billing_provider, started_at, message_count, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, estimated_cost_usd, actual_cost_usd. Agent name hard-coded constant 'Hermes Agent'."
+  },
+  {
+    "platformId": "kilo-cli",
+    "displayName": "Kilo CLI session parser",
+    "format": "sqlite",
+    "storagePaths": [
+      "~/.local/share/kilo/kilo.db"
+    ],
+    "discovery": "Single database file; iterate message table rows; filter: json_valid(m.data) and role='assistant' and tokens not null; fallback timestamp from file mtime when message.time.created absent",
+    "tokenExtraction": "JSON in data column (TEXT): role, modelID, providerID, tokens (nested: input, output, reasoning optional, cache {read, write}), time {created, completed optional}, cost, agent, mode, session_id. SQL: SELECT m.id, m.session_id, m.data FROM message m WHERE json_valid(m.data) AND json_extract(m.data, '$.role')='assistant' AND json_extract(m.data, '$.tokens') IS NOT NULL. Data column name: data (TEXT, JSON string); parse via KiloMessage deserialize: json_extract(m.data, '$.tokens.input/output/reasoning/cache.read/cache.write'); time.created used as timestamp (fallback to file mtime)",
+    "modelField": "json_extract(m.data, '$.modelID'); provider: json_extract(m.data, '$.providerID') or inferred from model_id or 'kilo' default",
+    "timestampField": "json_extract(m.data, '$.time.created') as i64 (milliseconds); fallback to db file modification time",
+    "sessionAttribution": "json_extract(m.data, '$.session_id') or m.session_id column (prefer JSON)",
+    "projectAttribution": "None",
+    "dedup": "dedup_key = json_extract(m.data, '$.id') or m.id column (row ID)",
+    "confidence": "high",
+    "sourceFile": "crates/tokscale-core/src/sessions/kilo.rs (lines 53-155)",
+    "notes": "WASM-feasible: ✓ YES via sql.js. Similar structure to OpenCode (JSON in data TEXT column). Column names: id (TEXT), session_id (TEXT), data (TEXT JSON). JSON schema matches KiloMessage struct: role, modelID, providerID (optional), tokens {input, output, reasoning (optional), cache {read, write}}, time {created (f64), completed (optional f64)}, cost (optional f64), agent (optional), mode (optional), session_id (optional). json_valid() is standard SQLite function. Fallback timestamp: file_modified_timestamp_ms(db_path) when message lacks time. Schema validation: tokens required (filter), role must be 'assistant', modelID optional but data JSON must parse. Negative token values clamped to 0; cost clamped to 0.0."
+  },
+  {
+    "platformId": "kilo",
+    "displayName": "KiloCode task log parser (JSON file-based, not SQLite)",
+    "format": "jsonl",
+    "storagePaths": [
+      "<task-root>/ui_messages.json"
+    ],
+    "discovery": "File path discovery: parse parent directory name as session_id (kilo-task-1 → 'kilo-task-1'); read ui_messages.json (JSON array) and filter for say='api_req_started' events; sibling file api_conversation_history.json parsed for model name (XML extraction: <model>gpt-5</model>, <name>KiloAgent</name>)",
+    "tokenExtraction": "JSON array of events; filter {type: 'say', say: 'api_req_started'}; text field contains JSON: {cost, tokensIn, tokensOut, cacheReads, cacheWrites, apiProtocol}; ts field is ISO8601 timestamp. Schema: say (TEXT enum), text (TEXT JSON), ts (TEXT timestamp), type (TEXT). Extracted: tokensIn→input, tokensOut→output, cacheReads→cache_read, cacheWrites→cache_write, cost (f64)",
+    "modelField": "Extracted from api_conversation_history.json via XML parse (regex or XML parser): <model>MODEL</model>; apiProtocol field from text JSON (e.g., 'openai', 'azure/openai')",
+    "timestampField": "ts field (ISO8601 string) in each event; parsed via parse_timestamp_str() (RFC3339 conversion)",
+    "sessionAttribution": "Parent directory name (e.g., 'tasks/kilo-task-1' → 'kilo-task-1')",
+    "projectAttribution": "None",
+    "dedup": "Implicit per-file (no dedup_key, file path is implicit unique context)",
+    "confidence": "medium",
+    "sourceFile": "crates/tokscale-core/src/sessions/kilocode.rs (calls parse_roo_kilo_file from roocode.rs)",
+    "notes": "WASM-feasible: ✓ YES (pure JSON + regex, no SQLite). File-based discovery, not database. JSON structure: array of {type, say, ts, text} objects. Event filtering by say field (only 'api_req_started'). Text field is JSON string — must deserialize to extract tokensIn, tokensOut, cacheReads, cacheWrites, apiProtocol, cost. api_conversation_history.json is text file with XML-like format — extract <model>X</model> via regex. Agent name from <name>X</name> in same file. No standard dedup (relies on file isolation). Reasoning tokens always 0. TS implementation: JSON.parse ui_messages.json, iterate, filter say='api_req_started', parse text JSON, read sibling api_conversation_history.json file, extract model+name via regex."
+  },
+  {
+    "platformId": "pi",
+    "displayName": "Pi (BadLogic)",
+    "format": "jsonl",
+    "storagePaths": [
+      "~/.pi/agent/sessions/<encoded-cwd>/*.jsonl"
+    ],
+    "discovery": "Directory traversal: iterate ~/.pi/agent/sessions/, scan subdirs for *.jsonl files matching encoded workspace paths",
+    "tokenExtraction": "JSONL line[0]: extract header.id (session_id); subsequent lines: extract entry.message.usage.{input, output, cacheRead→cache_read, cacheWrite→cache_write}, entry.message.{model, provider}, entry.timestamp→RFC3339-to-millis; token fields: input, output, cache_read, cache_write; cost field absent",
+    "modelField": "message.model (String); message.provider inferred from message.provider field",
+    "timestampField": "entry.timestamp (RFC3339 string) or fallback file_modified_timestamp_ms; note cacheRead/cacheWrite map to cache_read/cache_write",
+    "sessionAttribution": "PiSessionHeader.id (first line 'session' entry); immutable per file",
+    "projectAttribution": "header.cwd (normalized via normalize_workspace_key); optional; workspace_key then workspace_label via workspace_label_from_key",
+    "dedup": "None (dedup_key not used for Pi); file path + line number implicit uniqueness within session",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/pi.rs",
+    "notes": "Parser filters for role=='assistant' messages only. Pi session entries have optional parentId indicating hierarchy. Workspace key derived from cwd if present (e.g., /tmp → 'tmp' label). Tests use NamedTempFile with JSON lines. Reasoning tokens always 0. Note: omp (~/.omp) variant not detected in pi.rs; may be separate data source."
+  },
+  {
+    "platformId": "kimi",
+    "displayName": "Kimi CLI (Moonshot)",
+    "format": "jsonl",
+    "storagePaths": [
+      "~/.kimi/sessions/[GROUP_ID]/[SESSION_UUID]/wire.jsonl",
+      "~/.kimi/config.json"
+    ],
+    "discovery": "Directory traversal: ~/.kimi/sessions/ → iterate GROUP_ID subdirs → iterate SESSION_UUID subdirs → open wire.jsonl; parallel read ~/.kimi/config.json for model name (fallback: 'kimi-for-coding')",
+    "tokenExtraction": "JSONL lines: skip line_type=='metadata'; extract from message.type=='StatusUpdate' → payload.token_usage.{input_other→input, output, input_cache_read→cache_read, input_cache_creation→cache_write}; skip zero-token entries; timestamp (float seconds) × 1000 → milliseconds; dedup_key from payload.message_id; replace duplicate keys if newer token count > existing (or same count + later timestamp)",
+    "modelField": "read_model_from_config() traverses ../../kimi/config.json from wire.jsonl path, reads .model field; fallback DEFAULT_MODEL='kimi-for-coding'; provider hardcoded 'moonshot'",
+    "timestampField": "wire.timestamp (float seconds, often from Unix time like 1770983426.420942); converted to milliseconds; fallback file_modified_timestamp_ms",
+    "sessionAttribution": "extract_session_id() from path: wire.jsonl parent dir name (SESSION_UUID); immutable per file",
+    "projectAttribution": "not exposed in wire.jsonl or config.json; cwd may be in earlier session metadata but not parsed by this reader",
+    "dedup": "payload.message_id (string); Kimi wire protocol sends progressive StatusUpdates per message_id; keep highest token count or latest timestamp per key; empty message_ids treated separately",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/kimi.rs",
+    "notes": "Kimi parser targets StatusUpdate messages in wire protocol; skips other message types (TurnBegin, ContentPart, ToolCall). Deduplication crucial: wire may emit updates as generation progresses (e.g., 'msg-progressive' at 100→10 tokens, then 120→30). Cache_write field from input_cache_creation (creation cost, not read). Reasoning tokens always 0 per comment. Config.json lookup is robustly nested (wire.jsonl → ../../ kimi/ → config.json)."
+  },
+  {
+    "platformId": "kiro",
+    "displayName": "Kiro CLI (Amazon Bedrock)",
+    "format": "json + jsonl (dual source)",
+    "storagePaths": [
+      "~/.kiro/sessions/cli/*.json",
+      "~/.kiro/sessions/cli/*.jsonl",
+      "~/Library/Application Support/kiro-cli/data.sqlite3"
+    ],
+    "discovery": "File-based: scan ~/.kiro/sessions/cli/ for *.json + *.jsonl pairs; SQLite-based: open ~/Library/Application Support/kiro-cli/data.sqlite3 → table conversations_v2 (cwd as key, conversation_id, JSON value); parse both sources independently",
+    "tokenExtraction": "File-based: .json header → context_window, model_id, user_turn_metadatas[*].{input_token_count, output_token_count, end_timestamp, context_usage_percentage}; .jsonl adjacent file → parse Prompt/AssistantMessage to estimate input/output chars → div_ceil(chars/4) = tokens; SQLite-based: SELECT cwd, conversation_id, value (JSON) → model_info.context_window_tokens, history[*].request_metadata.{context_usage_percentage, response_size, request_start_timestamp_ms, stream_end_timestamp_ms}; estimate tokens similarly (chars/4)",
+    "modelField": "File: model_id from session_state.rts_model_state.model_info.model_id (fallback 'unknown'); SQLite: from model_info.model_id (fallback 'unknown'). Provider hardcoded 'amazon-bedrock'",
+    "timestampField": "File: prompt_timestamp_ms from Prompt entry meta.timestamp (float seconds → millis), or end_timestamp (int/string/float, parsed via parse_timestamp_value), fallback file mtime; SQLite: request_metadata.request_start_timestamp_ms or stream_end_timestamp_ms (both already i64 millis)",
+    "sessionAttribution": "File-based: session_id from header.session_id or derived from JSON file stem; SQLite: conversation_id from table row (cwd as key lookup)",
+    "projectAttribution": "File: header.cwd (normalized workspace_key, label via workspace_label_from_key); SQLite: cwd column (not yet normalized in current code, but pattern suggests normalize_workspace_key call)",
+    "dedup": "File-based: Some(format!('{}:{}', session_id, index)) where index is turn enumeration index; SQLite: Some(format!('{}:{}', conversation_id, index)). Dedup ensures turn-level uniqueness across file rewrites or schema migrations",
+    "confidence": "medium",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/kiro.rs",
+    "notes": "Kiro is estimation-heavy due to sparse turn-level token counts: if input_token_count absent, estimate = (context_window × context_usage_percentage / 100) or fall back to char-count estimate (4 chars per token). Output always estimated from response_size / 4 (in bytes). Turn-start flag set (is_turn_start=true). Dual-source design: .json+.jsonl for file-based sessions, SQLite for newer structured db. Timestamp parsing is poly-typed (RFC3339 string, f64 seconds, f64 millis). duration_ms calculated from start→end timestamps (optional)."
+  },
+  {
+    "platformId": "mux",
+    "displayName": "Mux (Coder)",
+    "format": "json",
+    "storagePaths": [
+      "~/.mux/sessions/<workspaceId>/session-usage.json"
+    ],
+    "discovery": "Directory traversal: ~/.mux/sessions/ → iterate workspaceId subdirs → open session-usage.json per workspace",
+    "tokenExtraction": "JSON object at byModel.{model_key}.{input, cached, cacheCreate, output, reasoning}.tokens (each bucket has .tokens, .cost_usd); extract via closure tokens(&Option<MuxTokenBucket>) → b.tokens.unwrap_or(0).max(0); lastRequest.timestamp (i64 millis) for timestamp, fallback file mtime; cache_read ← cached.tokens, cache_write ← cacheCreate.tokens; cost sum all .cost_usd across input/cached/cacheCreate/output/reasoning buckets",
+    "modelField": "model_key split on first ':' → provider:model; provider extracted as prefix, model_id as remainder; if no ':', provider empty string, model_id = full key",
+    "timestampField": "lastRequest.timestamp (i64 milliseconds); fallback file_modified_timestamp_ms(path)",
+    "sessionAttribution": "session_id derived from path parent dir name (workspaceId); map_or_default '~/.mux/sessions/abc123/session-usage.json' → 'abc123'",
+    "projectAttribution": "not present in session-usage.json structure",
+    "dedup": "None; one message per model_key entry in byModel; no deduplication needed (aggregate file, not incremental log)",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/mux.rs",
+    "notes": "Mux is aggregate session-usage file (not JSONL); one entry per model used in session. Negative tokens clamped to 0. Provider prefix parsing robust (multi-colon keys split on first ':' only). Cost is summed across all token buckets (input + cached + cacheCreate + output + reasoning). Reasoning tokens preserved if present. All-zero token entries skipped. Tests include cost summing and multi-colon model key edge cases."
+  },
+  {
+    "platformId": "openclaw",
+    "displayName": "OpenClaw (Transcript)",
+    "format": "jsonl (+ legacy sessions.json index)",
+    "storagePaths": [
+      "<agent-dir>/*.jsonl",
+      "<agent-dir>/sessions.json"
+    ],
+    "discovery": "Transcript-direct: parse <agent-dir>/*.jsonl (session_id from filename stem before '.jsonl'); Legacy index: parse sessions.json → iterate entries → resolve_session_path (abs or rel) → parse .jsonl; filename patterns: 'name.jsonl', 'name.jsonl.deleted.timestamp', 'name.jsonl.reset.ISO8601'",
+    "tokenExtraction": "JSONL lines with type=='message' → message.usage.{input, output, cacheRead→cache_read, cacheWrite→cache_write} (explicit values); cost from message.usage.cost.total; timestamp from message.timestamp (i64 millis) or fallback file mtime; stateful: track current_model/current_provider from type=='model_change' entries (modelId/provider fields) or type=='custom' customType=='model-snapshot' (data.modelId/data.provider); apply to subsequent messages if message.model/message.provider empty",
+    "modelField": "message.model (preferred if non-empty) ← current_model (maintained from model_change or custom entries); message.provider (preferred) ← current_provider; provider fallback 'unknown' if no state found",
+    "timestampField": "message.timestamp (i64 milliseconds); fallback file_modified_timestamp_ms (std::fs::metadata → mtime → duration_since_epoch)",
+    "sessionAttribution": "parse_openclaw_transcript(path) → extract from path: filename.split_once('.jsonl') → session_id (before .jsonl); handles suffixes like '.deleted.1700000000000' or '.reset.2026-03-20T06-34-44.520Z'",
+    "projectAttribution": "not exposed in OpenClaw transcript format",
+    "dedup": "None (dedup_key not used); each message entry is unique by entry.id implicit; no key-based deduplication",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/openclaw.rs",
+    "notes": "OpenClaw parser is stateful: maintains current model/provider across message entries (model_change, custom snapshot, or inline message.model/provider). User messages skipped (role != 'assistant'). Handles legacy sessions.json index (absolute or relative session_file paths). filename stems robustly extract session_id even with .deleted/.reset suffixes. Cost embedded in each message usage object. Reasoning tokens always 0."
+  },
+  {
+    "platformId": "roo-code",
+    "displayName": "Roo Code (VS Code Extension)",
+    "format": "json",
+    "storagePaths": [
+      "<globalStorage>/tasks/<taskId>/ui_messages.json",
+      "<globalStorage>/tasks/<taskId>/api_conversation_history.json"
+    ],
+    "discovery": "Scan <globalStorage>/tasks/ → iterate taskId subdirs → open ui_messages.json (paired with api_conversation_history.json in same dir); extract session_id from parent dirname (taskId); read model/agent from sibling api_conversation_history.json",
+    "tokenExtraction": "ui_messages.json: array of entries; filter type=='say' ∧ say=='api_req_started' → parse JSON text payload; extract {tokensIn→input, tokensOut→output, cacheReads→cache_read, cacheWrites→cache_write, cost, apiProtocol→provider}; timestamp from ts (string RFC3339, i64 millis, or u64); skip malformed payloads; reasoning always 0",
+    "modelField": "extract_model_and_agent(api_conversation_history.json content) → search for <environment_details>…</environment_details> blocks → extract <model>…</model>, <slug>…</slug>, <name>…</name> tags; prefer last model found, prefer slug then name for agent; fallback 'unknown' for model",
+    "timestampField": "ui_messages entry.ts: parse_entry_timestamp converts string RFC3339 (chrono), i64 (to string then parse), or u64 to i64 millis via parse_timestamp_str",
+    "sessionAttribution": "extract_session_id(path) from parent dirname: path.parent().file_name() → taskId (string)",
+    "projectAttribution": "not exposed in ui_messages.json or api_conversation_history.json",
+    "dedup": "None; one message per 'api_req_started' event in ui_messages.json; no deduplication",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/roocode.rs",
+    "notes": "Roo Code parser targets 'api_req_started' events from UI message stream; payload is JSON-encoded text field. Model/agent extraction via XML tag parsing in api_conversation_history.json (regex-like scan). Provider field from apiProtocol (e.g., 'anthropic', 'openai', 'bedrock/anthropic' preserved). Cost embedded in each event. Agent optional, prefer slug over name. Reasoning tokens always 0. Tests include nested reseller providers ('bedrock/anthropic') and malformed payloads."
+  },
+  {
+    "platformId": "synthetic",
+    "displayName": "Synthetic.new (Octofriend/HF gateway)",
+    "format": "sqlite",
+    "storagePaths": [
+      "<octofriend-db-path>/data.sqlite3"
+    ],
+    "discovery": "Open Octofriend SQLite DB (path varies, e.g., ~/.octofriend/ or similar); check for token-tracking tables (messages, sessions, token_usage); parse messages table if present (fallback token_usage if messages empty); detection: also scans other sources for hf:, accounts/fireworks/, accounts/together/ model prefixes or provider='synthetic'/'glhf'/'synthetic.new'/'octofriend'",
+    "tokenExtraction": "SQLite messages table: SELECT id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost, timestamp, session_id, provider WHERE input_tokens IS NOT NULL OR output_tokens IS NOT NULL; fallback token_usage table: SELECT id, model, input_tokens, output_tokens, timestamp, session_id (no cache/reasoning); skip zero-token entries; convert timestamp (if <1e12, treat as seconds; else millis); dedup_key = id column",
+    "modelField": "messages.model (string); normalize_synthetic_model() strips hf:, accounts/provider/models/ prefixes; provider from messages.provider column (fallback 'synthetic' if unknown/empty)",
+    "timestampField": "messages.timestamp (f64, converted: if <1e12 then *1000 else cast to i64); token_usage.timestamp similarly; both already milliseconds or need conversion",
+    "sessionAttribution": "messages.session_id or token_usage.session_id (string column)",
+    "projectAttribution": "not exposed in Octofriend schema",
+    "dedup": "messages.id (string); one entry per row; token_usage.id if messages table empty",
+    "confidence": "medium",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/synthetic.rs",
+    "notes": "Synthetic reader is dual-mode: (1) Detection logic flags traffic in other sources if model_id contains hf: or accounts/fireworks/ or provider='glhf'/'synthetic.new'/'octofriend'; (2) Octofriend SQLite parser attempts messages table first (full schema with reasoning/cache), falls back to token_usage (simpler schema). Model normalization removes gateway prefixes for pricing lookup. Provider field preserved from column unless empty, then 'synthetic'. Reasoning tokens supported in messages table, zero in token_usage. Cost field in messages table only. Future-proof for when Octofriend adds token persistence."
+  },
+  {
+    "platformId": "cursor",
+    "displayName": "Cursor IDE usage export API",
+    "format": "csv",
+    "storagePaths": [
+      "~/.config/tokscale/cursor-cache/usage.csv",
+      "~/.config/tokscale/cursor-cache/usage.{account-id}.csv",
+      "~/.config/tokscale/cursor-cache/archive/"
+    ],
+    "discovery": "Recursively enumerate ~/.config/tokscale/cursor-cache/ for usage*.csv files; parse account ID from filename (active account → 'usage.csv', secondaries → 'usage.{id}.csv'). Scan credentials-store (~/.config/tokscale/cursor-credentials.json) for account_id entries.",
+    "tokenExtraction": "Column indices vary by CSV format version: v1 (old, 9 cols) uses indices [1:model, 2-3:input, 4:cache_read, 5:output, 7:cost]; v2 (10 cols, has 'Kind') uses [2:model, 4-5:input, 6:cache_read, 7:output, 9:cost]; v3 (12+ cols, includes Cloud Agent ID) uses [4:model, 6-7:input, 8:cache_read, 9:output, 11:cost]. Cache write = input_with_cache_write - input_without_cache_write. Timestamp parsed from Date column (ISO 8601 with/without ms, or date-only → noon UTC).",
+    "modelField": "model_id inferred from Model column; provider_id derived via provider_identity::inferred_provider_from_model(model) or defaults to 'cursor'.",
+    "timestampField": "Date column (epoch milliseconds after parsing ISO 8601 or YYYY-MM-DD).",
+    "sessionAttribution": "Composite key: cursor-{account_id}-{date_str} (account_id extracted from filename or credential store, date_str from Date column).",
+    "projectAttribution": "N/A (account-level usage, no project scope).",
+    "dedup": "Cursor provides no dedup key; implicit dedup via session_id (composite of account + date).",
+    "confidence": "high",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/cursor.rs",
+    "notes": "Sync via Cursor export API (https://cursor.com/api/dashboard/export-usage-events-csv); cached locally at mtime-based freshness gates (5-min window for active, sync-attempt marker for secondaries). No network call needed to read CSV once synced. Multi-account support via account_id derivation from session token. v3 format adds Cloud Agent ID and Automation ID columns; cost can be 'Included', '-', or NaN (parsed as 0.0). Legacy cache migration from ~/.tokscale/cursor-cache/ to ~/.config/tokscale/cursor-cache/ on first read."
+  },
+  {
+    "platformId": "antigravity",
+    "displayName": "Antigravity/Codeium IDE cascade trajectory sync",
+    "format": "jsonl",
+    "storagePaths": [
+      "~/.config/tokscale/antigravity-cache/manifest.json",
+      "~/.config/tokscale/antigravity-cache/sessions/*.jsonl",
+      "~/.config/tokscale/antigravity-cache/sync.lock"
+    ],
+    "discovery": "Load manifest.json and list all ManifestSessionEntry objects; each points to artifact_path (e.g., 'sessions/{session-id}-{hash}.jsonl'). Scan for active Antigravity/language-server processes on localhost via 'ps' or platform-specific methods; probe ports for heartbeat; call GetAllCascadeTrajectories RPC to discover live sessions; merge with filesystem ~/antigravity*/brain/ and ~/antigravity*/conversations/ directories.",
+    "tokenExtraction": "JSONL format (one JSON object per line). Two row types: 'session_meta' (defines modelId) and 'usage' (token counts). Within 'usage': modelId, input, output, cacheRead, cacheWrite, reasoning fields. Fallback to session_meta modelId if usage row omits it. Provider inferred from model_id via provider_identity.",
+    "modelField": "modelId (with fallback to session_meta); provider_id inferred from model or defaults to 'antigravity'. Model aliases resolved via pricing::aliases::resolve_alias (e.g., 'MODEL_PLACEHOLDER_M26' → 'claude-opus-4-6').",
+    "timestampField": "timestamp (epoch milliseconds, validated > 0).",
+    "sessionAttribution": "session_id from usage row (validated non-empty).",
+    "projectAttribution": "N/A (session-level data, single language-server instance per user typically).",
+    "dedup": "responseId (optional, used when present to prevent re-counting the same API response).",
+    "confidence": "medium",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-core/src/sessions/antigravity.rs",
+    "notes": "Hybrid local+network sync: discovers running language servers on localhost, fetches live trajectory summaries via RPC (not HTTP), merges with local filesystem (~/antigravity*/brain, ~/antigravity*/conversations). Manifest tracks synced sessions + artifact paths. Sync lock (sync.lock, PID-based) prevents concurrent manifest corruption. Artifacts are JSONL session dumps (downloaded from RPC or scraped from filesystem). Fallback to historical session artifacts if RPC fails. Clean up stale artifacts not referenced in manifest. No cost data; token counts only."
+  },
+  {
+    "platformId": "trae",
+    "displayName": "Trae/ByteDance AI IDE usage API",
+    "format": "json",
+    "storagePaths": [
+      "~/.config/tokscale/trae-cache/manifest.json",
+      "~/.config/tokscale/trae-cache/sessions/usage-*.json",
+      "~/.config/tokscale/trae-cache/credentials-ide.json",
+      "~/.config/tokscale/trae-cache/credentials-solo.json",
+      "~/.config/tokscale/trae-cache/sync.lock"
+    ],
+    "discovery": "Load manifest.json (TraeManifest with version, last_synced_at, sessions[]);each session entry has session_id, usage_time (epoch seconds), artifact_path ('sessions/usage-*.json'). Iterate artifact files and parse session JSON arrays. Credentials cached in variant-specific files (credentials-ide.json, credentials-solo.json); load, check expiry, refresh if needed via ExchangeToken API.",
+    "tokenExtraction": "API returns JSON array of session objects. Per-session fields from API: session_id, usage_time (epoch seconds), model_name (display name, may be empty for auto-mode), mode, extra_info { input_token, output_token, cache_read_token, cache_write_token }, dollar_float (cost USD).",
+    "modelField": "model_name normalized via normalize_trae_model mapping (e.g., 'GPT-5.4' → 'gpt-5.4', 'Claude Sonnet 4.6' → 'claude-sonnet-4.6'). Auto-mode (empty model_name) buckets under 'trae-{mode}' (e.g., 'trae-auto'). Provider inferred via provider_for_model (substring matching: GPT → openai, Claude → anthropic, Gemini → google, GLM → zhipu, fallback 'trae').",
+    "timestampField": "usage_time (epoch seconds from API, converted to milliseconds: timestamp_ms = usage_time × 1000).",
+    "sessionAttribution": "session_id + usage_time as dedup key ('trae:{session_id}:{usage_time}').",
+    "projectAttribution": "N/A (account-level usage aggregation, no project scope exposed).",
+    "dedup": "Composite: session_id + usage_time (checked during manifest merge to prefer newer duplicates).",
+    "confidence": "medium",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-cli/src/trae.rs (lines 1-658 auth module, 922-1584 sync module)",
+    "notes": "Pure cloud sync via paginated REST API (api-sg-central.trae.ai /trae/api/v1/pay/query_user_usage_group_by_session). Credentials auto-decrypted from Trae desktop client's ~/Library/Application\\ Support/Trae/User/globalStorage/storage.json (iCubeAuthInfo entry, AES-128-CBC) or manually pasted JWT. Cached credentials with refresh_token fallback for stale access_token. Manifest tracks synced sessions and artifact paths. Sync lock prevents concurrent manifest mutations. Overlapping syncs merge by preferring newer usage_time. Artifacts cleaned up if not referenced in manifest. Token data available ONLY post-sync (no local-only option)."
+  },
+  {
+    "platformId": "warp",
+    "displayName": "Warp/Oz GraphQL usage API",
+    "format": "json",
+    "storagePaths": [
+      "~/.config/tokscale/warp-cache/usage.json",
+      "~/.config/tokscale/warp-cache/credentials.json"
+    ],
+    "discovery": "Load usage.json (WarpUsageCache with version, synced_at, usage {requests_used, request_limit, spend_cents, credits_purchased_cents, next_refresh_time}, workspaces[]). credentials.json stores auth_value (Bearer token or Cookie), auth_kind, created_at.",
+    "tokenExtraction": "API returns GraphQL JSON. Two queries: GetRequestLimitInfo (requestLimit, requestsUsedSinceLastRefresh, spend_cents, credits_purchased_cents, next_refresh_time), GetWorkspacesMetadataForUser (workspaces[], each with id, name, aiOverages {currentMonthlyRequestCostCents, currentMonthlyRequestsUsed}, usageInfo {requestsUsedSinceLastRefresh}, members[]). Normalized into WarpAggregateUsage + WarpWorkspaceUsage[]. No token breakdown (input/output/cache); aggregate request counts + spend only.",
+    "modelField": "N/A (Warp returns aggregate requests, not per-model; synthetic model_id 'aggregate-requests' used for reporting).",
+    "timestampField": "synced_at (ISO 8601 RFC 3339, parsed to epoch milliseconds).",
+    "sessionAttribution": "Synthetic keys: 'warp-aggregate-account' (account-level), 'warp-aggregate-{workspace_id}' (per-workspace).",
+    "projectAttribution": "Workspace level (workspace_id, workspace name extracted from API response).",
+    "dedup": "N/A (single aggregate per sync).",
+    "confidence": "low",
+    "sourceFile": "/tmp/tokscale/crates/tokscale-cli/src/warp.rs (lines 84-634)",
+    "notes": "Aggregate-only usage (no session-level detail, no token breakdown). Pure cloud sync via GraphQL (app.warp.dev/graphql/v2); no local token data available without sync. Credentials: Bearer token or Cookie header. No incremental sync window (fetches current state once per sync). Workspace breakdowns included if API returns workspaces[]. Timestamp is sync time, not usage time. Request-count + spend_cents reporting only; no model, input/output/cache granularity."
+  }
+]

@@ -49,6 +49,7 @@ export type PlatformId =
   | "mux"
   | "crush"
   | "goose"
+  | "synthetic"
   | "unknown";
 
 /**

@@ -47,7 +47,9 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "fzstd": "^0.1.1",
     "gpt-tokenizer": "^2.9.0",
+    "sql.js": "^1.14.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

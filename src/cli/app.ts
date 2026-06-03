@@ -121,6 +121,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   doctor: () => import("./commands/doctor.js"),
   update: () => import("./commands/update.js"),
   telemetry: () => import("./commands/telemetry.js"),
+  usage: () => import("./commands/usage.js"),
   hook: () => import("./commands/hook.js"),
   serve: () => import("./commands/serve.js"),
 };
@@ -137,6 +138,7 @@ commands:
   doctor       Health-check every detected platform; non-zero exit on any failure.
   update       Managed-update guidance + refresh of the stable home pointer.
   telemetry    Inspect local per-tool token telemetry (report | export).
+  usage        Inspect host-native token usage from agent CLI logs (report | export).
   hook         Universal json-stdio hook entrypoint (hosts call this).
   serve        Telemetry-wrapping MCP stdio proxy (wraps a real server command).
 

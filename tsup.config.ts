@@ -14,6 +14,6 @@ export default defineConfig({
   sourcemap: true,
   // Keep the dependency tree external; the home install resolves them.
   // gpt-tokenizer is heavy — keep it external and lazy-required at runtime.
-  external: ["gpt-tokenizer", "@iarna/toml", "yaml"],
+  external: ["gpt-tokenizer", "@iarna/toml", "yaml", "sql.js", "fzstd"],
   banner: { js: "#!/usr/bin/env node" },
 });
