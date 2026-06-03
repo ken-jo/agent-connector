@@ -44,8 +44,22 @@ import {
 const HOST: PlatformId = "codebuff";
 const MCP_ROOT_KEY = "mcpServers";
 
-/** Render `${env:VAR}`/`${env:VAR:-default}` into Codebuff's native `$VAR` token. */
-const toNativeRef = (name: string): string => `$${name}`;
+/**
+ * Render `${env:VAR}`/`${env:VAR:-default}` into Codebuff's native `$VAR` token.
+ *
+ * When the portable ref carried a default (`${env:VAR:-fallback}`), Codebuff's
+ * native `$VAR` token cannot express it — so a bare native token would silently
+ * DROP the default. Instead, resolve the default at install time: emit the live
+ * value when VAR is set and non-empty, else the literal fallback. The native
+ * token is only emitted when there is no default to preserve.
+ */
+const toNativeRef = (name: string, def?: string): string => {
+  if (def !== undefined) {
+    const v = process.env[name];
+    return v != null && v !== "" ? v : def;
+  }
+  return `$${name}`;
+};
 
 /** Recursively rewrite every `${env:VAR}` ref in a JSON-ish value to `$VAR`. */
 function rewriteEnvRefsDeep<T>(value: T): T {

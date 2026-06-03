@@ -417,20 +417,18 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     return [
       {
         // MCP cannot be verified from disk — JetBrains owns it behind the UI.
-        // Surface it as a WARN (never FAIL) so doctor stays honest.
+        // BaseAdapter.doctor maps != OK to a hard FAIL, but an unverifiable
+        // UI-managed surface must NOT hard-fail doctor (that contradicts the
+        // install-time WARN). Return OK with a verify-in-UI detail instead.
         name: `${this.name}: MCP server (UI-managed)`,
         check: () =>
           hasServer
             ? {
-                status: "FAIL",
+                status: "OK",
                 detail:
-                  "verify manually: Settings > Tools > GitHub Copilot > MCP — " +
-                  "JetBrains MCP registration is not file-inspectable",
+                  "MCP is UI-managed — verify in Settings > Tools > GitHub Copilot > MCP",
               }
             : { status: "OK", detail: "connector declares no MCP server" },
-        // NOTE: BaseAdapter.doctor maps OK→pass, anything-else→fail. The generic
-        // doctor has no WARN bucket, so we keep the FAIL→message wording explicit
-        // ("verify manually") to make clear this is advisory, not a hard failure.
       },
       {
         name: `${this.name}: hook command registered`,

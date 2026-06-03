@@ -595,13 +595,17 @@ describe("kimi adapter render + round-trip", () => {
     assertPreToolUse(ev, "kimi");
     expect(ev.sessionId).toBe("sess-123");
 
-    // Kimi deny → non-zero exit (2) + reason on stdout.
+    // Kimi Code uses the Claude/Codex deny shape: exit 0 + hookSpecificOutput
+    // permissionDecision:"deny" on stdout (NOT exit 2 + bare reason).
     const reply = kimiAdapter.formatReply!("PreToolUse", {
       decision: "deny",
       reason: "blocked by policy",
     });
-    expect(reply.exitCode).toBe(2);
-    expect(reply.stdout).toBe("blocked by policy");
+    expect(reply.exitCode).toBe(0);
+    const out = JSON.parse(reply.stdout ?? "{}");
+    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked by policy");
   });
 });
 

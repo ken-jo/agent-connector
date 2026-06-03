@@ -3,20 +3,25 @@
  *
  * Kimi CLI is a json-stdio host: the runner pipes a JSON payload to a command on
  * stdin and reads an exit code (and optional reason) back. Two native config
- * files live under the Kimi base dir (`$KIMI_CODE_HOME` || `~/.kimi`):
+ * files live under the Kimi base dir (`$KIMI_CODE_HOME` || `~/.kimi-code`):
  *   - mcp.json     → `mcpServers.<id>` MCP registration (JSON, stdio shape:
  *     {command,args,env}). Handled via BaseAdapter's JSON helpers.
  *   - config.toml  → `[[hooks]]` array-of-tables (TOML), each table
- *     { event, matcher, command }. Parsed/serialized with @iarna/toml so
- *     unrelated config sections and unrelated hooks are preserved verbatim.
+ *     { event, matcher, command }. Parsed/serialized with @iarna/toml: every
+ *     config VALUE (unrelated sections, sibling hooks, scalars) is preserved,
+ *     but a parse→stringify round-trip does NOT preserve user COMMENTS or the
+ *     original key ordering/formatting in config.toml (values survive; comments
+ *     and layout do not).
  *
  * Hook surface is intentionally narrow: Kimi CLI only honors a PreToolUse DENY.
  * It cannot rewrite tool args, rewrite tool output, or inject session context —
- * so every other decision degrades to a silent allow (exit 0). A deny is
- * signalled with a non-zero exit code (2) plus the reason on stdout, which is
- * how Kimi's runner blocks the pending tool call.
+ * so every other decision degrades to a silent allow (exit 0). Kimi Code uses
+ * the Claude/Codex reply shape: a PreToolUse deny is signalled with EXIT 0 plus
+ * a `hookSpecificOutput` JSON object on stdout carrying
+ * permissionDecision:"deny" + permissionDecisionReason — that is how Kimi's
+ * runner blocks the pending tool call. An allow is exit 0 with empty stdout.
  *
- * Path confidence is "medium": the `~/.kimi` base + mcp.json/config.toml layout
+ * Path confidence is "medium": the `~/.kimi-code` base + mcp.json/config.toml layout
  * is the documented Moonshot CLI shape, but it is less battle-tested than the
  * Claude/Codex adapters. We still install; doctor reports presence so a wrong
  * guess surfaces as a FAIL rather than silently misbehaving.
@@ -167,7 +172,7 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       reason: installed
         ? `found Kimi CLI config under ${baseDir}`
         : `no Kimi CLI config at ${baseDir}`,
-      // Path confidence is medium even when present: the ~/.kimi layout is the
+      // Path confidence is medium even when present: the ~/.kimi-code layout is the
       // documented shape but less battle-tested than Claude/Codex.
       confidence: "medium",
     };
@@ -189,7 +194,7 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     return join(this.getConfigDir(ctx), "config.toml");
   }
 
-  /** `$KIMI_CODE_HOME` (with `~` expansion) || `~/.kimi`. */
+  /** `$KIMI_CODE_HOME` (with `~` expansion) || `~/.kimi-code`. */
   private baseDir(): string {
     const env = process.env.KIMI_CODE_HOME;
     if (env && env.trim() !== "") {
@@ -198,7 +203,7 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       }
       return env;
     }
-    return join(homedir(), ".kimi");
+    return join(homedir(), ".kimi-code");
   }
 
   // ── MCP server install / uninstall (mcp.json → mcpServers.<id>) ──────────
@@ -502,18 +507,26 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
   formatReply(event: HookEventName, response: HookResponse): HookReply {
     const decision = response.decision ?? "allow";
 
-    // deny → block the pending tool call. Kimi CLI only honors a PreToolUse
-    // deny, signalled with a non-zero exit code (2) + reason on stdout. Every
-    // other event (or decision) degrades to a silent allow.
+    // deny → block the pending tool call. Kimi Code uses the Claude/Codex reply
+    // shape: EXIT 0 + a `hookSpecificOutput` JSON object on stdout carrying
+    // permissionDecision:"deny". Only PreToolUse deny is honored; every other
+    // event (or decision) degrades to a silent allow.
     if (decision === "deny" && event === "PreToolUse") {
       return {
-        exitCode: 2,
-        stdout: response.reason ?? "Blocked by hook",
+        exitCode: 0,
+        stdout: JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: response.reason ?? "Blocked by hook",
+          },
+        }),
       };
     }
 
-    // allow / modify / context / ask / unsupported-event → passthrough (exit 0).
-    // Kimi cannot rewrite args/output or inject context, so those are dropped.
+    // allow / modify / context / ask / unsupported-event → passthrough (exit 0,
+    // empty stdout). Kimi cannot rewrite args/output or inject context, so those
+    // are dropped.
     return { exitCode: 0 };
   }
 
@@ -559,6 +572,9 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
   private writeToml(path: string, data: KimiConfigToml, dryRun: boolean): void {
     if (dryRun) return;
     ensureDir(dirname(path));
+    // NOTE: a @iarna/toml parse→stringify round-trip preserves config VALUES but
+    // NOT user comments or the original key ordering/formatting in config.toml.
+    // Values are safe; comments authored by the user are not preserved.
     writeFileSync(path, TOML.stringify(data as never), "utf8");
   }
 }

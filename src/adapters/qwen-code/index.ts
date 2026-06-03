@@ -24,9 +24,10 @@
  * Native config (JSONC — Qwen shares Gemini's tolerant settings loader; we write
  * strict JSON and MERGE into any existing settings so user keys survive):
  *   - MCP servers: user → ~/.qwen/settings.json; project → <projectDir>/.qwen/
- *     settings.json. Root key "mcpServers". Transport selected by the `type`
- *     field (stdio {command,args,env}; http {url}) — Claude-style, NOT Gemini's
- *     key-selected transport.
+ *     settings.json. Root key "mcpServers". Qwen is a Gemini-CLI fork, so — like
+ *     Gemini — the MCP TRANSPORT IS SELECTED BY WHICH KEY IS PRESENT, not a
+ *     `type` field: stdio → {command,args,env(,cwd)}; SSE → {url, headers?};
+ *     streamable-HTTP → {httpUrl, headers?}.
  *   - Hooks: the SAME settings.json, top-level sibling "hooks" key, keyed by the
  *     PascalCase event name, each value an array of
  *     `{ matcher, hooks:[{ type:"command", command }] }`.
@@ -88,10 +89,11 @@ interface QwenSettingsFile {
 }
 
 /**
- * Native MCP server entry shapes Qwen accepts under `mcpServers`. Qwen carries
- * Claude-style `type`-tagged entries (it is a Gemini fork but its settings
- * schema accepts the `type` discriminator), so we render stdio with
- * type:"stdio" and remote transports with type:"http".
+ * Native MCP server entry shapes Qwen accepts under `mcpServers`. Qwen is a
+ * Gemini-CLI fork, so the REMOTE transport is selected by WHICH KEY is present
+ * (NOT a `type` field): SSE → `url`, streamable-HTTP → `httpUrl`. The stdio
+ * entry keeps its (harmless, Claude-style) `type:"stdio"` tag — Qwen accepts it
+ * and stdio is unambiguous by its command/args anyway.
  */
 interface QwenStdioServer {
   type: "stdio";
@@ -100,9 +102,12 @@ interface QwenStdioServer {
   env?: Record<string, string>;
   cwd?: string;
 }
-interface QwenHttpServer {
-  type: "http";
+interface QwenSseServer {
   url: string;
+  headers?: Record<string, string>;
+}
+interface QwenHttpServer {
+  httpUrl: string;
   headers?: Record<string, string>;
 }
 
@@ -247,11 +252,15 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     ];
   }
 
-  /** Render a normalized ServerDef into Qwen's native mcpServers entry. */
+  /**
+   * Render a normalized ServerDef into Qwen's native mcpServers entry. As a
+   * Gemini-CLI fork, the transport is encoded by WHICH KEY is present (NOT a
+   * `type` field): command/args/env (stdio), url (sse), httpUrl (http).
+   */
   private renderServerEntry(
     ctx: InstallContext,
     server: ServerDef,
-  ): QwenStdioServer | QwenHttpServer {
+  ): QwenStdioServer | QwenSseServer | QwenHttpServer {
     const transport: Transport = server.transport;
 
     if (transport === "stdio") {
@@ -282,11 +291,16 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
       return entry;
     }
 
-    // http / sse (and any other remote transport) — Qwen registers a URL entry.
-    const entry: QwenHttpServer = {
-      type: "http",
-      url: resolveEnvRefsDeep(server.url ?? ""),
-    };
+    // SSE transport → `url` key.
+    if (transport === "sse") {
+      const entry: QwenSseServer = { url: resolveEnvRefsDeep(server.url ?? "") };
+      const headers = this.renderEnv(server.headers);
+      if (headers) entry.headers = headers;
+      return entry;
+    }
+
+    // http (streamable-HTTP) and any other remote transport → `httpUrl` key.
+    const entry: QwenHttpServer = { httpUrl: resolveEnvRefsDeep(server.url ?? "") };
     const headers = this.renderEnv(server.headers);
     if (headers) entry.headers = headers;
     return entry;

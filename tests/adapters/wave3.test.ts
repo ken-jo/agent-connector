@@ -363,16 +363,20 @@ describe("hermes adapter render + round-trip", () => {
     expect(existsSync(hookPath)).toBe(true);
 
     const cfg = readYamlFile(hookPath);
-    const pre = cfg.hooks.PreToolUse;
+    // Hermes keys its hooks map by NATIVE snake_case event names (pre_tool_call /
+    // on_session_start), NOT the canonical PascalCase names; the command keeps
+    // the canonical event token so the runtime dispatcher stays consistent.
+    const pre = cfg.hooks.pre_tool_call;
     expect(Array.isArray(pre)).toBe(true);
+    expect(cfg.hooks.PreToolUse).toBeUndefined();
     expect(pre[0].matcher).toBe(PRE_MATCHER);
     expect(pre[0].command).toContain(HOME_BIN);
     expect(pre[0].command).toContain("hook hermes PreToolUse");
     expect(pre[0].command).toContain(`--connector ${CONNECTOR_ID}`);
     expect(typeof pre[0].timeout).toBe("number");
 
-    // SessionStart is supported and registered too.
-    expect(cfg.hooks.SessionStart[0].command).toContain("hook hermes SessionStart");
+    // SessionStart is supported and registered under the native on_session_start key.
+    expect(cfg.hooks.on_session_start[0].command).toContain("hook hermes SessionStart");
   });
 
   it("server + hooks coexist in ONE config.yaml; both idempotent; uninstall removes both", () => {
@@ -382,7 +386,7 @@ describe("hermes adapter render + round-trip", () => {
     const serverPath = join(projectDir, ".hermes", "config.yaml");
     const both = readYamlFile(serverPath);
     expect(both.mcp_servers?.[CONNECTOR_ID]).toBeTruthy();
-    expect(both.hooks?.PreToolUse).toBeTruthy();
+    expect(both.hooks?.pre_tool_call).toBeTruthy();
 
     expect(hermesAdapter.installServer(ctx)[0]?.action).toBe("skip");
     expect(hermesAdapter.installHooks(ctx).every((c) => c.action === "skip")).toBe(true);
@@ -390,14 +394,14 @@ describe("hermes adapter render + round-trip", () => {
     // No duplicate entries after the second run.
     const cfg = readYamlFile(serverPath);
     expect(Object.keys(cfg.mcp_servers)).toEqual([CONNECTOR_ID]);
-    expect(cfg.hooks.PreToolUse).toHaveLength(1);
-    expect(cfg.hooks.SessionStart).toHaveLength(1);
+    expect(cfg.hooks.pre_tool_call).toHaveLength(1);
+    expect(cfg.hooks.on_session_start).toHaveLength(1);
 
     hermesAdapter.uninstallServer(ctx);
     const afterServer = readYamlFile(serverPath);
     expect(afterServer.mcp_servers?.[CONNECTOR_ID]).toBeUndefined();
     // Removing the server must not disturb the hooks section.
-    expect(afterServer.hooks?.PreToolUse).toBeTruthy();
+    expect(afterServer.hooks?.pre_tool_call).toBeTruthy();
 
     hermesAdapter.uninstallHooks(ctx);
     const afterHooks = readYamlFile(serverPath);
@@ -413,7 +417,7 @@ describe("hermes adapter render + round-trip", () => {
 
     const cfg = readYamlFile(serverPath);
     expect(cfg.mcp_servers?.[CONNECTOR_ID]).toBeTruthy();
-    expect(cfg.hooks?.PreToolUse).toBeTruthy();
+    expect(cfg.hooks?.pre_tool_call).toBeTruthy();
     // The user's unrelated keys are untouched.
     expect(cfg.user_setting).toBe("keep-me");
     expect(cfg.other).toEqual({ nested: true });

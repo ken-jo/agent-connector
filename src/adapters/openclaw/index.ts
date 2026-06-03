@@ -54,7 +54,8 @@
  *   project scope → <projectDir>/openclaw.json (also supported).
  *   openclaw.json may contain comments + trailing commas (JSON5), so we NEVER
  *   use strict JSON.parse — readJson is overridden to strip comments/commas
- *   first (parseJsonish). writes are strict JSON (idempotent, comment-free).
+ *   first via the shared core/jsonc parseJsonc. writes are strict JSON
+ *   (idempotent, comment-free).
  *
  * Plugin module location (project | user):
  *   user    → <stateDir>/extensions/<id>/index.mjs    (stateDir = dir of openclaw.json)
@@ -106,6 +107,7 @@ import type {
   SessionStartEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { parseJsonc } from "../../core/jsonc.js";
 import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
@@ -214,7 +216,13 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     } catch {
       return null;
     }
-    return parseJsonish<T>(raw);
+    try {
+      // Shared, string-aware JSONC stripper (the local stripJsonish whose
+      // trailing-comma regex corrupted in-string ",]"/",}"-like values is gone).
+      return parseJsonc<T>(raw);
+    } catch {
+      return null;
+    }
   }
 
   // ── Detection ──────────────────────────────────────────────────────────
@@ -391,6 +399,15 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     entry: unknown,
     dryRun: boolean,
   ): ChangeRecord {
+    // OVERWRITE GUARD: never blank a present-but-unparseable openclaw.json.
+    if (this.isPresentButUnparseable(path)) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path,
+        detail: `existing ${path} is not parseable; left untouched (back it up / fix it, then re-run)`,
+      };
+    }
     const cfg = this.readJson<Record<string, unknown>>(path) ?? {};
     const servers = this.nestedServersBucket(cfg);
     const before = JSON.stringify(servers[id]);
@@ -538,6 +555,15 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     ctx: InstallContext,
     modulePath: string,
   ): ChangeRecord {
+    // OVERWRITE GUARD: never blank a present-but-unparseable openclaw.json.
+    if (this.isPresentButUnparseable(configPath)) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path: configPath,
+        detail: `existing ${configPath} is not parseable; left untouched (back it up / fix it, then re-run)`,
+      };
+    }
     const cfg = this.readJson<Record<string, unknown>>(configPath) ?? {};
     const entries = this.pluginEntriesBucket(cfg);
     const id = ctx.connector.id;
@@ -1003,77 +1029,6 @@ function resolveOpenClawConfigPath(env: NodeJS.ProcessEnv = process.env): string
     ? resolve(env.OPENCLAW_STATE_DIR)
     : resolve(homedir(), ".openclaw");
   return resolve(stateDir, "openclaw.json");
-}
-
-/**
- * Tolerant JSON5/JSONC parse: strip // and /* *\/ comments and trailing commas,
- * skipping anything inside string literals, then JSON.parse. Returns null on any
- * failure. openclaw.json is officially JSON5, so strict JSON.parse must never be
- * used on it.
- */
-function parseJsonish<T>(raw: string): T | null {
-  try {
-    return JSON.parse(stripJsonish(raw)) as T;
-  } catch {
-    return null;
-  }
-}
-
-/** Remove comments and trailing commas from JSONC/JSON5 text (string-aware). */
-function stripJsonish(input: string): string {
-  let out = "";
-  let i = 0;
-  const n = input.length;
-  let inString = false;
-  let quote = "";
-
-  while (i < n) {
-    const ch = input[i] as string;
-    const next = i + 1 < n ? (input[i + 1] as string) : "";
-
-    if (inString) {
-      out += ch;
-      if (ch === "\\") {
-        // Copy the escaped char verbatim.
-        if (i + 1 < n) {
-          out += input[i + 1] as string;
-          i += 2;
-          continue;
-        }
-      } else if (ch === quote) {
-        inString = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    // Not in a string.
-    if (ch === '"' || ch === "'") {
-      inString = true;
-      quote = ch;
-      out += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === "/" && next === "/") {
-      // Line comment — skip to end of line.
-      i += 2;
-      while (i < n && input[i] !== "\n") i += 1;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      // Block comment — skip to closing */.
-      i += 2;
-      while (i < n && !(input[i] === "*" && input[i + 1] === "/")) i += 1;
-      i += 2;
-      continue;
-    }
-    out += ch;
-    i += 1;
-  }
-
-  // Remove trailing commas before } or ] (JSON5 allows them; strict JSON does not).
-  return out.replace(/,(\s*[}\]])/g, "$1");
 }
 
 /** Create a directory (recursive) if it does not already exist. */

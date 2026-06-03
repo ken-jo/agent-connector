@@ -257,7 +257,9 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
       // ${env:VAR} to a literal at install time.
       const entry: RooStdioServer = {
         command: resolveEnvRefsDeep(command),
-        disabled: false,
+        // Honor the per-call server's enabled flag (mirror droid) rather than
+        // hardcoding enabled — a server marked enabled:false installs disabled.
+        disabled: server.enabled === false,
       };
       if (args.length > 0) entry.args = resolveEnvRefsDeep(args);
       const env = this.renderEnv(server.env);
@@ -268,7 +270,7 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
     // sse / http (and any other remote transport) — Roo Code registers a URL.
     const entry: RooHttpServer = {
       url: resolveEnvRefsDeep(server.url ?? ""),
-      disabled: false,
+      disabled: server.enabled === false,
     };
     const headers = this.renderEnv(server.headers);
     if (headers) entry.headers = headers;

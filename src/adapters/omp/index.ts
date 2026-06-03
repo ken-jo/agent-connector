@@ -555,7 +555,8 @@ function deriveSessionId(ctx) {
 
     if (has("PreToolUse")) {
       handlers.push(`  // PreToolUse → block via { block, reason }. OMP tool_call cannot mutate
-  // args, so "modify"/"ask" degrade to a block (the safe direction).
+  // args, so "ask" degrades to a block (the safe direction); "modify" degrades
+  // to ALLOW (no-block), matching opencode/claude-code — only deny/ask block.
   pi.on("tool_call", (event) => {
     const payload = {
       toolName: (event && event.toolName) || "",
@@ -565,7 +566,7 @@ function deriveSessionId(ctx) {
     };
     const res = bridge("PreToolUse", payload);
     if (!res) return undefined;
-    if (res.decision === "deny" || res.decision === "ask" || res.decision === "modify") {
+    if (res.decision === "deny" || res.decision === "ask") {
       return { block: true, reason: res.reason || "Blocked by ${ctx.connector.id}" };
     }
     return undefined;

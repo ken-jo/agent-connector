@@ -300,8 +300,20 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
   }
 }
 
-/** Amp native interpolation token: `${env:VAR}` → `${VAR}`. */
-function ampEnvToken(name: string): string {
+/**
+ * Amp native interpolation token: `${env:VAR}` → `${VAR}`.
+ *
+ * When the portable ref carried a default (`${env:VAR:-fallback}`), Amp's native
+ * `${VAR}` token has no way to express it — so a bare native token would silently
+ * DROP the default. Instead, resolve the default at install time: emit the live
+ * value when VAR is set and non-empty, else the literal fallback. The native
+ * token is only emitted when there is no default to preserve.
+ */
+function ampEnvToken(name: string, def?: string): string {
+  if (def !== undefined) {
+    const v = process.env[name];
+    return v != null && v !== "" ? v : def;
+  }
   return `\${${name}}`;
 }
 

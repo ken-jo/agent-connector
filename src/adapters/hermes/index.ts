@@ -15,12 +15,16 @@
  *     cmd/envs). Hermes has no native env interpolation, so `${env:VAR}` refs are
  *     resolved to literals at install time.
  *
- *   - Hooks: a top-level `hooks` map keyed by canonical event name; each value is
- *     a list of shell-hook entries { matcher, command:"<homeBin> hook …", timeout }.
- *     Hermes shell hooks pipe the event JSON to the command on stdin and read the
- *     reply JSON from stdout — the same wire protocol as Claude Code, so the
- *     runtime parse/format mirror the Claude adapter (a Claude-like JSON shape;
- *     the exact Hermes field map is documented inline where it could vary).
+ *   - Hooks: a top-level `hooks` map keyed by Hermes' NATIVE snake_case event
+ *     names (pre_tool_call / post_tool_call / on_session_start / on_session_end —
+ *     NOT the canonical PascalCase names; see EVENT_TO_HERMES). Each value is a
+ *     list of shell-hook entries { matcher, command:"<homeBin> hook …", timeout }.
+ *     The command keeps the canonical event token so the runtime dispatcher
+ *     (parseEvent/formatReply) stays consistent. Hermes shell hooks pipe the
+ *     event JSON to the command on stdin and read the reply JSON from stdout —
+ *     the same wire protocol as Claude Code, so the runtime parse/format mirror
+ *     the Claude adapter (a Claude-like JSON shape; the exact Hermes field map is
+ *     documented inline where it could vary).
  *
  * Since hooks are external shell commands (not an in-process plugin), Hermes
  * cannot let a hook rewrite tool arguments — canModifyArgs is false. Hermes has
@@ -68,6 +72,21 @@ const MCP_ROOT_KEY = "mcp_servers";
 const HOOKS_KEY = "hooks";
 /** Default per-hook timeout (seconds) when the connector declares none. */
 const DEFAULT_HOOK_TIMEOUT = 60;
+
+/**
+ * Canonical → Hermes native hook event name. Hermes keys its `hooks:` block by
+ * its OWN snake_case lifecycle names (pre_tool_call / post_tool_call /
+ * on_session_start / on_session_end — see docs/research/platform-research.json),
+ * NOT the canonical PascalCase names. A connector event is only wired when it
+ * appears here AND is declared by the connector; everything else is reported as
+ * a warn/skip at install time.
+ */
+const EVENT_TO_HERMES: Partial<Record<HookEventName, string>> = {
+  PreToolUse: "pre_tool_call",
+  PostToolUse: "post_tool_call",
+  SessionStart: "on_session_start",
+  SessionEnd: "on_session_end",
+};
 
 /** Hermes stdio MCP entry — portable field names (command/args/env). */
 interface HermesStdioServer {
@@ -302,26 +321,41 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     let mutated = false;
 
     for (const event of events) {
+      const hermesEvent = EVENT_TO_HERMES[event];
+      if (!hermesEvent) {
+        // No Hermes equivalent for this canonical event — report and skip.
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path,
+          detail: `${event} has no Hermes hook equivalent — skipped`,
+        });
+        continue;
+      }
+
+      // The hook command keeps the CANONICAL event token so the runtime
+      // dispatcher (parseEvent/formatReply) stays consistent; only the YAML KEY
+      // the entry is filed under is the native Hermes name.
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
       const matcher = connector.hooks[event]?.matcher ?? "";
       const timeout = this.hookTimeout(connector.server);
       const desired: HermesHookEntry = { matcher, command, timeout };
 
-      const bucket = Array.isArray(hooks[event])
-        ? (hooks[event] as HermesHookEntry[])
-        : (hooks[event] = [] as HermesHookEntry[]);
+      const bucket = Array.isArray(hooks[hermesEvent])
+        ? (hooks[hermesEvent] as HermesHookEntry[])
+        : (hooks[hermesEvent] = [] as HermesHookEntry[]);
       const idx = bucket.findIndex((e) => this.isOurCommand(e?.command, ctx));
 
       if (idx >= 0) {
         if (JSON.stringify(bucket[idx]) === JSON.stringify(desired)) {
-          changes.push({ platform: this.id, action: "skip", path, detail: `${HOOKS_KEY}.${event}` });
+          changes.push({ platform: this.id, action: "skip", path, detail: `${HOOKS_KEY}.${hermesEvent}` });
           continue;
         }
         bucket[idx] = desired;
-        changes.push({ platform: this.id, action: "update", path, detail: `${HOOKS_KEY}.${event}` });
+        changes.push({ platform: this.id, action: "update", path, detail: `${HOOKS_KEY}.${hermesEvent}` });
       } else {
         bucket.push(desired);
-        changes.push({ platform: this.id, action: "create", path, detail: `${HOOKS_KEY}.${event}` });
+        changes.push({ platform: this.id, action: "create", path, detail: `${HOOKS_KEY}.${hermesEvent}` });
       }
       mutated = true;
     }

@@ -7,7 +7,7 @@
  * JSON helpers entirely.
  */
 
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import type {
@@ -20,6 +20,7 @@ import type {
   PlatformId,
 } from "../core/types.js";
 import { backupsDir, ensureDir } from "../core/paths.js";
+import { parseJsonc } from "../core/jsonc.js";
 import type { Adapter, InstallContext } from "./spi.js";
 
 export abstract class BaseAdapter implements Adapter {
@@ -39,13 +40,39 @@ export abstract class BaseAdapter implements Adapter {
 
   // ── JSON config helpers (used by JSON-format adapters) ───────────────────
 
+  /**
+   * Read + parse a JSON/JSONC config file, returning null when it is absent OR
+   * unparseable. Parses TOLERANTLY via parseJsonc (strips // and /* *\/ comments
+   * and trailing commas) so a perfectly valid JSONC file never false-fails to
+   * null — that null is what `?? {}` would otherwise turn into a clobbering
+   * overwrite of the user's whole config.
+   */
   protected readJson<T = Record<string, unknown>>(path: string): T | null {
     if (!existsSync(path)) return null;
     try {
-      return JSON.parse(readFileSync(path, "utf8")) as T;
+      return parseJsonc<T>(readFileSync(path, "utf8"));
     } catch {
       return null;
     }
+  }
+
+  /**
+   * True when `path` exists and holds non-whitespace content but readJson cannot
+   * parse it (even after JSONC stripping). The overwrite guard: writing a
+   * `{}`-based config over a present-but-broken settings file would silently
+   * destroy the user's data, so callers warn-and-skip instead.
+   */
+  protected isPresentButUnparseable(path: string): boolean {
+    if (!existsSync(path)) return false;
+    let raw: string;
+    try {
+      if (statSync(path).size === 0) return false;
+      raw = readFileSync(path, "utf8");
+    } catch {
+      return false;
+    }
+    if (raw.trim() === "") return false;
+    return this.readJson(path) === null;
   }
 
   protected writeJson(path: string, data: unknown, dryRun = false): void {
@@ -66,6 +93,17 @@ export abstract class BaseAdapter implements Adapter {
     entry: unknown,
     dryRun = false,
   ): ChangeRecord {
+    // OVERWRITE GUARD: never replace a present, non-empty, unparseable settings
+    // file with a `{}`-based config — that would silently destroy the user's
+    // data. Warn and skip so they can back it up / fix it and re-run.
+    if (this.isPresentButUnparseable(configPath)) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path: configPath,
+        detail: `existing ${configPath} is not parseable; left untouched (back it up / fix it, then re-run)`,
+      };
+    }
     const cfg = this.readJson<Record<string, Record<string, unknown>>>(configPath) ?? {};
     const bucket = (cfg[rootKey] ??= {});
     const before = JSON.stringify(bucket[serverId]);
@@ -88,6 +126,16 @@ export abstract class BaseAdapter implements Adapter {
     serverId: string,
     dryRun = false,
   ): ChangeRecord {
+    // OVERWRITE GUARD (see upsertServerInJson): a present-but-unparseable file
+    // would round-trip to `{}` and erase the user's config, so warn and skip.
+    if (this.isPresentButUnparseable(configPath)) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path: configPath,
+        detail: `existing ${configPath} is not parseable; left untouched (back it up / fix it, then re-run)`,
+      };
+    }
     const cfg = this.readJson<Record<string, Record<string, unknown>>>(configPath);
     const bucket = cfg?.[rootKey];
     if (!cfg || !bucket || !(serverId in bucket)) {
