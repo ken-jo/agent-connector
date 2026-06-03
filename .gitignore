@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+coverage/
+*.tsbuildinfo
+# Local runtime data (telemetry DB / per-project state) lives under the home
+# data-root by default, never in the repo — but ignore any opt-in in-repo store.
+.agent-connector/

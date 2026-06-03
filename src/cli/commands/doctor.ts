@@ -1,0 +1,191 @@
+/**
+ * cli/commands/doctor — health-check every detected platform.
+ *
+ * For each detected host (or the explicit --targets list) we load its adapter,
+ * build a uniform InstallContext, and run adapter.doctor(ctx). Results are
+ * printed as pass/warn/fail with any suggested fix. Exit code is non-zero when
+ * any check fails (warns alone do not fail the command).
+ *
+ * The connector context comes from the local config when present; otherwise a
+ * minimal id-only connector is used so path-only checks still run.
+ */
+
+import { parseArgs } from "node:util";
+
+import type {
+  DiagnosticResult,
+  InstallScope,
+  PlatformId,
+  ResolvedConnector,
+} from "../../core/types.js";
+import type { InstallContext } from "../../adapters/spi.js";
+import { detectInstalledPlatforms } from "../../adapters/detect.js";
+import { loadAdapter, REGISTERED_PLATFORM_IDS } from "../../adapters/registry.js";
+import {
+  findConnectorConfig,
+  listRegisteredConnectors,
+  loadConnectorFromPath,
+} from "../../core/load-connector.js";
+import { dataRoot, homeBinPath } from "../../core/paths.js";
+import { fail, parseScope, parseTargets, print } from "../app.js";
+
+const STATUS_GLYPH: Record<DiagnosticResult["status"], string> = {
+  pass: "[pass]",
+  warn: "[warn]",
+  fail: "[FAIL]",
+};
+
+/**
+ * Resolve which connector(s) doctor should health-check, in precedence order:
+ *   1. An explicit --connector path, or a local agent-connector.config.* file.
+ *   2. Every connector registered under the data-root (what is actually
+ *      installed). This is the common case — `doctor` from anywhere reports on
+ *      the real installs, not a guess from the working directory.
+ *   3. A minimal id-only placeholder so path-only checks still run.
+ */
+async function resolveDoctorConnectors(
+  connectorPath: string | undefined,
+  projectDir: string,
+): Promise<ResolvedConnector[]> {
+  const configPath = connectorPath ?? findConnectorConfig(projectDir);
+  if (configPath) {
+    try {
+      const { connector } = await loadConnectorFromPath(configPath);
+      return [connector];
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const registered = listRegisteredConnectors();
+  if (registered.length > 0) return registered;
+
+  return [
+    {
+      id: "agent-connector",
+      displayName: "agent-connector",
+      version: "0.0.0",
+      hooks: {},
+      hookEvents: [],
+      telemetry: {
+        enabled: true,
+        modelFamilyHint: "auto",
+        measureToolDefs: true,
+        store: "ndjson",
+        calibration: { anthropicCountTokens: false },
+      },
+      platforms: {},
+      targets: "auto",
+    },
+  ];
+}
+
+function buildContext(
+  connector: ResolvedConnector,
+  id: PlatformId,
+  scope: InstallScope,
+  projectDir: string,
+): InstallContext {
+  return {
+    connector,
+    scope: connector.platforms[id]?.scope ?? scope,
+    projectDir,
+    homeBinPath: homeBinPath(),
+    dataRoot: dataRoot(),
+    dryRun: true,
+  };
+}
+
+export async function run(argv: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      scope: { type: "string", default: "user" },
+      targets: { type: "string" },
+      connector: { type: "string" },
+      project: { type: "string" },
+      json: { type: "boolean", default: false },
+    },
+    allowPositionals: false,
+  });
+
+  const projectDir = values.project ?? process.cwd();
+
+  const scope = parseScope(values.scope);
+  if (scope == null) return fail(`invalid --scope "${values.scope}" (use user|project)`);
+
+  const connectors = await resolveDoctorConnectors(values.connector, projectDir);
+  const multi = connectors.length > 1;
+
+  // Target set: explicit --targets (intersected with the registry) or all
+  // detected installed platforms.
+  const explicit = parseTargets(values.targets);
+  let ids: PlatformId[];
+  if (explicit && explicit.length > 0) {
+    ids = explicit.filter((id) => REGISTERED_PLATFORM_IDS.has(id));
+  } else {
+    const detected = await detectInstalledPlatforms(projectDir);
+    ids = detected.map((p) => p.id);
+  }
+
+  if (ids.length === 0) {
+    print("doctor: no target platforms (none detected; pass --targets to force).");
+    return 0;
+  }
+
+  const byPlatform: { platform: PlatformId; results: DiagnosticResult[] }[] = [];
+  let anyFail = false;
+
+  for (const id of ids) {
+    const adapter = await loadAdapter(id);
+    if (!adapter) {
+      byPlatform.push({
+        platform: id,
+        results: [
+          {
+            check: `${id}: adapter`,
+            status: "fail",
+            message: `no adapter registered for ${id}`,
+          },
+        ],
+      });
+      anyFail = true;
+      continue;
+    }
+    const results: DiagnosticResult[] = [];
+    for (const connector of connectors) {
+      const ctx = buildContext(connector, id, scope, projectDir);
+      let r: DiagnosticResult[];
+      try {
+        r = adapter.doctor(ctx);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        r = [{ check: `${adapter.name}: doctor`, status: "fail", message }];
+      }
+      // When checking multiple connectors, tag each check with the connector id.
+      results.push(
+        ...(multi
+          ? r.map((d) => ({ ...d, check: `(${connector.id}) ${d.check}` }))
+          : r),
+      );
+    }
+    if (results.some((d) => d.status === "fail")) anyFail = true;
+    byPlatform.push({ platform: id, results });
+  }
+
+  if (values.json) {
+    print(JSON.stringify(byPlatform, null, 2));
+    return anyFail ? 1 : 0;
+  }
+
+  for (const { platform, results } of byPlatform) {
+    print(`${platform}:`);
+    for (const r of results) {
+      print(`  ${STATUS_GLYPH[r.status]} ${r.check} — ${r.message}`);
+      if (r.fix) print(`         fix: ${r.fix}`);
+    }
+    print("");
+  }
+  print(anyFail ? "doctor: one or more checks FAILED." : "doctor: all checks passed.");
+  return anyFail ? 1 : 0;
+}

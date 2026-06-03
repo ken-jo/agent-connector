@@ -1,0 +1,60 @@
+{
+  "name": "agent-connector",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Write your MCP server + hooks once; agent-connector installs and adapts them across every AI-agent platform (Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp, …) and gives you default, platform-independent per-tool token telemetry.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "hooks",
+    "claude-code",
+    "codex",
+    "cursor",
+    "opencode",
+    "copilot",
+    "gemini-cli",
+    "telemetry",
+    "tokens",
+    "multi-platform"
+  ],
+  "license": "MIT",
+  "author": "KenJo",
+  "bin": {
+    "agent-connector": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "gpt-tokenizer": "^2.9.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

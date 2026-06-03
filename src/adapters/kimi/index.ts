@@ -1,0 +1,591 @@
+/**
+ * adapters/kimi — Kimi CLI (Moonshot) platform adapter for agent-connector.
+ *
+ * Kimi CLI is a json-stdio host: the runner pipes a JSON payload to a command on
+ * stdin and reads an exit code (and optional reason) back. Two native config
+ * files live under the Kimi base dir (`$KIMI_CODE_HOME` || `~/.kimi`):
+ *   - mcp.json     → `mcpServers.<id>` MCP registration (JSON, stdio shape:
+ *     {command,args,env}). Handled via BaseAdapter's JSON helpers.
+ *   - config.toml  → `[[hooks]]` array-of-tables (TOML), each table
+ *     { event, matcher, command }. Parsed/serialized with @iarna/toml so
+ *     unrelated config sections and unrelated hooks are preserved verbatim.
+ *
+ * Hook surface is intentionally narrow: Kimi CLI only honors a PreToolUse DENY.
+ * It cannot rewrite tool args, rewrite tool output, or inject session context —
+ * so every other decision degrades to a silent allow (exit 0). A deny is
+ * signalled with a non-zero exit code (2) plus the reason on stdout, which is
+ * how Kimi's runner blocks the pending tool call.
+ *
+ * Path confidence is "medium": the `~/.kimi` base + mcp.json/config.toml layout
+ * is the documented Moonshot CLI shape, but it is less battle-tested than the
+ * Claude/Codex adapters. We still install; doctor reports presence so a wrong
+ * guess surfaces as a FAIL rather than silently misbehaving.
+ */
+
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+import TOML from "@iarna/toml";
+
+import { BaseAdapter } from "../base.js";
+import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type {
+  ChangeRecord,
+  DetectedPlatform,
+  HealthCheck,
+  HookEventName,
+  HookParadigm,
+  HookResponse,
+  NotificationEvent,
+  PlatformCapabilities,
+  PlatformId,
+  PostToolUseEvent,
+  PreCompactEvent,
+  PreToolUseEvent,
+  SessionEndEvent,
+  SessionStartEvent,
+  ServerDef,
+  StopEvent,
+  Transport,
+  UserPromptSubmitEvent,
+} from "../../core/types.js";
+import { ensureDir } from "../../core/paths.js";
+import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import {
+  buildHomeBinHookCommand,
+  buildServeWrapperCommand,
+  isHomeBinHookCommand,
+  shouldWrapForTelemetry,
+} from "../../core/spawn.js";
+
+const HOST: PlatformId = "kimi";
+const MCP_ROOT_KEY = "mcpServers";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Native shapes
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Raw Kimi CLI hook payload (Claude-style: PascalCase event, snake_case fields). */
+interface KimiHookInput {
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_response?: unknown;
+  session_id?: string;
+  cwd?: string;
+  hook_event_name?: string;
+  source?: string;
+  prompt?: string;
+  is_error?: boolean;
+  stop_hook_active?: boolean;
+  trigger?: string;
+  message?: string;
+  reason?: string;
+  connector?: string;
+}
+
+/** One `[[hooks]]` array-of-tables entry as Kimi stores it in config.toml. */
+interface KimiTomlHook {
+  event: string;
+  matcher?: string;
+  command: string;
+  [key: string]: unknown;
+}
+
+/** Parsed config.toml shape we care about (rest preserved verbatim). */
+interface KimiConfigToml {
+  hooks?: KimiTomlHook[];
+  [key: string]: unknown;
+}
+
+/** Native stdio MCP server entry under `mcpServers`. */
+interface KimiStdioServer {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+/** Native remote MCP server entry under `mcpServers`. */
+interface KimiHttpServer {
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Kimi CLI hook events agent-connector can register. Only PreToolUse carries a
+ * meaningful (deny) decision; it is the single event we wire. The matcher below
+ * is charset-clean (Rust-regex safe: no look-around) so Kimi's matcher accepts
+ * it. Copied in spirit from the Codex/context-mode matchers.
+ */
+const KIMI_HOOK_EVENTS = ["PreToolUse"] as const;
+type KimiHookEventName = (typeof KIMI_HOOK_EVENTS)[number];
+
+const PRE_TOOL_USE_MATCHER =
+  "Bash|Shell|shell|exec_command|Read|Edit|Write|WebFetch|Agent|mcp__";
+
+// ─────────────────────────────────────────────────────────────────────────
+// Adapter
+// ─────────────────────────────────────────────────────────────────────────
+
+export class KimiAdapter extends BaseAdapter implements Adapter {
+  readonly id: PlatformId = HOST;
+  readonly name = "Kimi CLI";
+  readonly paradigm: HookParadigm = "json-stdio";
+
+  readonly capabilities: PlatformCapabilities = {
+    // PreToolUse deny is the only honored hook decision on Kimi CLI.
+    preToolUse: true,
+    postToolUse: false,
+    preCompact: false,
+    sessionStart: false,
+    sessionEnd: false,
+    userPromptSubmit: false,
+    stop: false,
+    notification: false,
+    // Kimi cannot rewrite args/output nor inject session context — deny-only.
+    canModifyArgs: false,
+    canModifyOutput: false,
+    canInjectSessionContext: false,
+    transports: ["stdio", "http"],
+  };
+
+  // ── Detection ────────────────────────────────────────────────────────────
+
+  detectInstalled(_projectDir: string): DetectedPlatform {
+    const baseDir = this.baseDir();
+    const mcpPath = join(baseDir, "mcp.json");
+    const configPath = join(baseDir, "config.toml");
+    const installed = existsSync(baseDir) || existsSync(mcpPath) || existsSync(configPath);
+    return {
+      id: this.id,
+      name: this.name,
+      installed,
+      paradigm: this.paradigm,
+      capabilities: this.capabilities,
+      configPath: mcpPath,
+      scope: "user",
+      reason: installed
+        ? `found Kimi CLI config under ${baseDir}`
+        : `no Kimi CLI config at ${baseDir}`,
+      // Path confidence is medium even when present: the ~/.kimi layout is the
+      // documented shape but less battle-tested than Claude/Codex.
+      confidence: "medium",
+    };
+  }
+
+  // ── Native paths ───────────────────────────────────────────────────────
+
+  getConfigDir(_ctx: InstallContext): string {
+    return this.baseDir();
+  }
+
+  /** MCP registration file (JSON). */
+  getServerConfigPath(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "mcp.json");
+  }
+
+  /** Hook registration file (TOML) — distinct from the MCP file. */
+  getHookConfigPath(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "config.toml");
+  }
+
+  /** `$KIMI_CODE_HOME` (with `~` expansion) || `~/.kimi`. */
+  private baseDir(): string {
+    const env = process.env.KIMI_CODE_HOME;
+    if (env && env.trim() !== "") {
+      if (env.startsWith("~")) {
+        return join(homedir(), env.replace(/^~[/\\]?/, ""));
+      }
+      return env;
+    }
+    return join(homedir(), ".kimi");
+  }
+
+  // ── MCP server install / uninstall (mcp.json → mcpServers.<id>) ──────────
+
+  installServer(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    const override = connector.platforms[HOST]?.server;
+    if (!connector.server || override === false) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: connector.server
+            ? "server registration disabled for kimi"
+            : "connector declares no MCP server",
+        },
+      ];
+    }
+
+    const server: ServerDef =
+      override && typeof override === "object"
+        ? { ...connector.server, ...override }
+        : connector.server;
+
+    const serverPath = this.getServerConfigPath(ctx);
+    const entry = this.renderServerEntry(ctx, server);
+
+    return [
+      this.upsertServerInJson(serverPath, MCP_ROOT_KEY, connector.id, entry, ctx.dryRun),
+    ];
+  }
+
+  uninstallServer(ctx: InstallContext): ChangeRecord[] {
+    const serverPath = this.getServerConfigPath(ctx);
+    return [
+      this.removeServerFromJson(serverPath, MCP_ROOT_KEY, ctx.connector.id, ctx.dryRun),
+    ];
+  }
+
+  /**
+   * Render a normalized ServerDef into Kimi's native mcpServers entry. Kimi's
+   * mcp.json has no documented native interpolation, so `${env:VAR}` refs are
+   * resolved to literals at install time (same posture as the TOML hosts).
+   */
+  private renderServerEntry(
+    ctx: InstallContext,
+    server: ServerDef,
+  ): KimiStdioServer | KimiHttpServer {
+    const transport: Transport = server.transport;
+
+    if (transport === "stdio") {
+      let command = server.command ?? "";
+      let args = [...(server.args ?? [])];
+
+      // Transparent telemetry wrapping: route through
+      // `<homeBin> serve --connector <id> -- <command> <args...>`.
+      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
+        const wrapped = buildServeWrapperCommand(
+          ctx.homeBinPath,
+          ctx.connector.id,
+          command,
+          args,
+        );
+        command = wrapped.command;
+        args = wrapped.args;
+      }
+
+      command = resolveEnvRefsDeep(command);
+      args = resolveEnvRefsDeep(args);
+
+      const entry: KimiStdioServer = { command };
+      if (args.length > 0) entry.args = args;
+      const env = this.renderEnv(server.env);
+      if (env) entry.env = env;
+      return entry;
+    }
+
+    // http (and any other remote transport) — Kimi registers a URL entry.
+    const entry: KimiHttpServer = { url: resolveEnvRefsDeep(server.url ?? "") };
+    const headers = this.renderEnv(server.headers);
+    if (headers) entry.headers = headers;
+    return entry;
+  }
+
+  /** Resolve env/header values to literals (no native interpolation on Kimi). */
+  private renderEnv(
+    env: Record<string, string> | undefined,
+  ): Record<string, string> | undefined {
+    if (!env || Object.keys(env).length === 0) return undefined;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(resolveEnvRefsDeep(env))) {
+      out[k] = String(v);
+    }
+    return out;
+  }
+
+  // ── Hook install / uninstall (config.toml → [[hooks]]) ───────────────────
+
+  installHooks(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.hooks === false) {
+      return [{ platform: this.id, action: "skip", detail: "hooks disabled for kimi" }];
+    }
+
+    const events = this.effectiveHookEvents(ctx);
+    const path = this.getHookConfigPath(ctx);
+
+    if (events.length === 0) {
+      return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
+    }
+
+    const cfg = this.readToml(path);
+    const hooks = (cfg.hooks ??= []);
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+
+    for (const event of events) {
+      const desired = this.renderHook(ctx, event);
+      const idx = hooks.findIndex((h) => this.isOurHook(ctx, h));
+      if (idx < 0) {
+        hooks.push(desired);
+        changes.push({ platform: this.id, action: "create", path, detail: `hooks.${event}` });
+        mutated = true;
+      } else if (JSON.stringify(hooks[idx]) !== JSON.stringify(desired)) {
+        hooks[idx] = desired;
+        changes.push({ platform: this.id, action: "update", path, detail: `hooks.${event}` });
+        mutated = true;
+      } else {
+        changes.push({ platform: this.id, action: "skip", path, detail: `hooks.${event}` });
+      }
+    }
+
+    if (mutated) this.writeToml(path, cfg, ctx.dryRun);
+    return changes;
+  }
+
+  uninstallHooks(ctx: InstallContext): ChangeRecord[] {
+    const path = this.getHookConfigPath(ctx);
+    if (!existsSync(path)) {
+      return [{ platform: this.id, action: "skip", path, detail: "no config.toml" }];
+    }
+    const cfg = this.readToml(path);
+    const hooks = cfg.hooks;
+    if (!Array.isArray(hooks) || hooks.length === 0) {
+      return [{ platform: this.id, action: "skip", path, detail: "no hooks present" }];
+    }
+
+    const kept = hooks.filter((h) => !this.isOurHook(ctx, h));
+    const removed = hooks.length - kept.length;
+    if (removed === 0) {
+      return [{ platform: this.id, action: "skip", path, detail: "no agent-connector hooks present" }];
+    }
+
+    if (kept.length > 0) cfg.hooks = kept;
+    else delete cfg.hooks;
+    this.writeToml(path, cfg, ctx.dryRun);
+    return [{ platform: this.id, action: "remove", path, detail: `hooks (${removed})` }];
+  }
+
+  // ── Diagnostics ──────────────────────────────────────────────────────────
+
+  override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
+    const serverPath = this.getServerConfigPath(ctx);
+    const hookPath = this.getHookConfigPath(ctx);
+    const connectorId = ctx.connector.id;
+    const homeBin = ctx.homeBinPath;
+    const hookEvents = this.effectiveHookEvents(ctx);
+    return [
+      {
+        name: `${this.name}: mcp.json present`,
+        check: () =>
+          existsSync(serverPath)
+            ? { status: "OK", detail: serverPath }
+            : { status: "FAIL", detail: `not found: ${serverPath}` },
+      },
+      {
+        name: `${this.name}: mcpServers.${connectorId} registered`,
+        check: () => {
+          const cfg = this.readJson<Record<string, Record<string, unknown>>>(serverPath);
+          const bucket = cfg?.[MCP_ROOT_KEY];
+          const present =
+            typeof bucket === "object" && bucket !== null && connectorId in bucket;
+          return present
+            ? { status: "OK", detail: `mcpServers.${connectorId}` }
+            : { status: "FAIL", detail: `mcpServers.${connectorId} not found in ${serverPath}` };
+        },
+      },
+      {
+        name: `${this.name}: hook command registered`,
+        check: () => {
+          if (hookEvents.length === 0) {
+            return { status: "OK", detail: "no hooks declared" };
+          }
+          if (!existsSync(hookPath)) {
+            return { status: "FAIL", detail: `not found: ${hookPath}` };
+          }
+          const cfg = this.readToml(hookPath);
+          const registered = (cfg.hooks ?? []).some((h) =>
+            isHomeBinHookCommand(h?.command, homeBin, connectorId),
+          );
+          return registered
+            ? { status: "OK", detail: "hook command present" }
+            : { status: "FAIL", detail: `no hook for ${connectorId} in ${hookPath}` };
+        },
+      },
+    ];
+  }
+
+  // ── Runtime: parse Kimi stdin JSON → normalized event ────────────────────
+
+  parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
+    const input = (raw ?? {}) as KimiHookInput;
+    const connectorId = typeof input.connector === "string" ? input.connector : "";
+    const sessionId = input.session_id ?? `pid-${process.ppid}`;
+    const projectDir = input.cwd ?? process.env.KIMI_PROJECT_DIR ?? process.cwd();
+
+    const base = {
+      hostPlatform: HOST,
+      connectorId,
+      sessionId,
+      projectDir,
+      raw,
+    } as const;
+
+    switch (event) {
+      case "PreToolUse": {
+        const ev: PreToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+        };
+        return ev;
+      }
+      case "PostToolUse": {
+        const ev: PostToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(toolResponseToString(input.tool_response) !== undefined
+            ? { toolOutput: toolResponseToString(input.tool_response) }
+            : {}),
+          isError: input.is_error ?? false,
+        };
+        return ev;
+      }
+      case "SessionStart": {
+        const ev: SessionStartEvent = {
+          ...base,
+          source: normalizeSessionSource(input.source),
+        };
+        return ev;
+      }
+      case "SessionEnd": {
+        const ev: SessionEndEvent = {
+          ...base,
+          ...(typeof input.message === "string" ? { reason: input.message } : {}),
+        };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
+      case "PreCompact": {
+        const ev: PreCompactEvent = {
+          ...base,
+          ...(input.trigger === "auto" || input.trigger === "manual"
+            ? { trigger: input.trigger }
+            : {}),
+        };
+        return ev;
+      }
+      case "Stop": {
+        const ev: StopEvent = {
+          ...base,
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      case "Notification": {
+        const ev: NotificationEvent = {
+          ...base,
+          message: typeof input.message === "string" ? input.message : "",
+        };
+        return ev;
+      }
+      default: {
+        const _never: never = event;
+        throw new Error(`unsupported kimi hook event: ${String(_never)}`);
+      }
+    }
+  }
+
+  // ── Runtime: normalized response → Kimi native hook reply ────────────────
+
+  formatReply(event: HookEventName, response: HookResponse): HookReply {
+    const decision = response.decision ?? "allow";
+
+    // deny → block the pending tool call. Kimi CLI only honors a PreToolUse
+    // deny, signalled with a non-zero exit code (2) + reason on stdout. Every
+    // other event (or decision) degrades to a silent allow.
+    if (decision === "deny" && event === "PreToolUse") {
+      return {
+        exitCode: 2,
+        stdout: response.reason ?? "Blocked by hook",
+      };
+    }
+
+    // allow / modify / context / ask / unsupported-event → passthrough (exit 0).
+    // Kimi cannot rewrite args/output or inject context, so those are dropped.
+    return { exitCode: 0 };
+  }
+
+  // ── Internal helpers ───────────────────────────────────────────────────
+
+  /** Which canonical hook events to register for Kimi, honoring overrides. */
+  private effectiveHookEvents(ctx: InstallContext): KimiHookEventName[] {
+    if (ctx.connector.platforms[HOST]?.hooks === false) return [];
+    return KIMI_HOOK_EVENTS.filter((e) => ctx.connector.hookEvents.includes(e));
+  }
+
+  /** Render one `[[hooks]]` entry pointing at the stable home binary. */
+  private renderHook(ctx: InstallContext, event: KimiHookEventName): KimiTomlHook {
+    const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, ctx.connector.id);
+    return {
+      event,
+      matcher: event === "PreToolUse" ? PRE_TOOL_USE_MATCHER : "",
+      command,
+    };
+  }
+
+  /**
+   * Does this `[[hooks]]` entry belong to this connector? Anchored on the
+   * home-bin + connector-id token (isHomeBinHookCommand) so uninstalling a
+   * shared-prefix connector id never strips a sibling's hook.
+   */
+  private isOurHook(ctx: InstallContext, hook: KimiTomlHook | undefined): boolean {
+    if (!hook || typeof hook !== "object") return false;
+    return isHomeBinHookCommand(hook.command, ctx.homeBinPath, ctx.connector.id);
+  }
+
+  // ── TOML config IO (config.toml is TOML; MCP stays JSON via BaseAdapter) ──
+
+  private readToml(path: string): KimiConfigToml {
+    if (!existsSync(path)) return {};
+    try {
+      return TOML.parse(readFileSync(path, "utf8")) as unknown as KimiConfigToml;
+    } catch {
+      return {};
+    }
+  }
+
+  private writeToml(path: string, data: KimiConfigToml, dryRun: boolean): void {
+    if (dryRun) return;
+    ensureDir(dirname(path));
+    writeFileSync(path, TOML.stringify(data as never), "utf8");
+  }
+}
+
+/** Best-effort stringify of Kimi's tool_response into a normalized toolOutput. */
+function toolResponseToString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
+  switch (source) {
+    case "compact":
+      return "compact";
+    case "resume":
+      return "resume";
+    case "clear":
+      return "clear";
+    default:
+      return "startup";
+  }
+}
+
+export const adapter = new KimiAdapter();
+export default adapter;

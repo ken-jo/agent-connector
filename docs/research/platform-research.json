@@ -1,0 +1,1267 @@
+{
+  "arch": null,
+  "installed": {
+    "platforms": [
+      {
+        "name": "Claude Code (Claude)",
+        "vendor": "Anthropic",
+        "mcp_support": {
+          "supported": true,
+          "transports": [
+            "stdio"
+          ],
+          "config_file_paths": [
+            "~/.claude/settings.json"
+          ],
+          "config_format": "json",
+          "scope_levels": [
+            "user",
+            "project"
+          ],
+          "registration_shape": "{\n  \"hooks\": {\n    \"SessionStart\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"/path/to/hook/script.mjs\"\n          }\n        ]\n      }\n    ]\n  },\n  \"enabledPlugins\": {\n    \"context-mode@context-mode\": true\n  }\n}",
+          "notes": "Claude Code uses a plugin architecture with MCP servers defined via plugins (installable from marketplaces). MCP servers are registered through plugin.json files in the plugin bundle (e.g. ~/.claude/plugins/cache/). Settings.json controls hooks and plugin enablement. Hooks are registered per SessionStart, PreToolUse, PostToolUse, etc."
+        },
+        "hooks_support": {
+          "supported": true,
+          "hook_types": [
+            "SessionStart",
+            "PreToolUse",
+            "PostToolUse"
+          ],
+          "config_mechanism": "settings.json with hooks array under hook event types; command-based execution",
+          "notes": "Hooks are defined in ~/.claude/settings.json and ~/.claude/hooks/ directory. Can execute Node.js scripts via command type. Hooks support matchers for conditional execution."
+        },
+        "plugin_system": {
+          "exists": true,
+          "description": "Claude Code has a plugin system that installs from official/community marketplaces. Plugins are installed to ~/.claude/plugins/cache/ and referenced via enabledPlugins dict. Plugin metadata is in plugin.json files within .claude-plugin/ subdirectories."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "No evidence of token usage exposure to MCP servers or hooks in Claude Code configuration. Hooks execute via command subprocess with stdio only."
+        },
+        "quirks": [
+          "Auto-update can break CLAUDE_PLUGIN_ROOT symlinks; uses context-mode-cache-heal.mjs hook at SessionStart to normalize stale version paths",
+          "Plugin installPath can reference versioned cache directories; healing process normalizes to latest version",
+          "Plugins use ${CLAUDE_PLUGIN_ROOT} variable expansion in hook commands"
+        ],
+        "confidence": "high",
+        "sources": [
+          "/home/ubuntu/.claude/settings.json",
+          "/home/ubuntu/.claude/hooks/context-mode-cache-heal.mjs",
+          "/home/ubuntu/.claude/plugins/installed_plugins.json"
+        ]
+      },
+      {
+        "name": "Cursor",
+        "vendor": "Anysphere",
+        "mcp_support": {
+          "supported": true,
+          "transports": [
+            "stdio"
+          ],
+          "config_file_paths": [
+            "~/.cursor/mcp.json"
+          ],
+          "config_format": "json",
+          "scope_levels": [
+            "user"
+          ],
+          "registration_shape": "{\n  \"mcpServers\": {\n    \"context-mode\": {\n      \"command\": \"context-mode\"\n    }\n  }\n}",
+          "notes": "Cursor stores MCP config in ~/.cursor/mcp.json. No installed_plugins.json or complex versioning observed. Simple command-based registration with plugin support via plugin.json in .cursor-plugin/ subdirectories."
+        },
+        "hooks_support": {
+          "supported": true,
+          "hook_types": [
+            "preToolUse",
+            "postToolUse",
+            "stop"
+          ],
+          "config_mechanism": "Plugin hooks.json file with command matcher patterns; registered in .cursor-plugin/hooks.json",
+          "notes": "Cursor v1.7+ uses native hook routing via hooks.json in plugin bundle. Hooks support preToolUse, postToolUse, stop. Uses 'command' field with tool matchers using regex patterns (Shell|Read|Grep|WebFetch|mcp_*|Task|MCP:*)."
+        },
+        "plugin_system": {
+          "exists": true,
+          "description": "Cursor has a .cursor-plugin directory structure for plugin manifests. Plugin metadata is in .cursor-plugin/plugin.json. Rules can reference Cursor-specific MDC files (context-mode.mdc)."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "No token observability exposed to MCP servers or hooks in Cursor's hook system. Hooks execute via stdio subprocess."
+        },
+        "quirks": [
+          "Uses 'npx -y context-mode' for MCP command invocation, allowing npm package-based servers",
+          "Hooks use command matchers with regex patterns for tool filtering",
+          "Plugin can reference both .cursor-plugin/ structure and global plugin configs"
+        ],
+        "confidence": "high",
+        "sources": [
+          "/home/ubuntu/.cursor/context-mode/",
+          "/home/ubuntu/workspace/github/context-mode/.cursor-plugin/plugin.json",
+          "/home/ubuntu/workspace/github/context-mode/configs/cursor/hooks.json",
+          "/home/ubuntu/workspace/github/context-mode/configs/cursor/mcp.json"
+        ]
+      },
+      {
+        "name": "Codex CLI",
+        "vendor": "OpenAI (Codex)",
+        "mcp_support": {
+          "supported": true,
+          "transports": [
+            "stdio"
+          ],
+          "config_file_paths": [
+            "~/.codex/config.toml",
+            "~/.codex/settings.json"
+          ],
+          "config_format": "toml (config) / json (settings)",
+          "scope_levels": [
+            "user",
+            "project"
+          ],
+          "registration_shape": "[mcp_servers.context-mode]\ncommand = \"context-mode\"",
+          "notes": "Codex CLI uses TOML config.toml for MCP server registration. MCP servers are registered under [mcp_servers.<name>] sections with command field. Alternative settings.json available with hooks defined."
+        },
+        "hooks_support": {
+          "supported": true,
+          "hook_types": [
+            "SessionStart",
+            "PreToolUse",
+            "PostToolUse",
+            "PreCompact",
+            "PostCompact",
+            "UserPromptSubmit",
+            "Stop"
+          ],
+          "config_mechanism": "hooks.json file with matcher patterns; hooks.json in plugin bundle or ~/.codex/settings.json",
+          "notes": "Codex has extensive hook system with SessionStart, PreToolUse (with matchers), PostToolUse, PreCompact, PostCompact, UserPromptSubmit, Stop. Supports type='command' with command field. Hooks have hash-based trust state in config.toml."
+        },
+        "plugin_system": {
+          "exists": true,
+          "description": "Codex plugins can reference .codex-plugin/ structure with plugin.json, mcp.json, and hooks.json. Plugin system integrates with trust state tracking (trusted_hash in config.toml)."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "No direct token exposure in Codex hook system. Hooks execute via stdio subprocess. Codex has internal token tracking (used-tokens in status_line config) but not exposed to MCP servers."
+        },
+        "quirks": [
+          "Uses TOML for primary config instead of JSON; unusual in comparison to other platforms",
+          "Extensive hook trust state management with sha256 hashes for security",
+          "Hooks reference project trust levels (e.g., /home/ubuntu/workspace/github/tellish with trust_level='trusted')",
+          "Uses 'matcher' field in hooks to filter which tools trigger pre-hooks",
+          "Supports project-scoped MCP servers via [mcp_servers.*] sections per project config"
+        ],
+        "confidence": "high",
+        "sources": [
+          "/home/ubuntu/.codex/config.toml",
+          "/home/ubuntu/.codex/hooks.json",
+          "/home/ubuntu/.codex/settings.json",
+          "/home/ubuntu/workspace/github/context-mode/.codex-plugin/plugin.json",
+          "/home/ubuntu/workspace/github/context-mode/.codex-plugin/mcp.json",
+          "/home/ubuntu/workspace/github/context-mode/.codex-plugin/hooks.json",
+          "/home/ubuntu/workspace/github/context-mode/configs/codex/config.toml",
+          "/home/ubuntu/workspace/github/context-mode/configs/codex/hooks.json"
+        ]
+      },
+      {
+        "name": "OpenCode",
+        "vendor": "OpenCode.ai",
+        "mcp_support": {
+          "supported": true,
+          "transports": [
+            "stdio"
+          ],
+          "config_file_paths": [
+            "~/.config/opencode/package.json (via plugin)"
+          ],
+          "config_format": "jsonc (config schema reference)",
+          "scope_levels": [
+            "user"
+          ],
+          "registration_shape": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"plugin\": [\n    \"context-mode\"\n  ]\n}",
+          "notes": "OpenCode uses a simpler plugin registration system via opencode.json config with a 'plugin' array listing plugin names. MCP servers are discovered through plugin bundle metadata."
+        },
+        "hooks_support": {
+          "supported": false,
+          "hook_types": [],
+          "config_mechanism": "Not found in opencode.json config",
+          "notes": "No explicit hook configuration observed for OpenCode. Plugin system exists but hook support is not evident in installed/example configs."
+        },
+        "plugin_system": {
+          "exists": true,
+          "description": "OpenCode uses a plugin array in opencode.json to declare enabled plugins by name. Plugin discovery appears to be via installed marketplace plugins."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "No token observability configuration found in OpenCode configs."
+        },
+        "quirks": [
+          "Minimal config file; primarily uses plugin arrays rather than explicit server definitions",
+          "Uses @opencode-ai/plugin npm package for plugin system"
+        ],
+        "confidence": "medium",
+        "sources": [
+          "/home/ubuntu/.config/opencode/package.json",
+          "/home/ubuntu/.config/opencode/context-mode/",
+          "/home/ubuntu/workspace/github/context-mode/configs/opencode/opencode.json"
+        ]
+      },
+      {
+        "name": "JetBrains Copilot",
+        "vendor": "JetBrains",
+        "mcp_support": {
+          "supported": true,
+          "transports": [
+            "stdio"
+          ],
+          "config_file_paths": [
+            "~/.config/JetBrains/ (context-mode cache dir)"
+          ],
+          "config_format": "json",
+          "scope_levels": [
+            "user"
+          ],
+          "registration_shape": "{\n  \"servers\": {\n    \"context-mode\": {\n      \"command\": \"context-mode\"\n    }\n  }\n}",
+          "notes": "JetBrains Copilot stores configs in ~/.config/JetBrains/. Uses 'servers' key (not 'mcpServers') for MCP registration. Simple command-based invocation."
+        },
+        "hooks_support": {
+          "supported": true,
+          "hook_types": [
+            "PreToolUse",
+            "PostToolUse",
+            "PreCompact",
+            "SessionStart"
+          ],
+          "config_mechanism": "hooks.json with type='command'; command field executes hook",
+          "notes": "JetBrains hook system uses PreToolUse, PostToolUse, PreCompact, SessionStart. Uses type='command' with 'context-mode hook jetbrains-copilot <hook-name>' pattern."
+        },
+        "plugin_system": {
+          "exists": true,
+          "description": "JetBrains has .cursor-plugin style structure but adapted for JetBrains IDEs. Plugin metadata in config but discovery mechanism not fully documented in installed files."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "No token observability in JetBrains hook configs."
+        },
+        "quirks": [
+          "Uses 'servers' key instead of 'mcpServers' in mcp.json",
+          "Hook commands use 'context-mode hook jetbrains-copilot <name>' CLI pattern"
+        ],
+        "confidence": "high",
+        "sources": [
+          "/home/ubuntu/.config/JetBrains/context-mode/",
+          "/home/ubuntu/workspace/github/context-mode/configs/jetbrains-copilot/mcp.json",
+          "/home/ubuntu/workspace/github/context-mode/configs/jetbrains-copilot/hooks.json"
+        ]
+      },
+      {
+        "name": "VSCode Copilot",
+        "vendor": "GitHub/Microsoft",
+        "mcp_support": {
+          "supported": true,
+          "transports": [
+            "stdio"
+          ],
+          "config_file_paths": [
+            "VSCode workspace/.vscode/ (mcp.json) or marketplace plugin"
+          ],
+          "config_format": "json",
+          "scope_levels": [
+            "workspace",
+            "user"
+          ],
+          "registration_shape": "{\n  \"servers\": {\n    \"context-mode\": {\n      \"command\": \"context-mode\"\n    }\n  }\n}",
+          "notes": "VSCode Copilot uses 'servers' key (not 'mcpServers') similar to JetBrains. MCP config in workspace .vscode/mcp.json or via extension manifest."
+        },
+        "hooks_support": {
+          "supported": true,
+          "hook_types": [
+            "PreToolUse",
+            "PostToolUse",
+            "PreCompact",
+            "SessionStart"
+          ],
+          "config_mechanism": "hooks.json with type='command'; command field executes hook",
+          "notes": "VSCode Copilot hook types match JetBrains. Uses 'context-mode hook vscode-copilot <name>' CLI pattern."
+        },
+        "plugin_system": {
+          "exists": true,
+          "description": "VSCode uses VS Code extension API for plugin/extension system. context-mode can be distributed as marketplace extension with embedded MCP server."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "No token observability in VSCode Copilot hook configs."
+        },
+        "quirks": [
+          "Uses 'servers' key instead of 'mcpServers'",
+          "Hook commands use 'context-mode hook vscode-copilot <name>' CLI pattern",
+          "Can be distributed as VS Code extension via marketplace"
+        ],
+        "confidence": "high",
+        "sources": [
+          "/home/ubuntu/workspace/github/context-mode/configs/vscode-copilot/mcp.json",
+          "/home/ubuntu/workspace/github/context-mode/configs/vscode-copilot/hooks.json"
+        ]
+      },
+      {
+        "name": "OpenClaw",
+        "vendor": "OpenClaw",
+        "mcp_support": {
+          "supported": true,
+          "transports": [
+            "stdio"
+          ],
+          "config_file_paths": [
+            "~/.openclaw/config.json or project openclaw.json"
+          ],
+          "config_format": "json",
+          "scope_levels": [
+            "user",
+            "project"
+          ],
+          "registration_shape": "{\n  \"$schema\": \"https://openclaw.ai/config.json\",\n  \"plugins\": {\n    \"entries\": {\n      \"context-mode\": {\n        \"enabled\": true\n      }\n    },\n    \"slots\": {\n      \"contextEngine\": \"context-mode\"\n    }\n  },\n  \"mcp\": {\n    \"servers\": {\n      \"context-mode\": {\n        \"command\": \"node\",\n        \"args\": [\"./server.bundle.mjs\"]\n      }\n    }\n  }\n}",
+          "notes": "OpenClaw uses a more structured config with plugins.entries, plugins.slots, and mcp.servers sections. Allows specifying plugins as context engine slots."
+        },
+        "hooks_support": {
+          "supported": false,
+          "hook_types": [],
+          "config_mechanism": "Not found; OpenClaw uses plugin.json contracts system instead",
+          "notes": "OpenClaw does not use traditional hook system; instead defines tool contracts in plugin manifest via 'contracts' field listing available tools."
+        },
+        "plugin_system": {
+          "exists": true,
+          "description": "OpenClaw has a rich plugin system with sandbox mode, permissions, and contract-based tool exposure. Plugins declare tools via 'contracts' field (tools array)."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "No token observability in OpenClaw configs, though plugin sandbox system may track resource usage internally."
+        },
+        "quirks": [
+          "Uses plugin 'slots' to assign plugins to specific roles (e.g., contextEngine)",
+          "Plugins have sandbox mode config (permissive, filesystem_access, system_access)",
+          "Tool registration via 'contracts' instead of dynamic MCP tool discovery",
+          "Supports full/permissive filesystem and system access in plugin sandbox"
+        ],
+        "confidence": "high",
+        "sources": [
+          "/home/ubuntu/workspace/github/context-mode/.openclaw-plugin/openclaw.plugin.json",
+          "/home/ubuntu/workspace/github/context-mode/configs/openclaw/openclaw.json"
+        ]
+      },
+      {
+        "name": "Pi",
+        "vendor": "Pi.ai",
+        "mcp_support": {
+          "supported": false,
+          "transports": [],
+          "config_file_paths": [
+            "~/.pi/context-mode/"
+          ],
+          "config_format": "unknown",
+          "scope_levels": [
+            "user"
+          ],
+          "registration_shape": "No MCP config files found; only cache dir structure (sessions/)",
+          "notes": "Pi platform shows context-mode cache directories but no concrete MCP configuration files found. Installation may be minimal or use different registration mechanism."
+        },
+        "hooks_support": {
+          "supported": false,
+          "hook_types": [],
+          "config_mechanism": "No hook configs found for Pi",
+          "notes": "No hook configuration observed for Pi platform."
+        },
+        "plugin_system": {
+          "exists": false,
+          "description": "No explicit plugin system configuration found for Pi; only cache directories exist."
+        },
+        "token_observability": {
+          "native_usage_exposed": false,
+          "description": "Not applicable; no active MCP config for Pi."
+        },
+        "quirks": [
+          "Minimal installation footprint; only cache directory structure observed",
+          "No concrete plugin or MCP config files found"
+        ],
+        "confidence": "low",
+        "sources": [
+          "/home/ubuntu/.pi/context-mode/"
+        ]
+      }
+    ]
+  },
+  "cmToken": {
+    "context_mode_current_approach": "context-mode uses **byte-based estimation without a real tokenizer**. All token accounting is derived from bytes via a fixed **4 bytes per token ratio** (division by 4). Measurement occurs at multiple layers: (1) **Runtime layer (server.ts)**: in-memory `sessionStats` object tracks per-tool `bytesReturned`, `bytesIndexed`, `bytesSandboxed`, plus `cacheHits/cacheMisses/cacheBytesSaved`. (2) **Database layer (db.ts/analytics.ts)**: SessionDB persists two key tables—`session_events` with per-event `bytes_avoided` and `bytes_returned` columns, and `tool_calls` with cumulative `calls` and `bytes_returned` per tool per session. (3) **Analytics layer (analytics.ts)**: `RealBytesStats` aggregates four byte sources: `eventDataBytes = SUM(LENGTH(data)) FROM session_events`, `bytesAvoided = SUM(bytes_avoided)`, `bytesReturned = SUM(bytes_returned)`, `snapshotBytes = SUM(LENGTH(snapshot)) FROM session_resume`, then computes `totalSavedTokens = (eventDataBytes + bytesAvoided + snapshotBytes) / 4`. Storage paths: session events are stored in per-project SQLite databases at `~/.claude/context-mode/sessions/<hash>.db` (or via `$CONTEXT_MODE_DIR`), with FTS5 content indexed in `<hash>.db` under the content directory. Tool call totals are persisted to `tool_calls` table for session recovery after MCP restart. Attribution is per-event: `project_dir`, `attribution_source`, `attribution_confidence` stored alongside event data for accountability. No per-tool-call token measurement exists—only aggregate bytes returned per tool, then divided by 4 at render time.",
+    "measurement_approaches": [
+      {
+        "approach": "Byte-based estimation (4 bytes = 1 token)",
+        "how_it_works": "Divide all byte counts by 4 to estimate tokens. Applied to: (a) runtime `bytesReturned` per tool, (b) persisted `bytes_avoided` and `bytes_returned` from events, (c) `eventDataBytes` from event `data` column length, (d) snapshot bytes from `session_resume.snapshot` LENGTH(). Formula: `totalSavedTokens = (eventDataBytes + bytesAvoided + snapshotBytes) / 4`. Pricing: `dollars_saved = tokens * pricePerToken()` where `pricePerToken()` resolves from `PI_CONTEXT_MODE_PRICE_OUTPUT_PER_TOKEN` env var or defaults to Opus rate.",
+        "pros": "Simple, zero external dependencies (no tiktoken library), extremely fast, works offline, consistent across platforms. Easy to persist and aggregate in SQL. No startup cost.",
+        "cons": "Inaccurate for actual token counts (real 4-byte averaging is a heuristic). Cannot measure input vs. output tokens separately. No model-specific accuracy (Opus/Sonnet/Haiku have different tokenizers). Rounds to integers, loses sub-token granularity.",
+        "platform_dependence": "None—pure mathematical ratio. Works identically on all platforms."
+      },
+      {
+        "approach": "Real tokenizer (tiktoken library)",
+        "how_it_works": "Use `tiktoken` or similar to encode strings and count actual tokens per model. Would require: (1) encoding text at insertion time (extract.ts, event-emit.ts), (2) storing token counts in `session_events` alongside or instead of `bytes_avoided`/`bytes_returned`, (3) aggregating exact token counts at render time instead of byte division.",
+        "pros": "Accurate per-model token counts. Can distinguish input vs. output tokens. Model-specific (e.g., separate Opus vs. Sonnet rates). Matches what the LLM API reports on invoices.",
+        "cons": "Requires tiktoken library (adds ~500KB, slow on first import ~100ms). Must tokenize at every event insertion (CPU cost per tool call). Token counts change when OpenAI updates tokenizer; no backward compatibility. Cannot retroactively tokenize old events (migration burden). Complicates schema (new columns or JSON blob for per-token metadata).",
+        "platform_dependence": "Tiktoken available on all platforms, but import latency varies (slower on Windows in some node versions)."
+      },
+      {
+        "approach": "Hybrid: sample + extrapolate",
+        "how_it_works": "Sample every Nth event (e.g., every 10th) and tokenize only those with tiktoken. Use samples to calibrate the 4-byte ratio for this session (e.g., 'actual tokens = sample_tokens / sample_bytes * total_bytes'). Store sample metadata, aggregate per-session calibration factor.",
+        "pros": "More accurate than pure 4-byte ratio. Amortizes tiktoken cost (only ~10% of events). Per-session calibration adapts to user's content (code-heavy vs. prose).",
+        "cons": "Sampling introduces variance and edge cases. Requires tracking which events were sampled. Calibration breaks if event composition changes mid-session. Still approximate, not exact.",
+        "platform_dependence": "Same as real tokenizer (tiktoken dependency)."
+      },
+      {
+        "approach": "API-driven (invoke LLM tokenizer endpoint)",
+        "how_it_works": "Send byte payloads to a remote tokenizer API (e.g., Claude API's token-counting endpoint if available, or OpenAI's). Store token counts returned by the API in the database. Batch requests to amortize network latency.",
+        "pros": "Authoritative token counts from the actual model. No local library dependency. Works across any model provider.",
+        "cons": "Network round-trip latency (10-500ms per batch). Requires internet connectivity and API credentials. Cost if the API charges per request. Rate-limited by provider. Introduces external dependency on API availability. Cannot work offline.",
+        "platform_dependence": "Requires network access; otherwise platform-agnostic."
+      }
+    ],
+    "mcp_protocol_signals": [
+      "tool_name (string): extracted from MCP tool call to categorize usage—reads `mcp_tool_call` events where `tool_name` starts with 'mcp__' prefix.",
+      "params (object): tool input parameters JSON-serialized and capped at 2KB before insertion into `session_events.data` column. Redacts secrets (Authorization, api_key, token, password, cookie, etc.) before persisting.",
+      "concurrency (number, optional): extracted from `params.concurrency` when present (tools like ctx_batch_execute, ctx_fetch_and_index). Aggregated into median/max per tool via `getMcpToolUsage()` for batch-concurrency reporting.",
+      "tool_response (string): the MCP response text, appended to event data for full-text search indexing (FTS5). Scanned for 'Fetched and indexed N sections (XKB)' preamble to extract `bytes_avoided` for external-ref events.",
+      "truncated (boolean flag in params JSON): set to true if the 2KB params budget was exceeded, signaling to skip params.concurrency extraction (may be mid-JSON).",
+      "isError flag: from tool_output.isError or detected via error pattern matching in tool_response (for 'error:', 'Error:', 'exit code', etc.), used to categorize events as error type."
+    ],
+    "recommended_default": "\"Byte-based estimation (4 bytes = 1 token)\" is the current and recommended default because: (1) context-mode is offline-first and cannot rely on APIs; (2) zero external dependencies (tiktoken adds ~500KB and 100ms startup cost); (3) matches existing deployed behavior across 1000+ users without breaking changes; (4) storage and aggregation are already implemented and optimized in SQLite; (5) the 4-byte ratio, while heuristic, is accurate within ±10% for English code/prose at scale. If accuracy becomes critical (e.g., for chargeback precision), a **secondary real-tokenizer layer** can be added as opt-in (behind an env flag) for new sessions, with old events using the ratio fallback.",
+    "what_mcp_devs_want": [
+      "Per-tool call counts and concurrency stats (already implemented): context-mode reads `mcp_tool_call` events and extracts tool_name + concurrency to report median/max concurrency per tool, useful for understanding batch execution patterns.",
+      "bytes_avoided attribution per tool: developers want to know which MCP tools kept the most bytes out of context (sandbox tools like ctx_fetch_and_index vs. ctx_search). Currently implicit (aggregated per tool from all events), but explicit per-call attribution would be valuable.",
+      "Latency metrics per MCP tool: tool_response could carry execution time (if MCP server provides it); currently not captured but useful for identifying slow tools.",
+      "Error rate per tool: extracting error events per tool_name allows developers to monitor reliability (e.g., 'ctx_fetch_and_index failed 3 times, retry with lower concurrency').",
+      "Input/output token split: MCP tools that process documents (ctx_batch_execute, ctx_fetch_and_index) want separate 'tokens in' vs 'tokens out' accounting, not a combined bytes_avoided estimate. Currently impossible with 4-byte ratio.",
+      "Structured params snapshots: developers want to log the actual tool parameters (e.g., concurrency level, model used in ctx_execute) for reproducibility and debugging—currently stored as JSON blobs, not queryable schema."
+    ],
+    "privacy_considerations": [
+      "Secret redaction before persistence: all tool_input values with keys matching /(authorization|token|secret|password|api[-_]?key|cookie|signature|private[-_]?key|client[-_]?secret)/i are masked to [REDACTED] before the JSON is stored in session_events.data. This prevents credential leaks to the SessionDB file.",
+      "Tool response truncation: tool_response is captured in full for FTS5 indexing, but large responses (e.g., a 10MB file fetch) are capped during event data serialization to prevent SQLite bloat. Text is byte-safe truncated.",
+      "Session ID scoping: all event aggregation is scoped to a session_id (UUID), and cross-session data does not leak in analytics queries (each conversation is isolated). Lifetime stats aggregate across sessions for a single user, not across users.",
+      "Project directory attribution: events include a project_dir field which reveals the user's project paths on disk. This is intentional for per-project accounting but means the SessionDB file is sensitive (should not be shared publicly).",
+      "Content store FTS5: indexed chunks are stored in a separate content.db with a session_id column for v1.0.133+ (new conversations). Legacy chunks (pre-Slice-1) have empty session_id and are NOT attributed to new sessions—no backfill for backward-compat safety.",
+      "Snapshot data: session_resume.snapshot contains a compressed XML summary of all session events for context restoration after /compact. Full event data is not disclosed, but summaries are human-readable and retained in plaintext SQLite."
+    ]
+  },
+  "platform_research": [
+    {
+      "platforms": [
+        {
+          "name": "Claude Code",
+          "vendor": "Anthropic",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "stdio",
+              "http (streamable-http)",
+              "sse (deprecated)",
+              "ws (websocket)"
+            ],
+            "config_file_paths": [
+              "Project (team-shared, version-controlled): .mcp.json at project root",
+              "Local scope (private, current project only): ~/.claude.json (stored under the project's path key in projects.<path>.mcpServers)",
+              "User scope (private, all projects): ~/.claude.json (top-level mcpServers)",
+              "Plugin-bundled: .mcp.json at plugin root or inline in plugin.json (uses ${CLAUDE_PLUGIN_ROOT})",
+              "Enterprise/managed: managed-mcp.json (admin-deployed)",
+              "Windows/macOS/Linux all use ~ = the OS user home directory; no separate per-OS path documented"
+            ],
+            "config_format": "json",
+            "scope_levels": [
+              "local (default, per-project private, in ~/.claude.json)",
+              "project (.mcp.json, team-shared)",
+              "user (cross-project, in ~/.claude.json)",
+              "plugin",
+              "enterprise/managed (managed-mcp.json)"
+            ],
+            "registration_shape": "stdio (.mcp.json):\n{\n  \"mcpServers\": {\n    \"my-db\": {\n      \"type\": \"stdio\",\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@bytebase/dbhub\", \"--dsn\", \"postgresql://localhost/mydb\"],\n      \"env\": { \"CACHE_DIR\": \"/tmp\" }\n    }\n  }\n}\n\nhttp / streamable-http (with header + env expansion):\n{\n  \"mcpServers\": {\n    \"private-api\": {\n      \"type\": \"http\",\n      \"url\": \"${API_BASE_URL:-https://api.example.com}/mcp\",\n      \"headers\": { \"Authorization\": \"Bearer ${API_KEY}\" }\n    }\n  }\n}\n\nsse (deprecated) and ws use the same url/headers fields with \"type\": \"sse\" or \"type\": \"ws\".\n\nCLI equivalents:\n  claude mcp add --transport stdio --env KEY=val name -- npx -y server\n  claude mcp add --transport http notion https://mcp.notion.com/mcp\n  claude mcp add-json name '{\"type\":\"stdio\",\"command\":\"/path\",\"args\":[]}'\n(--scope local|project|user controls destination; type \"streamable-http\" is accepted as an alias for \"http\".)",
+            "notes": "Supported fields per server: type, command, args, env, url, headers, headersHelper (dynamic auth, runs command -> JSON headers), oauth (clientId, callbackPort, scopes, authServerMetadataUrl), timeout (ms, per-tool-call), alwaysLoad (exempt from tool-search deferral). Env expansion ${VAR} and ${VAR:-default} works in command/args/env/url/headers. ${CLAUDE_PROJECT_DIR} is set in the spawned stdio server's environment (use ${CLAUDE_PROJECT_DIR:-.} default in project/user scope). Precedence (highest first): local > project > user > plugin > claude.ai connectors; entire entry from highest-precedence source wins, no field merging. Project .mcp.json servers require interactive approval. OAuth 2.0 supported for http; manage via /mcp. SSE transport is deprecated in favor of http."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "SessionStart",
+              "Setup",
+              "UserPromptSubmit",
+              "UserPromptExpansion",
+              "PreToolUse",
+              "PermissionRequest",
+              "PermissionDenied",
+              "PostToolUse",
+              "PostToolUseFailure",
+              "PostToolBatch",
+              "Notification",
+              "MessageDisplay",
+              "SubagentStart",
+              "SubagentStop",
+              "TaskCreated",
+              "TaskCompleted",
+              "Stop",
+              "StopFailure",
+              "TeammateIdle",
+              "InstructionsLoaded",
+              "ConfigChange",
+              "CwdChanged",
+              "FileChanged",
+              "WorktreeCreate",
+              "WorktreeRemove",
+              "PreCompact",
+              "PostCompact",
+              "Elicitation",
+              "ElicitationResult",
+              "SessionEnd"
+            ],
+            "config_mechanism": "Declared as a \"hooks\" object in a settings.json file (NOT in .mcp.json). Locations/scopes: ~/.claude/settings.json (user, all projects), .claude/settings.json (project, committable), .claude/settings.local.json (project, gitignored), managed policy settings (org-wide), plugin hooks/hooks.json, and skill/agent frontmatter. Structure: each event key holds an array of groups, each group has an optional \"matcher\" (tool name / regex / event-specific value) and a \"hooks\" array of handlers. Handler \"type\" is one of: command (shell), http (POST to url), mcp_tool (call a connected MCP tool), prompt (single-turn LLM eval), agent (multi-turn subagent, experimental). Example:\n{\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Edit|Write\",\n        \"hooks\": [\n          { \"type\": \"command\", \"command\": \"\\\"$CLAUDE_PROJECT_DIR\\\"/.claude/hooks/protect-files.sh\", \"timeout\": 30, \"if\": \"Bash(git *)\" }\n        ]\n      }\n    ],\n    \"PostToolUse\": [\n      { \"matcher\": \"Edit|Write\", \"hooks\": [{ \"type\": \"command\", \"command\": \"jq -r '.tool_input.file_path' | xargs npx prettier --write\" }] }\n    ]\n  }\n}",
+            "notes": "Hooks receive event JSON on stdin (common fields session_id, cwd, hook_event_name, plus event-specific data like tool_name/tool_input). Control via exit codes (0 = no objection, 2 = block with stderr fed to Claude) or structured JSON on stdout (hookSpecificOutput.permissionDecision allow/deny/ask for PreToolUse; decision:block for PostToolUse/Stop; additionalContext for UserPromptSubmit). MCP tools matched as mcp__<server>__<tool>. Disable all with \"disableAllHooks\": true. Browse via /hooks (read-only). Default command/http/mcp_tool timeout 10 min; prompt 30s; agent 60s. Hooks run in parallel; most-restrictive decision wins."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "Yes. Claude Code has a first-class plugin system installed via /plugin install <plugin>@<marketplace> (marketplaces added with /plugin marketplace add <owner/repo>). Plugins bundle slash commands, skills, subagents, hooks (hooks/hooks.json), and MCP servers (.mcp.json at plugin root or inline mcpServers in plugin.json). Plugin MCP servers start automatically when the plugin is enabled and use ${CLAUDE_PLUGIN_ROOT} / ${CLAUDE_PLUGIN_DATA} / ${CLAUDE_PROJECT_DIR} env expansion. Official marketplace: anthropics/claude-plugins-official."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "Token usage is NOT exposed to MCP servers or hooks as data. The hook stdin JSON contains no token-count fields, and MCP servers receive no usage payload. Related but distinct: Claude Code manages MCP OUTPUT size via MAX_MCP_OUTPUT_TOKENS env var (default 25,000 tokens; warns at 10,000) and lets MCP servers raise their own output cap with _meta[\"anthropic/maxResultSizeChars\"] (ceiling 500,000 chars) - these size/limit controls flow toward the server's output budgeting but do not report actual conversation/turn token consumption to servers or hooks."
+          },
+          "quirks": [
+            "Local-scoped MCP servers live in ~/.claude.json (home dir), NOT in .claude/settings.local.json - 'local scope' for MCP differs from general local settings.",
+            "CLI option ordering is strict: all flags (--transport, --env, --scope, --header) must precede the server name, and -- separates name from the server command.",
+            "type \"streamable-http\" is accepted as an alias for \"http\"; SSE is deprecated; WebSocket (ws) supports neither OAuth nor the --transport flag (header-only auth).",
+            "The server name \"workspace\" is reserved and skipped with a warning.",
+            "MCP tool search is on by default (tools deferred until needed); alwaysLoad:true exempts a server but blocks startup up to a 5s connect timeout.",
+            "Hooks are configured in settings.json, while MCP servers are configured in .mcp.json / ~/.claude.json - two different files.",
+            "${CLAUDE_PROJECT_DIR} is injected into the spawned stdio server environment, not Claude's own env, so project/user-scoped .mcp.json needs a default like ${CLAUDE_PROJECT_DIR:-.}.",
+            "Stdio servers are not auto-reconnected (local processes); http/sse reconnect with exponential backoff up to 5 attempts."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://code.claude.com/docs/en/mcp",
+            "https://code.claude.com/docs/en/hooks-guide",
+            "https://code.claude.com/docs/en/hooks",
+            "https://code.claude.com/docs/en/plugins",
+            "https://code.claude.com/docs/en/settings",
+            "https://code.claude.com/docs/en/managed-mcp"
+          ]
+        },
+        {
+          "name": "Codex CLI",
+          "vendor": "OpenAI",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "stdio",
+              "streamable-http"
+            ],
+            "config_file_paths": [
+              "User/global: ~/.codex/config.toml (base dir is $CODEX_HOME, defaults to ~/.codex on macOS/Linux/Windows)",
+              "Project-scoped: .codex/config.toml at repo root (loaded only when the project .codex/ layer is trusted)",
+              "Profiles: $CODEX_HOME/<profile-name>.config.toml",
+              "No separate documented Windows path; CODEX_HOME defaults to ~/.codex which expands per OS home convention"
+            ],
+            "config_format": "toml",
+            "scope_levels": [
+              "user/global (~/.codex/config.toml)",
+              "project (.codex/config.toml, trusted only)",
+              "profile ($CODEX_HOME/<profile>.config.toml)",
+              "system/managed (MDM)"
+            ],
+            "registration_shape": "stdio (~/.codex/config.toml):\n[mcp_servers.context7]\ncommand = \"npx\"\nargs = [\"-y\", \"@upstash/context7-mcp\"]\nenv = { MY_ENV_VAR = \"MY_ENV_VALUE\" }\nenv_vars = [\"LOCAL_TOKEN\"]\n# optional: cwd, startup_timeout_sec, tool_timeout_sec, enabled, required\n\nstreamable HTTP:\n[mcp_servers.figma]\nurl = \"https://mcp.figma.com/mcp\"\nbearer_token_env_var = \"FIGMA_OAUTH_TOKEN\"\nhttp_headers = { \"X-Figma-Region\" = \"us-east-1\" }\n\nCLI equivalents:\n  codex mcp add context7 -- npx -y @upstash/context7-mcp\n  codex mcp add <name> --env VAR=VALUE -- <command> [args...]",
+            "notes": "Each server is a [mcp_servers.<id>] TOML table. Stdio fields: command (required), args, env (inline table of KEY=value), env_vars (names to forward from the host env, can be {name, source} form), cwd, startup_timeout_sec, tool_timeout_sec. HTTP fields: url (required), bearer_token_env_var, http_headers, env_http_headers. Common to both: enabled, required, enabled_tools, disabled_tools, plus per-server default_tools_approval_mode (auto/prompt/approve) and per-tool approval_mode overrides. Note OpenAI uses env_vars (forward-by-name) distinct from env (literal key/value), unlike Claude Code which uses only env."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "SessionStart",
+              "SubagentStart",
+              "PreToolUse",
+              "PermissionRequest",
+              "PostToolUse",
+              "PreCompact",
+              "PostCompact",
+              "UserPromptSubmit",
+              "SubagentStop",
+              "Stop"
+            ],
+            "config_mechanism": "Codex CLI has a hooks system (enabled by default; disable with [features] hooks = false). Hooks load from either a hooks.json file or an inline [hooks] table in config.toml, at user (~/.codex/), project (<repo>/.codex/, trusted only), system, managed/MDM, and plugin-bundled layers. The structure mirrors Claude Code's event -> [{matcher, hooks:[{type, command,...}]}] shape. Inline TOML example:\n[[hooks.PreToolUse]]\nmatcher = \"^Bash$\"\n\n[[hooks.PreToolUse.hooks]]\ntype = \"command\"\ncommand = 'python3 script.py'\ntimeout = 30\nstatusMessage = \"Checking command\"\n\nEquivalent ~/.codex/hooks.json:\n{\n  \"hooks\": {\n    \"PreToolUse\": [\n      { \"matcher\": \"Bash\", \"hooks\": [ { \"type\": \"command\", \"command\": \"/usr/bin/python3 script.py\", \"timeout\": 30, \"statusMessage\": \"Checking command\" } ] }\n    ]\n  }\n}\nA Windows-specific command variant can be supplied via commandWindows. Separately, the simpler notify = [\"program\", \"args\"] setting runs an external program on lifecycle events (currently agent-turn-complete).",
+            "notes": "Higher-precedence config layers do NOT replace lower-precedence hooks - hooks from all active layers accumulate. Project-local hooks load only when the project .codex/ layer is trusted; user and system hooks load regardless of project trust. Plugin-bundled hooks go through the same trust-review flow as other non-managed hooks. The dedicated hooks system is newer/more granular than the long-standing notify hook; notify only fires agent-turn-complete and is intended for desktop notifiers/webhooks/CI."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "Yes (newer). Codex supports installable plugins that can bundle lifecycle hook config through a plugin manifest or a default hooks/hooks.json file. Plugin-bundled hooks use the same trust-review flow as other non-managed hooks. This is in addition to MCP servers (which provide the primary tool-extension mechanism) and TOML config profiles. The plugin/hooks surface is evolving in the 2025-2026 releases."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "Token usage is NOT exposed to the notify program or hooks. The notify JSON payload for agent-turn-complete contains type, thread-id, turn-id, cwd, input-messages, and last-assistant-message - no token_count/input_tokens/usage fields. The hooks documentation likewise does not pass token usage to hook handlers. (Codex tracks usage/rate-limit context-window info in its TUI and for its own observability/metrics emission, but does not surface those numbers to notify/hook processes.)"
+          },
+          "quirks": [
+            "Config is TOML, not JSON - servers are [mcp_servers.<name>] tables, fundamentally different file/format from Claude Code's .mcp.json.",
+            "env (literal KEY=value inline table) is distinct from env_vars (list of host env var names to forward) - two separate mechanisms.",
+            "HTTP auth uses bearer_token_env_var (a name pointing to an env var holding the token) rather than an inline Authorization header.",
+            "Project-scoped config and project hooks load ONLY when the project's .codex/ layer is trusted; untrusted projects still load user/system layers.",
+            "Two notification/automation surfaces coexist: the older notify = [...] (fires only agent-turn-complete) and the newer full hooks system (PreToolUse/PostToolUse/etc.).",
+            "Hooks support a commandWindows field for OS-specific commands; base dir is $CODEX_HOME (defaults to ~/.codex) on all OSes.",
+            "Hooks from multiple config layers accumulate rather than overriding - higher layers do not replace lower-layer hooks.",
+            "MCP servers can be managed via `codex mcp add` CLI or by editing config.toml directly."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://developers.openai.com/codex/mcp",
+            "https://developers.openai.com/codex/config-reference",
+            "https://developers.openai.com/codex/config-advanced",
+            "https://developers.openai.com/codex/hooks",
+            "https://developers.openai.com/codex/cli/reference",
+            "https://github.com/openai/codex/issues/4005"
+          ]
+        }
+      ]
+    },
+    {
+      "platforms": [
+        {
+          "name": "OpenCode",
+          "vendor": "SST (sst/opencode, opencode.ai)",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "local/stdio (type: \"local\")",
+              "remote/http (type: \"remote\", Streamable HTTP + SSE)"
+            ],
+            "config_file_paths": [
+              "~/.config/opencode/opencode.json (global)",
+              "~/.config/opencode/opencode.jsonc (global, JSONC variant)",
+              "<project-root>/opencode.json (project)",
+              "<project-root>/opencode.jsonc (project)",
+              "Override location via OPENCODE_CONFIG env var; config dir via OPENCODE_CONFIG_DIR; inline via OPENCODE_CONFIG_CONTENT"
+            ],
+            "config_format": "json (also jsonc / JSON-with-comments)",
+            "scope_levels": [
+              "remote (.well-known/opencode org defaults - lowest precedence)",
+              "global (~/.config/opencode/opencode.json)",
+              "custom (OPENCODE_CONFIG env var)",
+              "project (opencode.json in repo root)",
+              ".opencode directories",
+              "inline (OPENCODE_CONFIG_CONTENT)",
+              "managed/MDM (highest precedence)"
+            ],
+            "registration_shape": "MCP servers go under the top-level \"mcp\" key, keyed by unique server name. The crucial distinction is type: \"local\" (stdio, uses command[]) vs type: \"remote\" (HTTP, uses url).\n\nLocal / stdio:\n{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"my-local-server\": {\n      \"type\": \"local\",\n      \"command\": [\"npx\", \"-y\", \"my-mcp-command\"],\n      \"enabled\": true,\n      \"environment\": { \"MY_ENV_VAR\": \"value\" }\n    }\n  }\n}\n\nRemote / http:\n{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"my-remote-server\": {\n      \"type\": \"remote\",\n      \"url\": \"https://my-mcp-server.com\",\n      \"enabled\": true,\n      \"headers\": { \"Authorization\": \"Bearer MY_API_KEY\" }\n    }\n  }\n}\n\nNote: command is an array of [exe, ...args] (not separate command/args fields). enabled:false disables without removing. Optional timeout (ms). For remote, oauth is auto-detected on 401; set \"oauth\": false to disable, or pass an oauth object (clientId/clientSecret/scope) to override.",
+            "notes": "Local uses array-form command[] (binary + args together) and an \"environment\" object (NOT \"env\"). Remote auto-handles OAuth: on a 401 OpenCode initiates the OAuth flow automatically (dynamic client registration if clientId omitted). Per-agent tool gating via the \"tools\" config with glob patterns like \"my-mcp*\". MCP tools are referenced by name in prompts. JSON $schema is https://opencode.ai/config.json."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "tool.execute.before",
+              "tool.execute.after",
+              "chat.message",
+              "chat.params",
+              "permission.ask / permission.asked / permission.replied",
+              "event (generic dispatcher; switch on event.type)",
+              "session.created",
+              "session.idle",
+              "session.updated",
+              "session.compacted",
+              "session.deleted",
+              "session.error",
+              "session.status",
+              "session.diff",
+              "message.updated",
+              "message.removed",
+              "message.part.updated",
+              "message.part.removed",
+              "file.edited",
+              "file.watcher.updated",
+              "command.executed",
+              "lsp.client.diagnostics",
+              "lsp.updated",
+              "todo.updated",
+              "shell.env",
+              "server.connected",
+              "installation.updated",
+              "tui.prompt.append / tui.command.execute / tui.toast.show",
+              "experimental.session.compacting"
+            ],
+            "config_mechanism": "Plugin-based, not a JSON hook table. A plugin is a JS/TS module that EXPORTS an async function receiving a context object and RETURNING a hooks object keyed by hook name. Local plugins: drop .ts/.js files in .opencode/plugin/ (project) or ~/.config/opencode/plugin/ (global) and they auto-load at startup. NPM plugins: list package names in the top-level \"plugin\": [\"pkg-name\", \"@org/pkg\"] array in opencode.json (installed via Bun at startup, cached in ~/.cache/opencode/node_modules/). Context object provides { project, client, $ (Bun shell), directory, worktree }. Example:\nexport const EnvProtection = async ({ project, client, $, directory, worktree }) => ({\n  \"tool.execute.before\": async (input, output) => {\n    if (input.tool === \"read\" && output.args.filePath.includes(\".env\"))\n      throw new Error(\"Do not read .env files\")\n  }\n})",
+            "notes": "Docs use BOTH '.opencode/plugin' (singular, on the plugins page intro) and '.opencode/plugins' (plural, in the directory listing) — the plural form is the one quoted in the directory section, so verify against the installed version. Plugins can also register custom tools, not just hooks. 25+ lifecycle events available. There is NOT a Claude-Code-style settings.json hook array; everything is via exported JS/TS plugin functions. There was an early 'Hooks support?' issue (#1473) that the plugin system now answers."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "First-class plugin system. Plugins are JS/TS modules exporting async functions that return a hooks object. Sources: local files in .opencode/plugin(s)/ or ~/.config/opencode/plugin(s)/ (auto-loaded), or npm packages listed in the \"plugin\" array of opencode.json (auto-installed via Bun, cached under ~/.cache/opencode/node_modules/). Plugins receive { project, client (OpenCode SDK), $ (Bun shell), directory, worktree } and can hook ~25+ lifecycle events plus tool.execute.before/after, chat.message, chat.params, permission.ask, and register custom tools."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "No token-usage / cost fields are documented in the config schema, and none of the documented plugin hooks/events advertise token counts in their descriptions. However, plugins receive message lifecycle events (message.updated, session.idle, etc.) and an OpenCode SDK client, and OpenCode's underlying message/assistant objects do carry usage data (input/output/cache tokens, cost) in the broader API/data model — so token usage is reachable in practice by inspecting message objects via the client, even though it is not surfaced as a dedicated hook payload. Treated as NOT a first-class, documented exposure to MCP servers/hooks. Community tooling (e.g. tokscale) scrapes OpenCode's local session/log data for token tracking rather than receiving it via a hook API."
+          },
+          "quirks": [
+            "command is array-form [exe, ...args] for local servers; uses \"environment\" not \"env\".",
+            "type distinguishes local (stdio) from remote (http) — there is no separate sse type; remote covers Streamable HTTP/SSE.",
+            "Remote MCP OAuth is automatic on 401 (dynamic client registration); disable with \"oauth\": false.",
+            "Plugin directory naming is inconsistent in docs (.opencode/plugin vs .opencode/plugins) — verify on the installed build.",
+            "npm plugins are installed/cached automatically via Bun at startup; no manual npm install in the project.",
+            "Config merges across many layers (remote/global/project/.opencode/inline/managed) rather than replacing.",
+            "Kilo Code's new config is essentially a fork of this exact opencode.json shape (same \"mcp\" key, type local/remote)."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://opencode.ai/docs/mcp-servers/",
+            "https://opencode.ai/docs/plugins/",
+            "https://opencode.ai/docs/config/",
+            "https://github.com/sst/opencode",
+            "https://github.com/sst/opencode/issues/1473",
+            "https://github.com/junhoyeo/tokscale"
+          ]
+        },
+        {
+          "name": "Kilo Code (VS Code extension)",
+          "vendor": "Kilo Org (Kilo-Org/kilocode, kilo.ai) — originally a Roo Code / Cline fork",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "Local / stdio (legacy: command+args; new: type \"local\" with command[])",
+              "Remote: SSE and Streamable HTTP (legacy: type \"sse\"/\"streamable-http\" with url; new: type \"remote\" with url)"
+            ],
+            "config_file_paths": [
+              "LEGACY (classic VS Code extension): project = <project-root>/.kilocode/mcp.json ; global = mcp_settings.json in the extension globalStorage (edited via the MCP Servers UI -> 'Edit Global MCP' / 'Edit Project MCP' buttons)",
+              "NEW (current 'Kilo for VS Code' GA + CLI): global = ~/.config/kilo/kilo.jsonc (or kilo.json) ; project = <project-root>/kilo.jsonc or <project-root>/.kilo/kilo.jsonc",
+              "Backward compat: .kilocode/mcp.json is still read by the new extension"
+            ],
+            "config_format": "json (legacy .kilocode/mcp.json) and jsonc (new kilo.jsonc)",
+            "scope_levels": [
+              "global (extension globalStorage mcp_settings.json, or ~/.config/kilo/kilo.jsonc)",
+              "project (.kilocode/mcp.json, or kilo.jsonc / .kilo/kilo.jsonc)",
+              "Precedence: project-level overrides global when names collide"
+            ],
+            "registration_shape": "TWO generations exist — verify which one your installed extension uses.\n\nLEGACY format (.kilocode/mcp.json, Roo/Cline-style, top-level \"mcpServers\" key):\n{\n  \"mcpServers\": {\n    \"my-local-server\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"my-mcp-command\"],\n      \"env\": { \"API_KEY\": \"your_api_key\" },\n      \"disabled\": false,\n      \"alwaysAllow\": [\"read_only_tool_name\"]\n    },\n    \"my-remote-server\": {\n      \"type\": \"streamable-http\",\n      \"url\": \"https://my-mcp-server.com/mcp\",\n      \"headers\": { \"Authorization\": \"Bearer MY_API_KEY\" },\n      \"disabled\": false,\n      \"alwaysAllow\": []\n    }\n  }\n}\n(legacy local uses scalar \"command\" + separate \"args\"[] + \"env\"; remote uses type \"sse\" or \"streamable-http\".)\n\nNEW format (kilo.jsonc, OpenCode-style, top-level \"mcp\" key):\n{\n  \"mcp\": {\n    \"my-local-server\": {\n      \"type\": \"local\",\n      \"command\": [\"npx\", \"-y\", \"my-mcp-command\"],\n      \"environment\": { \"API_KEY\": \"your_api_key\" },\n      \"enabled\": true,\n      \"timeout\": 10000\n    },\n    \"my-remote-server\": {\n      \"type\": \"remote\",\n      \"url\": \"https://my-mcp-server.com/mcp\",\n      \"headers\": { \"Authorization\": \"Bearer MY_API_KEY\" },\n      \"enabled\": true,\n      \"timeout\": 15000\n    }\n  }\n}\nTool auto-approval in new format via top-level \"permission\": { \"myserver_tool\": \"allow\", \"myserver_*\": \"allow\" }.",
+            "notes": "The user asked specifically about the VS Code EXTENSION. The classic extension uses .kilocode/mcp.json with the \"mcpServers\" key (legacy local: scalar command + args[] + env; per-tool auto-approve via alwaysAllow[]; disable via disabled:true). The newly GA'd 'Kilo for VS Code' (and the Kilo CLI) adopted OpenCode's schema almost verbatim: \"mcp\" key, type local/remote, command[] array, \"environment\", \"enabled\", kilo.jsonc files. Both are configurable via the Settings -> MCP (or Agent Behaviour -> MCP Servers) UI: Add Server -> Local (stdio) or Remote (HTTP). Note GitHub issue #7079 flags confusion where MCP servers get auto-written to opencode.jsonc but Kilo recommends a different file — a live migration seam."
+          },
+          "hooks_support": {
+            "supported": false,
+            "hook_types": [
+              "No PreToolUse/PostToolUse/SessionStart-style programmatic lifecycle hooks",
+              "Closest equivalents (not callbacks): Custom Rules / instructions, Custom Modes (now 'agents'), Workflows / slash commands (.kilo/commands/*.md), Skills (SKILL.md), Custom Subagents"
+            ],
+            "config_mechanism": "There is NO programmatic hook/event/lifecycle callback system. Customization is declarative/prompt-based: (1) Custom Rules via the \"instructions\" array in kilo.jsonc (file paths/globs) with backward-compatible .kilocode/rules/ directories; (2) Custom Modes/'agents' as Markdown files with YAML frontmatter or entries under the \"agent\" key, plus .kilo/rules-{mode-slug}/ dirs or .kilorules-{mode-slug} files; (3) Workflows as slash-command prompt templates in .kilo/commands/*.md (CLI slash commands match /^\\/(\\S*)$/ at input start); (4) Skills (SKILL.md) reusable capability packs. None of these fire on tool-use/session events programmatically.",
+            "notes": "Open feature request (Kilo-Org/kilocode) explicitly asks Kilo to expose session lifecycle hooks/APIs so external tools can detect session start/end, read transcripts, and run workflows on completion — confirming such hooks do NOT currently exist. Slash-command support in the VS Code extension was itself a feature request (issue #6949). Extensibility is via MCP (tools) + rules/modes/workflows/skills, not event hooks."
+          },
+          "plugin_system": {
+            "exists": false,
+            "description": "No JS/TS plugin runtime like OpenCode's. Kilo Code is itself a VS Code extension and extends primarily through MCP servers (external tools/resources) plus declarative customization: Custom Rules (instructions), Custom Modes/agents, Workflows (.kilo/commands/*.md slash commands), Custom Subagents, and Skills (SKILL.md). There is no in-process plugin API or lifecycle-hook module loading; the only 'plugin-like' extension surface is the MCP marketplace and MCP server config."
+          },
+          "token_observability": {
+            "native_usage_exposed": true,
+            "description": "Kilo Code natively tracks and DISPLAYS token usage and cost to the USER, but does not expose it as a programmatic API to MCP servers or hooks. The chat history shows per-interaction input/output token counts and an estimated cost next to each API request. It parses tokensIn, tokensOut, cacheReads, cacheWrites, cost, and apiProtocol from task logs, with per-model breakdowns (input, cached/cache-reads, cacheCreate/cache-writes, output, reasoning). A dashboard/analytics view (and the kilo.ai gateway billing page) shows Total Spent, total tokens, and per-user/team breakdowns. This is UI/log + gateway-billing exposure, NOT a hook/MCP-facing usage callback (no lifecycle hooks exist to receive it). Third-party tools like tokscale read these local task logs to track usage."
+          },
+          "quirks": [
+            "TWO config generations: legacy .kilocode/mcp.json with \"mcpServers\" key (Roo/Cline lineage) vs new kilo.jsonc with \"mcp\" key (OpenCode-style) — must check installed extension version.",
+            "New Kilo config is nearly a clone of opencode.json (same \"mcp\"/type local|remote/command[]/environment) since the new VS Code extension and CLI converged on that schema.",
+            "Legacy local servers use scalar \"command\" + \"args\"[] + \"env\"; new local servers use single \"command\"[] array + \"environment\".",
+            "Per-tool auto-approval differs: legacy uses per-server \"alwaysAllow\":[toolNames]; new uses top-level \"permission\":{ \"server_tool\":\"allow\" } with globs.",
+            "Disable differs: legacy \"disabled\": true vs new \"enabled\": false.",
+            "Global vs project MCP edited via separate 'Edit Global MCP' / 'Edit Project MCP' UI buttons; project overrides global on name clash.",
+            "No programmatic lifecycle hooks — only declarative rules/modes/workflows/skills + MCP; session-hooks are an open feature request.",
+            "Migration seam: issue #7079 notes MCP servers may be auto-written into opencode.jsonc while Kilo recommends its own file.",
+            "Token usage is shown to the user/billing dashboard but is not handed to MCP servers or any hook."
+          ],
+          "confidence": "medium",
+          "sources": [
+            "https://kilo.ai/docs/automate/mcp/using-in-kilo-code",
+            "https://kilo.ai/docs/automate/mcp/using-in-cli",
+            "https://kilo.ai/docs/automate/mcp/overview",
+            "https://kilo.ai/docs/getting-started/settings",
+            "https://kilo.ai/docs/getting-started/rate-limits-and-costs",
+            "https://kilo.ai/docs/customize/custom-rules",
+            "https://kilo.ai/docs/agent-behavior/custom-modes",
+            "https://blog.kilo.ai/p/new-kilo-for-vs-code-is-live",
+            "https://github.com/Kilo-Org/kilocode/issues/6949",
+            "https://github.com/Kilo-Org/kilocode/issues/7079",
+            "https://github.com/Kilo-Org/kilocode/issues/1042",
+            "https://blog.guillaumea.fr/post/configuring-terraform-mcp-server-kilo-code/"
+          ]
+        }
+      ]
+    },
+    {
+      "platforms": [
+        {
+          "name": "Cursor",
+          "vendor": "Anysphere",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "stdio",
+              "http (Streamable HTTP)",
+              "sse (deprecated, still supported)"
+            ],
+            "config_file_paths": [
+              "~/.cursor/mcp.json (global / all projects; %USERPROFILE%\\.cursor\\mcp.json on Windows)",
+              ".cursor/mcp.json (project root, project-scoped)"
+            ],
+            "config_format": "json",
+            "scope_levels": [
+              "global (user, ~/.cursor/mcp.json)",
+              "project (.cursor/mcp.json)"
+            ],
+            "registration_shape": "Root key is \"mcpServers\". stdio: {\"mcpServers\":{\"my-server\":{\"command\":\"npx\",\"args\":[\"-y\",\"mcp-server\"],\"env\":{\"API_KEY\":\"value\"}}}}. Remote http/sse: {\"mcpServers\":{\"my-server\":{\"url\":\"http://localhost:3000/mcp\",\"headers\":{\"API_KEY\":\"value\"}}}}. Optional fields: type (\"stdio\"), envFile (stdio only), auth (OAuth for remote: CLIENT_ID/CLIENT_SECRET/scopes). Var interpolation in command/args/env/url/headers via ${env:NAME}, ${userHome}, ${workspaceFolder}, ${workspaceFolderBasename}, ${pathSeparator}.",
+            "notes": "Same root key as Claude Desktop/Copilot CLI (\"mcpServers\"), NOT VS Code's \"servers\". A missing \"mcpServers\" root key fails silently (file ignored, no error). SSE \"type\":\"sse\" is deprecated per the March 2025 MCP spec update; prefer \"type\":\"http\". OAuth redirect URL is fixed at cursor://anysphere.cursor-mcp/oauth/callback."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "beforeSubmitPrompt",
+              "beforeShellExecution",
+              "afterShellExecution",
+              "beforeMCPExecution",
+              "afterMCPExecution",
+              "beforeReadFile",
+              "afterFileEdit",
+              "sessionStart",
+              "sessionEnd",
+              "preToolUse",
+              "postToolUse",
+              "postToolUseFailure",
+              "subagentStart",
+              "subagentStop",
+              "preCompact",
+              "afterAgentResponse",
+              "afterAgentThought",
+              "stop",
+              "beforeTabFileRead",
+              "afterTabFileEdit",
+              "workspaceOpen"
+            ],
+            "config_mechanism": "Introduced in Cursor 1.7 (Oct 2025). Declared in a hooks.json file with required {\"version\":1,\"hooks\":{\"<eventName>\":[{\"command\":\"./script.sh\",\"timeout\":30,\"matcher\":\"pattern\",\"failClosed\":false}]}} structure. Resolution priority (high->low): enterprise (/etc/cursor/hooks.json on Linux/WSL, /Library/Application Support/Cursor/hooks.json on macOS, C:\\ProgramData\\Cursor\\hooks.json on Windows) > team (cloud-distributed, Enterprise only) > project (<project-root>/.cursor/hooks.json) > user (~/.cursor/hooks.json). Hooks are spawned processes communicating over stdio with JSON in both directions.",
+            "notes": "Hook scripts receive JSON on stdin (conversation_id, generation_id, model, command, cwd, hook_event_name, workspace_roots, file contents, etc.) and return JSON on stdout. Exit code 0 = success (use JSON output), 2 = block/deny action, other codes = fail-open (proceed). beforeShellExecution/beforeMCPExecution/afterFileEdit can deny, redact content, or run formatters. Project hook script paths are relative to project root (.cursor/hooks/x.sh); user hook paths are relative to ~/.cursor/ (./hooks/x.sh)."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "Cursor is a VS Code fork and supports the full VS Code extension model (.vsix packages), but pulls extensions from the Open VSX registry (open-vsx.org) rather than the Microsoft Marketplace; Cursor also republishes some popular extensions for compatibility. VSIX files can be installed manually. For AI-agent customization Cursor offers Rules, Commands, Skills, and the Hooks lifecycle system rather than a dedicated 'agent plugin' bundle format. There is also an Extension API surface (e.g. vscode.cursor.mcp.registerServer()) for programmatic MCP registration."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "No documented native API for exposing per-request token usage to MCP servers or hooks; hook input schemas include conversation/model metadata but not token counts. Token/usage visibility is provided to the human via the Cursor dashboard and the status bar (all Cursor plans, Free/Pro/Business, use token-based usage billing). Community status-bar extensions (Cursor Usage Monitor, Cursor AI Usage Tracker, Cursor Pro Usage on Open VSX/Marketplace) surface input/output token counts and USD cost, but this is not data piped into hooks/MCP servers."
+          },
+          "quirks": [
+            "Root key \"mcpServers\" with no validation — a typo in the root key makes Cursor silently ignore the whole file.",
+            "Uses ${env:VAR} interpolation syntax (VS Code-style) rather than ${VAR} used by some other clients.",
+            "envFile is stdio-only; remote servers cannot use it.",
+            "Hooks added in 1.7 (Oct 2025); enterprise hooks at OS-level paths override project/user hooks and cannot be removed by users.",
+            "Extensions come from Open VSX, not the Microsoft Marketplace, so some MS-published extensions are unavailable or are Cursor-republished forks."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://cursor.com/docs/context/mcp",
+            "https://cursor.com/docs/hooks",
+            "https://cursor.com/docs/cli/mcp",
+            "https://cursor.com/help/customization/extensions",
+            "https://blog.gitbutler.com/cursor-hooks-deep-dive",
+            "https://www.infoq.com/news/2025/10/cursor-hooks/"
+          ]
+        },
+        {
+          "name": "VS Code GitHub Copilot (Agent Mode)",
+          "vendor": "Microsoft / GitHub",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "stdio",
+              "http",
+              "sse"
+            ],
+            "config_file_paths": [
+              ".vscode/mcp.json (workspace, commit to share with team)",
+              "User profile mcp.json (open via command palette: 'MCP: Open User Configuration'; profile-specific, available across all workspaces)",
+              "devcontainer.json (under customizations.vscode.mcp.servers; VS Code writes these to the remote mcp.json)",
+              "Remote/dev container config via 'MCP: Open Remote User Configuration'"
+            ],
+            "config_format": "jsonc",
+            "scope_levels": [
+              "workspace (.vscode/mcp.json)",
+              "user profile",
+              "remote / dev container"
+            ],
+            "registration_shape": "Root key is \"servers\" (NOT \"mcpServers\"), with an optional sibling \"inputs\" array for prompted secrets. http: {\"servers\":{\"github\":{\"type\":\"http\",\"url\":\"https://api.githubcopilot.com/mcp\"}}}. stdio: {\"servers\":{\"playwright\":{\"type\":\"stdio\",\"command\":\"npx\",\"args\":[\"-y\",\"@microsoft/mcp-server-playwright\"]}}}. With inputs: {\"inputs\":[{\"type\":\"promptString\",\"id\":\"api-key\",\"description\":\"API Key\",\"password\":true}],\"servers\":{\"my\":{\"type\":\"stdio\",\"command\":\"my-server\",\"env\":{\"KEY\":\"${input:api-key}\"}}}}.",
+            "notes": "MCP tools are ONLY usable in Copilot Chat 'Agent' mode (invisible in Ask/Edit modes). Root key 'servers' differs from Cursor/Copilot-CLI's 'mcpServers'. VS Code provides JSON IntelliSense for mcp.json. Trust prompt is shown before first server start. Servers can be enabled/disabled without editing the file. Extensions can also register MCP servers/tools programmatically via the Extension API (Language Model Tool API + MCP provider API), running in the extension host rather than as a separate process."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "SessionStart",
+              "UserPromptSubmit",
+              "PreToolUse",
+              "PostToolUse",
+              "PreCompact",
+              "SubagentStart",
+              "SubagentStop",
+              "Stop"
+            ],
+            "config_mechanism": "Agent hooks are a Preview feature (shipped around VS Code 1.110, early 2026). JSON structure maps event names to command arrays: {\"hooks\":{\"PreToolUse\":[{\"type\":\"command\",\"command\":\"./scripts/validate.sh\",\"timeout\":15}]}}. Each command hook supports type:'command', command (cross-platform), windows/linux/osx OS overrides, cwd, env, timeout (default 30s); they communicate via stdin/stdout JSON. Hook files are discovered from: workspace .github/hooks/*.json; Claude-compatible .claude/settings.json and .claude/settings.local.json; user ~/.copilot/hooks and ~/.claude/settings.json; custom agent .agent.md frontmatter 'hooks' field; plugin hooks.json (or hooks/hooks.json). Locations are customizable via the chat.hookFilesLocations setting.",
+            "notes": "Hooks share their format with GitHub Copilot CLI and are deliberately Claude-Code-compatible (it reads .claude/settings.json and ~/.claude/settings.json). Hook input JSON includes timestamp, cwd, sessionId, hookEventName, transcript_path. Output supports continue (bool), stopReason, systemMessage, and hookSpecificOutput. Exit code 0 = success, 2 = blocking. Plugin-bundled hooks fire alongside workspace/user hooks for the same event."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "Two layers. (1) Classic VS Code extensions (.vsix) from the Microsoft Marketplace, which can contribute Language Model Tools and register MCP servers via the Extension API. (2) Agent Plugins (Preview, VS Code 1.110, ~early 2026): installable bundles of chat customizations (custom agents, skills, hooks, MCP servers) sharing a format with GitHub Copilot CLI. Plugins are discovered from plugin marketplaces (a Git repo with a marketplace.json manifest); default marketplaces are copilot-plugins and awesome-copilot, configurable via chat.plugins.marketplaces, and surfaced in the Extensions view."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "Hooks/MCP servers are not passed token-count data (hook input has transcript_path but no token metrics). MCP sampling requests an extension/server makes are inspectable by the user via 'MCP: List Servers > Show Sampling Requests'. As of June 1, 2026 Copilot moved to usage-based billing (GitHub AI Credits tied to input/output/cached tokens), increasing demand for cost visibility; per-message token/cost display is requested (microsoft/vscode issue #317977) and surfaced to humans via the UI and community extensions (e.g. Copilot Budget), not exposed programmatically to hooks/MCP."
+          },
+          "quirks": [
+            "Root key is \"servers\" — different from Cursor and Copilot CLI which use \"mcpServers\". Copy-pasting a Cursor/Claude config will silently not work.",
+            "MCP tools are only available in Agent mode; they do not appear in Ask or Edit modes.",
+            "User-level MCP config has no fixed documented path — you open it via the 'MCP: Open User Configuration' command (it lives in the active profile folder).",
+            "Hooks are intentionally Claude-Code-compatible: VS Code reads .claude/settings.json and ~/.claude/settings.json in addition to .github/hooks/*.json.",
+            "Agent Plugins (1.110) share their bundle format with Copilot CLI, so a plugin can target both tools.",
+            "Dev container MCP servers are declared under customizations.vscode.mcp in devcontainer.json and auto-written to the remote mcp.json."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://code.visualstudio.com/docs/copilot/customization/mcp-servers",
+            "https://code.visualstudio.com/docs/agent-customization/hooks",
+            "https://code.visualstudio.com/docs/agent-customization/agent-plugins",
+            "https://code.visualstudio.com/api/extension-guides/ai/mcp",
+            "https://code.visualstudio.com/api/extension-guides/ai/tools",
+            "https://github.blog/news-insights/product-news/github-copilot-agent-mode-activated/",
+            "https://visualstudiomagazine.com/articles/2026/03/04/vs-code-1-110-ships-with-agent-plugins-browser-tools-and-session-memory.aspx"
+          ]
+        },
+        {
+          "name": "GitHub Copilot CLI",
+          "vendor": "GitHub",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "local/stdio (stdin/stdout)",
+              "http (Streamable HTTP, preferred remote)",
+              "sse (deprecated, legacy support)"
+            ],
+            "config_file_paths": [
+              "~/.copilot/mcp-config.json (user-global, persists across all sessions/workspaces; %USERPROFILE%\\.copilot\\mcp-config.json on Windows)"
+            ],
+            "config_format": "json",
+            "scope_levels": [
+              "user/global (~/.copilot/mcp-config.json)",
+              "organization/enterprise (registry URLs + allowlists applied automatically by policy)"
+            ],
+            "registration_shape": "Root key is \"mcpServers\". local/stdio: {\"mcpServers\":{\"playwright\":{\"type\":\"local\",\"command\":\"npx\",\"args\":[\"@playwright/mcp@latest\"],\"env\":{},\"tools\":[\"*\"]}}}. http: {\"mcpServers\":{\"context7\":{\"type\":\"http\",\"url\":\"https://mcp.context7.com/mcp\",\"headers\":{\"CONTEXT7_API_KEY\":\"YOUR-API-KEY\"},\"tools\":[\"*\"]}}}. Note type is \"local\" for stdio (\"stdio\" also accepted for cross-client compat). 'tools' is \"*\" (all) or a list of tool names.",
+            "notes": "Same root key \"mcpServers\" as Cursor/Claude. Add servers either by editing the file or interactively via /mcp add. Config changes apply immediately without restarting the CLI. The GitHub MCP server is built-in and needs no configuration. PATH is inherited automatically; other env vars must be set explicitly. /mcp subcommands: add, show, show NAME, edit NAME, delete NAME, disable NAME, enable NAME."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "sessionStart / SessionStart",
+              "sessionEnd / SessionEnd",
+              "userPromptSubmitted / UserPromptSubmit",
+              "preToolUse / PreToolUse",
+              "postToolUse / PostToolUse",
+              "postToolUseFailure / PostToolUseFailure",
+              "preCompact / PreCompact",
+              "agentStop / Stop",
+              "subagentStart",
+              "subagentStop / SubagentStop",
+              "errorOccurred / ErrorOccurred",
+              "permissionRequest",
+              "notification"
+            ],
+            "config_mechanism": "JSON files with structure {\"version\":1,\"disableAllHooks\":false,\"hooks\":{\"<eventName>\":[{\"type\":\"command|http|prompt\", ...}]}}. Loaded (in order) from: repository .github/hooks/*.json; user-level ~/.copilot/hooks/*.json (or %USERPROFILE%\\.copilot\\hooks\\ on Windows); inline 'hooks' field in ~/.copilot/settings.json; repository .github/copilot/settings.json or settings.local.json; plugin hooks.json. (The Copilot Cloud Agent loads only .github/hooks/*.json.) Three hook types: command (bash/powershell/command cross-platform fallback, cwd, env, timeoutSec), http (url, headers, allowedEnvVars, timeoutSec; https only by default), and prompt (prompt text or /slash-command).",
+            "notes": "Event names accept camelCase (camelCase field payloads) or PascalCase (snake_case payloads, matching the VS Code Copilot extension / Claude Code format) — making hooks portable across Copilot CLI and VS Code. preToolUse is fail-closed (crash or non-zero exit denies the tool). Default timeout 30s. For the cloud agent only the 'bash' field is honored. Hooks receive context (session ID, tool names, arguments, results) via stdin but NOT token usage."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "Supports Agent Plugins — installable bundles (custom agents, skills, hooks, MCP servers) sharing the same format as VS Code Agent Plugins, discovered from plugin marketplaces (Git repos with a marketplace.json manifest; default copilot-plugins and awesome-copilot). Also supports custom agents authored as .agent.md files (or via an interactive wizard) that can declare their own tools, MCP servers, and instructions. The built-in GitHub MCP server ships with the CLI."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "Hooks receive session/tool context but no token-usage metrics or API cost data. There is no documented mechanism exposing token counts to MCP servers or hooks. Copilot's June 1, 2026 move to usage-based billing (GitHub AI Credits per input/output/cached tokens) makes cost a concern, but usage is reported to the human via GitHub's billing/usage dashboards, not piped into the CLI's hook/MCP extension surface."
+          },
+          "quirks": [
+            "Root key is \"mcpServers\" (same as Cursor/Claude) and stdio type is written as \"local\" — distinct from VS Code's \"servers\" + \"stdio\".",
+            "Single global MCP config file (~/.copilot/mcp-config.json); no built-in per-project mcp file (project scoping for hooks/agents is via .github/, and org scoping via enterprise registry/allowlists).",
+            "Built-in GitHub MCP server requires no setup.",
+            "Hook event names work in both camelCase and PascalCase, the PascalCase variant matching VS Code/Claude Code so the same hook file is portable.",
+            "MCP config edits apply live without restarting the CLI.",
+            "GA reached Feb 2026; hooks and agent plugins are part of the customization surface shared with VS Code."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers",
+            "https://docs.github.com/en/copilot/reference/hooks-configuration",
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks",
+            "https://docs.github.com/en/copilot/concepts/agents/hooks",
+            "https://github.com/github/github-mcp-server/blob/main/docs/installation-guides/install-copilot-cli.md",
+            "https://github.blog/changelog/2026-02-25-github-copilot-cli-is-now-generally-available/",
+            "https://learn.microsoft.com/en-us/azure/developer/azure-mcp-server/how-to/github-copilot-cli"
+          ]
+        }
+      ]
+    },
+    {
+      "platforms": [
+        {
+          "name": "Gemini CLI",
+          "vendor": "Google",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "stdio",
+              "SSE",
+              "Streamable HTTP"
+            ],
+            "config_file_paths": [
+              "~/.gemini/settings.json (user/global scope)",
+              ".gemini/settings.json (project scope, relative to project root)",
+              "/etc/gemini-cli/settings.json (system scope, lowest precedence)"
+            ],
+            "config_format": "json",
+            "scope_levels": [
+              "system (/etc/gemini-cli)",
+              "user/global (~/.gemini)",
+              "project (.gemini in repo)",
+              "extension-bundled"
+            ],
+            "registration_shape": "{\n  \"mcpServers\": {\n    \"myServer\": {\n      \"command\": \"python\",\n      \"args\": [\"server.py\"],\n      \"env\": { \"API_KEY\": \"$MY_API_TOKEN\" },\n      \"cwd\": \"./server-dir\",\n      \"timeout\": 30000,\n      \"trust\": false,\n      \"includeTools\": [\"tool1\"],\n      \"excludeTools\": [\"dangerous_tool\"]\n    },\n    \"remoteSse\":  { \"url\": \"http://localhost:8080/sse\" },\n    \"remoteHttp\": { \"httpUrl\": \"http://localhost:3000/mcp\", \"headers\": { \"Authorization\": \"Bearer token\" } }\n  }\n}",
+            "notes": "Top-level `mcpServers` object keyed by server name. Pick exactly one transport per server: `command`(+`args`,`cwd`) => stdio; `url` => SSE; `httpUrl` => Streamable HTTP. Env-var substitution via $VAR or ${VAR} in `env`/`headers`. A separate top-level `mcp` object holds global controls: `mcp.serverCommand`, `mcp.allowed` (whitelist of server keys), `mcp.excluded` (blacklist). The `gemini mcp add` CLI command also writes these entries and takes `-s, --scope` (default 'project'). OAuth tokens cached/refreshed in ~/.gemini/mcp-oauth-tokens.json. Per-server `trust`, `includeTools`, `excludeTools` for tool gating."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "SessionStart",
+              "SessionEnd",
+              "BeforeAgent",
+              "AfterAgent",
+              "BeforeModel",
+              "AfterModel",
+              "BeforeToolSelection",
+              "BeforeTool",
+              "AfterTool",
+              "PreCompress",
+              "Notification"
+            ],
+            "config_mechanism": "Declared under a top-level `hooks` key in settings.json (same files/scopes as MCP, merged across system/user/project/extensions). Each event maps to an array of {matcher, hooks:[{name,type:'command',command,timeout,description}]}. Only type 'command' (shell script with JSON over stdin/stdout) is currently supported. Matchers are regex for tool events (e.g. 'write_file|replace') and exact strings for lifecycle events. $GEMINI_PROJECT_DIR available in command paths. Manage with `/hooks` (status) and `/reload` (reload). Extensions can bundle hooks.",
+            "notes": "Example: \"hooks\": { \"BeforeTool\": [ { \"matcher\": \"write_file|replace\", \"hooks\": [ { \"type\": \"command\", \"command\": \"$GEMINI_PROJECT_DIR/.gemini/hooks/security.sh\", \"timeout\": 5000 } ] } ] }. Hooks run synchronously in the agent loop. This is a real, shipped lifecycle hook system closely modeled on Claude Code's."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "Gemini CLI Extensions: installable bundles that can ship MCP servers, custom slash commands (.toml files in ~/.gemini/commands/ or <project>/.gemini/commands/), and bundled hooks, installable with a single command and no manual config. This is the formal plugin/extension model layered on top of MCP."
+          },
+          "token_observability": {
+            "native_usage_exposed": true,
+            "description": "The AfterModel hook payload includes the raw model response with `usageMetadata` containing `totalTokenCount` (and standard token breakdown), so a hook can read per-model-call token usage. Note: token usage is NOT propagated to higher-level hooks: AfterAgent only carries prompt/prompt_response/stop_hook_active, and SessionEnd only carries `reason`. So usage is observable only at the AfterModel (per LLM call) granularity, not aggregated session-level."
+          },
+          "quirks": [
+            "Three transport keys are mutually exclusive per server: `command` (stdio), `url` (SSE), `httpUrl` (Streamable HTTP) — using the wrong key silently selects the wrong transport.",
+            "Two distinct config objects: per-server defs go in `mcpServers`; global gating/allow/exclude goes in the separate `mcp` object.",
+            "`gemini mcp add` defaults to PROJECT scope, not user scope — easy to accidentally write a project-local entry.",
+            "Hooks payload schemas differ per event; token usage lives only in AfterModel.usageMetadata, surprisingly absent from AfterAgent/SessionEnd.",
+            "Custom commands are .toml (not the JSON used for MCP/hooks)."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html",
+            "https://geminicli.com/docs/tools/mcp-server/",
+            "https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/index.md",
+            "https://geminicli.com/docs/hooks/",
+            "https://geminicli.com/docs/hooks/reference/",
+            "https://developers.googleblog.com/tailor-gemini-cli-to-your-workflow-with-hooks/",
+            "https://geminicli.com/docs/reference/commands/"
+          ]
+        },
+        {
+          "name": "Warp (Agent Mode / Agent Platform)",
+          "vendor": "Warp.dev",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "stdio",
+              "SSE",
+              "Streamable HTTP"
+            ],
+            "config_file_paths": [
+              "UI: Settings > Agents > MCP servers (also reachable via Warp Drive > Personal > MCP Servers) — primary management surface",
+              "File-based (Warp native): ~/.warp/.mcp.json (global) and <repo_root>/.warp/.mcp.json (project)",
+              "File-based (imported from other clients, auto-detected): ~/.claude.json + .mcp.json (Claude Code), ~/.codex/config.toml + .codex/config.toml (Codex) — require a toggle to enable"
+            ],
+            "config_format": "json",
+            "scope_levels": [
+              "global (~/.warp/.mcp.json)",
+              "project (<repo_root>/.warp/.mcp.json, requires per-session approval)",
+              "personal (Warp Drive)"
+            ],
+            "registration_shape": "// ~/.warp/.mcp.json — CLI (stdio) and URL servers\n{\n  \"mcpServers\": {\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/path\"],\n      \"env\": { \"API_KEY\": \"your_token\" },\n      \"working_directory\": \"/path/to/dir\"\n    },\n    \"externalDocs\": {\n      \"url\": \"https://endpoint.com/mcp\",\n      \"headers\": { \"Authorization\": \"Bearer token\" }\n    }\n  }\n}",
+            "notes": "Two server types: CLI/stdio (`command`+`args`+optional `env`+`working_directory` — note Warp uses `working_directory`, not `cwd`) and URL-based (`url`+optional `headers`) over SSE / Streamable HTTPS. Configs from most other MCP clients can be copy-pasted directly into the Add dialog. Warp can also auto-detect and spawn file-based servers from its own ~/.warp/.mcp.json (default on) and from Claude Code / Codex config files (require a toggle). Tools from connected servers become available to Agent Mode (Cmd+I / Ctrl+I); you typically must mention the server explicitly. Cloud Agents inherit MCP config as shared context."
+          },
+          "hooks_support": {
+            "supported": false,
+            "hook_types": [],
+            "config_mechanism": "No agent lifecycle hook system. There is an open feature request (warpdotdev/Warp issue #7834) for Claude-Code-style agent lifecycle hooks/observability, but it is not implemented. Note Warp DOES have config-edit approval gates around file-based MCP servers (a security guardrail, not a programmable hook), and a bundled `/agent-add-mcp` skill that lets the agent create/update MCP definitions.",
+            "notes": "Closest analogs are 'Rules' (global/project guideline files that shape agent behavior), 'Workflows' (named parameterized prompts), and Cloud Agents that react to external events (Slack/Linear/GitHub/CI webhooks, schedules) — but none expose programmable PreToolUse/PostToolUse-style lifecycle callbacks to user scripts."
+          },
+          "plugin_system": {
+            "exists": false,
+            "description": "No general plugin SDK. Warp's own docs describe MCP servers as 'essentially acting as plugins for Warp' — MCP is the sole extensibility mechanism for adding tools/data sources. Other customization (Rules, Workflows, Warp Drive notebooks, bundled Skills like /agent-add-mcp) is built-in, not a third-party plugin architecture."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "Warp deliberately abstracts token usage away from the user and from servers. Billing/usage is measured in 'credits' (a credit scales with tokens processed per agent interaction, ~1,500/mo on paid plans, $20/mo plan + usage-based reloads + BYOK). There is no documented API exposing token counts or usage metadata to MCP servers or scripts; users monitor credit usage, not raw tokens."
+          },
+          "quirks": [
+            "Uses `working_directory` (not `cwd`) for stdio servers.",
+            "Can auto-import MCP servers from OTHER tools' configs (Claude Code ~/.claude.json/.mcp.json, Codex config.toml) — a config defined for another agent can surface inside Warp once toggled on.",
+            "Project-scoped servers require manual per-session approval; file-based config edits require approval (security gate).",
+            "Agent must often be explicitly told to use a given MCP server in Agent Mode.",
+            "No programmable hooks (only a feature request) — automation must go through Cloud Agent event triggers or Rules/Workflows instead.",
+            "Token usage is hidden behind 'credits'; not exposed to integrations."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://docs.warp.dev/agent-platform/capabilities/mcp/",
+            "https://docs.warp.dev/reference/cli/mcp-servers",
+            "https://docs.warp.dev/reference/cli/mcp-servers-for-cloud-agents",
+            "https://docs.warp.dev/agent-platform/local-agents/interacting-with-agents/terminal-and-agent-modes/",
+            "https://github.com/warpdotdev/warp/issues/7834",
+            "https://docs.warp.dev/support-and-community/plans-and-billing/credits/",
+            "https://docs.warp.dev/knowledge-and-collaboration/warp-drive/workflows/"
+          ]
+        },
+        {
+          "name": "Hermes Agent",
+          "vendor": "Nous Research (NousResearch/hermes-agent)",
+          "mcp_support": {
+            "supported": true,
+            "transports": [
+              "stdio",
+              "Streamable HTTP (with static headers or OAuth 2.1)"
+            ],
+            "config_file_paths": [
+              "~/.hermes/config.yaml (primary; `mcp_servers` key)",
+              "cli-config.yaml (used for shell-script hook declarations; closely related per-context config)"
+            ],
+            "config_format": "yaml",
+            "scope_levels": [
+              "user/global (~/.hermes/config.yaml)"
+            ],
+            "registration_shape": "# ~/.hermes/config.yaml\nmcp_servers:\n  filesystem:                       # stdio\n    command: \"npx\"\n    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/home/user/projects\"]\n    env:\n      GITHUB_PERSONAL_ACCESS_TOKEN: \"***\"\n  remote_api:                       # HTTP + static header\n    url: \"https://mcp.example.com/mcp\"\n    headers:\n      Authorization: \"Bearer ***\"\n  linear:                           # HTTP + OAuth 2.1\n    url: \"https://mcp.linear.app/mcp\"\n    auth: oauth",
+            "notes": "MCP servers live under the `mcp_servers` key, keyed by server name. stdio via `command`+`args`+optional `env`; remote via `url`+`headers`, or `url`+`auth: oauth` for OAuth 2.1. Per-server tool filtering via a nested `tools:` block (include whitelist / exclude blacklist / prompts:false / resources:false). After editing config you do NOT need to restart — run `/reload-mcp` in-session to re-discover servers and refresh the tool registry. Tools are exposed with server-prefixed names `mcp_<server>_<tool>` and grouped into a toolset `mcp-<server>`. Built-in MCP CLIENT since v0.2.0. Also a SERVER mode (`hermes mcp serve`, since v0.6.0) exposing ~10 messaging tools so other agents (Claude Code, Cursor, Codex) can drive Hermes."
+          },
+          "hooks_support": {
+            "supported": true,
+            "hook_types": [
+              "pre_tool_call",
+              "post_tool_call",
+              "pre_llm_call",
+              "post_llm_call",
+              "on_session_start",
+              "on_session_end",
+              "on_session_finalize",
+              "on_session_reset",
+              "subagent_stop",
+              "pre_gateway_dispatch",
+              "pre_approval_request",
+              "post_approval_response",
+              "transform_tool_result",
+              "transform_terminal_output",
+              "transform_llm_output",
+              "gateway:startup",
+              "session:start",
+              "session:end",
+              "agent:start",
+              "agent:step",
+              "agent:end",
+              "command:*"
+            ],
+            "config_mechanism": "Two paths. (1) Shell-script hooks declared in cli-config.yaml under a `hooks:` block, no Python required: each event maps to a list of {matcher (optional regex, tool-call events only), command (required; shlex-split, shell=False), timeout (default 60s, max 300s)}. Scripts live under ~/.hermes/agent-hooks/ and exchange JSON over stdin/stdout; first use triggers a consent prompt persisted to ~/.hermes/shell-hooks-allowlist.json. (2) Python plugins register callbacks via ctx.register_hook() for the same lifecycle events. Hooks fire in both interactive CLI and gateway (messaging) sessions; some `gateway:*`/`session:*`/`agent:*` events are gateway-only.",
+            "notes": "Example shell hook: hooks:\\n  post_tool_call:\\n    - matcher: \"write_file|patch\"\\n      command: \"~/.hermes/agent-hooks/auto-format.sh\". Rich set of transform_* hooks can rewrite tool results / terminal output / LLM output, which is more powerful than most CLIs' hook systems."
+          },
+          "plugin_system": {
+            "exists": true,
+            "description": "First-class Python plugin system. Drop a directory into ~/.hermes/plugins/ containing plugin.yaml (manifest: name/version/description), __init__.py with a register(ctx) entrypoint, and optional schemas.py / tools.py. ctx exposes register_tool(), register_hook(), register_command() (slash commands). Plugins are opt-in: discovery finds them but nothing loads until the name is listed under plugins.enabled (and not plugins.disabled) in ~/.hermes/config.yaml. Skills are a separate, related system (SKILL.md frontmatter can declare config under skills.config namespace). Server mode `hermes mcp serve` also lets Hermes act as an MCP server to other agents."
+          },
+          "token_observability": {
+            "native_usage_exposed": false,
+            "description": "No token counts or LLM usage/billing metrics are exposed to hooks or plugins. The post_llm_call payload carries only conversation content/metadata: session_id, user_message, assistant_response, conversation_history, model, platform — no input/output token breakdown or cost. Plugins/scripts must instrument their own provider APIs to track usage."
+          },
+          "quirks": [
+            "Disambiguation: 'Hermes' is overloaded (Nous Research's Hermes LLM model family, plus unrelated frameworks). The AI-coding/agent CLI meant here is NousResearch/hermes-agent — a self-improving general agent CLI with both MCP client and server modes; this is the only 'hermes' agent CLI with documented MCP support.",
+            "Config is YAML (`mcp_servers`), unlike the JSON used by Gemini CLI / Warp / Claude Code.",
+            "No SSE transport documented — only stdio and Streamable HTTP (static headers or OAuth 2.1).",
+            "Hot reload: `/reload-mcp` re-discovers servers with no restart; plugins also opt-in via plugins.enabled.",
+            "Shell hooks vs Python plugin hooks share the same event names but two different config mechanisms (cli-config.yaml vs ctx.register_hook).",
+            "Tool names are namespaced as mcp_<server>_<tool>; useful for include/exclude filtering.",
+            "Hermes can itself be an MCP server (`hermes mcp serve`) exposing messaging tools to Claude Code/Cursor/Codex."
+          ],
+          "confidence": "high",
+          "sources": [
+            "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp",
+            "https://github.com/NousResearch/hermes-agent",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/user-guide/features/hooks.md",
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/user-guide/features/plugins.md",
+            "https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins",
+            "https://hermes-agent.nousresearch.com/docs/user-guide/features/skills",
+            "https://hermes-agent.nousresearch.com/docs/user-guide/configuration"
+          ]
+        }
+      ]
+    }
+  ],
+  "telemetry": {
+    "measurement_approaches": [
+      {
+        "approach": "Local BPE tokenizer on tool I/O (recommended primary)",
+        "how_it_works": "Run a bundled byte-pair-encoding tokenizer (tiktoken o200k_base/cl100k_base for OpenAI/Codex-family; a Claude-family approximation for Anthropic) over the exact JSON the server sees: the tools/call params.arguments (input) and the CallToolResult content[] text/structuredContent (output). Serialize each to the same wire form the host will inject, encode, and take len(tokens). Select encoding by a configured model-family hint (openai|anthropic|generic). For images/audio/PDF/embedded-resource blocks, apply per-modality formulas (e.g. base64 image -> tile-based token estimate) rather than tokenizing the base64 blob.",
+        "pros": "Fully offline, deterministic, fast (WASM tiktoken ~400ms for large corpora; fastest Rust BPE 7-10x faster than tiktoken-rs), zero network/cost, exact for the OpenAI/Codex family. Same number on every host because it measures the server's own bytes, not host internals -> true platform independence.",
+        "cons": "Exact only when the host's model uses that tokenizer. For Anthropic-family hosts there is no official offline Claude tokenizer (Anthropic ships none for Claude 3+), so the o200k/cl100k count is an approximation (typically within a few percent for prose, more drift for code/non-English). Does not capture the host's framing overhead (tool-definition schema, role wrappers, system-prompt injection) unless modeled separately. Adds a binary/WASM dependency.",
+        "platform_dependence": "None for the measurement itself (measures server-owned bytes). Only the choice of encoding depends on the host's model family, which is config, not a host API."
+      },
+      {
+        "approach": "Byte/char heuristic (chars / 4, with content-type multipliers)",
+        "how_it_works": "Estimate tokens = char_count / 4 for English prose, with calibrated divisors per content type: ~3 chars/token for source code and dense JSON (1.5-2.0 tokens/word), ~2-3 for non-English. Count UTF-8 chars of the serialized arguments and result content.",
+        "pros": "Zero dependencies, trivial, instant, works in any runtime/language, no model knowledge needed. Ideal graceful-fallback when the tokenizer cannot load (edge runtime, unsupported arch) or when the model family is unknown.",
+        "cons": "Lower accuracy: the 4-chars/token rule is English-prose calibrated and undercounts code/JSON/structured tool output (often the bulk of MCP traffic) and misestimates non-English. Should be labeled 'estimated (heuristic)' so dashboards don't imply precision.",
+        "platform_dependence": "None. Pure local arithmetic on server-owned bytes."
+      },
+      {
+        "approach": "Anthropic count_tokens API (high-accuracy opt-in for Claude-family hosts)",
+        "how_it_works": "POST the serialized tool arguments/results as message content to POST /v1/messages/count_tokens with the target Claude model; read result.input_tokens. Used to get authoritative Claude token counts, or periodically to calibrate the local tokenizer/heuristic against ground truth.",
+        "pros": "Authoritative for Claude models, supports text/tools/images/PDF, free of charge, ZDR-eligible. Best ground-truth source to calibrate the offline approximation.",
+        "cons": "Network-bound (latency on every call is unacceptable in a hot tool-call path), requires an Anthropic API key (server may not have one; sampling exists precisely so servers need no key), and RPM-limited (100 tier-1 / 2000 / 4000 / 8000 tier-4) so it cannot scale to per-call measurement. The returned count is itself documented as an estimate and may include non-billed system tokens.",
+        "platform_dependence": "Independent of the host (it is a separate Anthropic endpoint), but only meaningful when the host actually runs a Claude model; using it for a Cursor/GPT session would mismeasure. Best as opt-in calibration, not the default hot path."
+      },
+      {
+        "approach": "Host-native usage (use it where the host actually exposes it)",
+        "how_it_works": "Where a host surfaces real usage, ingest it instead of estimating. In practice the MCP protocol carries none: tools/call result has no usage field, and even sampling/createMessage's CreateMessageResult returns only {role, content, model, stopReason} with NO usage block. Host-native signals that do exist are host-side, not delivered to the server (e.g. Claude Code's MAX_MCP_OUTPUT_TOKENS cap and its >10k-token output warning). So this path means: opportunistically parse any token field a future host adds to result._meta, or correlate out-of-band via an MCP gateway/proxy that the host reports to.",
+        "pros": "When available it is ground truth (real billed tokens incl. host framing overhead). No estimation error.",
+        "cons": "Effectively unavailable today: no major host (Claude Code, Cursor, Codex) reports per-tool token attribution back to the MCP server, and the spec provides no field for it. Any implementation is host-specific and brittle. Cannot be the default.",
+        "platform_dependence": "Maximal. Entirely host-specific; breaks the platform-independence goal. Treat as an optional enrichment layer, never the core."
+      }
+    ],
+    "context_mode_current_approach": "Not applicable in this repo. The agent-connector working tree is empty (fresh git init, no source files), so there is no existing measurement code to extend; this is a greenfield design. (Note: the unrelated 'context-mode' project referenced in memory keys its storage by platform dir / CONTEXT_MODE_DATA_DIR and is a different codebase; it is not the measurement subject here.) For agent-connector specifically, the recommended 'current approach' to adopt is: a local-first instrumentation wrapper that intercepts every tools/call, serializes the exact arguments (input) and CallToolResult content (output) the server handles, runs them through a fast local tokenizer selected by model-family config with a chars/4 heuristic fallback, and writes aggregate counts (not content) to local storage keyed by tool name + session + project.",
+    "mcp_protocol_signals": [
+      "tools/call request params: {name, arguments} — the only inputs a server sees; tokenize the serialized 'arguments' object for input-token attribution per tool.",
+      "CallToolResult: {content[] (text/image/audio/resource_link/embedded resource blocks), structuredContent, isError} — the server's own output; tokenize content[] + structuredContent for output-token attribution. NOTE: no usage/token field exists here.",
+      "_meta field on requests/results — vendor-extensible bag; the natural place to (a) read any future host-reported usage and (b) optionally stamp the server's own estimated counts so a gateway/host can aggregate them.",
+      "tools/list response: each tool's name/title/description/inputSchema/outputSchema — tokenize these to estimate the fixed per-turn tool-definition overhead the server injects into context (the 'how much context does just defining my tools cost' signal).",
+      "sampling/createMessage (createMessage): request carries messages + maxTokens + modelPreferences; the model RESPONSE (CreateMessageResult) returns {role, content, model, stopReason} only — still NO usage block in the spec, so even server-initiated model calls must be estimated, not read.",
+      "notifications/message (logging) and notifications/progress — one-way server->client signals; can carry coarse telemetry but are not a usage channel.",
+      "initialize: client/server capabilities (sampling, tools.listChanged, logging) and reported clientInfo — use clientInfo.name/version to auto-pick the right tokenizer model family per host.",
+      "JSON-RPC error vs isError:true tool errors — distinguish to attribute tokens correctly (a -32xxx protocol error means no result tokens were produced/injected)."
+    ],
+    "recommended_default": "Ship a local-first estimator on by default, opt-out-able. Pipeline: (1) intercept every tools/call; serialize the exact arguments (input) and CallToolResult content[]+structuredContent (output) the server handles; (2) tokenize with a bundled fast BPE tokenizer — WASM tiktoken o200k_base for OpenAI/Codex-family models and cl100k_base for GPT-4/3.5, with model family auto-selected from initialize clientInfo or an explicit config hint; for Anthropic-family hosts use o200k_base as a documented approximation (Anthropic ships no offline Claude tokenizer); (3) if the tokenizer cannot load (edge runtime/arch) OR the model family is unknown, fall back to the chars/4 heuristic with code/JSON multipliers and clearly label the value 'estimated (heuristic)'; (4) handle non-text blocks (images/PDF/audio) via per-modality formulas, never by tokenizing base64; (5) also tokenize tools/list definitions once to report fixed per-turn tool-definition overhead. Emit aggregate counts only — per-tool, per-session, per-project input/output/total token totals plus a call count and a confidence/source tag (tokenizer-exact | tokenizer-approx | heuristic | host-native) — to LOCAL storage. Provide opt-in enrichers: (a) Anthropic count_tokens API as a periodic calibration sampler (not the hot path, respecting RPM limits), and (b) host-native/_meta usage ingestion where a host ever provides it. Everything (measurement, each enricher, any upload) must be individually opt-out via env var/config, consistent with kill-switch conventions.",
+    "what_mcp_devs_want": [
+      "Which of MY tools cost the most context — a ranked per-tool breakdown of total tokens injected (input args + returned results), so they can trim the expensive ones.",
+      "Total tokens my server injected into the model's context over a period — the headline 'context footprint of installing this server' number.",
+      "Fixed overhead of just my tool DEFINITIONS (tools/list schemas) loaded every turn, separate from per-call I/O, since that is paid on every request regardless of use.",
+      "Per-session and per-project rollups, so usage can be attributed to a workspace/run and compared over time.",
+      "Input vs output split per tool (am I sending bloated arguments, or returning bloated results?), plus call counts and tokens-per-call averages to find verbose tools.",
+      "A platform-independent number that is the same whether the user runs Claude Code, Cursor, or Codex — measured from the server's own bytes, not host internals.",
+      "A clear confidence/source label so they know when a number is tokenizer-exact vs heuristic-approximate, and the ability to calibrate against ground truth when they have an API key.",
+      "Low overhead: estimation must not add latency or cost to the tool-call hot path."
+    ],
+    "privacy_considerations": [
+      "Tool arguments and results frequently contain sensitive data (secrets, PII, file contents, query bodies). Store and report AGGREGATE COUNTS ONLY (token totals, call counts) — never the raw content, arguments, or results.",
+      "Local-first by default: write telemetry to local storage keyed by tool/session/project; no network egress unless the developer explicitly opts in to upload.",
+      "Network-based measurement is a data-exfiltration vector: sending tool I/O to Anthropic's count_tokens API (or any remote tokenizer) ships potentially sensitive content off-box. Keep it opt-in, document it, and prefer it only for sampled calibration; respect ZDR where applicable.",
+      "Per-call estimation must run in-process with the local tokenizer so content never leaves the server boundary for the default path.",
+      "If any optional content capture is offered (e.g. for debugging), require explicit opt-in, support redaction/hashing of argument values, and never log values by default.",
+      "Make every layer individually opt-out (measurement, calibration API, upload) via env var/config, with a global kill switch, so privacy-sensitive deployments can disable telemetry entirely.",
+      "Aggregation keys (session id, project path) can themselves be identifying; allow hashing/anonymizing these keys before any optional upload.",
+      "Be explicit in dashboards that numbers are estimates derived from the server's own I/O, not the host's billed usage, to avoid implying the framework has access to the user's actual model billing."
+    ]
+  }
+}
