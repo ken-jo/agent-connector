@@ -68,6 +68,49 @@ export const USAGE_READER_REGISTRY: readonly UsageReaderFactory[] = [
     kind: "local",
     load: () => import("./readers/openclaw.js").then((m) => m.default),
   },
+  // U2 — JSON readers
+  {
+    platformId: "amp",
+    format: "json",
+    kind: "local",
+    load: () => import("./readers/amp.js").then((m) => m.default),
+  },
+  {
+    platformId: "droid",
+    format: "json",
+    kind: "local",
+    load: () => import("./readers/droid.js").then((m) => m.default),
+  },
+  {
+    platformId: "codebuff",
+    format: "json",
+    kind: "local",
+    load: () => import("./readers/codebuff.js").then((m) => m.default),
+  },
+  {
+    platformId: "mux",
+    format: "json",
+    kind: "local",
+    load: () => import("./readers/mux.js").then((m) => m.default),
+  },
+  {
+    platformId: "roo-code",
+    format: "json",
+    kind: "local",
+    load: () => import("./readers/roo-code.js").then((m) => m.default),
+  },
+  {
+    platformId: "kilo",
+    format: "json",
+    kind: "local",
+    load: () => import("./readers/kilo.js").then((m) => m.default),
+  },
+  {
+    platformId: "kiro",
+    format: "json",
+    kind: "local",
+    load: () => import("./readers/kiro.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */

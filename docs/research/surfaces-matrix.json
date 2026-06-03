@@ -1,0 +1,694 @@
+[
+  {
+    "platformId": "claude-code",
+    "surface": "command",
+    "supported": true,
+    "dir": "User: ~/.claude/commands/ (or ~/.claude/skills/<name>/SKILL.md) ; Project: .claude/commands/ (or .claude/skills/<name>/SKILL.md). Project skills also resolve up parent dirs to repo root and on-demand in nested .claude/skills/ for monorepos. Plugin: <plugin>/skills/<name>/SKILL.md (namespaced as /plugin:name).",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (commands) | <name>/SKILL.md (skills). Subdirs under commands/ namespace with ':'.",
+    "shape": "---\ndescription: Deploy the application to production\nargument-hint: [environment]\nallowed-tools: Read, Grep, Bash(git*)\nmodel: claude-haiku-4-5\ndisable-model-invocation: true\n---\nDeploy to $1.\nCurrent status: !`git status -s`\nReview @README.md then run the deploy for $ARGUMENTS.",
+    "scopeLevels": [
+      "user",
+      "project",
+      "plugin",
+      "enterprise"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://code.claude.com/docs/en/slash-commands",
+      "https://code.claude.com/docs/en/skills",
+      "context-mode repo: .claude-plugin/plugin.json (skills:'./skills/'), skills/*/SKILL.md"
+    ],
+    "notes": "2026 MAJOR CHANGE: custom commands merged into Skills. .claude/commands/<name>.md still works and uses the SAME frontmatter as SKILL.md; if a skill and command share a name the skill wins. Frontmatter keys: description, argument-hint, arguments (named positional for $name), allowed-tools, disallowed-tools, model, disable-model-invocation, context (e.g. fork), agent (subagent type for context:fork), name (display label only). Substitutions: $ARGUMENTS, $ARGUMENTS[N], $N ($0=first), !`cmd` bash injection, @file refs. context-mode repo uses SKILL.md (skills) not command files; grounds the .claude/ dir convention only."
+  },
+  {
+    "platformId": "gemini-cli",
+    "surface": "command",
+    "supported": true,
+    "dir": "User: ~/.gemini/commands/ ; Project: <project>/.gemini/commands/ (project overrides user on name clash)",
+    "fileFormat": "toml",
+    "fileNamePattern": "<name>.toml ; subdirs namespace with ':' (git/commit.toml -> /git:commit)",
+    "shape": "# ~/.gemini/commands/refactor/pure.toml -> /refactor:pure\ndescription = \"Refactor code into a pure function\"\nprompt = \"\"\"Refactor this code into a pure function:\n!{cat {{args}}}\n\nExplain key changes that improve purity.\"\"\"",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://geminicli.com/docs/cli/custom-commands/",
+      "https://cloud.google.com/blog/topics/developers-practitioners/gemini-cli-custom-slash-commands",
+      "context-mode repo: configs/gemini-cli/ (confirms .gemini/ dir convention)"
+    ],
+    "notes": "TOML required. Keys: prompt (required, string/multiline), description (optional one-line for /help, auto-generated from filename if omitted). Arguments: {{args}} raw injection (shell-escaped inside !{...}); if {{args}} absent, full invocation is appended. !{...} executes shell and injects output (requires confirmation). /commands reload picks up changes; /commands list shows files. context-mode ships configs/gemini-cli (GEMINI.md, settings.json hooks, mcp.json) but no command .toml files."
+  },
+  {
+    "platformId": "qwen-code",
+    "surface": "command",
+    "supported": true,
+    "dir": "User: ~/.qwen/commands/ ; Project: <project-root>/.qwen/commands/",
+    "fileFormat": "toml",
+    "fileNamePattern": "<name>.toml (TOML, deprecated-but-supported) | <name>.md (newer Markdown+YAML form); subdirs namespace with ':' (refactor/pure.toml -> /refactor:pure)",
+    "shape": "# ~/.qwen/commands/refactor/pure.toml -> /refactor:pure\ndescription = \"Refactor the current context into a pure function\"\nprompt = \"\"\"Refactor the selected code into a pure function.\nUse {{args}} as additional guidance.\"\"\"",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://qwenlm.github.io/qwen-code-docs/en/users/features/commands/",
+      "https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/commands.md",
+      "context-mode repo: configs/qwen-code/QWEN.md (confirms .qwen/ dir convention)"
+    ],
+    "notes": "Qwen Code is a fork of Gemini CLI, so behavior mirrors it: TOML keys prompt (required) + description; {{args}} and !{shell} injection; subdir ':' namespacing. 2026 note: docs state custom commands now prefer Markdown with optional YAML frontmatter while TOML is deprecated but still supported for backward compat. context-mode ships configs/qwen-code (QWEN.md only); no command files defined there."
+  },
+  {
+    "platformId": "vscode-copilot",
+    "surface": "command",
+    "supported": true,
+    "dir": "Workspace: .github/prompts/ ; User: VS Code user profile prompts location (managed via Chat: New Prompt File / profile dir). Extra dirs via chat.promptFilesLocations setting.",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.prompt.md (filename without .prompt.md becomes /name; e.g. commit.prompt.md -> /commit)",
+    "shape": "---\ndescription: 'Generate a new React form component'\nagent: 'agent'\nmodel: 'GPT-4o'\ntools: ['search/codebase', 'vscode/askQuestions']\nargument-hint: 'formName=MyForm'\n---\nGenerate a React form named ${input:formName}.\nUse react-hook-form. Current selection: ${selection}. File: ${file}.\nReference: [Design System](../docs/design-system/Form.md)",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://code.visualstudio.com/docs/agent-customization/prompt-files",
+      "https://docs.github.com/en/copilot/tutorials/customization-library/prompt-files",
+      "context-mode repo: configs/vscode-copilot/ (.github/ convention via copilot-instructions.md)"
+    ],
+    "notes": "Prompt files = Copilot's custom slash command surface. Frontmatter keys: description, name (override slash name; defaults to filename), argument-hint, agent (ask|agent|plan|custom-agent), model, tools (list; unavailable tools ignored at runtime). Body vars: ${input:var}, ${input:var:placeholder}, ${selection}, ${file}; tool refs via #tool:<name>. IDE-only: VS Code, Visual Studio 2022 17.10+/2026, JetBrains. context-mode targets .github/ for copilot-instructions but defines no prompt files."
+  },
+  {
+    "platformId": "copilot-cli",
+    "surface": "command",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "shape": "n/a",
+    "scopeLevels": [],
+    "confidence": "high",
+    "sources": [
+      "https://github.com/github/copilot-cli/issues/618",
+      "https://github.com/github/copilot-cli/issues/1113",
+      "https://github.blog/ai-and-ml/github-copilot/a-cheat-sheet-to-slash-commands-in-github-copilot-cli/"
+    ],
+    "notes": "As of 2026 the GitHub Copilot CLI (terminal) does NOT support user-defined slash commands / prompt files. Only built-in slash commands work; .github/prompts/*.prompt.md is recognized by the VS Code / Visual Studio / JetBrains extensions but NOT by copilot-cli. Open feature requests #618 and #1113 track this. Use vscode-copilot entry for the prompt-file surface."
+  },
+  {
+    "platformId": "cursor",
+    "surface": "command",
+    "supported": true,
+    "dir": "Project: .cursor/commands/ ; User/global: ~/.cursor/commands/",
+    "fileFormat": "md",
+    "fileNamePattern": "<name>.md (filename becomes /name; e.g. review-code.md -> /review-code)",
+    "shape": "# Code Review\nReview the current diff for correctness bugs, security issues, and style violations.\nFocus on changed files only. Summarize findings as a prioritized list.",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://cursor.com/changelog/1-6",
+      "https://ezablocki.com/posts/cursor-slash-commands/",
+      "context-mode repo: configs/cursor/ + .cursor/ (confirms .cursor/ dir convention; uses .mdc rules, not commands)"
+    ],
+    "notes": "Cursor Commands (GA since Cursor 1.6) = plain Markdown prompt files; the WHOLE file body is the prompt template. Filename -> slash name. Commands themselves do NOT use/require YAML frontmatter (unlike Cursor Rules .mdc and Cursor Skills which do). Built-in /commands lets you create/edit them. Argument handling is minimal/undocumented vs CLI peers. context-mode ships configs/cursor with context-mode.mdc (a Rule, not a command), hooks.json, mcp.json — grounds the .cursor/ dir only."
+  },
+  {
+    "platformId": "codex",
+    "surface": "command",
+    "supported": true,
+    "dir": "User: ~/.codex/prompts/ (local Codex home; CODEX_HOME). No project/repo scope.",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (invoked as /prompts:<name>, e.g. draftpr.md -> /prompts:draftpr)",
+    "shape": "---\ndescription: Prep a branch, commit, and open a draft PR\nargument-hint: [FILES=<paths>] [PR_TITLE=\"<title>\"]\n---\nCreate a branch named `dev/<feature_name>`.\nIf files are specified, stage them: $FILES.\nCommit staged changes. Open a draft PR; use $PR_TITLE when supplied.\nAll args: $ARGUMENTS",
+    "scopeLevels": [
+      "user"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://developers.openai.com/codex/custom-prompts",
+      "https://developers.openai.com/codex/cli/slash-commands",
+      "context-mode repo: configs/codex/ + .codex-plugin/ (AGENTS.md, config.toml, hooks.json) confirms .codex/ home convention"
+    ],
+    "notes": "DEPRECATED in 2026 (OpenAI recommends Codex Skills instead) but still functional. User-scope only (~/.codex/prompts), no project dir. Frontmatter keys: description, argument-hint. Placeholders: $1..$9 (positional, space-separated), $ARGUMENTS (all), $UPPERCASE_NAME named (KEY=value at invoke, e.g. $FILE/$TICKET_ID), $$ literal dollar. Invoked as /prompts:<name>. Custom prompts require explicit invocation. context-mode ships configs/codex (AGENTS.md, config.toml, hooks.json) but no prompt files."
+  },
+  {
+    "platformId": "opencode",
+    "surface": "command",
+    "supported": true,
+    "dir": "Project: .opencode/commands/ ; Global: ~/.config/opencode/commands/ . Alt: 'command' block in opencode.json/opencode.jsonc.",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (filename becomes /name; e.g. test.md -> /test)",
+    "shape": "---\ndescription: Create and test a new component\nagent: build\nmodel: anthropic/claude-3-5-sonnet-20241022\nsubtask: false\n---\nCreate a React component named $ARGUMENTS with TypeScript.\nRecent changes: !`git log --oneline -5`\nExisting structure: @src/components/Button.tsx\nBased on $1 pattern, in directory $2.",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://opencode.ai/docs/commands/",
+      "context-mode repo: configs/opencode/opencode.json (plugin:['context-mode']) + configs/opencode/AGENTS.md"
+    ],
+    "notes": "Markdown body is the prompt template. Frontmatter keys: template (the prompt; when using markdown the body acts as template), description, agent, model, subtask (bool -> force subagent so it doesn't pollute primary context). JSON alternative: opencode.json 'command' block with the same fields (template/description/agent/model/subtask). Placeholders: $ARGUMENTS, $1/$2 positional, !`cmd` bash injection, @filepath file include. context-mode ships configs/opencode (opencode.json registering the context-mode plugin, AGENTS.md) but no command files."
+  },
+  {
+    "platformId": "kilo",
+    "surface": "command",
+    "supported": true,
+    "dir": "Project: .kilocode/commands/ and .kilocode/workflows/ ; Global: ~/.kilocode/commands/ and ~/.kilocode/workflows/ . (Newer CLI docs also reference .kilo/commands/ project + ~/.config/kilo/commands/ global.) Skills in .kilocode/skills/ auto-register as slash commands too.",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md -> /<name> (commands; .md stripped). Legacy workflows historically invoked with extension: /submit-pr.md.",
+    "shape": "---\ndescription: Submit a pull request with full checks\nargument-hint: [--focus <area>]\nmode: code\nmodel: optional-model-override\n---\n# Submit PR Workflow\n1. grep for TODO/console.log\n2. run `npm test`\n3. commit with a descriptive message\n4. push and `gh pr create`\nFocus area: $ARGUMENTS",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "medium",
+    "sources": [
+      "https://kilo.ai/docs/features/slash-commands/workflows",
+      "https://kilo.ai/docs/customize/workflows",
+      "https://github.com/Kilo-Org/kilocode/pull/5183",
+      "context-mode repo: configs/kilo/kilo.json + configs/kilo/AGENTS.md (confirms kilo config convention)"
+    ],
+    "notes": "Two related surfaces: Workflows (older, .kilocode/workflows/, markdown, triggered by /name, $ARGUMENTS supported) and Custom Commands (newer, .kilocode/commands/ or .kilo/commands/, markdown + YAML frontmatter with description/arguments/mode/model, argument substitution $1/$2/$ARGUMENTS, automatic mode/model switching). Skills in .kilocode/skills/ also auto-register as /skill-name. MEDIUM confidence: docs are inconsistent across .kilocode/ vs .kilo/ vs ~/.config/kilo and on whether the .md extension is included when invoking; verify the running Kilo version. context-mode ships configs/kilo (kilo.json, AGENTS.md) but no command/workflow files."
+  },
+  {
+    "platformId": "claude-code",
+    "surface": "skill",
+    "supported": true,
+    "dir": "user: ~/.claude/skills/<name>/  (also ~/.config/claude/skills/); project: <repo>/.claude/skills/<name>/ (loaded from CWD up to repo root, plus nested .claude/skills/ in subpackages for monorepos)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md",
+    "shape": "---\nname: summarize-changes\ndescription: Summarizes uncommitted changes and flags anything risky. Use when the user asks what changed, wants a commit message, or asks to review their diff.\nallowed-tools: Read, Grep, Bash(git diff:*)\ndisable-model-invocation: false\n---\n\n# Summarize changes\n\nWhen invoked, run `git diff` and produce a concise summary of what changed, grouped by file, calling out risky edits. Use bundled scripts/ for repetitive work and references/ for docs loaded on demand.",
+    "scopeLevels": [
+      "user",
+      "project",
+      "enterprise (managed)",
+      "plugin (plugin-name:skill-name)"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://code.claude.com/docs/en/skills",
+      "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview",
+      "https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills",
+      "https://github.com/anthropics/skills",
+      "https://agentskills.io",
+      "/home/ubuntu/workspace/github/context-mode/.claude-plugin/plugin.json",
+      "/home/ubuntu/workspace/github/context-mode/skills/ctx-search/SKILL.md"
+    ],
+    "notes": "Reference implementation of the Agent Skills open standard (agentskills.io). Required frontmatter: name (<=64 chars, [a-z0-9-], must match dir name except plugin-root), description (<=1024 chars, 3rd person, what+when). Optional: allowed-tools, disallowed-tools, disable-model-invocation, model, arguments. Body recommended <500 lines; bundle scripts/, references/, assets/ for progressive disclosure. Command name = directory name (not frontmatter name) except for a plugin-root SKILL.md. Custom commands (.claude/commands/*.md) are merged into skills and share the same frontmatter. Precedence: enterprise > personal > project; plugins are namespaced. Plugins expose skills via plugin.json \"skills\": \"./skills/\" — confirmed in context-mode's .claude-plugin/plugin.json. Live-reload within a session. Invoke directly with /<name> or let Claude auto-select via description."
+  },
+  {
+    "platformId": "codex",
+    "surface": "skill",
+    "supported": true,
+    "dir": "user: $CODEX_HOME/skills/<name>/ (default ~/.codex/skills/<name>/), plus the shared ~/.agents/skills/<name>/; project: <repo>/.codex/skills/<name>/",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md",
+    "shape": "---\nname: release-notes\ndescription: Generate release notes from merged PRs. Use when the user asks to draft release notes or a changelog for a version.\n---\n\n# Release notes\n\n1. Collect merged PRs since the last tag.\n2. Group by type (feat/fix/chore).\n3. Emit a markdown changelog. Optional scripts/ and references/ may be bundled alongside this file.",
+    "scopeLevels": [
+      "user ($CODEX_HOME/skills)",
+      "shared (~/.agents/skills)",
+      "project (.codex/skills)"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://developers.openai.com/codex/skills",
+      "https://github.com/openai/skills",
+      "https://github.com/ComposioHQ/awesome-codex-skills",
+      "/home/ubuntu/workspace/github/context-mode/.codex-plugin/plugin.json"
+    ],
+    "notes": "Implements the Agent Skills standard. A skill is a folder with SKILL.md requiring name + description frontmatter, plus optional scripts/ and references/. User skills live in $CODEX_HOME/skills (default ~/.codex/skills); the cross-agent ~/.agents/skills/ alias is also read. Implicit selection by description match; explicit via /skills or $-mention. Auto-detects changes (restart if not picked up). Codex plugins declare skills via plugin.json \"skills\": \"./skills/\" — confirmed in context-mode's .codex-plugin/plugin.json (alongside mcp.json and hooks.json)."
+  },
+  {
+    "platformId": "cursor",
+    "surface": "skill",
+    "supported": true,
+    "dir": "project: <repo>/.cursor/skills/<name>/ (picked up from any .cursor/skills/ in the repo, incl. nested for monorepos); also reads compatibility dirs .claude/skills/, .codex/skills/ (project) and ~/.claude/skills/, ~/.codex/skills/ (user)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md",
+    "shape": "---\nname: pr-review\ndescription: Review a pull request against team conventions. Use when the user asks to review a PR or diff.\n---\n\n# PR review\n\nWalk the diff, check naming/error-handling/test coverage against team rules, and report findings. May bundle scripts/, templates/, references/.",
+    "scopeLevels": [
+      "project (.cursor/skills)",
+      "project-compat (.claude/skills, .codex/skills)",
+      "user-compat (~/.claude/skills, ~/.codex/skills)"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://cursor.com/docs/context/skills",
+      "https://cursor.com/changelog/2-4",
+      "https://cursor.com/help/customization/skills",
+      "/home/ubuntu/workspace/github/context-mode/.cursor-plugin/plugin.json"
+    ],
+    "notes": "Added in Cursor 2.4 (editor + CLI). Native dir is .cursor/skills/<name>/SKILL.md; for cross-tool compatibility Cursor also loads .claude/skills/, .codex/skills/, ~/.claude/skills/, ~/.codex/skills/. Folder-per-skill with SKILL.md (YAML frontmatter name + description). Resources loaded on demand; agent auto-selects by description. Built-in /migrate-to-skills converts rules/commands to skills. Cursor plugins declare skills via plugin.json \"skills\": \"./skills/\" (alongside \"rules\": *.mdc and \"hooks\") — confirmed in context-mode's .cursor-plugin/plugin.json. No dedicated user-scope .cursor/skills documented beyond the .claude/.codex compatibility paths."
+  },
+  {
+    "platformId": "gemini-cli",
+    "surface": "skill",
+    "supported": true,
+    "dir": "user: ~/.gemini/skills/<name>/ (alias ~/.agents/skills/<name>/); workspace/project: <repo>/.gemini/skills/<name>/ (alias .agents/skills/<name>/)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md (also discovered one level shallow at .gemini/skills/SKILL.md)",
+    "shape": "---\nname: db-migrate\ndescription: Generate and apply database migrations. Use when the user adds a model field or asks to create/run a migration.\n---\n\n# DB migrate\n\nInspect the schema diff, generate a migration file, and apply it. The skill directory is added to the agent's allowed file paths so it can read bundled assets.",
+    "scopeLevels": [
+      "built-in",
+      "extension-bundled",
+      "user (~/.gemini/skills or ~/.agents/skills)",
+      "workspace (.gemini/skills or .agents/skills)"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://geminicli.com/docs/cli/skills/",
+      "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/skills.md",
+      "https://geminicli.com/docs/cli/creating-skills/"
+    ],
+    "notes": "Implements the Agent Skills standard. Discovery precedence (low->high): built-in, extension-bundled, user (~/.gemini/skills/ or ~/.agents/skills/ alias), workspace (.gemini/skills/ or .agents/skills/ alias). SKILL.md found at skills-root OR one dir deep (<name>/SKILL.md). Frontmatter: name (should match dir) + description (drives selection). On activation the SKILL.md body + folder structure are added to conversation history and the skill dir is added to allowed file paths for bundled-asset reads."
+  },
+  {
+    "platformId": "vscode-copilot",
+    "surface": "skill",
+    "supported": true,
+    "dir": "project: <repo>/.github/skills/<name>/ (also .claude/skills/ or .agents/skills/); personal: ~/.copilot/skills/<name>/ or ~/.agents/skills/<name>/",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md",
+    "shape": "---\nname: a11y-audit\ndescription: Audit changed UI for accessibility issues. Use when the user edits components or asks for an a11y review.\n---\n\n# Accessibility audit\n\nCheck changed components for ARIA, contrast, and keyboard nav; report fixes. May bundle scripts/ and examples/.",
+    "scopeLevels": [
+      "project (.github/skills, .claude/skills, .agents/skills)",
+      "personal (~/.copilot/skills, ~/.agents/skills)"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://code.visualstudio.com/docs/agent-customization/agent-skills",
+      "https://docs.github.com/en/copilot/concepts/agents/about-agent-skills",
+      "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills",
+      "https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/"
+    ],
+    "notes": "GitHub Copilot adopted the Agent Skills open standard (announced 2025-12-18; stable in VS Code early Jan 2026). Same SKILL.md across Copilot coding agent, Copilot CLI, and VS Code agent mode. Project dirs: .github/skills/, .claude/skills/, or .agents/skills/. Personal dirs: ~/.copilot/skills/ or shared ~/.agents/skills/. Folder-per-skill, SKILL.md = markdown + YAML frontmatter (name + description). NOTE: this platformId (vscode-copilot) in agent-connector maps to the VS Code Copilot surface; the same skills also apply to copilot-cli."
+  },
+  {
+    "platformId": "copilot-cli",
+    "surface": "skill",
+    "supported": true,
+    "dir": "project: <repo>/.github/skills/<name>/ (also .claude/skills/, .agents/skills/); personal: ~/.copilot/skills/<name>/ or ~/.agents/skills/<name>/",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md",
+    "shape": "---\nname: changelog\ndescription: Draft a changelog entry from staged changes. Use when the user prepares a release or asks for a changelog.\n---\n\n# Changelog\n\nSummarize staged changes into a Keep-a-Changelog entry.",
+    "scopeLevels": [
+      "project (.github/skills, .claude/skills, .agents/skills)",
+      "personal (~/.copilot/skills, ~/.agents/skills)"
+    ],
+    "confidence": "medium",
+    "sources": [
+      "https://docs.github.com/en/copilot/concepts/agents/about-agent-skills",
+      "https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/"
+    ],
+    "notes": "Copilot CLI shares the same Agent Skills standard and the same discovery dirs as the VS Code/GitHub Copilot surface (skills work across Copilot coding agent, Copilot CLI, and VS Code agent mode). Listed separately because agent-connector may carry a distinct copilot-cli PlatformId; if not, fold into vscode-copilot. Confidence medium only on the CLI-specific home-dir precedence (~/.copilot/skills vs ~/.agents/skills)."
+  },
+  {
+    "platformId": "opencode",
+    "surface": "skill",
+    "supported": true,
+    "dir": "global: ~/.config/opencode/skills/<name>/ (also reads ~/.claude/skills/<name>/ and ~/.agents/skills/<name>/); project: <repo>/.opencode/skills/<name>/ (and .claude/skills/<name>/)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md",
+    "shape": "---\nname: ctx-search\ndescription: Search the persistent FTS5 knowledge base for previously indexed local content. Use when the user asks to find indexed docs or session memory.\n---\n\n# Context Mode Search\n\nSearch indexed content without rereading raw sources into context. Prefer the MCP tool; fall back to the CLI.",
+    "scopeLevels": [
+      "global (~/.config/opencode/skills, ~/.claude/skills, ~/.agents/skills)",
+      "project (.opencode/skills, .claude/skills)",
+      "plugin/package-bundled"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://opencode.ai/docs/skills/",
+      "https://github.com/joshuadavidthomas/opencode-agent-skills",
+      "https://www.agensi.io/learn/opencode-skills-guide",
+      "/home/ubuntu/workspace/github/context-mode/package.json"
+    ],
+    "notes": "opencode has first-party Agent Skills support: native skill discovery + built-in `skill` tool, loaded on-demand. Global skills read from ~/.config/opencode/skills/*/SKILL.md AND the cross-tool ~/.claude/skills/*/SKILL.md and ~/.agents/skills/*/SKILL.md. Folder-per-skill with YAML frontmatter (name + description). context-mode targets opencode (package main = opencode plugin) and ships ./skills consumed via the standard; the SKILL.md files in context-mode/skills/ (e.g. ctx-search) are the concrete shape. Frontmatter `user-invocable: true` seen in those files is a context-mode/Pi-style extension, not a core opencode field."
+  },
+  {
+    "platformId": "pi",
+    "surface": "skill",
+    "supported": true,
+    "dir": "global: ~/.pi/agent/skills/<name>/ and ~/.agents/skills/<name>/; project: <repo>/.pi/skills/<name>/ and .agents/skills/<name>/ (CWD up to git root); packages: a skills/ dir or pi.skills entries in package.json",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>/SKILL.md",
+    "shape": "---\nname: ctx-search\ndescription: |\n  Search context-mode's persistent FTS5 knowledge base for previously indexed\n  local project content, documentation, or session memory.\n  Trigger: /context-mode:ctx-search\nuser-invocable: true\n---\n\n# Context Mode Search\n\nSearch indexed content without rereading raw sources into context.\n\n## Instructions\n\n1. Prefer the `ctx_search` MCP tool when available.\n2. Batch related questions in one queries array.",
+    "scopeLevels": [
+      "global (~/.pi/agent/skills, ~/.agents/skills)",
+      "project (.pi/skills, .agents/skills)",
+      "package (pi.skills in package.json)"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md",
+      "https://pi.dev/docs/latest/skills",
+      "https://www.npmjs.com/package/@mariozechner/pi-coding-agent",
+      "/home/ubuntu/workspace/github/context-mode/package.json",
+      "/home/ubuntu/workspace/github/context-mode/skills/.ignore"
+    ],
+    "notes": "Pi (@mariozechner/pi-coding-agent) implements the Agent Skills standard. Skill = folder with SKILL.md; required name (1-64, [a-z0-9-]) + description (<=1024); optional license, compatibility, metadata, allowed-tools, disable-model-invocation, and a `tools` (space-delimited pre-approved tools) field. Pi explicitly does NOT require name to match the parent dir (deviation from standard for shared dirs). Packages ship skills via package.json pi.skills pointing at dirs (or auto-discovered skills/) — confirmed in context-mode package.json: pi.skills = [\"./skills\"]. Pi's loader scans skill dirs honoring .ignore/.gitignore/.fdignore with includeRootFiles=true (context-mode ships skills/.ignore listing UPSTREAM-CREDITS.md so non-skill md is skipped). Force-load with /skill:<name>. The context-mode SKILL.md files use a multiline description plus user-invocable: true (a Pi/context-mode convention)."
+  },
+  {
+    "platformId": "openclaw",
+    "surface": "skill",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "shape": "n/a — OpenClaw has no native Agent-Skills surface. context-mode emulates a skill by injecting SKILL.md body into the system prompt as guidance text: <context_mode_skill_like_guidance source=\"skills/context-mode/SKILL.md\">...</context_mode_skill_like_guidance>",
+    "scopeLevels": [],
+    "confidence": "high",
+    "sources": [
+      "/home/ubuntu/workspace/github/context-mode/src/adapters/openclaw/plugin.ts",
+      "/home/ubuntu/workspace/github/context-mode/.openclaw-plugin/openclaw.plugin.json",
+      "/home/ubuntu/workspace/github/context-mode/package.json"
+    ],
+    "notes": "No native skills directory or SKILL.md loader. OpenClaw plugins are code (openclaw.plugin.json declares kind=tool with a tools contract + configSchema; package.json openclaw field lists only extensions, NOT a skills field). context-mode works around this in src/adapters/openclaw/plugin.ts by reading skills/context-mode/SKILL.md, truncating to a char budget, and wrapping it in a <context_mode_skill_like_guidance> tag injected as prompt guidance — explicitly 'skill-like', not a first-class skills surface. supported:false for the skills surface."
+  },
+  {
+    "platformId": "omp",
+    "surface": "skill",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "shape": "n/a — OMP plugin manifest exposes only extensions, not a skills field; no SKILL.md loader documented.",
+    "scopeLevels": [],
+    "confidence": "medium",
+    "sources": [
+      "/home/ubuntu/workspace/github/context-mode/package.json"
+    ],
+    "notes": "context-mode's package.json omp manifest declares name/description + extensions only — no \"skills\" field (contrast pi.skills and the .claude/.codex/.cursor plugin.json \"skills\": \"./skills/\"). No public OMP docs evidence of a native Agent-Skills/SKILL.md surface. Treated as supported:false for skills; OMP capability is delivered via the code extension instead. Confidence medium: based on the absence of a skills field rather than positive docs that OMP cannot host skills."
+  },
+  {
+    "platformId": "kilo",
+    "surface": "skill",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "shape": "n/a — no Agent-Skills/SKILL.md surface found for Kilo.",
+    "scopeLevels": [],
+    "confidence": "low",
+    "sources": [
+      "https://www.agensi.io/learn/agent-skills-open-standard"
+    ],
+    "notes": "No evidence found that Kilo (Kilo Code) implements the Agent Skills / SKILL.md standard as of mid-2026. Not listed among adopters (Claude Code, Codex, Gemini CLI, Copilot, Cursor, opencode, Cline, Windsurf, pi). Kilo customization is rule/mode-based, not a SKILL.md folder surface. Marked supported:false; low confidence due to lack of explicit negative documentation. Re-verify if Kilo announces Agent Skills support."
+  },
+  {
+    "platformId": "claude-code",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "user: ~/.claude/agents/ ; project: .claude/agents/ (both scanned recursively; subfolders allowed, identity comes from `name` not path)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (filename need not match `name`; `name` frontmatter is source of truth)",
+    "shape": "---\nname: code-reviewer\ndescription: Expert code review specialist. Use immediately after writing or modifying code.\ntools: Read, Grep, Glob, Bash\nmodel: inherit\n---\n\nYou are a senior code reviewer ensuring high standards of code quality and security.\nWhen invoked: run git diff, focus on modified files, begin review.\n\n# Required: name, description. Optional: tools (comma list; inherits all if omitted),\n# disallowedTools, model (sonnet|opus|haiku|full-id e.g. claude-opus-4-8|inherit; default inherit),\n# permissionMode, mcpServers, hooks, maxTurns, skills, memory (user|project|local),\n# effort, background, isolation (worktree), color, initialPrompt. Body = system prompt.",
+    "scopeLevels": [
+      "user",
+      "project",
+      "managed (org)",
+      "plugin",
+      "session (--agents JSON flag)"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://code.claude.com/docs/en/sub-agents"
+    ],
+    "notes": "Canonical subagent platform. Markdown + YAML frontmatter; body is the system prompt (subagent does NOT get full Claude Code system prompt). Precedence: managed > --agents flag > project > user > plugin. Plugins ship agents in their agents/ dir (subfolders namespace: plugin:review:security). Plugin agents ignore hooks/mcpServers/permissionMode. /agents TUI manages them; files added on disk need session restart. CLI --agents accepts same fields as JSON with `prompt` replacing the markdown body."
+  },
+  {
+    "platformId": "vscode-copilot",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "project/workspace: .github/agents/ (also reads .claude/agents/, plus extra dirs via chat.agentFilesLocations setting) ; user/profile: VS Code user profile data dir (~/.copilot/agents per Copilot CLI; VS Code surfaces user-scoped agents via profile)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.agent.md (replaces legacy <name>.chatmode.md; filename minus extension is the default identifier if `name` omitted)",
+    "shape": "---\nname: Planner\ndescription: Generate an implementation plan for new features or refactoring existing code.\ntools: ['web/fetch', 'search/codebase', 'search/usages']\nmodel: ['Claude Opus 4.5', 'GPT-5.2']\nhandoffs:\n  - label: Implement Plan\n    agent: agent\n    prompt: Implement the plan outlined above.\n    send: false\n---\n\n# Planning instructions\nYou are in planning mode. Generate implementation plans without making code edits.\n\n# Fields: name(opt), description(req), tools(opt; all by default incl MCP), model(string or prioritized array),\n# handoffs, agents (subagent allowlist), argument-hint, user-invocable, disable-model-invocation,\n# target (vscode|github-copilot), mcp-servers, hooks. Body markdown = agent instructions.",
+    "scopeLevels": [
+      "user (profile)",
+      "workspace/project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://code.visualstudio.com/docs/agent-customization/custom-agents",
+      "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
+    ],
+    "notes": "VS Code Copilot 'custom agents' (formerly chat modes). .agent.md in .github/agents/. Shares the GitHub Copilot custom-agent frontmatter schema with Copilot CLI and the cloud coding agent (max 30,000 chars body). `model` can be a string or prioritized array (CLI rejects array syntax - cross-tool incompatibility, see github/copilot-cli#2133). `target` field scopes an agent to vscode vs github-copilot. Also natively reads .claude/agents/."
+  },
+  {
+    "platformId": "copilot-cli",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "user: ~/.copilot/agents/ ; project/repo: .github/agents/ ; org: .github repo of the organization",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.agent.md (e.g. security-expert.agent.md; filename minus .agent.md used for dedup/identifier)",
+    "shape": "---\nname: test-specialist\ndescription: Focuses on test coverage and testing best practices\ntools: [\"read\", \"edit\", \"search\"]\nmodel: claude-opus-4.5\n---\n\nYou are a testing specialist focused on improving code quality. Prioritize\nmissing coverage, flaky tests, and clear assertions.\n\n# Required: description. Optional: name (display name), tools (allowlist; all by default),\n# model. Body markdown = agent behavior (max 30,000 chars).",
+    "scopeLevels": [
+      "user",
+      "repository/project",
+      "organization",
+      "enterprise"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
+      "https://docs.github.com/en/copilot/reference/custom-agents-configuration",
+      "https://github.blog/changelog/2025-10-28-github-copilot-cli-use-custom-agents-and-delegate-to-copilot-coding-agent/"
+    ],
+    "notes": "Same GitHub Copilot custom-agent format as VS Code Copilot. User-level ~/.copilot/agents/ overrides repo-level .github/agents/ on name conflict; repo overrides org. Invoke in CLI by name. Note: Copilot CLI's `model` field accepts a string only (does not accept the array form VS Code allows)."
+  },
+  {
+    "platformId": "opencode",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "project: .opencode/agent/ (singular is the long-standing canonical dir; plural .opencode/agents/ also supported for backward/forward compat) ; global: ~/.config/opencode/agent/ (or plural agents/)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (filename = agent identifier; nested dirs namespace, e.g. agent/backend/sql.md -> backend/sql)",
+    "shape": "---\ndescription: Reviews code for quality and best practices\nmode: subagent\nmodel: anthropic/claude-sonnet-4-20250514\ntemperature: 0.1\npermission:\n  edit: deny\n  bash: deny\n---\nYou are a code reviewer. Analyze code for quality, bugs, performance, and\nsecurity. Provide feedback without making direct changes.\n\n# description required. mode: primary|subagent|all (default all). Optional: model (provider/model-id),\n# temperature, top_p, permission (per-tool allow/deny/ask), tools (bool map; enabled unless false),\n# steps, disable, hidden, color. Body = system prompt. Can also be defined inline in opencode.json under `agent` key.",
+    "scopeLevels": [
+      "global",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://opencode.ai/docs/agents/",
+      "https://opencode.ai/docs/config/",
+      "https://github.com/anomalyco/opencode/issues/14410"
+    ],
+    "notes": "OpenCode pioneered the description/mode/model/permission frontmatter shape later adopted by Kilo. Directory naming is contentious: docs say plural `agents/` but the loader/CLI historically uses singular `agent/` (open bug anomalyco/opencode#14410); singular is safest. `name` is NOT a frontmatter field - it comes from the filename. Agents can alternatively be declared in opencode.json `agent` object. Repo config (configs/opencode/opencode.json) here only wires the context-mode plugin, not agents."
+  },
+  {
+    "platformId": "codex",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "user/personal: ~/.codex/agents/ (CODEX_HOME-relative) ; project: .codex/agents/",
+    "fileFormat": "toml",
+    "fileNamePattern": "<name>.toml (one agent per file; matching filename to `name` is convention but `name` field is source of truth)",
+    "shape": "name = \"pr_explorer\"\ndescription = \"Read-only codebase explorer for gathering evidence before changes are proposed.\"\nmodel = \"gpt-5.3-codex-spark\"\nmodel_reasoning_effort = \"medium\"\nsandbox_mode = \"read-only\"\ndeveloper_instructions = \"\"\"\nStay in exploration mode.\nTrace the real execution path, cite files and symbols, and avoid proposing fixes\nunless the parent agent asks for them.\n\"\"\"\n\n# Required: name, description, developer_instructions. Optional: nickname_candidates (array),\n# model, model_reasoning_effort, sandbox_mode, mcp_servers, skills.config.",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://developers.openai.com/codex/subagents",
+      "https://developers.openai.com/codex/subagents.md",
+      "https://simonwillison.net/2026/Mar/16/codex-subagents/"
+    ],
+    "notes": "Codex uses TOML (NOT markdown) for custom agents/subagents - distinct from every other platform. The system prompt lives in the `developer_instructions` TOML key (triple-quoted multiline), not a markdown body. Separate from AGENTS.md (which is project-wide instructions, not a named-agent surface). Repo config here (configs/codex/config.toml) only configures the context-mode MCP server + hooks, not agents."
+  },
+  {
+    "platformId": "cursor",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "project: .cursor/agents/ (also reads .claude/agents/ and .codex/agents/) ; global/user: ~/.cursor/agents/ (also ~/.claude/agents/, ~/.codex/agents/). .cursor/ takes precedence on conflict",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (name derived from filename if `name` omitted)",
+    "shape": "---\nname: code-reviewer\ndescription: Reviews code for bugs, style issues, and edge cases.\nmodel: inherit\nreadonly: false\nis_background: false\n---\n\nReview the provided code changes for correctness, style violations, and potential\nedge cases that weren't handled.\n\n# All fields optional. name (lowercase+hyphens, defaults to filename), description\n# (shown in Task tool hints, guides delegation), model (inherit|model-id, default inherit),\n# readonly (bool, default false), is_background (bool, default false). Body = instructions/system prompt.",
+    "scopeLevels": [
+      "global/user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://cursor.com/docs/subagents",
+      "https://cursor.com/changelog/2-4"
+    ],
+    "notes": "Subagents shipped in Cursor 2.4 (2026). Notably NO `tools` frontmatter field - tool access is governed by `readonly`, not an allowlist. Cross-reads .claude/agents/ and .codex/agents/ for interoperability, with .cursor/ winning ties. Built-in subagents: explore, bash, browser. Repo config here (configs/cursor/) provides MCP + hooks + an .mdc rule, not an agent."
+  },
+  {
+    "platformId": "gemini-cli",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "project: .gemini/agents/ ; user: ~/.gemini/agents/",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (name from `name` frontmatter slug)",
+    "shape": "---\nname: security-auditor\ndescription: Specialized in finding security vulnerabilities in code.\nkind: local\ntools:\n  - read_file\n  - grep_search\nmodel: gemini-3-flash-preview\ntemperature: 0.2\nmax_turns: 10\n---\n\nYou are a ruthless Security Auditor. Analyze code for vulnerabilities:\nSQL injection, XSS, hardcoded credentials, unsafe file ops. Explain each\nfinding clearly and suggest a fix.\n\n# Required: name (slug: lowercase/digits/hyphens/underscores), description. Optional:\n# kind (local default | remote), tools (array; wildcards * mcp_* mcp_server_*), mcpServers,\n# model (defaults to inherited session model), temperature (0-2, default 1),\n# max_turns (default 30), timeout_mins (default 10). Body = system prompt.",
+    "scopeLevels": [
+      "user",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://geminicli.com/docs/core/subagents/",
+      "https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md",
+      "https://developers.googleblog.com/subagents-have-arrived-in-gemini-cli/"
+    ],
+    "notes": "Subagents exposed to the main agent as a tool of the same name; invoke explicitly with @<name>. Created via wizard or hand-written .md. `kind: remote` supports remote subagents. Tools support wildcard groups. Repo config here (configs/gemini-cli/) only wires GEMINI.md + MCP + settings, not agents."
+  },
+  {
+    "platformId": "qwen-code",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "project: .qwen/agents/ (highest priority) ; user: ~/.qwen/agents/ ; extension-level (from installed extensions)",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md",
+    "shape": "---\nname: code-reviewer\ndescription: Reviews code for best practices, security issues, and maintainability\nmodel: inherit\napprovalMode: plan\ntools:\n  - read_file\n  - read_many_files\n---\n\nYou are an experienced code reviewer focused on quality, security, and\nmaintainability. Provide constructive feedback with specific examples.\n\n# Required: name. Optional: description (warn if >1000 chars), model (inherit default |\n# model-id | provider:model-id), approvalMode (default|plan|auto-edit|yolo),\n# tools (allowlist array), disallowedTools (blocklist array). Body = system prompt.",
+    "scopeLevels": [
+      "user",
+      "project",
+      "extension"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://qwenlm.github.io/qwen-code-docs/en/users/features/sub-agents/",
+      "https://github.com/QwenLM/qwen-code/issues/2409"
+    ],
+    "notes": "Qwen Code (Gemini CLI fork) mirrors the Claude-style markdown subagent model. Managed via `/agents create` wizard. Roughly 40-45% of Claude Code subagent feature parity per QwenLM/qwen-code#2409 (core structure, /agents command, plugin subagents, tool allowlists in place). Repo config here (configs/qwen-code/QWEN.md) is instructions only, not an agent."
+  },
+  {
+    "platformId": "kilo",
+    "surface": "subagent",
+    "supported": true,
+    "dir": "project: .kilo/agents/ ; global/user: ~/.config/kilo/agents/",
+    "fileFormat": "md(+frontmatter)",
+    "fileNamePattern": "<name>.md (filename minus .md = agent name; nested dirs namespace, e.g. agents/backend/sql.md -> backend/sql)",
+    "shape": "---\ndescription: Reviews code for quality and best practices\nmode: subagent\nmodel: anthropic/claude-sonnet-4-20250514\ntemperature: 0.1\npermission:\n  edit: deny\n  bash: deny\n---\n\nYou are a code reviewer. Analyze code for quality, bugs, performance, and\nsecurity. Provide constructive feedback without making direct changes.\n\n# description = what the agent does. mode: subagent|primary|all. Optional: model (provider/model-id),\n# temperature (0-1), top_p, permission (per-tool allow/deny/ask, supports glob keys like 'git log*'),\n# steps, color, hidden, disable. Body = system prompt. Can also be defined as entries under the\n# `agent` key in kilo.jsonc (JSON syntax).",
+    "scopeLevels": [
+      "global",
+      "project"
+    ],
+    "confidence": "high",
+    "sources": [
+      "https://kilo.ai/docs/customize/custom-subagents",
+      "https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/pages/customize/custom-subagents.md"
+    ],
+    "notes": "Kilo Code's Custom Subagents adopt the OpenCode frontmatter shape (description/mode/model/temperature/permission); `name` comes from filename, not frontmatter. Distinct from Kilo's older Custom Modes (.kilocodemodes / custom_modes.yaml with slug/roleDefinition/whenToUse) which is a mode surface, not a subagent surface. Markdown agents can also be declared inline in kilo.jsonc under `agent`. Repo config here (configs/kilo/kilo.json) only wires the context-mode plugin."
+  },
+  {
+    "platformId": "antigravity",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "shape": "n/a",
+    "scopeLevels": [],
+    "confidence": "medium",
+    "sources": [
+      "https://thomaswildetech.com/blog/2026/05/01/agent-configuration-for-each-platform/"
+    ],
+    "notes": "No user-defined named-subagent surface (system-prompt + tool/model restriction file) found as of 2026-06. Configured here (configs/antigravity/) only via GEMINI.md instructions + mcp_config.json. supported:false for subagents."
+  },
+  {
+    "platformId": "jetbrains-copilot",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a (consumes GitHub Copilot custom-agent files .github/agents/ only if the underlying Copilot agent runtime supports it; JetBrains plugin itself exposes no separate subagent authoring surface)",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "shape": "n/a",
+    "scopeLevels": [],
+    "confidence": "low",
+    "sources": [
+      "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
+    ],
+    "notes": "JetBrains Copilot integration in this repo is configured only via copilot-instructions.md + MCP + hooks (configs/jetbrains-copilot/). No JetBrains-specific subagent authoring surface documented; any custom-agent behavior would inherit the shared GitHub Copilot .github/agents/ format rather than a native JetBrains location. Treated as supported:false for a distinct native subagent surface."
+  },
+  {
+    "platformId": "kimi",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "shape": "n/a",
+    "scopeLevels": [],
+    "confidence": "low",
+    "sources": [
+      "https://github.com/Kilo-Org/kilocode"
+    ],
+    "notes": "Kimi (Moonshot) CLI configured here only via hooks.json (configs/kimi/). No documented user-defined subagent/named-agent file surface found. supported:false."
+  },
+  {
+    "platformId": "kiro",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "json",
+    "fileNamePattern": "n/a",
+    "shape": "n/a",
+    "scopeLevels": [],
+    "confidence": "low",
+    "sources": [],
+    "notes": "Kiro (AWS) configured here via agent.json (hooks), KIRO.md (instructions), mcp.json. agent.json is a hooks/MCP descriptor, NOT a named-subagent-with-system-prompt surface. No user-defined subagent surface found. supported:false."
+  },
+  {
+    "platformId": "omp",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "scopeLevels": [],
+    "shape": "n/a",
+    "confidence": "low",
+    "sources": [],
+    "notes": "OMP configured here only via SYSTEM.md + mcp.json (configs/omp/). No named-subagent authoring surface found. supported:false."
+  },
+  {
+    "platformId": "openclaw",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "scopeLevels": [],
+    "shape": "n/a",
+    "confidence": "low",
+    "sources": [],
+    "notes": "OpenClaw configured here via AGENTS.md + openclaw.json (plugin wiring) (configs/openclaw/). No distinct named-subagent surface documented. supported:false."
+  },
+  {
+    "platformId": "pi",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a",
+    "fileFormat": "other",
+    "fileNamePattern": "n/a",
+    "scopeLevels": [],
+    "shape": "n/a",
+    "confidence": "low",
+    "sources": [],
+    "notes": "Pi configured here only via AGENTS.md instructions (configs/pi/). No named-subagent authoring surface found. supported:false."
+  },
+  {
+    "platformId": "zed",
+    "surface": "subagent",
+    "supported": false,
+    "dir": "n/a (Zed agent uses profiles/custom agent profiles in settings.json, not portable per-agent system-prompt files)",
+    "fileFormat": "json",
+    "fileNamePattern": "n/a",
+    "scopeLevels": [],
+    "shape": "n/a",
+    "confidence": "low",
+    "sources": [],
+    "notes": "Zed configured here via AGENTS.md (configs/zed/). Zed's agent panel supports 'profiles' (tool sets) in settings.json but not a portable named-subagent file with custom system prompt of the kind this survey targets. supported:false for the subagent file surface."
+  }
+]
