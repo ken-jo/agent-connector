@@ -7,8 +7,9 @@
  * hooks as unavailable — like Warp, it exercises the `mcp-only` paradigm.
  *
  * MCP config (one JSON-with-comments settings file, NOT a dedicated MCP file):
- *   - user scope → settings.json under Zed's OS-native config dir:
- *       • Windows: %LOCALAPPDATA%\Zed\settings.json  (Local, NOT %APPDATA%)
+ *   - user scope → settings.json under Zed's OS-native config dir (Rust
+ *     `dirs::config_dir()`):
+ *       • Windows: %APPDATA%\Zed\settings.json  (Roaming, NOT %LOCALAPPDATA%)
  *       • macOS / Linux: ~/.config/zed/settings.json
  *   - project scope → <projectDir>/.zed/settings.json
  *   Root key is "context_servers" (NOT "mcpServers"). The same file holds the
@@ -144,17 +145,18 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Zed's user config dir is OS-native, NOT a uniform ~/.config:
-   *   - Windows: %LOCALAPPDATA%\Zed  (Local, NOT Roaming/%APPDATA%)
+   * Zed's user config dir is OS-native (Rust `dirs::config_dir()`), NOT a
+   * uniform ~/.config:
+   *   - Windows: %APPDATA%\Zed  (Roaming, NOT Local/%LOCALAPPDATA%)
    *   - macOS / Linux: ~/.config/zed
    */
   private userConfigDir(): string {
     if (process.platform === "win32") {
-      const localAppData =
-        process.env.LOCALAPPDATA && process.env.LOCALAPPDATA.trim() !== ""
-          ? process.env.LOCALAPPDATA
-          : resolve(homedir(), "AppData", "Local");
-      return join(localAppData, "Zed");
+      const appData =
+        process.env.APPDATA && process.env.APPDATA.trim() !== ""
+          ? process.env.APPDATA
+          : resolve(homedir(), "AppData", "Roaming");
+      return join(appData, "Zed");
     }
     return join(homedir(), ".config", "zed");
   }

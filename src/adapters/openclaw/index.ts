@@ -5,8 +5,13 @@
  * has: a plugin only delivers its MCP tools to the agent when it is registered
  * in TWO places at once (DUAL REGISTRATION):
  *
- *   (a) plugins.entries.<id>   — so the gateway actually LOADS the plugin module
- *                                (runs register(api), wiring the hooks); and
+ *   (a) plugins.entries.<id> = { enabled: true }  + plugins.load.paths: [dir]
+ *                                — so the gateway DISCOVERS and LOADS the plugin
+ *                                module (runs register(api), wiring the hooks).
+ *                                NOTE: the entry is { enabled } only — a per-entry
+ *                                `module` field is rejected by `openclaw config
+ *                                validate`, so discovery goes through the
+ *                                plugins.load.paths dir scan instead; and
  *   (b) mcp.servers.<id>       — nested under a top-level "mcp" object, so the
  *                                plugin's MCP tools SURFACE to the agent.
  *
@@ -60,8 +65,10 @@
  * Plugin module location (project | user):
  *   user    → <stateDir>/extensions/<id>/index.mjs    (stateDir = dir of openclaw.json)
  *   project → <projectDir>/.openclaw/extensions/<id>/index.mjs
- *   The plugins.entries.<id> reference points at this module via its "module"
- *   field so the gateway loads it regardless of discovery defaults.
+ *   Beside index.mjs we also emit an openclaw.plugin.json manifest. The plugin's
+ *   DIRECTORY (not the file) is added to plugins.load.paths so the gateway scans
+ *   it and loads the module; the plugins.entries.<id> = { enabled: true } half
+ *   then activates it. (There is no per-entry "module" field — validate rejects it.)
  *
  * The gateway hot-reloads its config on SIGUSR1 — no action needed here; the
  * next reload (or restart) picks up our entries/servers/module.
@@ -124,6 +131,15 @@ const MCP_ROOT_KEY = "mcp";
 const MCP_SERVERS_KEY = "servers";
 const PLUGINS_KEY = "plugins";
 const PLUGINS_ENTRIES_KEY = "entries";
+/**
+ * The gateway discovers a synthesized plugin module by scanning the directories
+ * listed in plugins.load.paths — it does NOT take a per-entry `module` field
+ * (that fails `openclaw config validate`). We add the plugin's own dir here.
+ */
+const PLUGINS_LOAD_KEY = "load";
+const PLUGINS_LOAD_PATHS_KEY = "paths";
+/** Manifest the gateway reads inside a plugins.load.paths directory. */
+const PLUGIN_MANIFEST_FILE = "openclaw.plugin.json";
 
 /**
  * Canonical → OpenClaw event name map. A connector hook event is only emitted by
@@ -166,11 +182,16 @@ interface OpenClawRemoteServer {
   enabled?: boolean;
 }
 
-/** plugins.entries.<id> reference shape. */
+/**
+ * plugins.entries.<id> reference shape.
+ *
+ * `openclaw config validate` REJECTS a `module` field here (it is not part of
+ * the entry schema), so the entry is `{ enabled: true }` ONLY. Discovery of the
+ * synthesized module is wired separately via `plugins.load.paths` (the dir that
+ * holds the module + its openclaw.plugin.json manifest).
+ */
 interface OpenClawPluginEntry {
   enabled: boolean;
-  /** Absolute path to the synthesized plugin module the gateway should load. */
-  module: string;
 }
 
 export class OpenClawAdapter extends BaseAdapter implements Adapter {
@@ -513,10 +534,11 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       });
     }
 
-    // 2. DUAL REGISTRATION half (a): add plugins.entries.<id> so the gateway
-    //    loads the module. (half (b), mcp.servers.<id>, is written by
-    //    installServer — both are required for tools to reach the agent.)
-    changes.push(this.upsertPluginEntry(configPath, ctx, pluginPath));
+    // 2. DUAL REGISTRATION half (a): enable plugins.entries.<id> AND add the
+    //    plugin DIR to plugins.load.paths so the gateway discovers + loads the
+    //    module. (half (b), mcp.servers.<id>, is written by installServer — both
+    //    are required for tools to reach the agent.)
+    changes.push(this.upsertPluginEntry(configPath, ctx, this.pluginDir(ctx)));
 
     return changes;
   }
@@ -526,35 +548,50 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const configPath = this.getServerConfigPath(ctx);
     const changes: ChangeRecord[] = [];
 
-    // 1. Remove the plugins.entries.<id> reference.
-    changes.push(this.removePluginEntry(configPath, ctx.connector.id, ctx.dryRun));
+    // 1. Remove the plugins.entries.<id> reference AND drop the plugin dir from
+    //    plugins.load.paths.
+    changes.push(
+      this.removePluginEntry(configPath, ctx.connector.id, this.pluginDir(ctx), ctx.dryRun),
+    );
 
-    // 2. Remove the plugin module on disk.
-    if (existsSync(pluginPath)) {
-      if (!ctx.dryRun) rmSync(pluginPath, { force: true });
-      changes.push({
-        platform: this.id,
-        action: "remove",
-        path: pluginPath,
-        detail: "openclaw plugin module",
-      });
-    } else {
-      changes.push({
-        platform: this.id,
-        action: "skip",
-        path: pluginPath,
-        detail: "no openclaw plugin module present",
-      });
+    // 2. Remove the plugin module + its manifest on disk.
+    const manifestPath = join(this.pluginDir(ctx), PLUGIN_MANIFEST_FILE);
+    for (const [path, label] of [
+      [pluginPath, "openclaw plugin module"],
+      [manifestPath, "openclaw plugin manifest"],
+    ] as const) {
+      if (existsSync(path)) {
+        if (!ctx.dryRun) rmSync(path, { force: true });
+        changes.push({ platform: this.id, action: "remove", path, detail: label });
+      } else {
+        changes.push({
+          platform: this.id,
+          action: "skip",
+          path,
+          detail: `no ${label} present`,
+        });
+      }
     }
+
+    // 3. Drop the now-empty plugin dir (only if WE own its full contents).
+    changes.push(this.removeDirIfEmpty(this.pluginDir(ctx), ctx.dryRun));
 
     return changes;
   }
 
-  /** Upsert plugins.entries.<id> = { enabled, module } idempotently. */
+  /**
+   * Upsert plugins.entries.<id> = { enabled: true } AND add `pluginDir` to
+   * plugins.load.paths idempotently.
+   *
+   * `openclaw config validate` rejects a per-entry `module` field, so the entry
+   * carries ONLY `{ enabled: true }`. The gateway discovers the synthesized
+   * module by scanning the directories in plugins.load.paths (the dir holding
+   * index.mjs + openclaw.plugin.json), so the dir is added there.
+   */
   private upsertPluginEntry(
     configPath: string,
     ctx: InstallContext,
-    modulePath: string,
+    pluginDir: string,
   ): ChangeRecord {
     // OVERWRITE GUARD: never blank a present-but-unparseable openclaw.json.
     if (this.isPresentButUnparseable(configPath)) {
@@ -568,36 +605,60 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const cfg = this.readJson<Record<string, unknown>>(configPath) ?? {};
     const entries = this.pluginEntriesBucket(cfg);
     const id = ctx.connector.id;
-    const desired: OpenClawPluginEntry = { enabled: true, module: modulePath };
-    const before = JSON.stringify(entries[id]);
-    const after = JSON.stringify(desired);
+    const desired: OpenClawPluginEntry = { enabled: true };
+    const entryBefore = JSON.stringify(entries[id]);
+    const entryAfter = JSON.stringify(desired);
+
+    // plugins.load.paths: add the plugin dir if absent.
+    const loadPaths = this.pluginLoadPathsBucket(cfg);
+    const pathPresent = loadPaths.includes(pluginDir);
+
+    const entryChanged = entryBefore !== entryAfter;
+    const pathChanged = !pathPresent;
     let action: ChangeRecord["action"];
-    if (before === undefined) action = "create";
-    else if (before === after) action = "skip";
+    if (entryBefore === undefined) action = "create";
+    else if (!entryChanged && !pathChanged) action = "skip";
     else action = "update";
+
     if (action !== "skip") {
       entries[id] = desired;
+      if (!pathPresent) loadPaths.push(pluginDir);
       this.writeJson(configPath, cfg, ctx.dryRun);
     }
     return {
       platform: this.id,
       action,
       path: configPath,
-      detail: `${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id}`,
+      detail: `${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id} + ${PLUGINS_KEY}.${PLUGINS_LOAD_KEY}.${PLUGINS_LOAD_PATHS_KEY}`,
     };
   }
 
-  /** Remove plugins.entries.<id>. */
-  private removePluginEntry(configPath: string, id: string, dryRun: boolean): ChangeRecord {
+  /** Remove plugins.entries.<id> AND drop `pluginDir` from plugins.load.paths. */
+  private removePluginEntry(
+    configPath: string,
+    id: string,
+    pluginDir: string,
+    dryRun: boolean,
+  ): ChangeRecord {
     const cfg = this.readJson<Record<string, unknown>>(configPath);
     const plugins = cfg?.[PLUGINS_KEY];
-    const entries =
+    const pluginsObj =
       plugins && typeof plugins === "object" && !Array.isArray(plugins)
-        ? ((plugins as Record<string, unknown>)[PLUGINS_ENTRIES_KEY] as
-            | Record<string, unknown>
-            | undefined)
+        ? (plugins as Record<string, unknown>)
         : undefined;
-    if (!cfg || !entries || !(id in entries)) {
+    const entries = pluginsObj?.[PLUGINS_ENTRIES_KEY] as
+      | Record<string, unknown>
+      | undefined;
+    const load = pluginsObj?.[PLUGINS_LOAD_KEY] as Record<string, unknown> | undefined;
+    const loadPaths =
+      load && Array.isArray(load[PLUGINS_LOAD_PATHS_KEY])
+        ? (load[PLUGINS_LOAD_PATHS_KEY] as unknown[])
+        : undefined;
+
+    const entryPresent = Boolean(entries && id in entries);
+    const pathIdx = loadPaths ? loadPaths.indexOf(pluginDir) : -1;
+
+    if (!cfg || (!entryPresent && pathIdx < 0)) {
       return {
         platform: this.id,
         action: "skip",
@@ -605,13 +666,14 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
         detail: `${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id} absent`,
       };
     }
-    delete entries[id];
+    if (entryPresent && entries) delete entries[id];
+    if (loadPaths && pathIdx >= 0) loadPaths.splice(pathIdx, 1);
     this.writeJson(configPath, cfg, dryRun);
     return {
       platform: this.id,
       action: "remove",
       path: configPath,
-      detail: `${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id}`,
+      detail: `${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id} + ${PLUGINS_KEY}.${PLUGINS_LOAD_KEY}.${PLUGINS_LOAD_PATHS_KEY}`,
     };
   }
 
@@ -631,6 +693,30 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     return entries as Record<string, unknown>;
   }
 
+  /** Get-or-create config.plugins.load.paths as a mutable string array. */
+  private pluginLoadPathsBucket(cfg: Record<string, unknown>): string[] {
+    let plugins = cfg[PLUGINS_KEY];
+    if (!plugins || typeof plugins !== "object" || Array.isArray(plugins)) {
+      plugins = {};
+      cfg[PLUGINS_KEY] = plugins;
+    }
+    const pluginsObj = plugins as Record<string, unknown>;
+    let load = pluginsObj[PLUGINS_LOAD_KEY];
+    if (!load || typeof load !== "object" || Array.isArray(load)) {
+      load = {};
+      pluginsObj[PLUGINS_LOAD_KEY] = load;
+    }
+    const loadObj = load as Record<string, unknown>;
+    const existing = loadObj[PLUGINS_LOAD_PATHS_KEY];
+    // Normalize to a fresh string[] (drop any non-string a user may have placed
+    // here) and write it back so the caller mutates the live array.
+    const paths = Array.isArray(existing)
+      ? existing.filter((p): p is string => typeof p === "string")
+      : [];
+    loadObj[PLUGINS_LOAD_PATHS_KEY] = paths;
+    return paths;
+  }
+
   // ── ts-plugin synthesis ────────────────────────────────────────────────
 
   /**
@@ -648,7 +734,29 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   synthesizePlugin(ctx: InstallContext): GeneratedPluginFile[] {
     const path = this.getHookConfigPath(ctx);
     const contents = this.buildPluginSource(ctx);
-    return [{ path, contents, executable: false }];
+    // The gateway scans plugins.load.paths dirs for a manifest, so emit an
+    // openclaw.plugin.json beside index.mjs pointing at the module entry.
+    const manifestPath = join(this.pluginDir(ctx), PLUGIN_MANIFEST_FILE);
+    const manifest = this.buildPluginManifest(ctx);
+    return [
+      { path, contents, executable: false },
+      { path: manifestPath, contents: manifest, executable: false },
+    ];
+  }
+
+  /**
+   * Build the openclaw.plugin.json manifest the gateway reads inside a
+   * plugins.load.paths directory. It names the plugin and points at the ESM
+   * module entry (index.mjs) so the loader knows what to import.
+   */
+  private buildPluginManifest(ctx: InstallContext): string {
+    const manifest = {
+      id: ctx.connector.id,
+      name: ctx.connector.displayName || ctx.connector.id,
+      main: this.pluginFileName(),
+      enabled: true,
+    };
+    return `${JSON.stringify(manifest, null, 2)}\n`;
   }
 
   /** Compose the generated plugin source with plain string concatenation. */
@@ -918,6 +1026,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const configPath = this.getServerConfigPath(ctx);
     const pluginPath = this.getHookConfigPath(ctx);
+    const pluginDir = this.pluginDir(ctx);
     const id = ctx.connector.id;
     const hasHooks = ctx.connector.hookEvents.length > 0;
     const hasServer = Boolean(ctx.connector.server);
@@ -932,49 +1041,51 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       },
       {
         // HARDEST PART — dual registration must be CONSISTENT. The plugin only
-        // delivers tools when it is in BOTH plugins.entries AND mcp.servers. A
-        // config with one but not the other is a tool-less (or never-loaded)
-        // install, so FAIL on entries XOR mcp.servers.
-        name: `${this.name}: dual registration (plugins.entries + mcp.servers.${id})`,
+        // delivers tools when it is LOADED (plugins.entries.<id> enabled AND its
+        // dir in plugins.load.paths) AND in mcp.servers. A config with one half
+        // but not the other is a tool-less (or never-loaded) install, so FAIL on
+        // loaded XOR mcp.servers. (We assert plugins.load.paths — NOT a per-entry
+        // `module` field, which openclaw config validate rejects.)
+        name: `${this.name}: dual registration (plugins.entries+load.paths + mcp.servers.${id})`,
         check: () => {
           const cfg = this.readJson<Record<string, unknown>>(configPath);
           if (!cfg) return { status: "FAIL", detail: `cannot read ${configPath}` };
 
-          const inEntries = this.hasPluginEntry(cfg, id);
+          const inEntries = this.hasPluginEntry(cfg, id) && this.hasLoadPath(cfg, pluginDir);
           const inMcp = this.hasMcpServer(cfg, id);
 
           // A hooks-only connector (no MCP server declared) does not need the
-          // mcp.servers half — entries alone is correct and complete.
+          // mcp.servers half — the load half alone is correct and complete.
           if (!hasServer) {
             return inEntries || !hasHooks
               ? { status: "OK", detail: "hooks-only connector (no MCP server)" }
               : {
                   status: "FAIL",
-                  detail: `no ${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id} (plugin will not load)`,
+                  detail: `${id} not enabled in ${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY} + ${PLUGINS_KEY}.${PLUGINS_LOAD_KEY}.${PLUGINS_LOAD_PATHS_KEY} (plugin will not load)`,
                 };
           }
 
           if (inEntries && inMcp) {
             return {
               status: "OK",
-              detail: `${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id} + ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY}.${id}`,
+              detail: `${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}.${id}+${PLUGINS_KEY}.${PLUGINS_LOAD_KEY}.${PLUGINS_LOAD_PATHS_KEY} + ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY}.${id}`,
             };
           }
           if (inEntries && !inMcp) {
             return {
               status: "FAIL",
-              detail: `in ${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY} but missing from ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY} — plugin loads but no tools reach the agent`,
+              detail: `loaded (${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}+${PLUGINS_LOAD_KEY}.${PLUGINS_LOAD_PATHS_KEY}) but missing from ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY} — plugin loads but no tools reach the agent`,
             };
           }
           if (!inEntries && inMcp) {
             return {
               status: "FAIL",
-              detail: `in ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY} but missing from ${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY} — tools declared but plugin never loads`,
+              detail: `in ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY} but not loaded (missing ${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY} or ${PLUGINS_LOAD_KEY}.${PLUGINS_LOAD_PATHS_KEY}) — tools declared but plugin never loads`,
             };
           }
           return {
             status: "FAIL",
-            detail: `not registered in ${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY} or ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY}`,
+            detail: `not loaded (${PLUGINS_KEY}.${PLUGINS_ENTRIES_KEY}+${PLUGINS_LOAD_KEY}.${PLUGINS_LOAD_PATHS_KEY}) and not in ${MCP_ROOT_KEY}.${MCP_SERVERS_KEY}`,
           };
         },
       },
@@ -990,13 +1101,30 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     ];
   }
 
-  /** True when config.plugins.entries.<id> exists. */
+  /** True when config.plugins.entries.<id> exists (and is not disabled). */
   private hasPluginEntry(cfg: Record<string, unknown>, id: string): boolean {
     const plugins = cfg[PLUGINS_KEY];
     if (!plugins || typeof plugins !== "object" || Array.isArray(plugins)) return false;
     const entries = (plugins as Record<string, unknown>)[PLUGINS_ENTRIES_KEY];
     if (!entries || typeof entries !== "object" || Array.isArray(entries)) return false;
-    return id in (entries as Record<string, unknown>);
+    const entry = (entries as Record<string, unknown>)[id];
+    if (entry === undefined) return false;
+    // An explicit { enabled: false } means the gateway will not load it.
+    return !(
+      entry &&
+      typeof entry === "object" &&
+      (entry as Record<string, unknown>).enabled === false
+    );
+  }
+
+  /** True when config.plugins.load.paths includes `pluginDir`. */
+  private hasLoadPath(cfg: Record<string, unknown>, pluginDir: string): boolean {
+    const plugins = cfg[PLUGINS_KEY];
+    if (!plugins || typeof plugins !== "object" || Array.isArray(plugins)) return false;
+    const load = (plugins as Record<string, unknown>)[PLUGINS_LOAD_KEY];
+    if (!load || typeof load !== "object" || Array.isArray(load)) return false;
+    const paths = (load as Record<string, unknown>)[PLUGINS_LOAD_PATHS_KEY];
+    return Array.isArray(paths) && paths.includes(pluginDir);
   }
 
   /** True when config.mcp.servers.<id> exists. */

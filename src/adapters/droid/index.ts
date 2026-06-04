@@ -1,20 +1,34 @@
 /**
  * adapters/droid — Droid (Factory AI) platform adapter for agent-connector.
  *
- * Droid is an **mcp-only** host: it exposes no lifecycle hook system, and MCP is
- * its extensibility mechanism. This adapter therefore installs only the MCP
- * server and reports hooks as unavailable — the clean, standard JSON case.
+ * Droid is a **json-stdio** host with TWO native config surfaces that live in
+ * DIFFERENT files (so getServerConfigPath ≠ getHookConfigPath):
  *
- * MCP config (report §2 / §5.3):
- *   - user scope    → ~/.factory/mcp.json
- *   - project scope → <projectDir>/.factory/mcp.json
- *   Both are JSON, root key "mcpServers", and are the SAME file used for the
- *   (non-existent) hook registration — there is no separate hook file here.
+ *   1. MCP servers — `mcp.json` (root key `mcpServers`):
+ *        - user scope    → ~/.factory/mcp.json
+ *        - project scope → <projectDir>/.factory/mcp.json
+ *      Native stdio entry shape: { type:"stdio", command, args, env, disabled };
+ *      a remote server registers a URL ({ type:"http", url, headers, disabled }).
  *
- * Native stdio entry shape: { type: "stdio", command, args, env, disabled }.
- * Droid supports native ${VAR} expansion in env values, but resolving every
- * ${env:VAR} to a literal at install time is safe and avoids surprises, so this
- * adapter takes the resolve-to-literal path (matching the Warp reference).
+ *   2. Hooks — a SEPARATE `hooks.json` (root key `hooks`) under the same
+ *      `.factory` dir. Droid ships a FULL Claude-compatible lifecycle hook
+ *      system (live-confirmed): PascalCase event names, Claude snake_case stdin
+ *      wire fields, and a Claude-shaped `hookSpecificOutput` reply. Hook
+ *      registrations use the Claude NESTED-rule shape:
+ *        { hooks: { <Event>: [ { matcher?, hooks:[{ type:"command", command }] } ] } }
+ *
+ * Supported events (Claude-compatible): PreToolUse, PostToolUse,
+ * UserPromptSubmit, Stop. Droid exposes no PreCompact / SessionStart /
+ * SessionEnd / Notification, so those degrade to a warn/skip at install time.
+ *
+ * Reply protocol is Claude-shaped JSON on stdout (exit 0 + `hookSpecificOutput`
+ * with permissionDecision allow|deny|ask, plus additionalContext). Droid cannot
+ * rewrite already-emitted tool output, so canModifyOutput is false; it CAN
+ * inject session context (additionalContext) so canInjectSessionContext is true.
+ *
+ * Env handling: env/header/url refs are resolved to literals at install time via
+ * resolveEnvRefsDeep — the safe default matching the Kiro/Qwen adapters. Droid
+ * also accepts native ${VAR}, but resolve-to-literal avoids surprises.
  */
 
 import { existsSync } from "node:fs";
@@ -22,25 +36,46 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
   HealthCheck,
+  HookEventName,
   HookParadigm,
+  HookResponse,
   PlatformCapabilities,
   PlatformId,
+  PostToolUseEvent,
+  PreToolUseEvent,
   ServerDef,
+  StopEvent,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
+  buildHomeBinHookCommand,
   buildServeWrapperCommand,
+  isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 
 const HOST: PlatformId = "droid";
 const MCP_ROOT_KEY = "mcpServers";
+
+/**
+ * Canonical events Droid actually fires. Droid's hook event names are
+ * Claude-identical (PascalCase), so the canonical name is registered directly.
+ * PreCompact / SessionStart / SessionEnd / Notification have no Droid equivalent
+ * and are reported as a warn/skip at install time.
+ */
+const SUPPORTED_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
+  "PreToolUse",
+  "PostToolUse",
+  "UserPromptSubmit",
+  "Stop",
+]);
 
 /**
  * Native MCP server entry shapes Droid accepts under `mcpServers`.
@@ -61,24 +96,53 @@ interface DroidHttpServer {
   disabled: boolean;
 }
 
+/** A single Droid native hook registration entry (Claude-shaped, nested). */
+interface DroidHookEntry {
+  matcher: string;
+  hooks: Array<{ type: "command"; command: string }>;
+}
+
+/** The shape of Droid's hooks.json (only the parts we touch). */
+interface DroidHooksFile {
+  hooks?: Record<string, DroidHookEntry[]>;
+  [key: string]: unknown;
+}
+
+/** Raw Droid CLI hook stdin payload (Claude-compatible snake_case wire fields). */
+interface DroidWireInput {
+  session_id?: string;
+  transcript_path?: string;
+  cwd?: string;
+  hook_event_name?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_response?: unknown;
+  prompt?: string;
+  stop_hook_active?: boolean;
+  /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
+  connector?: unknown;
+}
+
 export class DroidAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
   readonly name = "Droid (Factory)";
-  readonly paradigm: HookParadigm = "mcp-only";
+  readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
-    // Droid has no lifecycle hook system — every hook capability is false.
-    preToolUse: false,
-    postToolUse: false,
+    preToolUse: true,
+    postToolUse: true,
     preCompact: false,
     sessionStart: false,
     sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
+    userPromptSubmit: true,
+    stop: true,
     notification: false,
+    // Droid's PreToolUse can deny/ask (Claude-shaped), but it cannot rewrite
+    // already-emitted tool output. canModifyArgs left false until confirmed.
     canModifyArgs: false,
     canModifyOutput: false,
-    canInjectSessionContext: false,
+    // Droid honors additionalContext on the stdout reply.
+    canInjectSessionContext: true,
     // Droid registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
   };
@@ -124,12 +188,9 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     return join(this.getConfigDir(ctx), "mcp.json");
   }
 
-  /**
-   * Droid has no hook file — hooks are not a thing here. The hook "config path"
-   * is the same mcp.json so the generic doctor/backup behave sensibly.
-   */
+  /** Hooks live in a SEPARATE hooks.json under the same `.factory` dir. */
   getHookConfigPath(ctx: InstallContext): string {
-    return this.getServerConfigPath(ctx);
+    return join(this.getConfigDir(ctx), "hooks.json");
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────
@@ -230,33 +291,159 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     return resolveEnvRefsDeep({ ...env });
   }
 
-  // ── Hooks (unavailable — Droid is mcp-only) ──────────────────────────────
+  // ── Hook install / uninstall (separate hooks.json, nested-rule shape) ─────
 
-  installHooks(_ctx: InstallContext): ChangeRecord[] {
-    return [
-      {
-        platform: this.id,
-        action: "skip",
-        detail: "hooks unavailable (Droid (Factory) is mcp-only)",
-      },
-    ];
+  installHooks(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.hooks === false) {
+      return [{ platform: this.id, action: "skip", detail: "hooks disabled for droid" }];
+    }
+    if (connector.hookEvents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
+    }
+
+    const hookPath = this.getHookConfigPath(ctx);
+    // Merge into any existing hooks.json so the user's own hooks survive.
+    const file = this.readJson<DroidHooksFile>(hookPath) ?? {};
+    const hooks = (file.hooks ??= {});
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+
+    for (const event of connector.hookEvents) {
+      if (!SUPPORTED_EVENTS.has(event)) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: hookPath,
+          detail: `${event} has no Droid hook equivalent — skipped`,
+        });
+        continue;
+      }
+
+      // Droid's event names are Claude-identical (PascalCase) — register the
+      // canonical event name directly.
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
+      const matcher = connector.hooks[event]?.matcher ?? "";
+      const entry: DroidHookEntry = {
+        matcher,
+        hooks: [{ type: "command", command }],
+      };
+
+      const bucket = (hooks[event] ??= []);
+      const existingIdx = bucket.findIndex((e) => this.entryHasOurCommand(e, ctx));
+
+      if (existingIdx >= 0) {
+        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: hookPath,
+            detail: `hooks.${event} already registered`,
+          });
+          continue;
+        }
+        bucket[existingIdx] = entry;
+        changes.push({
+          platform: this.id,
+          action: "update",
+          path: hookPath,
+          detail: `hooks.${event}`,
+        });
+      } else {
+        bucket.push(entry);
+        changes.push({
+          platform: this.id,
+          action: "create",
+          path: hookPath,
+          detail: `hooks.${event}`,
+        });
+      }
+      mutated = true;
+    }
+
+    if (mutated) this.writeJson(hookPath, file, ctx.dryRun);
+    return changes;
   }
 
-  uninstallHooks(_ctx: InstallContext): ChangeRecord[] {
-    return [
-      {
+  uninstallHooks(ctx: InstallContext): ChangeRecord[] {
+    const hookPath = this.getHookConfigPath(ctx);
+    const file = this.readJson<DroidHooksFile>(hookPath);
+    const hooks = file?.hooks;
+    if (!file || !hooks) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: hookPath,
+          detail: "no hooks section present",
+        },
+      ];
+    }
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+
+    for (const event of Object.keys(hooks)) {
+      const bucket = hooks[event];
+      if (!Array.isArray(bucket)) continue;
+
+      // Strip our hook command from each entry; drop entries left empty so we
+      // never remove another connector's (or the user's own) hook commands. The
+      // id token is anchored (isHomeBinHookCommand) so a shared-prefix connector
+      // id is never affected.
+      const next: DroidHookEntry[] = [];
+      let removed = 0;
+      for (const e of bucket) {
+        const innerBefore = e.hooks?.length ?? 0;
+        const inner = (e.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
+        removed += innerBefore - inner.length;
+        if (inner.length > 0) next.push({ matcher: e.matcher ?? "", hooks: inner });
+      }
+
+      if (removed > 0) {
+        if (next.length > 0) hooks[event] = next;
+        else delete hooks[event];
+        changes.push({
+          platform: this.id,
+          action: "remove",
+          path: hookPath,
+          detail: `hooks.${event} (${removed})`,
+        });
+        mutated = true;
+      }
+    }
+
+    if (mutated) this.writeJson(hookPath, file, ctx.dryRun);
+    if (changes.length === 0) {
+      changes.push({
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Droid (Factory) is mcp-only)",
-      },
-    ];
+        path: hookPath,
+        detail: "no matching hook entries",
+      });
+    }
+    return changes;
+  }
+
+  private entryHasOurCommand(entry: DroidHookEntry, ctx: InstallContext): boolean {
+    return (entry.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx));
+  }
+
+  /** True when a hook command references our home binary AND this connector id
+   *  (anchored so a shared-prefix id can't collide — see isHomeBinHookCommand). */
+  private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
+    return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const mcpPath = this.getServerConfigPath(ctx);
+    const hookPath = this.getHookConfigPath(ctx);
     const connectorId = ctx.connector.id;
+    const homeBin = ctx.homeBinPath;
+    const hookEvents = ctx.connector.hookEvents;
     return [
       {
         name: `${this.name}: mcp.json present`,
@@ -281,7 +468,144 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
               };
         },
       },
+      {
+        name: `${this.name}: hook command registered`,
+        check: () => {
+          if (hookEvents.length === 0) {
+            return { status: "OK", detail: "no hooks declared" };
+          }
+          const file = this.readJson<DroidHooksFile>(hookPath);
+          if (!file) return { status: "FAIL", detail: `cannot read ${hookPath}` };
+          const hooks = file.hooks ?? {};
+          const registered = Object.values(hooks).some((entries) =>
+            (entries ?? []).some((e) =>
+              (e.hooks ?? []).some((h) =>
+                isHomeBinHookCommand(h.command, homeBin, connectorId),
+              ),
+            ),
+          );
+          return registered
+            ? { status: "OK", detail: "hook command present" }
+            : { status: "FAIL", detail: `no hook for ${connectorId} in ${hookPath}` };
+        },
+      },
     ];
+  }
+
+  // ── Runtime: parse Droid stdin JSON → normalized event ────────────────────
+
+  parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
+    const input = (raw ?? {}) as DroidWireInput;
+    const connectorId = typeof input.connector === "string" ? input.connector : "";
+    const sessionId = typeof input.session_id === "string" ? input.session_id : "";
+    const projectDir = typeof input.cwd === "string" ? input.cwd : undefined;
+
+    const base = {
+      hostPlatform: HOST,
+      connectorId,
+      sessionId,
+      raw,
+      ...(projectDir !== undefined ? { projectDir } : {}),
+    } as const;
+
+    switch (event) {
+      case "PreToolUse": {
+        const ev: PreToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+        };
+        return ev;
+      }
+      case "PostToolUse": {
+        const ev: PostToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(toolResponseToString(input.tool_response) !== undefined
+            ? { toolOutput: toolResponseToString(input.tool_response) }
+            : {}),
+        };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
+      case "Stop": {
+        const ev: StopEvent = {
+          ...base,
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      default: {
+        // Droid never delivers PreCompact / SessionStart / SessionEnd /
+        // Notification (no native equivalent). If the runtime dispatches one
+        // anyway, surface it loudly rather than silently mis-parse.
+        throw new Error(`unsupported droid hook event: ${String(event)}`);
+      }
+    }
+  }
+
+  // ── Runtime: normalized response → Droid native (Claude-shaped) hook reply ─
+
+  formatReply(event: HookEventName, response: HookResponse): HookReply {
+    const hookEventName = event;
+    const decision = response.decision ?? "allow";
+
+    // deny → block the action with a reason (exit 0; JSON carries the decision).
+    if (decision === "deny") {
+      return this.stdout({
+        hookSpecificOutput: {
+          hookEventName,
+          permissionDecision: "deny",
+          permissionDecisionReason: response.reason ?? "Blocked by hook",
+        },
+      });
+    }
+
+    // ask → prompt the user to confirm.
+    if (decision === "ask") {
+      return this.stdout({
+        hookSpecificOutput: {
+          hookEventName,
+          permissionDecision: "ask",
+          permissionDecisionReason: response.reason ?? "Confirmation required by hook",
+        },
+      });
+    }
+
+    // context → inject soft guidance (Droid honors additionalContext).
+    if (decision === "context" && response.additionalContext) {
+      return this.stdout({
+        hookSpecificOutput: { hookEventName, additionalContext: response.additionalContext },
+      });
+    }
+
+    // allow / modify (unsupported — exit-code/decision protocol only) / void →
+    // pass through with exit 0.
+    return { exitCode: 0 };
+  }
+
+  private stdout(payload: unknown): HookReply {
+    return { exitCode: 0, stdout: JSON.stringify(payload) };
+  }
+}
+
+/** Coerce a Droid PostToolUse `tool_response` into a string for the normalized event. */
+function toolResponseToString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }
 

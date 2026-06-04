@@ -14,9 +14,11 @@
  *     trigger, stop_hook_active, message.
  *   - Reply is exit-code 0 + a `hookSpecificOutput` JSON object on stdout
  *     (permissionDecision allow|deny|ask, updatedInput, additionalContext) —
- *     the Claude reply shape. Qwen additionally honors `updatedMCPToolOutput`
- *     on PostToolUse, so this host CAN rewrite already-emitted tool output
- *     (capabilities.canModifyOutput = true; Claude Code cannot).
+ *     the Claude reply shape. Qwen's PreToolUse CAN rewrite tool input
+ *     (updatedInput; capabilities.canModifyArgs = true), but — verified against
+ *     qwen 0.17.1 — there is NO `updatedMCPToolOutput` honor on PostToolUse, so
+ *     this host CANNOT rewrite already-emitted tool output
+ *     (capabilities.canModifyOutput = false, like the Claude-family hosts).
  *   - Native tool names are Qwen/Gemini-flavored (run_shell_command, read_file,
  *     write_file, grep_search, …) — used only inside matcher strings; the wire
  *     field names are unchanged from Claude.
@@ -158,12 +160,11 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: true,
     stop: true,
     notification: true,
-    // Qwen's PreToolUse can rewrite input (updatedInput) AND — unlike the
-    // Claude-family hosts — its PostToolUse can rewrite already-emitted tool
-    // output via `updatedMCPToolOutput` (confirmed by context-mode's qwen-code
-    // adapter formatPostToolUseResponse).
+    // Qwen's PreToolUse can rewrite input (updatedInput). It CANNOT rewrite
+    // already-emitted tool output — `updatedMCPToolOutput` does not exist in
+    // qwen 0.17.1, so canModifyOutput is false (like the Claude-family hosts).
     canModifyArgs: true,
-    canModifyOutput: true,
+    canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "sse", "http"],
     // Content surfaces: Qwen ships native slash commands (TOML) and subagents
@@ -744,20 +745,13 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
       });
     }
 
-    // modify → rewrite PreToolUse input, or (Qwen-only) PostToolUse output.
+    // modify → rewrite PreToolUse input only. Qwen 0.17.1 has no PostToolUse
+    // output-rewrite (`updatedMCPToolOutput` does not exist), so a modify on any
+    // other event falls through to allow.
     if (decision === "modify") {
       if (event === "PreToolUse" && response.updatedInput) {
         return this.stdout({
           hookSpecificOutput: { hookEventName, updatedInput: response.updatedInput },
-        });
-      }
-      if (event === "PostToolUse" && response.updatedOutput !== undefined) {
-        // Qwen honors `updatedMCPToolOutput` to replace already-emitted output.
-        return this.stdout({
-          hookSpecificOutput: {
-            hookEventName,
-            updatedMCPToolOutput: response.updatedOutput,
-          },
         });
       }
       // Nothing applicable on this event; fall through to allow.

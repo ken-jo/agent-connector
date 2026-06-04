@@ -1,21 +1,27 @@
 /**
  * adapters/phase3 — render + ts-plugin bridge tests for the two Phase-3 adapters.
  *
- * Covers the genuinely hard `ts-plugin` paradigm (OpenCode) and the `mcp-only`
- * siblings (the Kilo CLI + the Kilo Code VS Code extension), end-to-end against
- * REAL files on disk in an isolated temp dir:
+ * Covers the genuinely hard `ts-plugin` paradigm (OpenCode + the Kilo CLI fork)
+ * and the `mcp-only` Kilo Code VS Code extension, end-to-end against REAL files
+ * on disk in an isolated temp dir:
  *
- *   KILO CLI (mcp-only):
+ *   KILO CLI (ts-plugin — an OpenCode fork loading @kilocode/plugin modules):
  *     • installServer writes kilo.jsonc under the top-level "mcp" key, with a
  *       { type:"local", command:[...] } entry whose command array starts with the
  *       home binary and carries serve --connector <id>.
  *     • idempotency (second installServer → "skip"); uninstallServer removes it.
- *     • installHooks returns exactly ONE skip ChangeRecord and writes NO hook file.
+ *     • installHooks synthesizes a self-contained plugin .js module into the
+ *       .kilo/plugin/ dir AND registers its path in kilo.jsonc's "plugin" array
+ *       (the fork does NOT auto-discover by dir). uninstallHooks reverses both.
  *
- *   KILO CODE (VS Code extension, mcp-only):
- *     • installServer writes .kilocode/mcp.json under the "mcpServers" key
- *       (Roo/Cline-fork dialect, scalar command + args), NOT the CLI's "mcp".
- *     • the two products never collide (distinct files + root keys).
+ *   KILO CODE (VS Code extension, mcp-only — vsix 7.3.28 delegates MCP to the
+ *   shared kilo backend):
+ *     • installServer writes .kilo/kilo.json under the "mcp" key, with a
+ *       { type:"local", command:[...], environment } entry — the SAME backend
+ *       dialect as the CLI (command ARRAY), NOT the legacy "mcpServers"/scalar.
+ *     • the two products never collide: same dir + "mcp" key, but DIFFERENT
+ *       filenames (ext kilo.json vs CLI kilo.jsonc) and the CLI also carries a
+ *       "plugin" array the ext does not.
  *
  *   OPENCODE (ts-plugin — the important one):
  *     • installServer writes the opencode.json "mcp" entry (type local, command
@@ -156,10 +162,10 @@ function readJson(path: string): Record<string, any> {
 const WRAPPED_TAIL = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
 
 // ─────────────────────────────────────────────────────────────────────────
-// Kilo CLI (mcp-only) — the SQLite/OpenCode-similar command-line product
+// Kilo CLI (ts-plugin) — the SQLite-backed OpenCode FORK loading @kilocode/plugin
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("kilo-cli adapter (mcp-only) render", () => {
+describe("kilo-cli adapter (ts-plugin) render", () => {
   let projectDir: string;
   let ctx: InstallContext;
 
@@ -168,10 +174,10 @@ describe("kilo-cli adapter (mcp-only) render", () => {
     ctx = buildCtx(projectDir, buildConnector());
   });
 
-  it("has the CLI identity (id kilo-cli / name Kilo CLI)", () => {
+  it("has the CLI identity (id kilo-cli / name Kilo CLI / ts-plugin)", () => {
     expect(kiloCliAdapter.id).toBe("kilo-cli");
     expect(kiloCliAdapter.name).toBe("Kilo CLI");
-    expect(kiloCliAdapter.paradigm).toBe("mcp-only");
+    expect(kiloCliAdapter.paradigm).toBe("ts-plugin");
   });
 
   it("installServer writes the entry under top-level 'mcp' with type 'local' and a command ARRAY starting at the home bin", () => {
@@ -222,22 +228,91 @@ describe("kilo-cli adapter (mcp-only) render", () => {
     expect(cfg.mcp?.[CONNECTOR_ID]).toBeUndefined();
   });
 
-  it("installHooks returns exactly ONE skip ChangeRecord and writes NO hook file", () => {
+  it("installHooks writes the plugin .js module into .kilo/plugin/ AND registers its path in kilo.jsonc's 'plugin' array", () => {
     const changes = kiloCliAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
 
-    // The CLI's hook config path equals its server config path; with only
-    // installHooks called, no file should exist (mcp-only writes nothing).
-    const hooksPath = kiloCliAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(kiloCliAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
+    // The hook config path is the generated module FILE (ts-plugin), under the
+    // dedicated plugin dir — NOT the server config path.
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+    expect(pluginPath).toBe(join(projectDir, ".kilo", "plugin", `${CONNECTOR_ID}.js`));
+    expect(pluginPath).not.toBe(kiloCliAdapter.getServerConfigPath(ctx));
+    expect(existsSync(pluginPath)).toBe(true);
+
+    // The module is self-contained: it imports NOTHING from agent-connector (the
+    // only allowed import is node:child_process). The string "agent-connector"
+    // may appear in the AUTO-GENERATED header comment — what must be absent is an
+    // actual import/require of the package. It shells out to the home bin's
+    // universal `hook kilo-cli` entrypoint.
+    const src = readFileSync(pluginPath, "utf8");
+    expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
+    expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
+    expect(src).toContain('import { execFileSync } from "node:child_process"');
+    expect(src).toContain('"hook", "kilo-cli"');
+    expect(src).toContain(HOME_BIN);
+    // @kilocode/plugin PluginModule shape: default export with a server factory.
+    expect(src).toContain("server: async (input)");
+    expect(src).toContain('"tool.execute.before"');
+
+    // The module path is registered in kilo.jsonc's top-level "plugin" array.
+    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
+    expect(Array.isArray(cfg.plugin)).toBe(true);
+    expect(cfg.plugin).toContain(pluginPath);
+
+    // A create for the module + a create for the array registration.
+    expect(changes.some((c) => c.action === "create")).toBe(true);
   });
 
-  it("uninstallHooks is also a clean single skip", () => {
-    const changes = kiloCliAdapter.uninstallHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
+  it("installHooks is idempotent — second call does not duplicate the plugin-array entry", () => {
+    kiloCliAdapter.installHooks(ctx);
+    kiloCliAdapter.installHooks(ctx);
+    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+    expect(cfg.plugin.filter((p: string) => p === pluginPath)).toHaveLength(1);
+  });
+
+  it("uninstallHooks removes the module AND deregisters it from the 'plugin' array", () => {
+    kiloCliAdapter.installHooks(ctx);
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+    expect(existsSync(pluginPath)).toBe(true);
+
+    kiloCliAdapter.uninstallHooks(ctx);
+    expect(existsSync(pluginPath)).toBe(false);
+
+    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
+    expect(Array.isArray(cfg.plugin) ? cfg.plugin : []).not.toContain(pluginPath);
+  });
+
+  it("THE BRIDGE WORKS — the synthesized @kilocode/plugin server() blocks on a deny and rewrites args on a modify", async () => {
+    kiloCliAdapter.installHooks(ctx);
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+
+    // Import the freshly-written module (cache-busted) with child_process mocked.
+    const mod = await import(`${pathToFileURL(pluginPath).href}?t=${Date.now()}`);
+    const plugin = mod.default;
+    expect(typeof plugin.server).toBe("function");
+
+    const hooks = await plugin.server({ directory: projectDir });
+    const before = hooks["tool.execute.before"];
+    expect(typeof before).toBe("function");
+
+    // deny → the handler throws (blocks the tool call).
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "nope" } satisfies HookResponse);
+    await expect(
+      before({ tool: "acme_write", sessionID: "s1" }, { args: { a: 1 } }),
+    ).rejects.toThrow("nope");
+
+    // modify → updatedInput is merged into output.args in place.
+    execFileSyncImpl = () =>
+      JSON.stringify({ decision: "modify", updatedInput: { a: 2, b: 3 } } satisfies HookResponse);
+    const output = { args: { a: 1 } as Record<string, unknown> };
+    await before({ tool: "acme_write", sessionID: "s1" }, output);
+    expect(output.args).toEqual({ a: 2, b: 3 });
+
+    // The bridge shelled out to the kilo-cli universal entrypoint.
+    expect(execFileSyncMock).toHaveBeenCalled();
+    const call = execFileSyncMock.mock.calls.at(-1);
+    expect(call?.[0]).toBe(HOME_BIN);
+    expect(call?.[1]).toEqual(["hook", "kilo-cli", "PreToolUse", "--connector", CONNECTOR_ID]);
   });
 });
 
@@ -260,38 +335,38 @@ describe("kilo adapter (Kilo Code VS Code extension, mcp-only) render", () => {
     expect(kiloAdapter.paradigm).toBe("mcp-only");
   });
 
-  it("installServer writes .kilocode/mcp.json under 'mcpServers' (scalar command + args), NOT the CLI's 'mcp'", () => {
+  it("installServer writes .kilo/kilo.json under 'mcp' with type 'local' and a command ARRAY (delegated kilo backend), NOT the legacy 'mcpServers'", () => {
     const changes = kiloAdapter.installServer(ctx);
     expect(changes[0]?.action).toBe("create");
 
-    const serverPath = join(projectDir, ".kilocode", "mcp.json");
+    const serverPath = join(projectDir, ".kilo", "kilo.json");
     expect(serverPath).toBe(kiloAdapter.getServerConfigPath(ctx));
     expect(existsSync(serverPath)).toBe(true);
 
     const cfg = readJson(serverPath);
-    // Extension root key is "mcpServers", NOT the CLI's "mcp".
-    expect(cfg).toHaveProperty("mcpServers");
-    expect(cfg).not.toHaveProperty("mcp");
+    // vsix 7.3.28 root key is "mcp" (kilo backend), NOT the legacy "mcpServers".
+    expect(cfg).toHaveProperty("mcp");
+    expect(cfg).not.toHaveProperty("mcpServers");
 
-    const entry = cfg.mcpServers[CONNECTOR_ID];
+    const entry = cfg.mcp[CONNECTOR_ID];
     expect(entry).toBeTruthy();
-    // Roo/Cline-fork dialect: scalar command + args[] (NOT a command array).
-    expect(entry.command).toBe(HOME_BIN);
-    expect(Array.isArray(entry.args)).toBe(true);
-    expect(entry.args).toEqual(WRAPPED_TAIL);
-    expect(entry.disabled).toBe(false);
+    expect(entry.type).toBe("local");
+    // Backend dialect: a single command ARRAY (exe + args folded together).
+    expect(Array.isArray(entry.command)).toBe(true);
+    expect(entry.command[0]).toBe(HOME_BIN);
+    expect(entry.command).toEqual([HOME_BIN, ...WRAPPED_TAIL]);
 
     // No native interpolation token → env resolves to a LITERAL value.
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
+    expect(entry.environment[ENV_VAR]).toBe(ENV_LITERAL);
+    expect(entry.environment[ENV_VAR]).not.toContain("${");
   });
 
   it("installServer is idempotent — second call yields skip; uninstall removes it", () => {
     kiloAdapter.installServer(ctx);
     expect(kiloAdapter.installServer(ctx)[0]?.action).toBe("skip");
     kiloAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".kilocode", "mcp.json"));
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
+    const cfg = readJson(join(projectDir, ".kilo", "kilo.json"));
+    expect(cfg.mcp?.[CONNECTOR_ID]).toBeUndefined();
   });
 
   it("installHooks returns exactly ONE skip ChangeRecord and writes NO hook file", () => {
@@ -303,21 +378,24 @@ describe("kilo adapter (Kilo Code VS Code extension, mcp-only) render", () => {
     expect(existsSync(hooksPath)).toBe(false);
   });
 
-  it("does NOT collide with kilo-cli: distinct files + root keys for the same connector", () => {
+  it("does NOT collide with kilo-cli: same dir + 'mcp' key but DISTINCT filenames for the same connector", () => {
     kiloAdapter.installServer(ctx);
     kiloCliAdapter.installServer(ctx);
 
-    const extPath = join(projectDir, ".kilocode", "mcp.json");
+    const extPath = join(projectDir, ".kilo", "kilo.json");
     const cliPath = join(projectDir, ".kilo", "kilo.jsonc");
+    // Same backend dir, DIFFERENT filenames — they must not converge on one file.
     expect(extPath).not.toBe(cliPath);
     expect(existsSync(extPath)).toBe(true);
     expect(existsSync(cliPath)).toBe(true);
 
     const ext = readJson(extPath);
     const cli = readJson(cliPath);
-    // Extension → mcpServers (scalar command); CLI → mcp (command array).
-    expect(ext.mcpServers[CONNECTOR_ID].command).toBe(HOME_BIN);
+    // Both now share the "mcp" key + command-array dialect (the shared backend).
+    expect(Array.isArray(ext.mcp[CONNECTOR_ID].command)).toBe(true);
     expect(Array.isArray(cli.mcp[CONNECTOR_ID].command)).toBe(true);
+    // But the CLI carries a "plugin" array the extension never writes.
+    expect(ext).not.toHaveProperty("plugin");
   });
 });
 

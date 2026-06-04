@@ -25,6 +25,15 @@
  * is the documented Moonshot CLI shape, but it is less battle-tested than the
  * Claude/Codex adapters. We still install; doctor reports presence so a wrong
  * guess surfaces as a FAIL rather than silently misbehaving.
+ *
+ * FUTURE COVERAGE (non-functional note — no behavior change here): this adapter
+ * intentionally wires only PreToolUse, but Kimi CLI actually supports a much
+ * wider event surface — Stop, UserPromptSubmit, PostToolUse, SessionStart,
+ * SessionEnd, PreCompact, Notification, and SubagentStart/SubagentStop. Kimi
+ * also has a PLUGIN system (plugins live at
+ * `$KIMI_CODE_HOME/plugins/<name>/kimi.plugin.json`) and a SKILLS surface
+ * (`~/.kimi-code/skills/`). None of these are covered yet; they are flagged here
+ * as candidates for a future events/plugins/skills expansion of the adapter.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";

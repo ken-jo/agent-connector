@@ -1,38 +1,36 @@
 /**
  * adapters/kilo — Kilo Code (VS Code extension) platform adapter.
  *
- * Kilo Code (`kilocode.kilo-code`) is a Roo/Cline-fork VS Code extension — the
- * SAME lineage as the verified `roo-code` adapter — and an **mcp-only** host
- * from agent-connector's perspective: it exposes no lifecycle hook system, so
- * MCP server registration is the only thing we install and hooks are reported
- * unavailable. It is DISTINCT from the Kilo CLI (adapter id "kilo-cli", the
- * SQLite/OpenCode-similar command-line product); the two products carry
- * different platformIds so their config and usage never merge.
+ * Kilo Code (`kilocode.kilo-code`) is a Roo/Cline-fork VS Code extension, but as
+ * of vsix 7.3.28 it DELEGATES MCP to the shared kilo backend — the SAME backend
+ * the Kilo CLI (adapter id "kilo-cli") drives. It is an **mcp-only** host from
+ * agent-connector's perspective: it exposes no lifecycle hook system, so MCP
+ * server registration is the only thing we install and hooks are reported
+ * unavailable.
  *
- * MCP config (mirrors the Roo/Cline-fork pattern):
- *   - user scope    → <vscodeUserDir>/globalStorage/kilocode.kilo-code/
- *                     settings/mcp_settings.json
- *   - project scope → <projectDir>/.kilocode/mcp.json
- *   Both are JSON, root key "mcpServers".
+ * MCP config (vsix 7.3.28 — delegated to the kilo backend):
+ *   - user scope    → ~/.config/kilo/kilo.json   (XDG: $XDG_CONFIG_HOME/kilo)
+ *   - project scope → <projectDir>/.kilo/kilo.json
+ *   Both are JSON, root key **"mcp"**, entry shape
+ *     { type:"local", command:[exe,...args], environment:{} }  (array command).
+ *   The legacy globalStorage `<vscodeUserDir>/globalStorage/kilocode.kilo-code/
+ *   settings/mcp_settings.json` (root "mcpServers") is MIGRATION-ONLY in 7.3.28
+ *   and is no longer the live write target — detectInstalled() still probes it so
+ *   an older install is recognized, but we install into kilo.json.
  *
- * VS Code user-dir resolution (cross-OS):
- *   - macOS   → ~/Library/Application Support/Code/User
- *   - Linux   → ~/.config/Code/User
- *   - Windows → %APPDATA%/Code/User  (falls back to ~/AppData/Roaming/Code/User)
+ * COLLISION NOTE (kilo ext vs kilo-cli): both now share the SAME backend dir
+ * `~/.config/kilo` AND the SAME root key `"mcp"`, but DIFFERENT filenames — the
+ * VS Code extension writes **kilo.json**, the CLI writes **kilo.jsonc** (and the
+ * CLI additionally carries a `plugin` array; the ext does not). They are kept
+ * distinct platformIds with distinct files; their MCP dialect is now shared but
+ * their config files never merge.
  *
- * NOTE (MEDIUM confidence): the exact user-scope MCP settings filename under the
- * `kilocode.kilo-code` globalStorage (`mcp_settings.json`) is inferred from the
- * Roo/Cline-fork lineage (Roo Code uses `cline_mcp_settings.json` in the same
- * spot). detectInstalled() PATH-PROBES the alternative Cline filename so a real
- * install is still detected, and the doctor warns to "verify for your Kilo
- * version". We never hard-fail on the filename.
+ * Env interpolation: kilo.json documents no native `${env:VAR}` token, so we
+ * resolve every `${env:VAR}` reference to a literal at install time — the
+ * no-native-token path.
  *
- * Env interpolation: Kilo Code's settings file documents no native `${env:VAR}`
- * token, so we resolve every `${env:VAR}` reference to a literal at install time
- * — the no-native-token path.
- *
- * The hook "config path" is the SAME MCP settings file (there is no hook file),
- * so the generic doctor/backup behave sensibly.
+ * The hook "config path" is the SAME kilo.json file (there is no hook file), so
+ * the generic doctor/backup behave sensibly.
  *
  * Content surfaces (the `.kilocode/` dir is the extension's): Kilo Code authors
  * slash COMMANDS and SUBAGENTS natively but has NO Agent Skill (SKILL.md)
@@ -68,38 +66,53 @@ import {
 } from "../../core/spawn.js";
 
 const HOST: PlatformId = "kilo";
-const MCP_ROOT_KEY = "mcpServers";
+/** vsix 7.3.28 root key in kilo.json (delegated kilo backend). */
+const MCP_ROOT_KEY = "mcp";
+/** Live config filename for the VS Code ext (DISTINCT from the CLI's kilo.jsonc). */
+const CONFIG_FILE = "kilo.json";
 
-/** Kilo Code extension id → its VS Code globalStorage folder. */
+/** Kilo Code extension id → its (legacy, migration-only) VS Code globalStorage folder. */
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
 /**
- * User-scope MCP settings filename (MEDIUM confidence — inferred from the
- * Roo/Cline-fork lineage). The Cline-family alternative is probed during
- * detection so a real install is still found.
+ * Legacy globalStorage MCP settings filenames (MIGRATION-ONLY in 7.3.28). The
+ * Cline-family alternative is probed during detection so an older install is
+ * still recognized; we no longer WRITE there.
  */
-const MCP_SETTINGS_FILE = "mcp_settings.json";
-const CLINE_SETTINGS_FILE = "cline_mcp_settings.json";
+const LEGACY_MCP_SETTINGS_FILE = "mcp_settings.json";
+const LEGACY_CLINE_SETTINGS_FILE = "cline_mcp_settings.json";
 
 /**
- * Native MCP server entry shapes Kilo Code accepts under `mcpServers` (same as
- * the Roo/Cline fork family). We write the minimal stdio shape
- * { command, args, env, disabled }.
+ * Native MCP server entry shapes kilo.json accepts under `mcp` (the delegated
+ * kilo backend). Local (stdio) servers use a SINGLE array command that folds the
+ * executable and its args together; env lives under `environment`.
  */
-interface KiloStdioServer {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-  disabled: boolean;
+interface KiloLocalServer {
+  type: "local";
+  command: string[];
+  environment: Record<string, string>;
 }
-interface KiloHttpServer {
+interface KiloRemoteServer {
+  type: "remote";
   url: string;
   headers?: Record<string, string>;
-  disabled: boolean;
+}
+
+/**
+ * Resolve the kilo backend user config dir: `$XDG_CONFIG_HOME/kilo` when set,
+ * else `~/.config/kilo`. This is the SAME backend dir kilo-cli uses (the two
+ * differ only by filename — kilo.json here vs kilo.jsonc for the CLI).
+ */
+function kiloConfigDir(): string {
+  const xdg = process.env.XDG_CONFIG_HOME;
+  const base =
+    xdg && xdg.trim() !== "" ? xdg : join(homedir(), ".config");
+  return join(base, "kilo");
 }
 
 /**
  * Resolve the cross-OS VS Code per-user data directory (the "User" folder that
- * contains `globalStorage`). See module header for the per-platform mapping.
+ * contains `globalStorage`) — used ONLY to probe the legacy migration-only MCP
+ * settings file during detection. See module header for the per-platform mapping.
  */
 function vscodeUserDir(): string {
   const home = homedir();
@@ -147,26 +160,36 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
   // ── Detection ────────────────────────────────────────────────────────────
 
   detectInstalled(projectDir: string): DetectedPlatform {
-    const userSettings = this.userSettingsPath();
-    const userExtDir = join(vscodeUserDir(), "globalStorage", KILO_EXTENSION_ID);
-    // Probe the Cline-family alternative filename too (the user-scope MCP
-    // filename is MEDIUM confidence; never hard-fail on the inferred name).
-    const userClineSettings = join(userExtDir, "settings", CLINE_SETTINGS_FILE);
-    const projectMcp = join(projectDir, ".kilocode", "mcp.json");
+    const userConfig = this.userConfigPath();
+    const userBackendDir = kiloConfigDir();
+    // Probe the legacy (migration-only) globalStorage MCP settings too so an
+    // older install is still recognized; we never WRITE there anymore.
+    const legacyExtDir = join(vscodeUserDir(), "globalStorage", KILO_EXTENSION_ID);
+    const legacySettings = join(legacyExtDir, "settings", LEGACY_MCP_SETTINGS_FILE);
+    const legacyClineSettings = join(
+      legacyExtDir,
+      "settings",
+      LEGACY_CLINE_SETTINGS_FILE,
+    );
+    const projectConfig = join(projectDir, ".kilo", CONFIG_FILE);
 
     const userMatch =
-      existsSync(userSettings) || existsSync(userClineSettings) || existsSync(userExtDir);
-    const projectMatch = existsSync(projectMcp);
+      existsSync(userConfig) ||
+      existsSync(userBackendDir) ||
+      existsSync(legacySettings) ||
+      existsSync(legacyClineSettings) ||
+      existsSync(legacyExtDir);
+    const projectMatch = existsSync(projectConfig);
     const installed = userMatch || projectMatch;
 
     // Prefer the user scope/path when present; otherwise surface the project one.
     const scope = userMatch || !projectMatch ? "user" : "project";
-    const configPath = scope === "user" ? userSettings : projectMcp;
+    const configPath = scope === "user" ? userConfig : projectConfig;
     const reason = installed
       ? userMatch
-        ? `found Kilo Code globalStorage under ${userExtDir}`
-        : `found Kilo Code project config at ${projectMcp}`
-      : `no Kilo Code config at ${userExtDir} or ${projectMcp}`;
+        ? `found Kilo Code config under ${userBackendDir}`
+        : `found Kilo Code project config at ${projectConfig}`
+      : `no Kilo Code config at ${userBackendDir} or ${projectConfig}`;
 
     return {
       id: this.id,
@@ -183,33 +206,30 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
 
   // ── Native paths ─────────────────────────────────────────────────────────
 
-  /** Absolute path to the user-scope MCP settings file (VS Code globalStorage). */
-  private userSettingsPath(): string {
-    return join(
-      vscodeUserDir(),
-      "globalStorage",
-      KILO_EXTENSION_ID,
-      "settings",
-      MCP_SETTINGS_FILE,
-    );
+  /** Absolute path to the user-scope kilo.json (kilo backend, XDG dir). */
+  private userConfigPath(): string {
+    return join(kiloConfigDir(), CONFIG_FILE);
   }
 
+  /**
+   * MCP config dir. Note the project surface is `.kilo/` (kilo backend), NOT the
+   * extension's `.kilocode/` content tree (which still hosts commands/subagents).
+   */
   getConfigDir(ctx: InstallContext): string {
     return ctx.scope === "project"
-      ? join(ctx.projectDir, ".kilocode")
-      : join(vscodeUserDir(), "globalStorage", KILO_EXTENSION_ID, "settings");
+      ? join(ctx.projectDir, ".kilo")
+      : kiloConfigDir();
   }
 
   getServerConfigPath(ctx: InstallContext): string {
     return ctx.scope === "project"
-      ? join(ctx.projectDir, ".kilocode", "mcp.json")
-      : this.userSettingsPath();
+      ? join(ctx.projectDir, ".kilo", CONFIG_FILE)
+      : this.userConfigPath();
   }
 
   /**
    * Kilo Code has no hook file — hooks are not a thing here. The hook "config
-   * path" is the same MCP settings file so the generic doctor/backup behave
-   * sensibly.
+   * path" is the same kilo.json so the generic doctor/backup behave sensibly.
    */
   getHookConfigPath(ctx: InstallContext): string {
     return this.getServerConfigPath(ctx);
@@ -253,11 +273,15 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
     ];
   }
 
-  /** Render a normalized ServerDef into Kilo Code's native mcpServers entry. */
+  /**
+   * Render a normalized ServerDef into kilo.json's native `mcp` entry. Local
+   * (stdio) servers fold the executable + args into a SINGLE `command` array and
+   * carry env under `environment`; remote servers use a `type:"remote"` URL entry.
+   */
   private renderServerEntry(
     ctx: InstallContext,
     server: ServerDef,
-  ): KiloStdioServer | KiloHttpServer {
+  ): KiloLocalServer | KiloRemoteServer {
     const transport: Transport = server.transport;
 
     if (transport === "stdio") {
@@ -278,24 +302,25 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
         args = wrapped.args;
       }
 
-      // Kilo Code documents no native interpolation token, so resolve every
-      // ${env:VAR} to a literal at install time.
-      const entry: KiloStdioServer = {
-        command: resolveEnvRefsDeep(command),
-        // Honor the per-call server's enabled flag (mirror roo-code) rather than
-        // hardcoding enabled — a server marked enabled:false installs disabled.
-        disabled: server.enabled === false,
+      // kilo.json documents no native interpolation token, so resolve every
+      // ${env:VAR} to a literal at install time. The command + args fold into a
+      // single array (exe first), matching the kilo backend's `command` shape.
+      const argv: string[] = [
+        resolveEnvRefsDeep(command),
+        ...resolveEnvRefsDeep(args),
+      ];
+      const entry: KiloLocalServer = {
+        type: "local",
+        command: argv,
+        environment: this.renderEnv(server.env) ?? {},
       };
-      if (args.length > 0) entry.args = resolveEnvRefsDeep(args);
-      const env = this.renderEnv(server.env);
-      if (env) entry.env = env;
       return entry;
     }
 
-    // sse / http (and any other remote transport) — Kilo Code registers a URL.
-    const entry: KiloHttpServer = {
+    // sse / http (and any other remote transport) — kilo registers a remote URL.
+    const entry: KiloRemoteServer = {
+      type: "remote",
       url: resolveEnvRefsDeep(server.url ?? ""),
-      disabled: server.enabled === false,
     };
     const headers = this.renderEnv(server.headers);
     if (headers) entry.headers = headers;
@@ -303,7 +328,7 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Render env/header values. Kilo Code documents no native interpolation token,
+   * Render env/header values. kilo.json documents no native interpolation token,
    * so resolve `${env:VAR}` references to literals at install time.
    */
   private renderEnv(
@@ -342,21 +367,27 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
   // Honors platforms["kilo"] per-surface false to skip. Kilo Code has NO
   // SKILL.md surface, so skills inherit BaseAdapter's warn/skip default.
   //
-  // NOTE on dirs: the .kilocode/ tree is the extension's. Commands live under
-  // .kilocode/commands (project) / <userConfigDir>/commands (user); subagents
-  // live under .kilocode/agents (project) / <userConfigDir>/agents (user).
+  // NOTE on dirs: the .kilocode/ tree is the EXTENSION's content surface — kept
+  // SEPARATE from the MCP backend dir (~/.config/kilo). Commands live under
+  // .kilocode/commands (project) / ~/.kilocode/commands (user); subagents live
+  // under .kilocode/agents (project) / ~/.kilocode/agents (user).
 
-  /** Commands root: project → <projectDir>/.kilocode/commands; user → <configDir>/commands. */
+  /** The extension's user-scope content home (~/.kilocode), distinct from the MCP backend dir. */
+  private userContentDir(): string {
+    return join(homedir(), ".kilocode");
+  }
+
+  /** Commands root: project → <projectDir>/.kilocode/commands; user → ~/.kilocode/commands. */
   private commandsDir(ctx: InstallContext): string {
     return ctx.scope === "project"
       ? join(ctx.projectDir, ".kilocode", "commands")
-      : join(this.getConfigDir(ctx), "commands");
+      : join(this.userContentDir(), "commands");
   }
-  /** Subagents root: project → <projectDir>/.kilocode/agents; user → <configDir>/agents. */
+  /** Subagents root: project → <projectDir>/.kilocode/agents; user → ~/.kilocode/agents. */
   private agentsDir(ctx: InstallContext): string {
     return ctx.scope === "project"
       ? join(ctx.projectDir, ".kilocode", "agents")
-      : join(this.getConfigDir(ctx), "agents");
+      : join(this.userContentDir(), "agents");
   }
 
   /** Native command file path: <commandsDir>/<name>.md. */
@@ -465,23 +496,23 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
     const connectorId = ctx.connector.id;
     const checks: HealthCheck[] = [
       {
-        name: `${this.name}: MCP settings present`,
+        name: `${this.name}: kilo.json present`,
         check: () =>
           existsSync(mcpPath)
             ? { status: "OK", detail: mcpPath }
             : { status: "FAIL", detail: `not found: ${mcpPath}` },
       },
       {
-        // MEDIUM-confidence path probe: the user-scope MCP settings filename
-        // (mcp_settings.json) is inferred from the Roo/Cline-fork lineage. Surface
-        // a non-fatal note so the operator can verify it for their Kilo version.
-        name: `${this.name}: verify MCP settings filename for your Kilo version`,
+        // Non-fatal note: the live MCP target is the delegated kilo backend
+        // (kilo.json under ~/.config/kilo). The legacy globalStorage
+        // mcp_settings.json is migration-only and is no longer written.
+        name: `${this.name}: MCP delegated to kilo backend`,
         check: () => ({
           status: "OK",
           detail:
             ctx.scope === "user"
-              ? `using ${MCP_SETTINGS_FILE} under ${KILO_EXTENSION_ID} globalStorage (verify for your Kilo version)`
-              : "project scope uses .kilocode/mcp.json",
+              ? `using ${CONFIG_FILE} under ${kiloConfigDir()} (legacy globalStorage is migration-only)`
+              : `project scope uses .kilo/${CONFIG_FILE}`,
         }),
       },
       {

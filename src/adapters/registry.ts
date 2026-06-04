@@ -69,10 +69,11 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "opencode",
     load: () => import("./opencode/index.js").then((m) => m.default),
   },
-  // kilo-cli is the SQLite/OpenCode-similar command-line product (mcp-only,
-  // root key "mcp", ~/.config/kilo/kilo.jsonc). Grouped near the OpenCode family
-  // it shares a config dialect with; distinct host from the "kilo" extension so
-  // there is no fork-ordering constraint between them.
+  // kilo-cli is the SQLite-backed OpenCode FORK command-line product (ts-plugin,
+  // loads @kilocode/plugin modules registered in kilo.jsonc's "plugin" array;
+  // MCP root key "mcp", ~/.config/kilo/kilo.jsonc). Grouped beside the OpenCode
+  // family whose plugin contract + config dialect it shares; distinct host from
+  // the "kilo" extension so there is no fork-ordering constraint between them.
   {
     id: "kilo-cli",
     load: () => import("./kilo-cli/index.js").then((m) => m.default),

@@ -6,9 +6,12 @@
  * hook system, so MCP server registration is the only thing we install and hooks
  * are reported unavailable. This mirrors the Warp reference adapter exactly.
  *
- * MCP config (report SPEC):
+ * MCP config (vsix 3.54.0):
  *   - user scope    → <vscodeUserDir>/globalStorage/rooveterinaryinc.roo-cline/
- *                     settings/cline_mcp_settings.json
+ *                     settings/mcp_settings.json   (renamed in 3.54.0 from the
+ *                     older `cline_mcp_settings.json`; we PROBE both on detection
+ *                     — the extension migrates the old name at startup — and
+ *                     WRITE the new `mcp_settings.json`)
  *   - project scope → <projectDir>/.roo/mcp.json
  *   Both are JSON, root key "mcpServers".
  *
@@ -55,6 +58,10 @@ const MCP_ROOT_KEY = "mcpServers";
 
 /** Roo Code extension id → its VS Code globalStorage folder. */
 const ROO_EXTENSION_ID = "rooveterinaryinc.roo-cline";
+/** User-scope MCP settings filename — renamed in vsix 3.54.0. */
+const MCP_SETTINGS_FILE = "mcp_settings.json";
+/** Legacy filename (pre-3.54.0) — probed on detection for older installs. */
+const LEGACY_MCP_SETTINGS_FILE = "cline_mcp_settings.json";
 
 /**
  * Native MCP server entry shapes Roo Code accepts under `mcpServers`.
@@ -124,9 +131,19 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
       "globalStorage",
       ROO_EXTENSION_ID,
     );
+    // Probe the legacy filename too (3.54.0 migrates it at startup) so an older
+    // install is still recognized; we WRITE the new mcp_settings.json.
+    const userLegacySettings = join(
+      userExtDir,
+      "settings",
+      LEGACY_MCP_SETTINGS_FILE,
+    );
     const projectMcp = join(projectDir, ".roo", "mcp.json");
 
-    const userMatch = existsSync(userSettings) || existsSync(userExtDir);
+    const userMatch =
+      existsSync(userSettings) ||
+      existsSync(userLegacySettings) ||
+      existsSync(userExtDir);
     const projectMatch = existsSync(projectMcp);
     const installed = userMatch || projectMatch;
 
@@ -161,7 +178,7 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
       "globalStorage",
       ROO_EXTENSION_ID,
       "settings",
-      "cline_mcp_settings.json",
+      MCP_SETTINGS_FILE,
     );
   }
 

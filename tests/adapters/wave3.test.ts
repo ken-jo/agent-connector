@@ -235,7 +235,7 @@ describe("goose adapter render + round-trip", () => {
     expect(typeof entry.timeout).toBe("number");
   });
 
-  it("installHooks writes .agents/plugins/<id>/hooks/hooks.json (version:1 + {type:command})", () => {
+  it("installHooks writes .agents/plugins/<id>/hooks/hooks.json (nested-rule, NO version key)", () => {
     const changes = gooseAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
 
@@ -251,17 +251,20 @@ describe("goose adapter render + round-trip", () => {
     expect(existsSync(hookPath)).toBe(true);
 
     const file = readJsonFile(hookPath);
-    expect(file.version).toBe(1);
+    // Open-Plugins spec has NO top-level `version` key (corrected).
+    expect(file.version).toBeUndefined();
 
+    // Nested-rule shape: { hooks: { <Event>: [ { matcher?, hooks:[{type,command}] } ] } }.
     const pre = file.hooks.PreToolUse;
     expect(Array.isArray(pre)).toBe(true);
-    expect(pre[0].type).toBe("command");
-    expect(pre[0].command).toContain(HOME_BIN);
-    expect(pre[0].command).toContain("hook goose PreToolUse");
-    expect(pre[0].command).toContain(`--connector ${CONNECTOR_ID}`);
+    const preCmd = pre[0].hooks[0];
+    expect(preCmd.type).toBe("command");
+    expect(preCmd.command).toContain(HOME_BIN);
+    expect(preCmd.command).toContain("hook goose PreToolUse");
+    expect(preCmd.command).toContain(`--connector ${CONNECTOR_ID}`);
 
     // SessionStart is supported and registered too.
-    expect(file.hooks.SessionStart[0].command).toContain("hook goose SessionStart");
+    expect(file.hooks.SessionStart[0].hooks[0].command).toContain("hook goose SessionStart");
   });
 
   it("installServer + installHooks idempotent (skip on a second run); uninstall removes both", () => {
@@ -302,7 +305,7 @@ describe("goose adapter render + round-trip", () => {
     expect(cfg.other).toEqual({ nested: true });
   });
 
-  it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout hookSpecificOutput deny, exit 0", () => {
+  it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout {decision:block}, exit 0", () => {
     const ev = gooseAdapter.parseEvent!("PreToolUse", preToolUsePayload()) as PreToolUseEvent;
     assertPreToolUse(ev, "goose");
     expect(ev.sessionId).toBe("sess-123");
@@ -313,9 +316,11 @@ describe("goose adapter render + round-trip", () => {
     });
     expect(reply.exitCode).toBe(0);
     const out = JSON.parse(reply.stdout!);
-    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
-    expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked by policy");
-    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    // Goose deny shape is `{ decision: "block", reason }` (NOT Claude's
+    // hookSpecificOutput.permissionDecision) — corrected.
+    expect(out.decision).toBe("block");
+    expect(out.reason).toBe("blocked by policy");
+    expect(out.hookSpecificOutput).toBeUndefined();
   });
 });
 

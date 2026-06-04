@@ -182,14 +182,31 @@ describe("droid adapter render/round-trip", () => {
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
 
-  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
+  it("installHooks writes a SEPARATE .factory/hooks.json (nested-rule) with the PreToolUse entry", () => {
     const changes = droidAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.action).toBe("create");
 
     const hooksPath = droidAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(droidAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
+    // Hook file is SEPARATE from the MCP config file (hooks.json, not mcp.json).
+    expect(hooksPath).not.toBe(droidAdapter.getServerConfigPath(ctx));
+    expect(hooksPath).toBe(join(projectDir, ".factory", "hooks.json"));
+    expect(existsSync(hooksPath)).toBe(true);
+
+    const file = readJson(hooksPath);
+    const entry = file.hooks?.PreToolUse?.[0];
+    expect(entry).toBeTruthy();
+    expect(entry.matcher).toBe("acme_query|acme_write");
+    expect(entry.hooks[0].type).toBe("command");
+    expect(entry.hooks[0].command).toContain(HOME_BIN);
+    expect(entry.hooks[0].command).toContain("hook droid PreToolUse");
+    expect(entry.hooks[0].command).toContain(`--connector ${CONNECTOR_ID}`);
+  });
+
+  it("uninstallHooks removes our droid hook entry (re-read confirms gone)", () => {
+    droidAdapter.installHooks(ctx);
+    droidAdapter.uninstallHooks(ctx);
+    const file = readJson(droidAdapter.getHookConfigPath(ctx));
+    expect(file.hooks?.PreToolUse).toBeUndefined();
   });
 
   it("installServer is idempotent — second call yields skip and does not duplicate", () => {

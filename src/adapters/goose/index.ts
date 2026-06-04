@@ -11,12 +11,17 @@
  *     — we merge via core/yaml's readYaml/writeYaml, preserving any other config.
  *
  *   - Hooks use Goose's Open Plugins system, which stores hook registrations in
- *     JSON at <projectDir>/.agents/plugins/<connector-id>/hooks/hooks.json:
- *       { version: 1, hooks: { <Event>: [ { type:"command", command:"<homeBin>..." } ] } }
- *     This file is plain JSON, so the standard fs/JSON helpers are used for it.
+ *     JSON at <root>/.agents/plugins/<plugin-name>/hooks/hooks.json (project root
+ *     = <projectDir>/.agents; user root = ~/.agents):
+ *       { hooks: { <Event>: [ { matcher?, hooks:[{ type:"command", command }] } ] } }
+ *     The shape is the Claude-style NESTED rule (an optional `matcher` plus an
+ *     inner `hooks` array), and there is NO top-level `version` key. This file is
+ *     plain JSON, so the standard fs/JSON helpers are used for it.
  *
- * Wire protocol (parse/format) is Claude-compatible JSON on stdin/stdout, so the
- * runtime dispatch mirrors the Claude Code adapter.
+ * Wire protocol (parse) is Claude-compatible JSON on stdin, except Goose names
+ * the working directory field `working_dir` (not `cwd`). The deny reply is
+ * Goose's `{ decision: "block", reason }` (NOT Claude's hookSpecificOutput
+ * permissionDecision shape).
  *
  * Native config locations (user scope):
  *   - Linux/macOS:        ~/.config/goose/config.yaml
@@ -75,21 +80,35 @@ interface GooseStdioExtension {
   enabled: boolean;
 }
 
-/** One Open-Plugins hook command entry inside hooks.json. */
-interface GooseHookEntry {
+/** One inner command entry inside a hook rule. */
+interface GooseHookCommand {
   type: "command";
   command: string;
 }
 
-/** Goose Open-Plugins hooks.json shape. */
+/**
+ * One nested-rule entry under a hook event. Goose's Open Plugins spec uses the
+ * Claude-shaped nested rule: an optional `matcher` plus an inner `hooks` array
+ * of `{ type, command }` commands (NOT a flat list of commands).
+ */
+interface GooseHookRule {
+  matcher?: string;
+  hooks: GooseHookCommand[];
+}
+
+/**
+ * Goose Open-Plugins hooks.json shape: `{ hooks: { <Event>: [ rule, ... ] } }`.
+ * There is NO top-level `version` key in the spec.
+ */
 interface GooseHooksFile {
-  version: number;
-  hooks: Record<string, GooseHookEntry[]>;
+  hooks: Record<string, GooseHookRule[]>;
 }
 
 /** Raw Goose hook stdin payload (Claude-compatible JSON). */
 interface GooseWireInput {
   session_id?: string;
+  /** Goose names the working directory `working_dir`; `cwd` is a fallback. */
+  working_dir?: string;
   cwd?: string;
   hook_event_name?: string;
   tool_name?: string;
@@ -160,16 +179,14 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     return this.userConfigPath();
   }
 
-  /** Hooks: Open-Plugins hooks.json under the project's .agents plugin dir. */
+  /**
+   * Hooks: Open-Plugins hooks.json under the `.agents/plugins/<plugin-name>/`
+   * dir. The connector id is the plugin name. Project scope roots at
+   * `<projectDir>/.agents`; user scope roots at `~/.agents`.
+   */
   override getHookConfigPath(ctx: InstallContext): string {
-    return join(
-      ctx.projectDir,
-      ".agents",
-      "plugins",
-      ctx.connector.id,
-      "hooks",
-      "hooks.json",
-    );
+    const root = ctx.scope === "project" ? ctx.projectDir : homedir();
+    return join(root, ".agents", "plugins", ctx.connector.id, "hooks", "hooks.json");
   }
 
   /**
@@ -327,9 +344,13 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
 
     for (const event of events) {
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const desired: GooseHookEntry = { type: "command", command };
+      const matcher = connector.hooks[event]?.matcher ?? "";
+      const desired: GooseHookRule = {
+        matcher,
+        hooks: [{ type: "command", command }],
+      };
       const bucket = (file.hooks[event] ??= []);
-      const idx = bucket.findIndex((e) => e.command === command);
+      const idx = bucket.findIndex((rule) => this.ruleHasOurCommand(rule, ctx));
 
       if (idx >= 0) {
         if (JSON.stringify(bucket[idx]) === JSON.stringify(desired)) {
@@ -361,16 +382,29 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     for (const event of Object.keys(file.hooks)) {
       const bucket = file.hooks[event];
       if (!Array.isArray(bucket)) continue;
-      const kept = bucket.filter((e) => !this.isOurCommand(e?.command, ctx));
-      if (kept.length === bucket.length) continue;
+
+      // Strip our command from each rule's inner `hooks` array; drop rules left
+      // empty so we never remove another connector's (or the user's own) hooks.
+      const next: GooseHookRule[] = [];
+      let removed = 0;
+      for (const rule of bucket) {
+        const innerBefore = rule.hooks?.length ?? 0;
+        const inner = (rule.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
+        removed += innerBefore - inner.length;
+        if (inner.length > 0) {
+          next.push({ ...(rule.matcher !== undefined ? { matcher: rule.matcher } : {}), hooks: inner });
+        }
+      }
+
+      if (removed === 0) continue;
       mutated = true;
-      if (kept.length > 0) file.hooks[event] = kept;
+      if (next.length > 0) file.hooks[event] = next;
       else delete file.hooks[event];
       changes.push({
         platform: this.id,
         action: "remove",
         path,
-        detail: `hooks.${event} (${bucket.length - kept.length})`,
+        detail: `hooks.${event} (${removed})`,
       });
     }
 
@@ -386,12 +420,17 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  /** True when any inner command of a nested rule is ours. */
+  private ruleHasOurCommand(rule: GooseHookRule, ctx: InstallContext): boolean {
+    return (rule.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx));
+  }
+
   private readHooksFile(path: string): GooseHooksFile {
     const existing = this.readJson<GooseHooksFile>(path);
     if (existing && existing.hooks && typeof existing.hooks === "object") {
-      return { version: existing.version ?? 1, hooks: existing.hooks };
+      return { hooks: existing.hooks };
     }
-    return { version: 1, hooks: {} };
+    return { hooks: {} };
   }
 
   private writeHooksFile(path: string, file: GooseHooksFile, dryRun: boolean): void {
@@ -440,7 +479,9 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
             return { status: "FAIL", detail: `cannot read ${hookPath}` };
           }
           const registered = Object.values(file.hooks).some((bucket) =>
-            (bucket ?? []).some((e) => isHomeBinHookCommand(e.command, homeBin, id)),
+            (bucket ?? []).some((rule) =>
+              (rule.hooks ?? []).some((h) => isHomeBinHookCommand(h.command, homeBin, id)),
+            ),
           );
           return registered
             ? { status: "OK", detail: "hook command present" }
@@ -454,11 +495,18 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
 
   parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
     const input = (raw ?? {}) as GooseWireInput;
+    // Goose sends the working directory as `working_dir`; fall back to `cwd`.
+    const projectDir =
+      typeof input.working_dir === "string"
+        ? input.working_dir
+        : typeof input.cwd === "string"
+          ? input.cwd
+          : undefined;
     const base = {
       hostPlatform: HOST,
       connectorId: typeof input.connector === "string" ? input.connector : "",
       sessionId: typeof input.session_id === "string" ? input.session_id : "",
-      ...(typeof input.cwd === "string" ? { projectDir: input.cwd } : {}),
+      ...(projectDir !== undefined ? { projectDir } : {}),
       raw,
     } as const;
 
@@ -535,33 +583,28 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
 
   // ── Runtime: normalized response → Goose native hook reply (Claude-shaped) ─
 
-  formatReply(event: HookEventName, response: HookResponse): HookReply {
+  formatReply(_event: HookEventName, response: HookResponse): HookReply {
     const decision = response.decision ?? "allow";
 
+    // deny → Goose blocks via `{ decision: "block", reason }` on stdout JSON
+    // (NOT Claude's hookSpecificOutput.permissionDecision shape).
     if (decision === "deny") {
       return this.stdout({
-        hookSpecificOutput: {
-          hookEventName: event,
-          permissionDecision: "deny",
-          permissionDecisionReason: response.reason ?? "Blocked by hook",
-        },
+        decision: "block",
+        reason: response.reason ?? "Blocked by hook",
       });
     }
 
+    // ask → Goose has no native "ask"; degrade to block to stay fail-safe.
     if (decision === "ask") {
       return this.stdout({
-        hookSpecificOutput: {
-          hookEventName: event,
-          permissionDecision: "ask",
-          permissionDecisionReason: response.reason ?? "Confirmation required by hook",
-        },
+        decision: "block",
+        reason: response.reason ?? "Confirmation required by hook",
       });
     }
 
     if (decision === "context" && response.additionalContext) {
-      return this.stdout({
-        hookSpecificOutput: { hookEventName: event, additionalContext: response.additionalContext },
-      });
+      return this.stdout({ additionalContext: response.additionalContext });
     }
 
     // allow / modify (unsupported) / void → pass through.

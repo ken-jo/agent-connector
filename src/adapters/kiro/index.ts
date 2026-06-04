@@ -31,8 +31,9 @@
  *   PostToolUse      → postToolUse
  *   SessionStart     → agentSpawn        (Kiro's session-start equivalent)
  *   UserPromptSubmit → userPromptSubmit
- * Kiro has no equivalent for PreCompact / SessionEnd / Stop / Notification;
- * those are reported as a warn/skip at install time.
+ *   Stop             → stop              (documented Kiro hook)
+ * Kiro has no equivalent for PreCompact / SessionEnd / Notification; those are
+ * reported as a warn/skip at install time.
  *
  * Env handling: Kiro documents no `${env:VAR}` token of the framework's syntax,
  * so env/header/url refs are resolved to literals at install time via
@@ -60,6 +61,7 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
+  StopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -86,18 +88,20 @@ const KIRO_EVENT = {
   postToolUse: "postToolUse",
   agentSpawn: "agentSpawn",
   userPromptSubmit: "userPromptSubmit",
+  stop: "stop",
 } as const;
 
 /**
  * Map canonical event names → Kiro's native hook event names. Only the events
- * Kiro supports are present; PreCompact / SessionEnd / Stop / Notification have
- * no Kiro equivalent and are reported as a warn/skip at install time.
+ * Kiro supports are present; PreCompact / SessionEnd / Notification have no Kiro
+ * equivalent and are reported as a warn/skip at install time.
  */
 const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PreToolUse: KIRO_EVENT.preToolUse,
   PostToolUse: KIRO_EVENT.postToolUse,
   SessionStart: KIRO_EVENT.agentSpawn,
   UserPromptSubmit: KIRO_EVENT.userPromptSubmit,
+  Stop: KIRO_EVENT.stop,
 };
 
 /** A single Kiro native hook registration entry (Claude-shaped, nested). */
@@ -141,6 +145,7 @@ interface KiroWireInput {
   tool_response?: unknown;
   source?: string;
   prompt?: string;
+  stop_hook_active?: boolean;
 }
 
 export class KiroAdapter extends BaseAdapter implements Adapter {
@@ -154,10 +159,10 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
     preCompact: false,
     sessionStart: true,
     sessionEnd: false,
-    // Kiro fires userPromptSubmit, but it has no PreCompact / SessionEnd / Stop /
-    // Notification equivalent.
+    // Kiro fires userPromptSubmit and stop, but it has no PreCompact /
+    // SessionEnd / Notification equivalent.
     userPromptSubmit: true,
-    stop: false,
+    stop: true,
     notification: false,
     // Kiro's hook protocol is exit-code only — a hook can allow (0), block (2),
     // or inject agentSpawn context, but it CANNOT rewrite tool args or output.
@@ -570,10 +575,19 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "Stop": {
+        const ev: StopEvent = {
+          ...base,
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
       default: {
-        // Kiro never delivers PreCompact / SessionEnd / Stop / Notification
-        // (no native equivalent). If the runtime dispatches one anyway, surface
-        // it loudly rather than silently mis-parse.
+        // Kiro never delivers PreCompact / SessionEnd / Notification (no native
+        // equivalent). If the runtime dispatches one anyway, surface it loudly
+        // rather than silently mis-parse.
         throw new Error(`unsupported kiro hook event: ${String(event)}`);
       }
     }
@@ -595,6 +609,13 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
         exitCode: 2,
         stderr: response.reason ?? "Action requires user confirmation (security policy)",
       };
+    }
+
+    // Stop → exit-code only (deny already handled above as exit 2). There is no
+    // context/additionalContext channel on a Stop hook, so anything non-deny
+    // passes through with exit 0 (do not fall into the agentSpawn branch).
+    if (event === "Stop") {
+      return { exitCode: 0 };
     }
 
     // context → inject soft guidance. Kiro reads agentSpawn additionalContext

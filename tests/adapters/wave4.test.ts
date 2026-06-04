@@ -27,12 +27,14 @@
  *
  *   OpenClaw (DUAL REGISTRATION ts-plugin, JSON5 config):
  *     • installServer  → <projectDir>/openclaw.json, NESTED mcp.servers.<id>.
- *     • installHooks   → writes the plugin module (index.mjs) AND adds the
- *       plugins.entries.<id> reference — BOTH halves of the dual registration must
- *       be present.
+ *     • installHooks   → writes the plugin module (index.mjs) + an
+ *       openclaw.plugin.json manifest, enables plugins.entries.<id> = { enabled },
+ *       AND adds the plugin dir to plugins.load.paths (a per-entry `module` field
+ *       is rejected by `openclaw config validate`, so discovery is via the
+ *       load.paths dir scan) — BOTH halves of the dual registration must be present.
  *     • getHealthChecks FAILS when the two registrations are inconsistent: an
  *       entries-only config (mcp.servers removed) → health FAIL.
- *     • uninstall removes BOTH halves + the module on disk.
+ *     • uninstall removes BOTH halves (entry + load.paths) + the module/manifest.
  *     • TOLERANT PARSE — install still works against an openclaw.json that carries
  *       a // comment (JSON5/JSONC), proving the adapter never strict-JSON.parses.
  *     • THE BRIDGE WORKS — import the generated module, call register(api) with a
@@ -500,8 +502,20 @@ describe("openclaw adapter (ts-plugin) render + dual registration", () => {
     const cfg = readJson(configPath);
     expect(cfg.plugins?.entries?.[CONNECTOR_ID]).toBeTruthy();
     expect(cfg.plugins.entries[CONNECTOR_ID].enabled).toBe(true);
-    // The entry points the gateway at the absolute module path.
-    expect(cfg.plugins.entries[CONNECTOR_ID].module).toBe(pluginPath);
+    // `openclaw config validate` REJECTS a per-entry `module` field, so the entry
+    // is { enabled: true } ONLY — discovery is via plugins.load.paths instead.
+    expect(cfg.plugins.entries[CONNECTOR_ID].module).toBeUndefined();
+    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
+    expect(Array.isArray(cfg.plugins.load?.paths)).toBe(true);
+    expect(cfg.plugins.load.paths).toContain(pluginDir);
+
+    // The plugin dir also carries an openclaw.plugin.json manifest beside the
+    // module so the gateway's dir scan can load it.
+    const manifestPath = join(pluginDir, "openclaw.plugin.json");
+    expect(existsSync(manifestPath)).toBe(true);
+    const manifest = readJson(manifestPath);
+    expect(manifest.id).toBe(CONNECTOR_ID);
+    expect(manifest.main).toBe("index.mjs");
 
     // The generated module is the self-contained bridge: it imports NOTHING from
     // agent-connector (the only allowed import is node:child_process). The string
@@ -585,19 +599,27 @@ describe("openclaw adapter (ts-plugin) render + dual registration", () => {
     expect(result.detail).toMatch(/plugins\.entries/);
   });
 
-  it("uninstallHooks removes BOTH the plugins.entries reference AND the module on disk", () => {
+  it("uninstallHooks removes the plugins.entries reference, drops the dir from plugins.load.paths, AND removes the module + manifest on disk", () => {
     openclawAdapter.installServer(ctx);
     openclawAdapter.installHooks(ctx);
 
     const pluginPath = openclawAdapter.getHookConfigPath(ctx);
+    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
+    const manifestPath = join(pluginDir, "openclaw.plugin.json");
     expect(existsSync(pluginPath)).toBe(true);
+    expect(existsSync(manifestPath)).toBe(true);
     expect(readJson(configPath).plugins.entries[CONNECTOR_ID]).toBeTruthy();
+    expect(readJson(configPath).plugins.load.paths).toContain(pluginDir);
 
     openclawAdapter.uninstallHooks(ctx);
 
     expect(existsSync(pluginPath)).toBe(false);
+    expect(existsSync(manifestPath)).toBe(false);
     const cfg = readJson(configPath);
     expect(cfg.plugins?.entries?.[CONNECTOR_ID]).toBeUndefined();
+    expect(Array.isArray(cfg.plugins?.load?.paths) ? cfg.plugins.load.paths : []).not.toContain(
+      pluginDir,
+    );
   });
 
   it("tolerates a JSON5/JSONC openclaw.json with a // comment — install still works", () => {
