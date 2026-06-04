@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
 import { CodeBlock } from "@/components/ui/code-block";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -233,12 +234,26 @@ export function ServerSection() {
         native shape (hooks land in a sibling settings file, all pointing back to
         the one stable home binary):
       </P>
-      <div className="not-prose grid gap-4 lg:grid-cols-2">
-        <CodeBlock code={S.claudeCodeOutput} language="json" filename="Claude Code" />
-        <CodeBlock code={S.codexOutput} language="toml" filename="Codex CLI" />
-        <CodeBlock code={S.cursorOutput} language="json" filename="Cursor" />
-        <CodeBlock code={S.vscodeOutput} language="json" filename="VS Code Copilot" />
-      </div>
+      <Tabs defaultValue="claude" className="not-prose">
+        <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+          <TabsTrigger value="claude">Claude Code</TabsTrigger>
+          <TabsTrigger value="codex">Codex CLI</TabsTrigger>
+          <TabsTrigger value="cursor">Cursor</TabsTrigger>
+          <TabsTrigger value="vscode">VS Code Copilot</TabsTrigger>
+        </TabsList>
+        <TabsContent value="claude" className="mt-4">
+          <CodeBlock code={S.claudeCodeOutput} language="json" filename="Claude Code" />
+        </TabsContent>
+        <TabsContent value="codex" className="mt-4">
+          <CodeBlock code={S.codexOutput} language="toml" filename="Codex CLI" />
+        </TabsContent>
+        <TabsContent value="cursor" className="mt-4">
+          <CodeBlock code={S.cursorOutput} language="json" filename="Cursor" />
+        </TabsContent>
+        <TabsContent value="vscode" className="mt-4">
+          <CodeBlock code={S.vscodeOutput} language="json" filename="VS Code Copilot" />
+        </TabsContent>
+      </Tabs>
     </DocSection>
   );
 }

@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from "react";
 import { Check, X, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
@@ -8,7 +9,6 @@ import {
   canonicalEvents,
   paradigmOrder,
   paradigmLabel,
-  paradigmBlurb,
   platformsByParadigm,
   platformById,
   type CanonicalEvent,
@@ -111,95 +111,140 @@ function ParadigmChip({ paradigm }: { paradigm: HookParadigm }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* The big mapping matrix — one table per paradigm group               */
+/* The mapping matrix — interactive, column-toggled                    */
 /* ------------------------------------------------------------------ */
 
-function ParadigmMatrix({
-  paradigm,
-  entries,
+/** A toggle chip for adding/removing a platform column. */
+function ColChip({
+  active,
+  dot,
+  onClick,
+  children,
 }: {
-  paradigm: HookParadigm;
-  entries: PlatformHookEntry[];
+  active: boolean;
+  dot?: string;
+  onClick: () => void;
+  children: ReactNode;
 }) {
-  const accent = paradigmAccent[paradigm];
   return (
-    <div className="mt-6">
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <ParadigmChip paradigm={paradigm} />
-        <Badge variant="muted">{entries.length}</Badge>
-        <span className="text-sm text-muted-foreground">
-          {paradigmBlurb[paradigm]}
-        </span>
-      </div>
-      <div className="not-prose overflow-x-auto rounded-xl border border-border bg-card/40 shadow-sm">
-        <table className="w-full border-collapse text-left text-sm">
-          <thead>
-            <tr>
-              <th
-                className={cn(
-                  "sticky left-0 z-10 border-b border-r border-border bg-muted/60 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur",
-                )}
-              >
-                Canonical event
-              </th>
-              {entries.map((p) => (
-                <th
-                  key={p.platform}
-                  className={cn(
-                    "border-b border-border px-3 py-2.5 text-left text-[0.7rem] font-semibold text-foreground",
-                    accent.head,
-                  )}
-                >
-                  <span className="whitespace-nowrap">{p.displayName}</span>
-                  <span className="mt-0.5 block font-mono text-[0.62rem] font-normal text-muted-foreground">
-                    {p.platform}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {canonicalEvents.map((ev) => (
-              <tr key={ev}>
-                <th
-                  scope="row"
-                  className="sticky left-0 z-10 border-b border-r border-border/60 bg-card/95 px-3 py-2.5 text-left backdrop-blur"
-                >
-                  <code className="whitespace-nowrap font-mono text-[0.74rem] font-medium text-foreground">
-                    {ev}
-                  </code>
-                </th>
-                {entries.map((p) => (
-                  <td
-                    key={p.platform}
-                    className="border-b border-border/60 px-3 py-2.5 align-middle"
-                  >
-                    <EventCell
-                      native={p.events[ev]}
-                      paradigm={paradigm}
-                      hasHooks={p.hasHooks}
-                    />
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[0.72rem] transition-colors",
+        active
+          ? "border-foreground/25 bg-foreground/10 text-foreground"
+          : "border-border text-muted-foreground hover:border-foreground/20 hover:text-foreground",
+      )}
+    >
+      {dot ? (
+        <span className={cn("size-1.5 rounded-full", active ? dot : "bg-muted-foreground/40")} />
+      ) : null}
+      {children}
+    </button>
   );
 }
 
+// Hook-capable hosts only (json-stdio + ts-plugin); mcp-only hosts have no hook
+// surface so they would be an all-"—" column.
+const hookableHosts: PlatformHookEntry[] = [
+  ...platformsByParadigm["json-stdio"],
+  ...platformsByParadigm["ts-plugin"],
+];
+const matrixStarter = ["claude-code", "codex", "gemini-cli", "opencode", "kilo-cli"];
+
+/**
+ * The mapping matrix as an interactive, column-toggled table: rows are the 8
+ * canonical events, columns are the platforms you switch ON via the chips
+ * (All | <platform> …) — they append to the right, so you build exactly the
+ * comparison you want instead of scrolling one giant fixed table.
+ */
 function MappingMatrix() {
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(matrixStarter.filter((id) => hookableHosts.some((p) => p.platform === id))),
+  );
+  const allOn = selected.size === hookableHosts.length;
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const cols = hookableHosts.filter((p) => selected.has(p.platform));
+
   return (
     <div className="not-prose">
-      {paradigmOrder.map((paradigm) => (
-        <ParadigmMatrix
-          key={paradigm}
-          paradigm={paradigm}
-          entries={platformsByParadigm[paradigm]}
-        />
-      ))}
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        <ColChip
+          active={allOn}
+          onClick={() =>
+            setSelected(allOn ? new Set() : new Set(hookableHosts.map((p) => p.platform)))
+          }
+        >
+          All
+        </ColChip>
+        {hookableHosts.map((p) => (
+          <ColChip
+            key={p.platform}
+            active={selected.has(p.platform)}
+            dot={paradigmAccent[p.paradigm].dot}
+            onClick={() => toggle(p.platform)}
+          >
+            {p.platform}
+          </ColChip>
+        ))}
+      </div>
+
+      {cols.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+          Toggle a platform above to add its column.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-border bg-card/40 shadow-sm">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-10 border-b border-r border-border bg-muted/60 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Canonical event
+                </th>
+                {cols.map((p) => (
+                  <th
+                    key={p.platform}
+                    className="whitespace-nowrap border-b border-border bg-muted/40 px-3 py-2.5 text-xs font-semibold"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className={cn("size-1.5 rounded-full", paradigmAccent[p.paradigm].dot)} />
+                      <code className="font-mono text-[0.72rem] text-foreground">{p.platform}</code>
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {canonicalEvents.map((ev) => (
+                <tr key={ev}>
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-10 border-b border-r border-border/60 bg-card px-3 py-2.5 text-left align-top"
+                  >
+                    <code className="whitespace-nowrap font-mono text-[0.74rem] font-medium text-foreground">
+                      {ev}
+                    </code>
+                  </th>
+                  {cols.map((p) => (
+                    <td key={p.platform} className="border-b border-border/60 px-3 py-2.5 align-top">
+                      <EventCell native={p.events[ev]} paradigm={p.paradigm} hasHooks={p.hasHooks} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <code className="font-mono text-emerald-600 dark:text-emerald-400">name</code>
@@ -464,20 +509,22 @@ function ClaudeVsKilo() {
 
   // Position card for one host (config path + capabilities). Rendered inside the
   // active toggle tab so claude/kilo swap in the SAME spot.
+  // Compact horizontal strip — sits BETWEEN the toggle and the (full-width) code
+  // block below, so the active host's config + caps read top-to-bottom.
   const renderCard = (p: typeof claude) => (
-    <div className="rounded-xl border border-border bg-card/40 p-5 shadow-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-base font-semibold text-foreground">{p.displayName}</span>
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-card/40 px-4 py-3 shadow-sm">
+      <span className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-foreground">{p.displayName}</span>
         <ParadigmChip paradigm={p.paradigm} />
-      </div>
-      <code className="mt-3 block overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[0.72rem] text-foreground/90">
+      </span>
+      <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-muted/40 px-2.5 py-1 font-mono text-[0.7rem] text-foreground/90">
         {p.configPath}
       </code>
-      <div className="mt-3 flex flex-col gap-1.5">
+      <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <CapIcon on={p.capabilities.canModifyArgs} label="canModifyArgs" />
         <CapIcon on={p.capabilities.canModifyOutput} label="canModifyOutput" />
         <CapIcon on={p.capabilities.canInjectSessionContext} label="canInjectSessionContext" />
-      </div>
+      </span>
     </div>
   );
 
@@ -496,7 +543,7 @@ function ClaudeVsKilo() {
         </TabsList>
 
         <TabsContent value="claude-code" className="mt-4">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,17rem)_1fr]">
+          <div className="space-y-4">
             {renderCard(claude)}
             <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
@@ -513,7 +560,7 @@ function ClaudeVsKilo() {
         </TabsContent>
 
         <TabsContent value="kilo-cli" className="mt-4">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,17rem)_1fr]">
+          <div className="space-y-4">
             {renderCard(kilo)}
             <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
