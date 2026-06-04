@@ -40,8 +40,9 @@ export function Hero() {
           <p className="animate-fade-up mt-6 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
             One declarative <code className="font-mono text-foreground">defineConnector</code>{" "}
             deploys MCP servers, hooks, commands, skills &amp; subagents across{" "}
-            {platformCount} AI-agent platforms — with default, platform-independent
-            per-tool token telemetry.
+            {platformCount} AI-agent platforms — install in place{" "}
+            <span className="text-foreground">or ship it as a marketplace plugin</span> —
+            with default, platform-independent per-tool token telemetry.
           </p>
 
           <div className="animate-fade-up mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center">
@@ -73,7 +74,7 @@ export function Hero() {
           </div>
 
           <p className="animate-fade-up mt-5 text-xs text-muted-foreground">
-            MIT licensed · local-first telemetry · opt-out anytime
+            MIT licensed · local-first telemetry · marketplace install supported · opt-out anytime
           </p>
         </div>
       </div>
