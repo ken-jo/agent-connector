@@ -19,7 +19,15 @@
 // Platform identity
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Stable identifiers for every host platform agent-connector can target. */
+/**
+ * Stable identifiers for every host platform agent-connector can target.
+ *
+ * NOTE on usage-only platforms: `"synthetic"` is a TELEMETRY-ONLY id
+ * (Octofriend / synthetic.new). It has a usage reader (usage/readers/synthetic)
+ * but DELIBERATELY no deploy adapter and no ADAPTER_REGISTRY entry — Octofriend
+ * exposes no writable MCP config to install into. The registry-completeness test
+ * (tests/adapters/registry-completeness.test.ts) allowlists it for this reason.
+ */
 export type PlatformId =
   | "claude-code"
   | "codex"
@@ -59,8 +67,8 @@ export type PlatformId =
  *     back (Claude Code, Codex, Cursor, VS Code/JetBrains Copilot, Copilot CLI,
  *     Gemini). One universal entrypoint binary handles all of them.
  *   - "ts-plugin": host loads a JS/TS module exporting lifecycle functions
- *     (OpenCode, Kilo, Hermes/python, OpenClaw). Framework generates the module.
- *   - "mcp-only": no hook layer at all (Warp, zed, Kilo-today, Pi).
+ *     (OpenCode, Hermes/python, OpenClaw). Framework generates the module.
+ *   - "mcp-only": no hook layer at all (Warp, zed, Kilo Code, Kilo CLI, Pi).
  *     Only the MCP server is installed; hooks are reported unavailable.
  */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";

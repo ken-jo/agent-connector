@@ -11,9 +11,10 @@
  *   • jetbrains-copilot — md+fm prompt files + uniform SKILL.md skills under the
  *                          SHARED project .github tree; NO subagent surface
  *                          (BaseAdapter skip).
- *   • kilo              — md+fm commands (.kilocode/commands/<n>.md) + md+fm
- *                          subagents (.kilo/agents/<n>.md, mode:subagent); NO
- *                          skill surface (BaseAdapter skip).
+ *   • kilo              — Kilo Code VS Code extension. md+fm commands
+ *                          (.kilocode/commands/<n>.md) + md+fm subagents
+ *                          (.kilocode/agents/<n>.md, mode:subagent); NO skill
+ *                          surface (BaseAdapter skip).
  *   • pi                — uniform SKILL.md skills only (.pi/skills/<n>/SKILL.md);
  *                          NO command/subagent surface (BaseAdapter skip).
  *
@@ -494,10 +495,10 @@ describe("kilo adapter — content surfaces", () => {
     expect(body.trim()).toBe(COMMAND.prompt);
   });
 
-  it("installSubagents writes md+fm subagent at .kilo/agents/<n>.md (mode:subagent, permission)", () => {
+  it("installSubagents writes md+fm subagent at .kilocode/agents/<n>.md (mode:subagent, permission)", () => {
     const changes = kiloAdapter.installSubagents!(ctx);
     expect(changes[0]?.action).toBe("create");
-    const agentPath = join(projectDir, ".kilo", "agents", "reviewer.md");
+    const agentPath = join(projectDir, ".kilocode", "agents", "reviewer.md");
     expect(changes[0]?.path).toBe(agentPath);
     expect(existsSync(agentPath)).toBe(true);
 
@@ -518,7 +519,6 @@ describe("kilo adapter — content surfaces", () => {
     const changes = kiloAdapter.installSkills!(withSkill);
     expect(changes).toHaveLength(1);
     expect(changes[0]?.action).toBe("warn");
-    expect(existsSync(join(projectDir, ".kilo", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
     expect(existsSync(join(projectDir, ".kilocode", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
   });
 
@@ -535,7 +535,7 @@ describe("kilo adapter — content surfaces", () => {
     kiloAdapter.uninstallCommands!(ctx);
     kiloAdapter.uninstallSubagents!(ctx);
     expect(existsSync(join(projectDir, ".kilocode", "commands", "deploy.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".kilo", "agents", "reviewer.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".kilocode", "agents", "reviewer.md"))).toBe(false);
   });
 });
 

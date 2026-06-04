@@ -69,11 +69,13 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "opencode",
     load: () => import("./opencode/index.js").then((m) => m.default),
   },
-  // kilo before opencode-style parents is irrelevant (no shared runtime fork);
-  // listed last among the current set.
+  // kilo-cli is the SQLite/OpenCode-similar command-line product (mcp-only,
+  // root key "mcp", ~/.config/kilo/kilo.jsonc). Grouped near the OpenCode family
+  // it shares a config dialect with; distinct host from the "kilo" extension so
+  // there is no fork-ordering constraint between them.
   {
-    id: "kilo",
-    load: () => import("./kilo/index.js").then((m) => m.default),
+    id: "kilo-cli",
+    load: () => import("./kilo-cli/index.js").then((m) => m.default),
   },
   // Wave 1 — mcp-only adapters (no lifecycle hooks; MCP registration only).
   {
@@ -83,6 +85,13 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
   {
     id: "roo-code",
     load: () => import("./roo-code/index.js").then((m) => m.default),
+  },
+  // kilo is the Kilo Code VS Code extension (kilocode.kilo-code) — a Roo/Cline
+  // fork, so it sits beside roo-code (mcp-only, root key "mcpServers", VS Code
+  // globalStorage / .kilocode project scope). Distinct host from "kilo-cli".
+  {
+    id: "kilo",
+    load: () => import("./kilo/index.js").then((m) => m.default),
   },
   {
     id: "trae",
