@@ -7,6 +7,25 @@ import { cn } from "@/lib/utils";
  * copy in <Prose> where useful).
  */
 
+/**
+ * A subtle, hover-revealed `#` deep-link affordance shown beside a heading.
+ * The parent heading must carry the `group` class. Clicking it updates the URL
+ * hash so the heading is shareable; the browser handles the scroll (every
+ * heading sets `scroll-mt-24` so it lands clear of the sticky nav).
+ */
+function HeadingAnchor({ id }: { id: string }) {
+  return (
+    <a
+      href={`#${id}`}
+      aria-label="Link to this section"
+      tabIndex={-1}
+      className="ml-2 inline-flex select-none text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+    >
+      #
+    </a>
+  );
+}
+
 /** A top-level docs section wrapper with a scroll anchor + heading. */
 export function DocSection({
   id,
@@ -26,10 +45,11 @@ export function DocSection({
           {eyebrow}
         </p>
       ) : null}
-      <h2 className="group flex scroll-mt-24 items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
+      <h2 className="group flex scroll-mt-24 items-center text-2xl font-bold tracking-tight sm:text-3xl">
         <a href={`#${id}`} className="hover:underline">
           {title}
         </a>
+        <HeadingAnchor id={id} />
       </h2>
       <div className="mt-5">{children}</div>
     </section>
@@ -47,12 +67,15 @@ export function H3({
   return (
     <h3
       id={id}
-      className="mt-10 scroll-mt-24 text-lg font-semibold tracking-tight text-foreground"
+      className="group mt-10 flex scroll-mt-24 items-center text-lg font-semibold tracking-tight text-foreground"
     >
       {id ? (
-        <a href={`#${id}`} className="hover:underline">
-          {children}
-        </a>
+        <>
+          <a href={`#${id}`} className="hover:underline">
+            {children}
+          </a>
+          <HeadingAnchor id={id} />
+        </>
       ) : (
         children
       )}

@@ -144,7 +144,7 @@ commands:
   update       Managed-update guidance + refresh of the stable home pointer.
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
   usage        Inspect host-native token usage from agent CLI logs (report | export | leaderboard).
-  leaderboard  Two leaderboards: 🔌 MCP/plugin (telemetry) + 🖥️ host/user (usage) — never summed.
+  leaderboard  Three leaderboards: 🔌 MCP/plugin (mcp-self) + 🖥️ host/user (host-scan-logs) + 🛰️ host-native turns (host-native-live) — never summed.
   hook         Universal json-stdio hook entrypoint (hosts call this).
   serve        Telemetry-wrapping MCP stdio proxy (wraps a real server command).
 

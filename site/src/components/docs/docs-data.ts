@@ -56,6 +56,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { id: "add-a-platform", label: "Add a platform" },
       { id: "operating-model", label: "Operating model" },
+      { id: "troubleshooting", label: "Troubleshooting" },
     ],
   },
 ];
@@ -68,6 +69,42 @@ export const sectionOrder: string[] = navGroups.flatMap((g) =>
 export const sectionLabel: Record<string, string> = Object.fromEntries(
   navGroups.flatMap((g) => g.items.map((i) => [i.id, i.label] as const)),
 );
+
+/** Set of every valid section id — used to detect unknown :section params. */
+export const sectionIds: ReadonlySet<string> = new Set(sectionOrder);
+
+/** Per-section <meta name="description"> copy (for /docs/:section deep links). */
+export const sectionDescription: Record<string, string> = {
+  introduction:
+    "Write your MCP server + hooks once with defineConnector; agent-connector renders it natively across 28 AI-agent platforms with default local-first token telemetry.",
+  installation:
+    "Install the agent-connector CLI globally. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
+  "quick-start":
+    "Create an agent-connector.config file and drive install / sync / uninstall — every command is idempotent, reversible, and --dry-run-able.",
+  "define-connector":
+    "defineConnector(config): the write-once surface. Validates eagerly, throws ConnectorConfigError, and returns a fully-defaulted ResolvedConnector.",
+  server:
+    "ServerDef — a normalized, transport-polymorphic MCP server descriptor declared once and rendered into each host's native dialect.",
+  hooks:
+    "Declare lifecycle hooks once against normalized events; the framework synthesizes the right shape per host paradigm and formats your reply.",
+  surfaces:
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform.",
+  "telemetry-overview":
+    "Default per-MCP token telemetry: the serve proxy tokenizes input/output locally with documented confidence sources. Aggregate counts only.",
+  leaderboards:
+    "Three origin-labeled leaderboards (MCP/plugin, host/user, host-native turns) that measure different things and are never summed.",
+  privacy:
+    "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
+  cli: "The agent-connector CLI reference: detect, install, sync, uninstall, doctor, update, telemetry, usage, and leaderboard.",
+  platforms:
+    "The 28 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
+  "add-a-platform":
+    "Adding a platform is one registry entry plus one adapter — the framework's core design guarantee.",
+  "operating-model":
+    "Home-dir-centric, single binary, per-project data. One stable home binary; native host config stays native; Windows-first.",
+  troubleshooting:
+    "Interpret doctor output, hooks-unavailable hosts, requires-sync usage rows, common ConnectorConfigError messages, and why telemetry can show nothing.",
+};
 
 /* ------------------------------------------------------------------ */
 /* Field-table rows                                                    */
@@ -144,6 +181,86 @@ export const connectorConfigFields: FieldRow[] = [
     type: '"auto" | PlatformId[]',
     default: '"auto"',
     notes: '"auto" = all detected; or an explicit allow-list.',
+  },
+];
+
+/**
+ * ResolvedConnector — what defineConnector returns (core/types.ts §ResolvedConnector).
+ * Every optional ConnectorConfig field is resolved to a concrete value here.
+ */
+export const resolvedConnectorFields: FieldRow[] = [
+  {
+    name: "id",
+    type: "string",
+    required: true,
+    notes: "The validated kebab-case id, passed through unchanged.",
+  },
+  {
+    name: "displayName",
+    type: "string",
+    required: true,
+    notes: "Resolved to id when not supplied.",
+  },
+  {
+    name: "version",
+    type: "string",
+    required: true,
+    notes: 'Resolved to "0.0.0" when not supplied.',
+  },
+  {
+    name: "server",
+    type: "ServerDef",
+    notes: "Normalized ServerDef; omitted entirely for a hooks/content-only connector.",
+  },
+  {
+    name: "hooks",
+    type: "HooksConfig",
+    required: true,
+    notes: "Always present ({} when none declared).",
+  },
+  {
+    name: "hookEvents",
+    type: "HookEventName[]",
+    required: true,
+    notes:
+      "Derived list of the events that have a function handler — what adapters install.",
+  },
+  {
+    name: "telemetry",
+    type: "Required<TelemetryConfig>",
+    required: true,
+    notes:
+      "Fully-resolved: { enabled, modelFamilyHint, measureToolDefs, hostNativeUsage, store, calibration: { anthropicCountTokens } }.",
+  },
+  {
+    name: "commands",
+    type: "CommandDef[]",
+    required: true,
+    notes: "Normalized; [] when none.",
+  },
+  {
+    name: "skills",
+    type: "SkillDef[]",
+    required: true,
+    notes: "Normalized; [] when none.",
+  },
+  {
+    name: "subagents",
+    type: "SubagentDef[]",
+    required: true,
+    notes: "Normalized; [] when none.",
+  },
+  {
+    name: "platforms",
+    type: "Partial<Record<PlatformId, PlatformOverride>>",
+    required: true,
+    notes: "Always present ({} when none declared).",
+  },
+  {
+    name: "targets",
+    type: '"auto" | PlatformId[]',
+    required: true,
+    notes: 'Resolved to "auto" when not supplied.',
   },
 ];
 
@@ -623,7 +740,7 @@ export const cliCommands: CliCommand[] = [
   {
     name: "doctor",
     signature:
-      "agent-connector doctor [--targets …] [--connector <path>] [--scope …] [--project <dir>] [--json]",
+      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
     summary:
       "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail).",
   },
@@ -789,4 +906,85 @@ export const tsPluginPlatforms: PlatformEntry[] = [
   },
   { name: "OMP", id: "omp", target: "generated plugin module" },
   { name: "OpenClaw", id: "openclaw", target: "generated plugin module" },
+];
+
+/* ------------------------------------------------------------------ */
+/* Troubleshooting                                                      */
+/* ------------------------------------------------------------------ */
+
+/** How to read a `doctor` status line. */
+export const doctorStatusRows: { status: string; meaning: string }[] = [
+  {
+    status: "[pass]",
+    meaning: "The check succeeded; nothing to do.",
+  },
+  {
+    status: "[warn]",
+    meaning:
+      "A non-fatal degradation (e.g. a capability the host can't honor). The command still exits 0 — warns alone never fail doctor.",
+  },
+  {
+    status: "[FAIL]",
+    meaning:
+      "A check that must be fixed. Any single FAIL makes the whole command exit non-zero (1). The fix: line shows the suggested remedy.",
+  },
+];
+
+/** Common ConnectorConfigError messages thrown by defineConnector. */
+export const configErrorRows: { message: string; cause: string }[] = [
+  {
+    message: "id must be kebab-case matching /^[a-z0-9][a-z0-9-]*$/",
+    cause:
+      "The connector id contains uppercase, underscores, spaces, or a leading dash/digit-only edge case. Use a lowercase kebab-case id.",
+  },
+  {
+    message:
+      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, or `subagents`",
+    cause:
+      "No surface was declared. A connector needs at least one of those five to do anything.",
+  },
+  {
+    message: "server.command is required for stdio transport",
+    cause:
+      'transport: "stdio" was set without a string command. Add the executable to launch.',
+  },
+  {
+    message: "server.url is required for <transport> transport",
+    cause:
+      "A remote transport (http / sse / ws) was set without a string url. Add the endpoint.",
+  },
+  {
+    message:
+      'skills[i].resources key must not escape the skill dir via ".."',
+    cause:
+      "A resource relpath was absolute, empty, `.`, or contained a `..` traversal (checked with both / and \\ separators). Use a safe path inside the skill dir.",
+  },
+];
+
+/** Why `requires sync, skipped` appears in usage rows. */
+export const syncedPlatforms: string[] = [
+  "cursor",
+  "antigravity",
+  "trae",
+  "warp",
+];
+
+/** Why telemetry can show nothing. */
+export const telemetryEmptyRows: { reason: string; fix: string }[] = [
+  {
+    reason: "AGENT_CONNECTOR_TELEMETRY=0 (or telemetry: { enabled: false })",
+    fix: "Telemetry is disabled. Unset the env var / re-enable in config, then re-run.",
+  },
+  {
+    reason: "The MCP server isn't wrapped",
+    fix: "Only servers launched through agent-connector serve are measured (wrapForTelemetry, default on for stdio). Remote transports can't be intercepted. Re-sync so the entry is wrapped.",
+  },
+  {
+    reason: "Nothing has been recorded yet",
+    fix: "Rows appear after the wrapped server actually handles tools/call traffic. Exercise a tool first.",
+  },
+  {
+    reason: "Host-native turns not calibrated / not opted in",
+    fix: "model_turn rows only exist when host-native usage is enabled (hostNativeUsage / AGENT_CONNECTOR_HOST_NATIVE=1) on a supporting host.",
+  },
 ];

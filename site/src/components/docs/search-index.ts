@@ -1,0 +1,118 @@
+/**
+ * Static docs search index, built once at module load from the data-driven nav
+ * structure. Two tiers of results:
+ *  - "section" entries: the top-level docs sections (sidebar pages).
+ *  - "heading" entries: the H3 sub-headings inside each section (anchor ids),
+ *    so ⌘K can jump straight to e.g. "Confidence sources" or "ServerDef".
+ *
+ * Every entry resolves to a docs anchor id; selecting it navigates to
+ * /docs#<id> and the browser/scroll handles the rest. Headings here mirror the
+ * `id="..."` anchors authored in DocsContent.tsx — keep them in sync.
+ */
+
+import { navGroups, sectionLabel, sectionDescription } from "./docs-data";
+
+export interface SearchEntry {
+  /** Anchor id to navigate to (/docs#<id>). */
+  id: string;
+  /** Display title for the result row. */
+  title: string;
+  /** The owning docs section id (for grouping + parent label). */
+  sectionId: string;
+  /** Human label of the owning section. */
+  sectionLabel: string;
+  /** "section" = a sidebar page; "heading" = an H3 anchor within a page. */
+  kind: "section" | "heading";
+  /** Short blurb (sections only) to enrich the result + improve matching. */
+  description?: string;
+  /** Extra keywords folded into the searchable haystack. */
+  keywords?: string;
+}
+
+/**
+ * H3 anchor ids per section, mirroring the `id="..."` headings in
+ * DocsContent.tsx. Titles are the human heading text shown in the result row.
+ */
+const sectionHeadings: Record<string, { id: string; title: string }[]> = {
+  introduction: [{ id: "two-pillars", title: "Two pillars" }],
+  installation: [{ id: "from-source", title: "From source" }],
+  "define-connector": [
+    { id: "connector-config", title: "ConnectorConfig" },
+    { id: "validation-rules", title: "Top-level validation rules" },
+    { id: "resolved-connector", title: "ResolvedConnector" },
+    { id: "platform-override", title: "PlatformOverride (escape hatch)" },
+  ],
+  server: [
+    { id: "transports", title: "Transports & dialects" },
+    { id: "per-dialect-output", title: "Per-dialect output" },
+  ],
+  hooks: [
+    { id: "hook-events", title: "Normalized events" },
+    { id: "hook-response", title: "HookResponse" },
+    { id: "paradigms", title: "Three paradigms" },
+  ],
+  surfaces: [
+    { id: "command-def", title: "CommandDef" },
+    { id: "skill-def", title: "SkillDef" },
+    { id: "subagent-def", title: "SubagentDef" },
+    { id: "surface-validation", title: "Validation rules" },
+    { id: "surface-support", title: "Per-platform surface support" },
+  ],
+  "telemetry-overview": [
+    { id: "telemetry-config", title: "TelemetryConfig" },
+    { id: "tokenizer", title: "Tokenizer" },
+    { id: "confidence-sources", title: "Confidence sources" },
+    { id: "store", title: "Store" },
+    { id: "host-usage-layer", title: "Host usage layer" },
+  ],
+  cli: [
+    { id: "shared-flags", title: "Shared flags" },
+    { id: "commands", title: "Commands" },
+    { id: "since-syntax", title: "--since syntax" },
+    { id: "internal-entrypoints", title: "Internal entrypoints" },
+  ],
+  "add-a-platform": [],
+  "operating-model": [],
+  troubleshooting: [
+    { id: "reading-doctor", title: "Reading doctor output" },
+    { id: "hooks-unavailable", title: '"hooks unavailable here"' },
+    { id: "warn-exit-1", title: "The warn action → exit 1" },
+    { id: "requires-sync", title: '"requires sync, skipped" usage rows' },
+    { id: "config-errors", title: "Common ConnectorConfigError messages" },
+    { id: "telemetry-empty", title: "Telemetry shows nothing" },
+  ],
+};
+
+/** Flat, ordered search index: each section followed by its headings. */
+export const searchIndex: SearchEntry[] = navGroups.flatMap((group) =>
+  group.items.flatMap((item) => {
+    const label = sectionLabel[item.id] ?? item.label;
+    const section: SearchEntry = {
+      id: item.id,
+      title: item.label,
+      sectionId: item.id,
+      sectionLabel: label,
+      kind: "section",
+      description: sectionDescription[item.id],
+      keywords: group.title,
+    };
+    const headings = (sectionHeadings[item.id] ?? []).map<SearchEntry>((h) => ({
+      id: h.id,
+      title: h.title,
+      sectionId: item.id,
+      sectionLabel: label,
+      kind: "heading",
+    }));
+    return [section, ...headings];
+  }),
+);
+
+/** Precomputed lowercase haystack per entry id (title + section + blurb). */
+export const searchHaystack: Record<string, string> = Object.fromEntries(
+  searchIndex.map((e) => [
+    e.id,
+    [e.title, e.sectionLabel, e.description ?? "", e.keywords ?? ""]
+      .join(" ")
+      .toLowerCase(),
+  ]),
+);

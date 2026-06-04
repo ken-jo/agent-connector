@@ -5,7 +5,14 @@ import { Footer } from "@/components/sections/Footer";
 import { SkipLink } from "@/components/ui/skip-link";
 import { cn } from "@/lib/utils";
 import { DocsSidebar } from "./DocsSidebar";
+import { DocsHeader } from "./DocsHeader";
+import { DocsPager } from "./DocsPager";
 import { OnThisPage } from "./OnThisPage";
+import {
+  DocsSearchButton,
+  DocsSearchDialog,
+  useDocsSearch,
+} from "./DocsSearch";
 import { sectionOrder } from "./docs-data";
 import { useScrollSpy } from "./use-scroll-spy";
 
@@ -14,6 +21,7 @@ const CONTENT_ID = "docs-content";
 export function DocsLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const activeId = useScrollSpy(sectionOrder);
+  const { open: searchOpen, setOpen: setSearchOpen } = useDocsSearch();
 
   // Lock body scroll + close on Escape while the mobile sidebar sheet is open.
   React.useEffect(() => {
@@ -35,23 +43,31 @@ export function DocsLayout({ children }: { children: React.ReactNode }) {
       <SkipLink targetId={CONTENT_ID} />
       <Nav />
 
-      {/* Mobile sidebar trigger (sticky just under the nav) */}
-      <div className="sticky top-16 z-30 border-b border-border/60 bg-background/80 backdrop-blur-xl lg:hidden">
+      {/* Mobile sidebar trigger + search (sticky just under the nav) */}
+      <div className="sticky top-16 z-30 flex items-center gap-3 border-b border-border/60 bg-background/80 px-6 py-2.5 backdrop-blur-xl lg:hidden">
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
           aria-expanded={mobileOpen}
           aria-controls="docs-mobile-sidebar"
-          className="flex w-full items-center gap-2 px-6 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          className="flex items-center gap-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           <Menu className="size-4" />
           Menu
         </button>
+        <DocsSearchButton
+          onClick={() => setSearchOpen(true)}
+          className="ml-auto"
+        />
       </div>
 
       <div className="mx-auto flex max-w-7xl gap-8 px-6">
         {/* Left sidebar — desktop */}
         <aside className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-60 shrink-0 overflow-y-auto py-10 pr-2 lg:block">
+          <DocsSearchButton
+            onClick={() => setSearchOpen(true)}
+            className="mb-6 w-full justify-start"
+          />
           <DocsSidebar activeId={activeId} />
         </aside>
 
@@ -62,7 +78,9 @@ export function DocsLayout({ children }: { children: React.ReactNode }) {
             tabIndex={-1}
             className="mx-auto max-w-3xl scroll-mt-24 outline-none"
           >
+            <DocsHeader activeId={activeId} />
             {children}
+            <DocsPager activeId={activeId} />
           </div>
         </main>
 
@@ -73,6 +91,9 @@ export function DocsLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       <Footer />
+
+      {/* ⌘K command palette */}
+      <DocsSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
 
       {/* Mobile sidebar sheet */}
       {mobileOpen ? (

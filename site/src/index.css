@@ -124,6 +124,44 @@
   }
 }
 
+@layer components {
+  /* ----------------------------------------------------------------- */
+  /* shiki dual-theme syntax highlighting                              */
+  /* ----------------------------------------------------------------- */
+  /* The CodeBlock chrome already supplies the card surface, padding,  */
+  /* and scroll; shiki's own <pre> must be transparent and inherit our */
+  /* mono font + sizing so highlighted blocks match the raw fallback   */
+  /* exactly (no layout shift, no double background).                  */
+  .shiki-host .shiki {
+    margin: 0;
+    padding: 0;
+    background-color: transparent !important;
+    font-family: var(--font-mono);
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  .shiki-host .shiki code {
+    font-family: inherit;
+    background-color: transparent;
+  }
+
+  /* defaultColor:false emits --shiki-light / --shiki-dark on the <pre> and */
+  /* on every token <span>. Light theme reads the *-light vars; under .dark */
+  /* we flip to the *-dark vars so the highlight follows the site theme     */
+  /* with no re-highlighting on toggle. We only flip token *color* — the    */
+  /* surface stays the transparent card background set above.               */
+  .shiki-host .shiki,
+  .shiki-host .shiki span {
+    color: var(--shiki-light);
+  }
+
+  .dark .shiki-host .shiki,
+  .dark .shiki-host .shiki span {
+    color: var(--shiki-dark);
+  }
+}
+
 @layer utilities {
   /* Subtle dotted background used behind hero / sections */
   .bg-dotted {

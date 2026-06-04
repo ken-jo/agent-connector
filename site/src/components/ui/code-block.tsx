@@ -1,5 +1,7 @@
+import * as React from "react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
+import { highlightToHtml, normalizeLang } from "@/lib/highlighter";
 
 interface CodeBlockProps {
   code: string;
@@ -14,6 +16,28 @@ export function CodeBlock({
   language,
   className,
 }: CodeBlockProps) {
+  const lang = React.useMemo(() => normalizeLang(language), [language]);
+  const [html, setHtml] = React.useState<string | null>(null);
+
+  // Highlight lazily after mount. shiki + grammars are dynamically imported by
+  // highlightToHtml, so nothing here lands in the initial chunk. Until the
+  // async highlight resolves we show the raw code (same <pre> metrics → no
+  // layout shift). A cancel flag avoids setting state after unmount / re-render.
+  React.useEffect(() => {
+    if (!lang) {
+      setHtml(null);
+      return;
+    }
+    let cancelled = false;
+    setHtml(null);
+    highlightToHtml(code, lang).then((result) => {
+      if (!cancelled) setHtml(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
+
   return (
     <div
       className={cn(
@@ -41,9 +65,18 @@ export function CodeBlock({
           <CopyButton value={code} label="Copy code" />
         </div>
       </div>
-      <pre className="overflow-x-auto p-4 text-[0.8rem] leading-relaxed">
-        <code className="font-mono text-card-foreground/90">{code}</code>
-      </pre>
+      {html ? (
+        <div
+          className="shiki-host overflow-x-auto p-4 text-[0.8rem] leading-relaxed"
+          // Highlighted markup is produced locally by shiki from our own static
+          // snippet strings — no user/network input flows in here.
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ) : (
+        <pre className="overflow-x-auto p-4 text-[0.8rem] leading-relaxed">
+          <code className="font-mono text-card-foreground/90">{code}</code>
+        </pre>
+      )}
     </div>
   );
 }

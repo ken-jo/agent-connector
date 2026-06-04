@@ -1,4 +1,5 @@
 import { CodeBlock } from "@/components/ui/code-block";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
 import {
   DocSection,
@@ -15,6 +16,7 @@ import { DocsTable, FieldTable, Th, Td, Code } from "./DocsTable";
 import * as S from "./snippets";
 import {
   connectorConfigFields,
+  resolvedConnectorFields,
   serverDefFields,
   hookEventRows,
   hookResponseFields,
@@ -33,6 +35,10 @@ import {
   jsonStdioPlatforms,
   mcpOnlyPlatforms,
   tsPluginPlatforms,
+  doctorStatusRows,
+  configErrorRows,
+  syncedPlatforms,
+  telemetryEmptyRows,
   type PlatformEntry,
 } from "./docs-data";
 
@@ -161,16 +167,13 @@ function DefineConnector() {
 
       <H3 id="resolved-connector">ResolvedConnector</H3>
       <P>
-        What <C>defineConnector</C> returns: all optional fields resolved to
-        defaults, with <C>hookEvents</C> listing the events that have a function
-        handler, and a fully-resolved <C>telemetry</C> object (
-        <C>
-          &#123; enabled, modelFamilyHint, measureToolDefs, hostNativeUsage,
-          store, calibration: &#123; anthropicCountTokens &#125; &#125;
-        </C>
-        ). <C>commands</C> / <C>skills</C> / <C>subagents</C> are normalized to{" "}
-        <C>[]</C> when none.
+        What <C>defineConnector</C> returns: every optional <C>ConnectorConfig</C>{" "}
+        field is resolved to a concrete value. <C>hookEvents</C> lists the events
+        that have a function handler (what adapters install), and <C>telemetry</C>{" "}
+        is fully defaulted. <C>commands</C> / <C>skills</C> / <C>subagents</C> are
+        normalized to <C>[]</C> when none.
       </P>
+      <FieldTable rows={resolvedConnectorFields} />
 
       <H3 id="platform-override">PlatformOverride (escape hatch)</H3>
       <P>
@@ -721,10 +724,15 @@ function CliSection() {
                 {cmd.name}
               </code>
             </div>
-            <div className="mt-3">
-              <code className="block overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[0.78rem] text-foreground/90">
+            <div className="mt-3 flex items-stretch gap-2">
+              <code className="block flex-1 overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[0.78rem] text-foreground/90">
                 {cmd.signature}
               </code>
+              <CopyButton
+                value={cmd.signature}
+                label={`Copy ${cmd.name} command`}
+                className="h-auto self-stretch"
+              />
             </div>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               {cmd.summary}
@@ -762,9 +770,15 @@ function CliSection() {
             key={e.signature}
             className="rounded-xl border border-border bg-card/40 p-4 shadow-sm"
           >
-            <code className="block overflow-x-auto font-mono text-[0.78rem] text-foreground">
-              {e.signature}
-            </code>
+            <div className="flex items-start gap-2">
+              <code className="block min-w-0 flex-1 overflow-x-auto font-mono text-[0.78rem] text-foreground">
+                {e.signature}
+              </code>
+              <CopyButton
+                value={e.signature}
+                label="Copy entrypoint command"
+              />
+            </div>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {e.desc}
             </p>
@@ -939,6 +953,155 @@ function OperatingModel() {
   );
 }
 
+function Troubleshooting() {
+  return (
+    <DocSection id="troubleshooting" eyebrow="Guides" title="Troubleshooting">
+      <Lead>
+        How to read <C>doctor</C> output, why some hosts report hooks as
+        unavailable, what the &quot;requires sync, skipped&quot; usage rows mean,
+        the common <C>ConnectorConfigError</C> messages, and why telemetry can
+        show nothing.
+      </Lead>
+
+      <H3 id="reading-doctor">Reading doctor output</H3>
+      <P>
+        <C>agent-connector doctor</C> loads each detected host adapter, runs its
+        checks, and prints one status line per check. Any single{" "}
+        <C>[FAIL]</C> makes the command exit <C>1</C>; warnings alone never fail
+        it.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Status</Th>
+            <Th>Meaning</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {doctorStatusRows.map((r) => (
+            <tr key={r.status}>
+              <Td className="whitespace-nowrap">
+                <Code>{r.status}</Code>
+              </Td>
+              <Td className="text-muted-foreground">{r.meaning}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <P>
+        A line reads{" "}
+        <C>
+          &nbsp;&#91;pass&#93; &lt;check&gt; — &lt;message&gt;
+        </C>
+        ; a failing or warning check adds an indented <C>fix:</C> line with the
+        suggested remedy. Run it scoped with{" "}
+        <C>doctor --targets &lt;a,b&gt;</C> or against a specific config with{" "}
+        <C>--connector &lt;path&gt;</C>; <C>--json</C> emits the per-platform
+        results array.
+      </P>
+
+      <H3 id="hooks-unavailable">&quot;hooks unavailable here&quot;</H3>
+      <P>
+        The <strong>10 mcp-only hosts</strong> (Warp, Kilo, Droid, Roo Code,
+        Trae, Zed, Amp, Codebuff, Mux, Pi) have no hook layer — only the MCP
+        server is installed. Detection and <C>doctor</C> surface{" "}
+        <strong>&quot;hooks unavailable here&quot;</strong> for them; this is
+        expected, not an error. Declared hooks are simply skipped (with a
+        warning) on those targets. See{" "}
+        <a className="underline hover:text-foreground" href="#paradigms">
+          the three paradigms
+        </a>
+        .
+      </P>
+
+      <H3 id="warn-exit-1">The warn action → exit 1</H3>
+      <P>
+        <C>install</C> and <C>sync</C> exit <C>1</C> when any change in the diff
+        is a <C>warn</C> (glyph <C>!</C>) — for example a host that can&apos;t
+        honor a requested transport (it downgrades-or-skips and reports it) or a
+        surface an adapter doesn&apos;t support (it skips + warns). The write
+        still succeeds; the non-zero exit is a signal to inspect the warnings,
+        not a failure. This is distinct from <C>doctor</C>, where a{" "}
+        <C>[warn]</C> does <strong>not</strong> change the exit code (only a{" "}
+        <C>[FAIL]</C> does).
+      </P>
+
+      <H3 id="requires-sync">&quot;requires sync, skipped&quot; usage rows</H3>
+      <P>
+        The host-usage layer reads each CLI&apos;s own logs read-only. Some hosts
+        keep their usage data behind an external sync agent-connector does not
+        perform, so <C>agent-connector usage report</C> prints those platforms as{" "}
+        <strong>&quot;requires sync, skipped&quot;</strong> unless a local cache
+        already exists:
+      </P>
+      <List>
+        {syncedPlatforms.map((p) => (
+          <LI key={p}>
+            <Code>{p}</Code>
+          </LI>
+        ))}
+      </List>
+      <P>
+        This is informational — it only means those rows are absent from the
+        host-usage totals, not that anything is broken. Other hosts populate
+        immediately.
+      </P>
+
+      <H3 id="config-errors">Common ConnectorConfigError messages</H3>
+      <P>
+        <C>defineConnector</C> validates eagerly and throws{" "}
+        <C>ConnectorConfigError</C> on the first violation. The most common ones:
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Message</Th>
+            <Th>Cause &amp; fix</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {configErrorRows.map((r) => (
+            <tr key={r.message}>
+              <Td>
+                <span className="font-mono text-[0.75rem] text-foreground">
+                  {r.message}
+                </span>
+              </Td>
+              <Td className="text-muted-foreground">{r.cause}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+
+      <H3 id="telemetry-empty">Telemetry shows nothing</H3>
+      <P>
+        If <C>agent-connector telemetry report</C> is empty, work through these
+        in order:
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Reason</Th>
+            <Th>Fix</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {telemetryEmptyRows.map((r) => (
+            <tr key={r.reason}>
+              <Td>
+                <span className="font-mono text-[0.75rem] text-foreground">
+                  {r.reason}
+                </span>
+              </Td>
+              <Td className="text-muted-foreground">{r.fix}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+    </DocSection>
+  );
+}
+
 /* ================================================================== */
 /* Composed content                                                    */
 /* ================================================================== */
@@ -960,6 +1123,7 @@ export function DocsContent() {
       <PlatformsSection />
       <AddPlatform />
       <OperatingModel />
+      <Troubleshooting />
     </div>
   );
 }
