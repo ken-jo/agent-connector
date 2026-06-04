@@ -33,6 +33,7 @@ export const navGroups: NavGroup[] = [
       { id: "define-connector", label: "defineConnector" },
       { id: "server", label: "Server" },
       { id: "hooks", label: "Hooks" },
+      { id: "hooks-guide", label: "Hooks: cross-platform map" },
       { id: "surfaces", label: "Commands, Skills & Subagents" },
     ],
   },
@@ -87,6 +88,8 @@ export const sectionDescription: Record<string, string> = {
     "ServerDef — a normalized, transport-polymorphic MCP server descriptor declared once and rendered into each host's native dialect.",
   hooks:
     "Declare lifecycle hooks once against normalized events; the framework synthesizes the right shape per host paradigm and formats your reply.",
+  "hooks-guide":
+    "The precise, visible cross-platform hook map: 8 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
     "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform.",
   "telemetry-overview":

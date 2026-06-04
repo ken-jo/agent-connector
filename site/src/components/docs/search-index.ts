@@ -51,6 +51,12 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "hook-response", title: "HookResponse" },
     { id: "paradigms", title: "Three paradigms" },
   ],
+  "hooks-guide": [
+    { id: "single-wrapper", title: "The single-wrapper hook API" },
+    { id: "mapping-matrix", title: "The mapping matrix" },
+    { id: "platform-detail", title: "Per-platform detail" },
+    { id: "claude-vs-kilo", title: "Claude Code ↔ Kilo CLI: same position?" },
+  ],
   surfaces: [
     { id: "command-def", title: "CommandDef" },
     { id: "skill-def", title: "SkillDef" },

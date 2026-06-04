@@ -41,6 +41,7 @@ import {
   telemetryEmptyRows,
   type PlatformEntry,
 } from "./docs-data";
+import { HooksGuideSection } from "./HooksGuide";
 
 /* ================================================================== */
 /* Getting Started                                                     */
@@ -1115,6 +1116,7 @@ export function DocsContent() {
       <DefineConnector />
       <ServerSection />
       <HooksSection />
+      <HooksGuideSection />
       <SurfacesSection />
       <TelemetryOverview />
       <Leaderboards />
