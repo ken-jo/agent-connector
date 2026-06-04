@@ -1,117 +1,151 @@
 /**
- * usage/readers/antigravity-cli — Antigravity CLI (`agy`) native usage reader.
+ * usage/readers/antigravity-cli — Antigravity CLI (`agy`) usage reader (SYNCED).
  *
- * The Antigravity CLI is a distinct binary from the desktop IDE with its own
- * global dir, `~/.gemini/antigravity-cli/` (honoring an
- * AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR override). It keeps per-conversation
- * transcripts as `transcript*.jsonl` under `brain/<conv>/`, plus a top-level
- * `history.jsonl` index of conversations.
+ * CONFIRMED-BY-INSTALL (2026-06-03, docs/research/antigravity-paths-confirmed.md):
+ * the `agy` CLI v1.0.0 has NO separate config/storage dir — it SHARES the IDE's
+ * `~/.gemini/antigravity/` tree, whose native conversation store is
+ * `conversations/<uuid>.pb` (PROTOBUF, no public schema) with `brain/<uuid>/`
+ * holding only media + `*.metadata.json`. There are NO `transcript*.jsonl` files
+ * and NO separate `~/.gemini/antigravity-cli/` dir. The earlier "read native
+ * brain transcript*.jsonl with usage_metadata" approach targeted a non-existent
+ * shape.
  *
- * We read the transcripts directly (kind:"local", format:"jsonl") and extract the
- * Gemini-style `usage_metadata` per turn (promptTokenCount / candidatesTokenCount
- * / cachedContentTokenCount / thoughtsTokenCount) exactly like the gemini-cli and
- * Antigravity-IDE readers (shared antigravity-shared module). The conversation
- * also has `.pb` protobuf dumps — we SKIP all `.pb` (no public schema).
+ * So this reader does NOT attempt to parse `.pb` (no schema). Like the IDE reader
+ * (and the other SYNCED platforms cursor/trae/warp), it reads only the tokscale
+ * synced-cache if a separate tokscale run already produced one; otherwise it
+ * returns [] and the scan layer reports "requires sync (no local cache found)"
+ * — i.e. the native store is protobuf (.pb), not readable.
  *
- * `history.jsonl` is read best-effort to recover a per-conversation MODEL
- * fallback (and to attribute a friendlier session id) for transcripts whose rows
- * carry none; it never adds token rows itself.
+ * The native `~/.gemini/antigravity/` dir (shared with the IDE) is used ONLY for
+ * platform detection (in the adapter), NOT for usage parsing here. Cached rows
+ * carry real host token counts → "host-reported".
  *
- * Confidence is MEDIUM (native JSONL shape; Antigravity is fast-moving + docs are
- * JS-rendered). Extraction is best-effort and FAILS OPEN: no
- * `~/.gemini/antigravity-cli/` → []; unreadable/malformed file or line → skipped;
- * `.pb` → skipped.
+ * Fail-open: no cache → []; unreadable/malformed file or line → skipped; we NEVER
+ * touch `.pb` protobuf.
  */
 
-import { basename, join } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import type { UsageReader, UsageRecord } from "../types.js";
-import { fileMtimeMs, readJsonlLines } from "../jsonl.js";
-import { antigravityCliNativeRoots, isDir, walkFiles } from "../paths.js";
-import {
-  nonEmptyStr,
-  parseUsageMetadataRow,
-  sessionMetaModel,
-} from "./antigravity-shared.js";
+import { emptyTokens } from "../aggregate.js";
+import { readJsonlLines } from "../jsonl.js";
+import { inferProvider } from "../normalize.js";
+import { firstExistingRoot, isDir, walkFiles } from "../paths.js";
+import { nonEmptyStr, resolveAlias, toSafeInt } from "./antigravity-shared.js";
 
 const PLATFORM_ID = "antigravity-cli" as const;
+const DEFAULT_MODEL = "unknown";
+const DEFAULT_PROVIDER = "antigravity";
 
 // ─────────────────────────────────────────────────────────────────────────
-// history.jsonl index (best-effort per-conversation model fallback)
+// TOKSCALE CACHE — same line schema as the IDE reader
 // ─────────────────────────────────────────────────────────────────────────
 
-/**
- * Read `<root>/history.jsonl` and return a conversation-id → model map. The index
- * shape is not contractually stable, so this is fully tolerant: each line that
- * carries both an id and a model contributes; anything else is ignored.
- */
-function readHistoryModelIndex(root: string): Map<string, string> {
-  const index = new Map<string, string>();
-  const historyPath = join(root, "history.jsonl");
-  for (const raw of readJsonlLines(historyPath)) {
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
-    const obj = raw as Record<string, unknown>;
-    const id =
-      nonEmptyStr(obj.conversationId) ??
-      nonEmptyStr(obj.conversation_id) ??
-      nonEmptyStr(obj.id) ??
-      nonEmptyStr(obj.sessionId) ??
-      nonEmptyStr(obj.session_id);
-    const model =
-      nonEmptyStr(obj.modelId) ??
-      nonEmptyStr(obj.model) ??
-      nonEmptyStr(obj.model_id) ??
-      nonEmptyStr(obj.modelName);
-    if (id !== undefined && model !== undefined) index.set(id, model);
-  }
-  return index;
+/** Fields we read off a tokscale-cache Antigravity JSONL line (all optional). */
+interface AntigravityLine {
+  type?: unknown;
+  modelId?: unknown;
+  providerId?: unknown;
+  sessionId?: unknown;
+  timestamp?: unknown;
+  input?: unknown;
+  output?: unknown;
+  cacheRead?: unknown;
+  cacheWrite?: unknown;
+  reasoning?: unknown;
+  responseId?: unknown;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Transcript parsing
-// ─────────────────────────────────────────────────────────────────────────
-
-/** The `brain/<conv>/` directory name for a transcript path (the conversation id). */
-function conversationIdFromPath(path: string): string {
-  const parts = path.split(/[\\/]+/).filter((c) => c !== "");
-  const brainIdx = parts.lastIndexOf("brain");
-  if (brainIdx >= 0 && brainIdx + 1 < parts.length) {
-    const conv = parts[brainIdx + 1];
-    if (conv !== undefined && conv !== "") return conv;
-  }
-  const name = basename(path);
-  const dot = name.indexOf(".");
-  return dot > 0 ? name.slice(0, dot) : name;
-}
-
-/**
- * Parse one `transcript*.jsonl` into usage records. A `session_meta` row seeds
- * the per-conversation model fallback; the history index supplies a model when
- * the transcript carries none. Any row with a `usage_metadata` block emits a
- * record (best-effort).
- */
-function parseTranscript(path: string, historyModel: string | undefined): UsageRecord[] {
+/** Parse one tokscale-cache JSONL file into usage records (session_meta + usage rows). */
+function parseCacheFile(path: string): UsageRecord[] {
   const lines = readJsonlLines(path);
   if (lines.length === 0) return [];
 
-  const fallbackSessionId = conversationIdFromPath(path);
-  const fallbackTs = fileMtimeMs(path);
-  let fallbackModel = historyModel;
-
   const out: UsageRecord[] = [];
+  let sessionModel: string | undefined;
+
   for (const raw of lines) {
-    const meta = sessionMetaModel(raw);
-    if (meta !== undefined) {
-      fallbackModel = meta;
+    if (typeof raw !== "object" || raw === null) continue;
+    const line = raw as AntigravityLine;
+
+    const rowType = typeof line.type === "string" ? line.type : "";
+    if (rowType === "session_meta") {
+      const meta = nonEmptyStr(line.modelId);
+      if (meta !== undefined) sessionModel = meta;
       continue;
     }
-    const record = parseUsageMetadataRow(raw, {
-      platformId: PLATFORM_ID,
-      fallbackSessionId,
-      ...(fallbackModel !== undefined ? { fallbackModel } : {}),
-      fallbackTs,
-    });
+    if (rowType !== "usage") continue;
+
+    const record = parseCacheUsageRow(line, sessionModel);
     if (record !== undefined) out.push(record);
+  }
+
+  return out;
+}
+
+/** Build a UsageRecord from a "usage" line, or undefined when invalid/empty. */
+function parseCacheUsageRow(line: AntigravityLine, fallbackModel: string | undefined): UsageRecord | undefined {
+  const sessionId = nonEmptyStr(line.sessionId);
+  if (sessionId === undefined) return undefined;
+
+  const timestamp = toSafeInt(line.timestamp);
+  if (timestamp <= 0) return undefined;
+
+  const rawModel = nonEmptyStr(line.modelId) ?? fallbackModel ?? DEFAULT_MODEL;
+  const modelId = resolveAlias(rawModel) ?? rawModel;
+  const providerId = nonEmptyStr(line.providerId) ?? inferProvider(modelId) ?? DEFAULT_PROVIDER;
+
+  const input = toSafeInt(line.input);
+  const output = toSafeInt(line.output);
+  const cacheRead = toSafeInt(line.cacheRead);
+  const cacheWrite = toSafeInt(line.cacheWrite);
+  const reasoning = toSafeInt(line.reasoning);
+  if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
+    return undefined;
+  }
+
+  const tokens = emptyTokens();
+  tokens.input = input;
+  tokens.output = output;
+  tokens.cacheRead = cacheRead;
+  tokens.cacheWrite = cacheWrite;
+  tokens.reasoning = reasoning;
+
+  const record: UsageRecord = {
+    platformId: PLATFORM_ID,
+    modelId,
+    providerId,
+    sessionId,
+    tokens,
+    ts: timestamp,
+    messageCount: 1,
+    confidence: "host-reported",
+  };
+  const dedupKey = nonEmptyStr(line.responseId);
+  if (dedupKey !== undefined) record.dedupKey = dedupKey;
+  return record;
+}
+
+/** Collect tokscale-cache records (sessions/*.jsonl under the cache root). */
+function readTokscaleCache(): UsageRecord[] {
+  const cacheRoot = firstExistingRoot(PLATFORM_ID);
+  if (cacheRoot === undefined) return [];
+
+  const files = new Set<string>();
+  const sessionsDir = join(cacheRoot, "sessions");
+  if (isDir(sessionsDir)) {
+    for (const f of walkFiles(sessionsDir, (name) => name.endsWith(".jsonl"))) files.add(f);
+  }
+  // Also tolerate loose *.jsonl directly under the cache root.
+  for (const f of walkFiles(cacheRoot, (name) => name.endsWith(".jsonl"))) files.add(f);
+
+  if (files.size === 0) return [];
+
+  const out: UsageRecord[] = [];
+  for (const file of files) {
+    if (!existsSync(file)) continue;
+    for (const row of parseCacheFile(file)) out.push(row);
   }
   return out;
 }
@@ -120,38 +154,26 @@ function parseTranscript(path: string, historyModel: string | undefined): UsageR
 // Reader
 // ─────────────────────────────────────────────────────────────────────────
 
-/** The Antigravity CLI usage reader singleton (native brain transcripts). */
+/**
+ * The Antigravity CLI usage reader singleton (SYNCED). `agy` shares the IDE's
+ * protobuf (.pb) native store with no public schema → not parseable; we read only
+ * the tokscale synced-cache if present, else [] (scan reports "requires sync").
+ */
 const antigravityCliReader: UsageReader = {
   platformId: PLATFORM_ID,
-  kind: "local",
+  kind: "synced",
   async read({ sinceMs }: { sinceMs?: number }): Promise<UsageRecord[]> {
-    // First existing native global root (env override → canonical default).
-    const root = antigravityCliNativeRoots().find((r) => isDir(r));
-    if (root === undefined) return []; // no ~/.gemini/antigravity-cli → fail-open
-
-    const brain = join(root, "brain");
-    if (!isDir(brain)) return [];
-
-    const historyIndex = readHistoryModelIndex(root);
-
-    const files = walkFiles(brain, (name) => {
-      if (!name.endsWith(".jsonl")) return false; // .pb / media → skip
-      return name.startsWith("transcript");
-    });
+    let cacheRows: UsageRecord[];
+    try {
+      cacheRows = readTokscaleCache();
+    } catch {
+      cacheRows = []; // fail-open
+    }
 
     const records: UsageRecord[] = [];
-    for (const file of files) {
-      const conv = conversationIdFromPath(file);
-      let rows: UsageRecord[];
-      try {
-        rows = parseTranscript(file, historyIndex.get(conv));
-      } catch {
-        rows = []; // fail-open per file
-      }
-      for (const row of rows) {
-        if (sinceMs !== undefined && row.ts < sinceMs) continue;
-        records.push(row);
-      }
+    for (const row of cacheRows) {
+      if (sinceMs !== undefined && row.ts < sinceMs) continue;
+      records.push(row);
     }
     return records;
   },

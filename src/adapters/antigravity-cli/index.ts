@@ -9,30 +9,34 @@
  *
  * This adapter is a thin fork of the IDE adapter. It REUSES every render / hook /
  * parse / surface path from {@link AntigravityAdapter} unchanged — the only
- * differences are identity and the user-scope on-disk roots:
+ * differences are identity and detection:
  *
  *   - id   = "antigravity-cli", name = "Antigravity CLI". Identity flows into the
  *     universal hook command (`<homeBin> hook antigravity-cli <event> …`) and the
  *     `hostPlatform` stamp, so a CLI-installed hook dispatches back to THIS
  *     adapter at runtime — the reason the parent's install/parse logic was made
  *     to read `this.id` rather than a fixed host constant.
- *   - User MCP config candidates → prefer an existing
- *     ~/.gemini/config/mcp_config.json (canonical shared 2.0), else the CLI-only
- *     ~/.gemini/antigravity-cli/mcp_config.json (NOT the IDE's legacy
- *     ~/.gemini/antigravity/ path).
- *   - User global skills dir → ~/.gemini/antigravity-cli/skills (the CLI's own
- *     store; NEVER ~/.gemini/antigravity/skills, reportedly broken).
- *   - Detection probes the CLI's own install root ~/.gemini/antigravity-cli/ and
- *     the `agy` binary at ~/.local/bin/agy.
+ *   - Detection probes the `agy` binary at ~/.local/bin/agy and/or the SHARED
+ *     ~/.gemini/antigravity/ presence (distinct runtime markers from the IDE).
+ *
+ * CONFIRMED-BY-INSTALL (2026-06-03, docs/research/antigravity-paths-confirmed.md):
+ * the `agy` CLI v1.0.0 has NO separate config dir — `~/.gemini/antigravity-cli/`,
+ * `~/.config/antigravity*`, and `~/.agy` are ALL ABSENT. `agy` SHARES the IDE's
+ * `~/.gemini/antigravity/` tree (mcp_config.json, hooks.json, workflows, skills).
+ * So the user-scope config resolution here is IDENTICAL to the IDE adapter (the
+ * inherited USER_CONFIG_CANDIDATES) — installing both the IDE and CLI connectors
+ * therefore writes the SAME files and is idempotent (observed as skip), which is
+ * expected and correct. `agy`'s own extension surface is the `agy plugin` system
+ * (install/uninstall/list/enable/disable) — future work would deploy as an agy
+ * plugin; for now the MCP/workflows/skills surfaces ride the shared IDE files.
  *
  * Project scope is IDENTICAL to the IDE adapter (`<proj>/.agents/…`), as is every
  * hook/command/skill render and the runtime parse/format — all inherited.
  *
- * MEDIUM-CONFIDENCE / PATH-PROBING: Antigravity ships fast and its docs render
- * JS-only, so user-scope locations are corroborated but not byte-verified. Every
- * user-scope path is PROBED (prefer-existing-else-canonical, inherited from the
- * parent) and surfaced by the doctor; we NEVER hard-code a single guessed path,
- * and any unsupported event/surface warn-skips (never throws) at install time.
+ * The user-scope config paths shared with the IDE (hooks.json + the global skills
+ * dir) remain MEDIUM-CONFIDENCE / PATH-PROBED in the parent (not present on the
+ * observed install) and surfaced by the doctor; user-scope mcp_config + workflows
+ * are CONFIRMED at ~/.gemini/antigravity/.
  */
 
 import { existsSync } from "node:fs";
@@ -40,23 +44,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { AntigravityAdapter } from "../antigravity/index.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter } from "../spi.js";
 import type { DetectedPlatform, PlatformId } from "../../core/types.js";
 
 const HOST: PlatformId = "antigravity-cli";
-
-/**
- * User-scope MCP config candidates for the CLI, in preference order. We prefer a
- * candidate that already exists; otherwise default to candidate[0]
- * (~/.gemini/config/mcp_config.json — the canonical shared 2.0 path). The
- * CLI-only ~/.gemini/antigravity-cli/mcp_config.json is the fork-specific
- * fallback. The IDE adapter's legacy ~/.gemini/antigravity/ path is deliberately
- * NOT a CLI candidate.
- */
-const USER_CONFIG_CANDIDATES = [
-  [".gemini", "config", "mcp_config.json"],
-  [".gemini", "antigravity-cli", "mcp_config.json"],
-] as const;
 
 export class AntigravityCliAdapter extends AntigravityAdapter implements Adapter {
   override readonly id: PlatformId = HOST;
@@ -65,22 +56,29 @@ export class AntigravityCliAdapter extends AntigravityAdapter implements Adapter
   // ── Detection ────────────────────────────────────────────────────────────
 
   /**
-   * Probe the CLI's OWN install footprint, distinct from the IDE app: the CLI
-   * dir ~/.gemini/antigravity-cli/, the `agy` binary at ~/.local/bin/agy, or any
-   * of our user-scope MCP config candidates / the project config. Reported before
-   * the IDE adapter in the registry so the more-specific CLI marker wins host
-   * detection.
+   * Probe the CLI's runtime markers, DISTINCT from the IDE app even though the
+   * two share `~/.gemini/antigravity/`: the `agy` binary at ~/.local/bin/agy
+   * (the definitive CLI marker, CONFIRMED present) and the shared
+   * ~/.gemini/antigravity/ tree (or a user-scope mcp_config candidate / the
+   * project config). Reported before the IDE adapter in the registry so the
+   * more-specific CLI marker (the `agy` binary) wins host detection. Note: a
+   * machine with ONLY the IDE (no `agy` binary) will not match here, while one
+   * with the CLI matches on the binary regardless of the shared config dir.
    */
   override detectInstalled(projectDir: string): DetectedPlatform {
     const home = homedir();
     const userConfig = this.resolveUserConfigPath();
-    const cliDir = join(home, ".gemini", "antigravity-cli");
     const agyBin = join(home, ".local", "bin", "agy");
+    const sharedDir = join(home, ".gemini", "antigravity");
     const projectConfig = join(projectDir, ".agents", "mcp_config.json");
 
+    // The `agy` binary is the definitive CLI marker. The shared antigravity dir
+    // and the user-scope mcp_config candidates are secondary signals (they also
+    // match a pure-IDE install, so the binary is what truly distinguishes the CLI).
+    const cliMarker = existsSync(agyBin);
     const userInstalled =
-      existsSync(cliDir) ||
-      existsSync(agyBin) ||
+      cliMarker ||
+      existsSync(sharedDir) ||
       this.userConfigCandidates().some((parts) => existsSync(join(home, ...parts)));
     const projInstalled = existsSync(projectConfig);
     const installed = userInstalled || projInstalled;
@@ -101,31 +99,17 @@ export class AntigravityCliAdapter extends AntigravityAdapter implements Adapter
       reason: installed
         ? scope === "project"
           ? `found project Antigravity CLI config at ${projectConfig}`
-          : `found Antigravity CLI install at ${cliDir} / ${agyBin}`
-        : `no Antigravity CLI install at ${cliDir}, ${agyBin}, or ${projectConfig}`,
-      confidence: installed ? "high" : "low",
+          : `found Antigravity CLI (agy) at ${agyBin} / shared ${sharedDir}`
+        : `no Antigravity CLI install at ${agyBin}, ${sharedDir}, or ${projectConfig}`,
+      // The `agy` binary is a high-confidence CLI marker; matching only the shared
+      // config dir is weaker (it could be a pure-IDE install).
+      confidence: cliMarker ? "high" : installed ? "medium" : "low",
     };
   }
 
-  // ── User-scope path overrides (project scope inherited unchanged) ─────────
-
-  /** CLI user-scope MCP candidates (config/ first, then the CLI-only dir). */
-  protected override userConfigCandidates(): ReadonlyArray<readonly string[]> {
-    return USER_CONFIG_CANDIDATES;
-  }
-
-  /**
-   * Resolve the Agent Skills dir. Project scope is identical to the IDE adapter
-   * (<proj>/.agents/skills — inherited). User scope is the CLI's OWN global store
-   * ~/.gemini/antigravity-cli/skills (NOT the shared ~/.gemini/skills the IDE may
-   * fall back to, and NEVER the reportedly-broken ~/.gemini/antigravity/skills).
-   */
-  protected override resolveSkillsDir(ctx: InstallContext): string {
-    if (ctx.scope === "project") {
-      return super.resolveSkillsDir(ctx);
-    }
-    return join(homedir(), ".gemini", "antigravity-cli", "skills");
-  }
+  // User scope shares the IDE's ~/.gemini/antigravity/ tree (CONFIRMED: `agy` has
+  // no separate config dir), so we inherit userConfigCandidates / resolveSkillsDir
+  // / resolveWorkflowsDir unchanged. Only identity + detection differ from the IDE.
 }
 
 export const adapter = new AntigravityCliAdapter();

@@ -162,21 +162,22 @@ export const USAGE_READER_REGISTRY: readonly UsageReaderFactory[] = [
     load: () => import("./readers/cursor.js").then((m) => m.default),
   },
   {
-    // Antigravity IDE: primary source is the native `~/.gemini/antigravity-ide`
-    // (or launch-era `~/.gemini/antigravity`) brain `transcript*.jsonl` store,
-    // read directly (kind:"local", format:"jsonl"); the tokscale synced cache is
-    // an additional best-effort fallback inside the reader.
+    // Antigravity IDE: the native `~/.gemini/antigravity/conversations/<uuid>.pb`
+    // store is PROTOBUF with no public schema (CONFIRMED by install) → not
+    // parseable. So this is a SYNCED reader: it reads the tokscale synced-cache
+    // if present, else [] ("requires sync"). The native dir is detection-only.
     platformId: "antigravity",
-    format: "jsonl",
-    kind: "local",
+    format: "synced-cache",
+    kind: "synced",
     load: () => import("./readers/antigravity.js").then((m) => m.default),
   },
   {
-    // Antigravity CLI (`agy`): native `~/.gemini/antigravity-cli/brain/<conv>/
-    // transcript*.jsonl` store, read directly.
+    // Antigravity CLI (`agy`): SHARES the IDE's protobuf (.pb) store (no separate
+    // dir, no public schema) → not parseable. SYNCED reader: tokscale cache if
+    // present, else [] ("requires sync").
     platformId: "antigravity-cli",
-    format: "jsonl",
-    kind: "local",
+    format: "synced-cache",
+    kind: "synced",
     load: () => import("./readers/antigravity-cli.js").then((m) => m.default),
   },
   {

@@ -8,24 +8,31 @@
  * Gemini CLI. It installs the MCP server, lifecycle hooks, slash-command
  * Workflows, and Agent Skills.
  *
- * MEDIUM-CONFIDENCE / PATH-PROBING: Antigravity ships fast and its docs render
- * JS-only, so the exact on-disk locations (user MCP config, hooks.json, the
- * workflows dir, the global skills dir) are corroborated but not byte-verified.
- * Every user-scope path is therefore PROBED at runtime — prefer a candidate that
- * already exists on disk, else fall back to the documented current-2.0 canonical
- * path — and the doctor flags each probed path with "verify for your Antigravity
- * version." We NEVER hard-code a single guessed path, and any unsupported event
- * or surface warn-skips (never throws) at install time.
+ * CONFIRMED-BY-INSTALL (2026-06-03, docs/research/antigravity-paths-confirmed.md):
+ * a real machine with Antigravity IDE + `agy` CLI v1.0.0 shows the canonical user
+ * customization root is `~/.gemini/antigravity/` — `~/.gemini/antigravity/mcp_config.json`
+ * EXISTS and `~/.gemini/config/mcp_config.json` does NOT. So the fresh-install
+ * default user MCP path is `~/.gemini/antigravity/mcp_config.json` (candidate[0]);
+ * the `config/` and `antigravity-cli/` paths remain probed fallbacks only (honored
+ * when a pre-existing config is found there, never the fresh default).
+ *
+ * STILL MEDIUM-CONFIDENCE / PATH-PROBING: hooks.json and the global skills dir were
+ * NOT present on the observed install, so those locations stay corroborated-but-not-
+ * byte-verified. Every user-scope path is PROBED at runtime — prefer a candidate
+ * that already exists on disk, else fall back to the canonical path — and the doctor
+ * flags each probed path with "verify for your Antigravity version." We NEVER
+ * hard-code a single guessed path, and any unsupported event or surface warn-skips
+ * (never throws) at install time.
  *
  * Native config formats:
  *   - MCP config (JSONC; we WRITE plain JSON), root key "mcpServers". stdio is
  *     `{ command, args, env }`; a remote server is `{ serverUrl, headers }`
  *     (NOTE: the key is `serverUrl`, NOT `url` and NOT Gemini CLI's `httpUrl`).
  *       user scope    → prefer existing of:
- *                         ~/.gemini/config/mcp_config.json        (canonical 2.0)
- *                         ~/.gemini/antigravity/mcp_config.json   (legacy launch)
- *                         ~/.gemini/antigravity-cli/mcp_config.json
- *                       else default to candidate[0] (config/).
+ *                         ~/.gemini/antigravity/mcp_config.json   (CONFIRMED canonical)
+ *                         ~/.gemini/config/mcp_config.json        (probed fallback)
+ *                         ~/.gemini/antigravity-cli/mcp_config.json (probed fallback)
+ *                       else default to candidate[0] (antigravity/).
  *       project scope → <projectDir>/.agents/mcp_config.json
  *   - Hooks: a SEPARATE hooks.json in the customization dir (NOT the mcp_config),
  *       project → <projectDir>/.agents/hooks.json
@@ -40,7 +47,9 @@
  *   - Skills = Agent Skills (uniform SKILL.md). Project
  *     <proj>/.agents/skills/<name>/SKILL.md; user PROBE
  *     ~/.gemini/antigravity-cli/skills then ~/.gemini/skills (NEVER
- *     ~/.gemini/antigravity/skills — reportedly broken).
+ *     ~/.gemini/antigravity/skills — reportedly broken). NOTE: the global skills
+ *     dir was NOT present on the confirmed install, so it stays medium-confidence
+ *     + doctor "verify for your version."
  *   - Subagents: declarative subagents exist only inside a plugin bundle, which
  *     agent-connector does not emit; supportsSubagents is false and the
  *     BaseAdapter skip/warn default applies.
@@ -92,13 +101,14 @@ const MCP_ROOT_KEY = "mcpServers";
 /**
  * Known user-scope MCP config candidates, in preference order. We pick the first
  * that already exists on disk; otherwise we default to candidate[0]
- * (~/.gemini/config/mcp_config.json — the canonical shared 2.0 path). The legacy
- * launch-era ~/.gemini/antigravity path is kept second so a pre-existing config
- * there is still honored, and the CLI-only alt is last.
+ * (~/.gemini/antigravity/mcp_config.json — CONFIRMED canonical on a real install:
+ * docs/research/antigravity-paths-confirmed.md). The `config/` and CLI-only
+ * `antigravity-cli/` paths are kept ONLY as probed fallbacks so a pre-existing
+ * config in either is still honored, but neither is ever the fresh-install default.
  */
 const USER_CONFIG_CANDIDATES = [
-  [".gemini", "config", "mcp_config.json"],
   [".gemini", "antigravity", "mcp_config.json"],
+  [".gemini", "config", "mcp_config.json"],
   [".gemini", "antigravity-cli", "mcp_config.json"],
 ] as const;
 
@@ -266,7 +276,7 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
 
   /**
    * Pick the user-scope mcp_config.json: prefer a candidate that already exists,
-   * else default to candidate[0] (the canonical ~/.gemini/config path).
+   * else default to candidate[0] (the CONFIRMED canonical ~/.gemini/antigravity path).
    */
   protected resolveUserConfigPath(): string {
     const home = homedir();
@@ -278,7 +288,7 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
     const fallback = candidates[0];
     if (fallback === undefined) {
       // Defensive: a non-empty candidate list is an invariant, but never throw.
-      return join(home, ".gemini", "config", "mcp_config.json");
+      return join(home, ".gemini", "antigravity", "mcp_config.json");
     }
     return join(home, ...fallback);
   }

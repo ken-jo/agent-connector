@@ -1,34 +1,30 @@
 /**
- * usage/readers/antigravity — Antigravity IDE usage reader.
+ * usage/readers/antigravity — Antigravity IDE usage reader (SYNCED platform).
  *
- * TWO sources, in priority order, both fail-open:
+ * CONFIRMED-BY-INSTALL (2026-06-03, docs/research/antigravity-paths-confirmed.md):
+ * the native Antigravity store is `~/.gemini/antigravity/conversations/<uuid>.pb`
+ * — PROTOBUF with NO public schema — and `brain/<uuid>/` holds only media +
+ * `*.metadata.json`. There are NO `transcript*.jsonl` files. The earlier
+ * "read native brain transcript*.jsonl with usage_metadata" approach was based on
+ * a shape that does not exist on disk.
  *
- * 1. NATIVE IDE brain transcripts (primary). The Antigravity desktop app persists
- *    per-conversation transcripts as `transcript*.jsonl` under a `brain/` subtree
- *    of its global dir — canonical `~/.gemini/antigravity-ide/brain/**`, with the
- *    launch-era `~/.gemini/antigravity/brain/**` probed as a fallback (both seen
- *    in the wild). Each assistant turn embeds a Gemini-style `usage_metadata`
- *    block (promptTokenCount / candidatesTokenCount / cachedContentTokenCount /
- *    thoughtsTokenCount) which we extract exactly like the gemini-cli reader
- *    (cache-inclusive prompt → net input). The conversation also has a
- *    `<conv>.pb` protobuf dump — we SKIP all `.pb` (no public schema).
+ * So this reader does NOT attempt to parse `.pb` (no schema). Like the other
+ * SYNCED platforms (cursor/trae/warp), it reads only the tokscale synced-cache
+ * if a separate tokscale run already produced one; otherwise it returns [] and
+ * the scan layer reports "requires sync (no local cache found)" — i.e. the native
+ * store is protobuf (.pb), not readable.
  *
- * 2. TOKSCALE CACHE (fallback). Antigravity is also a SYNCED platform in tokscale:
- *    a separate tokscale run may discover running language-server instances on
- *    localhost and pull live cascade-trajectory summaries over RPC into a local
- *    cache. We DO NOT perform that sync — no process scan, no port probe, no RPC,
- *    no network of any kind. We only READ whatever local cache artifacts a
- *    separate tokscale run may already have produced (manifest.json +
- *    sessions/*.jsonl, plus the loose ~/antigravity* brain/conversations dumps),
- *    using the exact tokscale Rust line schema (`session_meta` / `usage` rows).
+ *   - cache present → parse the tokscale cache (manifest.json + sessions/*.jsonl,
+ *     plus any loose ~/antigravity* brain/conversations *.jsonl dumps) using the
+ *     tokscale Rust line schema (`session_meta` / `usage` rows);
+ *   - cache absent  → [] (kind:"synced" → scan notes "requires sync").
  *
- * Confidence is MEDIUM for the native shape (Antigravity is fast-moving and its
- * docs are JS-rendered): the `usage_metadata` field names are documented/observed
- * but versions may differ → extraction is best-effort and fails open. The tokscale
- * cache rows carry real host token counts; both sources emit "host-reported".
+ * The native `~/.gemini/antigravity/` dir is used ONLY for platform detection (in
+ * the adapter), NOT for usage parsing here. The cached rows carry real host token
+ * counts → "host-reported".
  *
- * Fail-open: no native root AND no cache → []; unreadable/malformed file or line
- * → skipped; `.pb` protobuf → skipped.
+ * Fail-open: no cache → []; unreadable/malformed file or line → skipped; we NEVER
+ * touch `.pb` protobuf.
  */
 
 import { existsSync } from "node:fs";
@@ -37,93 +33,17 @@ import { basename, isAbsolute, join, resolve, sep } from "node:path";
 
 import type { UsageReader, UsageRecord } from "../types.js";
 import { emptyTokens } from "../aggregate.js";
-import { fileMtimeMs, readJsonFile, readJsonlLines } from "../jsonl.js";
+import { readJsonFile, readJsonlLines } from "../jsonl.js";
 import { inferProvider } from "../normalize.js";
-import {
-  antigravityNativeRoots,
-  firstExistingRoot,
-  isDir,
-  listSubdirs,
-  walkFiles,
-} from "../paths.js";
-import {
-  nonEmptyStr,
-  parseUsageMetadataRow,
-  resolveAlias,
-  sessionMetaModel,
-  toSafeInt,
-} from "./antigravity-shared.js";
+import { firstExistingRoot, isDir, listSubdirs, walkFiles } from "../paths.js";
+import { nonEmptyStr, resolveAlias, toSafeInt } from "./antigravity-shared.js";
 
 const PLATFORM_ID = "antigravity" as const;
 const DEFAULT_MODEL = "unknown";
 const DEFAULT_PROVIDER = "antigravity";
 
 // ─────────────────────────────────────────────────────────────────────────
-// 1. NATIVE IDE brain transcripts (primary source)
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Parse one native brain `transcript*.jsonl` file (best-effort usage_metadata
- * extraction). A `session_meta` row seeds the per-conversation model fallback;
- * any row carrying a `usage_metadata` block emits a record. The conversation id
- * is taken from the row, else from the parent `brain/<conv>/` dir name.
- */
-function parseNativeTranscript(path: string): UsageRecord[] {
-  const lines = readJsonlLines(path);
-  if (lines.length === 0) return [];
-
-  const fallbackSessionId = conversationIdFromPath(path);
-  const fallbackTs = fileMtimeMs(path);
-  let fallbackModel: string | undefined;
-
-  const out: UsageRecord[] = [];
-  for (const raw of lines) {
-    const meta = sessionMetaModel(raw);
-    if (meta !== undefined) {
-      fallbackModel = meta;
-      continue;
-    }
-    const record = parseUsageMetadataRow(raw, {
-      platformId: PLATFORM_ID,
-      fallbackSessionId,
-      ...(fallbackModel !== undefined ? { fallbackModel } : {}),
-      fallbackTs,
-    });
-    if (record !== undefined) out.push(record);
-  }
-  return out;
-}
-
-/** The `brain/<conv>/` directory name for a transcript path (the conversation id). */
-function conversationIdFromPath(path: string): string {
-  const parts = path.split(/[\\/]+/).filter((c) => c !== "");
-  const brainIdx = parts.lastIndexOf("brain");
-  if (brainIdx >= 0 && brainIdx + 1 < parts.length) {
-    const conv = parts[brainIdx + 1];
-    if (conv !== undefined && conv !== "") return conv;
-  }
-  // Fall back to the file stem.
-  const name = basename(path);
-  const dot = name.indexOf(".");
-  return dot > 0 ? name.slice(0, dot) : name;
-}
-
-/** Walk the first existing native IDE root for `transcript*.jsonl` (skipping `.pb`). */
-function nativeTranscriptFiles(): string[] {
-  for (const root of antigravityNativeRoots()) {
-    if (!isDir(root)) continue;
-    const brain = join(root, "brain");
-    if (!isDir(brain)) continue;
-    return walkFiles(brain, (name) => {
-      if (!name.endsWith(".jsonl")) return false; // .pb / media / md → skip
-      return name.startsWith("transcript");
-    });
-  }
-  return [];
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// 2. TOKSCALE CACHE (fallback) — port of tokscale parse_antigravity_file
+// TOKSCALE CACHE — port of tokscale parse_antigravity_file
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Fields we read off a tokscale-cache Antigravity JSONL line (all optional). */
@@ -260,7 +180,8 @@ function manifestArtifacts(cacheDir: string): string[] {
 /**
  * Loose local-filesystem trajectory dumps: ~/antigravity-prefixed dirs, each with
  * a brain/ and/or conversations/ subdir (the local half of tokscale's merge).
- * Returns every *.jsonl under those dirs (`.pb` is naturally excluded).
+ * Returns every *.jsonl under those dirs (`.pb` is naturally excluded — these are
+ * tokscale-produced JSONL mirrors, NOT the native protobuf store).
  */
 function filesystemArtifacts(): string[] {
   const home = homedir();
@@ -309,42 +230,27 @@ function readTokscaleCache(): UsageRecord[] {
 // Reader
 // ─────────────────────────────────────────────────────────────────────────
 
-/** The Antigravity IDE usage reader singleton (native brain + tokscale cache). */
+/**
+ * The Antigravity IDE usage reader singleton (SYNCED). The native store is
+ * protobuf (.pb) with no public schema → not parseable; we read only the tokscale
+ * synced-cache if present, else [] (scan reports "requires sync").
+ */
 const antigravityReader: UsageReader = {
   platformId: PLATFORM_ID,
-  // "local": the primary source is the native on-disk brain transcripts. The
-  // tokscale cache is read as a best-effort fallback (never synced by us).
-  kind: "local",
+  kind: "synced",
   async read({ sinceMs }: { sinceMs?: number }): Promise<UsageRecord[]> {
-    const records: UsageRecord[] = [];
-
-    // 1. Native IDE brain transcripts (primary).
-    for (const file of nativeTranscriptFiles()) {
-      let rows: UsageRecord[];
-      try {
-        rows = parseNativeTranscript(file);
-      } catch {
-        rows = []; // fail-open per file
-      }
-      for (const row of rows) {
-        if (sinceMs !== undefined && row.ts < sinceMs) continue;
-        records.push(row);
-      }
-    }
-
-    // 2. Tokscale cache (fallback) — read regardless so a cache mirror still
-    //    contributes; dedup is handled downstream via dedupKey.
     let cacheRows: UsageRecord[];
     try {
       cacheRows = readTokscaleCache();
     } catch {
-      cacheRows = [];
+      cacheRows = []; // fail-open
     }
+
+    const records: UsageRecord[] = [];
     for (const row of cacheRows) {
       if (sinceMs !== undefined && row.ts < sinceMs) continue;
       records.push(row);
     }
-
     return records;
   },
 };

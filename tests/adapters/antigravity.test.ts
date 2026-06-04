@@ -9,7 +9,8 @@
  * project-scope round-trips):
  *
  *   1. MCP render — remote uses "serverUrl" (NOT "url"); stdio omits serverUrl;
- *      corrected USER-scope path order (config/ first, then legacy / CLI-only);
+ *      CONFIRMED USER-scope path (antigravity/ default, with config/ and
+ *      antigravity-cli/ as probed fallbacks); the CLI SHARES the IDE dir;
  *      telemetry serve-wrap; env resolved to a LITERAL.
  *   2. hooks.json round-trip + parseEvent/formatReply for PreToolUse / PostToolUse
  *      / SessionStart / Stop; warn-skip for unsupported events.
@@ -214,41 +215,56 @@ describe("antigravity + antigravity-cli MCP render", () => {
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
 
-  it("USER-scope MCP path order: fresh install resolves to ~/.gemini/config/ FIRST", () => {
+  it("USER-scope MCP path: fresh install resolves to the CONFIRMED ~/.gemini/antigravity/ FIRST", () => {
     const home = freshHome("ac-antig-userorder-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
-    // Nothing on disk yet → prefer-existing-else-candidate[0] = config/.
+    // Nothing on disk yet → prefer-existing-else-candidate[0] = antigravity/
+    // (CONFIRMED canonical on a real install).
     const resolved = antigravityAdapter.getServerConfigPath(ctx);
-    expect(resolved).toBe(join(home, ".gemini", "config", "mcp_config.json"));
+    expect(resolved).toBe(join(home, ".gemini", "antigravity", "mcp_config.json"));
 
     antigravityAdapter.installServer(ctx);
     expect(existsSync(resolved)).toBe(true);
-    // The legacy launch-era path must NOT be written for a fresh install (BUG-2).
-    expect(existsSync(join(home, ".gemini", "antigravity", "mcp_config.json"))).toBe(false);
+    // The config/ path must NOT be written for a fresh install (it is a probed
+    // fallback only, never the default).
+    expect(existsSync(join(home, ".gemini", "config", "mcp_config.json"))).toBe(false);
   });
 
-  it("antigravity-cli USER-scope candidates exclude the IDE legacy path, include the CLI dir", () => {
+  it("USER-scope MCP path: an existing config/ or antigravity-cli/ candidate is still PREFERRED when present", () => {
+    // Seed an existing config/ candidate → prefer-existing must honor it.
+    const home1 = freshHome("ac-antig-prefer-config-");
+    const ctx1 = buildCtx(home1, stdioConnector(), "user");
+    const configPath = join(home1, ".gemini", "config", "mcp_config.json");
+    mkdirSync(join(home1, ".gemini", "config"), { recursive: true });
+    writeFileSync(configPath, "{}\n");
+    expect(antigravityAdapter.getServerConfigPath(ctx1)).toBe(configPath);
+
+    // Seed only the antigravity-cli/ fallback (no antigravity/, no config/) →
+    // prefer-existing must honor it over the default.
+    const home2 = freshHome("ac-antig-prefer-cli-");
+    const ctx2 = buildCtx(home2, stdioConnector(), "user");
+    const cliPath = join(home2, ".gemini", "antigravity-cli", "mcp_config.json");
+    mkdirSync(join(home2, ".gemini", "antigravity-cli"), { recursive: true });
+    writeFileSync(cliPath, "{}\n");
+    expect(antigravityAdapter.getServerConfigPath(ctx2)).toBe(cliPath);
+  });
+
+  it("antigravity-cli USER-scope SHARES the IDE's ~/.gemini/antigravity/ (no separate CLI dir)", () => {
     const home = freshHome("ac-antigcli-userorder-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
-    // Fresh → config/ first.
+    // CONFIRMED: `agy` has no separate config dir → it resolves to the SAME
+    // canonical IDE path as a fresh install.
+    const shared = join(home, ".gemini", "antigravity", "mcp_config.json");
+    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(shared);
     expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(
-      join(home, ".gemini", "config", "mcp_config.json"),
+      antigravityAdapter.getServerConfigPath(ctx),
     );
 
-    // Seed the CLI-only candidate so prefer-existing picks it (and NOT the IDE legacy).
-    const cliPath = join(home, ".gemini", "antigravity-cli", "mcp_config.json");
-    mkdirSync(join(home, ".gemini", "antigravity-cli"), { recursive: true });
-    writeFileSync(cliPath, "{}\n");
-    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(cliPath);
-
-    // Even if the IDE legacy path exists, the CLI must never resolve to it.
-    mkdirSync(join(home, ".gemini", "antigravity"), { recursive: true });
-    writeFileSync(join(home, ".gemini", "antigravity", "mcp_config.json"), "{}\n");
-    expect(antigravityCliAdapter.getServerConfigPath(ctx)).not.toBe(
-      join(home, ".gemini", "antigravity", "mcp_config.json"),
-    );
+    // Installing the CLI connector writes THERE (the shared IDE file).
+    antigravityCliAdapter.installServer(ctx);
+    expect(existsSync(shared)).toBe(true);
   });
 });
 
@@ -477,31 +493,33 @@ describe("antigravity content surfaces (Workflows / Skills / Subagents)", () => 
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
-  it("user MCP config: an EXISTING legacy ~/.gemini/antigravity/ path is honored over the default", () => {
+  it("user MCP config: an EXISTING ~/.gemini/config/ fallback is honored over the antigravity/ default", () => {
     const home = freshHome("ac-antig-probe-mcp-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
-    // Seed the legacy launch-era path; prefer-existing must pick it.
-    const legacy = join(home, ".gemini", "antigravity", "mcp_config.json");
-    mkdirSync(join(home, ".gemini", "antigravity"), { recursive: true });
-    writeFileSync(legacy, "{}\n");
-    expect(antigravityAdapter.getServerConfigPath(ctx)).toBe(legacy);
+    // Seed the config/ fallback; prefer-existing must pick it over the default.
+    const configPath = join(home, ".gemini", "config", "mcp_config.json");
+    mkdirSync(join(home, ".gemini", "config"), { recursive: true });
+    writeFileSync(configPath, "{}\n");
+    expect(antigravityAdapter.getServerConfigPath(ctx)).toBe(configPath);
   });
 
   it("hooks.json sits in the SAME probed customization dir as the resolved user MCP config", () => {
     const home = freshHome("ac-antig-probe-hooks-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
-    // Fresh → config/ dir for both mcp_config.json and hooks.json.
-    expect(antigravityAdapter.getHookConfigPath(ctx)).toBe(
-      join(home, ".gemini", "config", "hooks.json"),
-    );
-
-    // Seed legacy mcp_config → hooks.json must follow into the same dir.
-    mkdirSync(join(home, ".gemini", "antigravity"), { recursive: true });
-    writeFileSync(join(home, ".gemini", "antigravity", "mcp_config.json"), "{}\n");
+    // Fresh → CONFIRMED antigravity/ dir for both mcp_config.json and hooks.json.
     expect(antigravityAdapter.getHookConfigPath(ctx)).toBe(
       join(home, ".gemini", "antigravity", "hooks.json"),
+    );
+
+    // Seed a config/ mcp_config → hooks.json must follow into that same dir.
+    const home2 = freshHome("ac-antig-probe-hooks2-");
+    const ctx2 = buildCtx(home2, stdioConnector(), "user");
+    mkdirSync(join(home2, ".gemini", "config"), { recursive: true });
+    writeFileSync(join(home2, ".gemini", "config", "mcp_config.json"), "{}\n");
+    expect(antigravityAdapter.getHookConfigPath(ctx2)).toBe(
+      join(home2, ".gemini", "config", "hooks.json"),
     );
   });
 
@@ -544,15 +562,25 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
     ).toBe(true);
   });
 
-  it("antigravity-cli global skills dir is its OWN store (~/.gemini/antigravity-cli/skills), not the shared one", () => {
+  it("antigravity-cli global skills dir is the SHARED IDE resolution (CLI has no separate dir)", () => {
+    // CONFIRMED: `agy` shares the IDE tree, so the CLI inherits the IDE skills
+    // resolution (prefer existing antigravity-cli/skills, else ~/.gemini/skills).
     const home = freshHome("ac-antigcli-probe-skills-");
-    // Seed the shared ~/.gemini/skills; the CLI must STILL use its own dir.
-    mkdirSync(join(home, ".gemini", "skills"), { recursive: true });
     const ctx = buildCtx(home, surfaceConnector(), "user");
+
+    // Fresh → default canonical CLI skills dir (same as the IDE adapter).
     antigravityCliAdapter.installSkills(ctx);
     expect(
       existsSync(join(home, ".gemini", "antigravity-cli", "skills", "acme-skill", "SKILL.md")),
     ).toBe(true);
+
+    // With ~/.gemini/skills pre-existing (and no CLI dir), it is preferred —
+    // identical to the IDE adapter's behavior.
+    const home2 = freshHome("ac-antigcli-probe-skills2-");
+    mkdirSync(join(home2, ".gemini", "skills"), { recursive: true });
+    const ctx2 = buildCtx(home2, surfaceConnector(), "user");
+    antigravityCliAdapter.installSkills(ctx2);
+    expect(existsSync(join(home2, ".gemini", "skills", "acme-skill", "SKILL.md"))).toBe(true);
   });
 });
 

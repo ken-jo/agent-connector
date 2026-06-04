@@ -14,9 +14,10 @@
  *   2. the platform-specific default for the current OS.
  *
  * The "tokscale cache dir" (~/.config/tokscale, or AGENT_CONNECTOR_TOKSCALE_DIR)
- * is where synced readers (cursor/antigravity/trae/warp) look for a local cache
- * that a separate tokscale run may have produced — we read it if present, but we
- * never create or sync it.
+ * is where synced readers (cursor/antigravity/antigravity-cli/trae/warp) look for
+ * a local cache that a separate tokscale run may have produced — we read it if
+ * present, but we never create or sync it. (Antigravity's own native store is
+ * protobuf .pb with no public schema, so it too is synced-cache-or-skip.)
  */
 
 import {
@@ -109,48 +110,48 @@ export function tokscaleCacheDir(name: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Antigravity native brain roots (read directly, NOT via the tokscale cache)
+// Antigravity native store roots (DETECTION ONLY — not parsed for usage)
 //
-// Antigravity is fast-moving and its docs are JS-rendered (MEDIUM confidence),
-// so we PATH-PROBE every native root: prefer an existing well-known dir, else
-// fall back to the current canonical one — we NEVER hard-code a single guessed
-// path. Both functions honor the same AGENT_CONNECTOR_<PLATFORM>_DIR override
-// machinery used everywhere else (the override, when set, is prepended and so
-// is preferred over the canonical defaults).
+// CONFIRMED-BY-INSTALL (2026-06-03, docs/research/antigravity-paths-confirmed.md):
+// the native Antigravity store is `~/.gemini/antigravity/conversations/<uuid>.pb`
+// — PROTOBUF with no public schema — and `brain/<uuid>/` holds only media +
+// `*.metadata.json`. There are NO `transcript*.jsonl` files. The `agy` CLI shares
+// this SAME `~/.gemini/antigravity/` dir (no separate config/storage dir). So the
+// native dir is used only for platform DETECTION (in the adapters); the usage
+// readers do NOT parse it (protobuf, unreadable) — they are SYNCED readers that
+// read the tokscale synced-cache instead (see hostRoots → antigravity-cache).
+//
+// These helpers are retained for any detection caller and honor the standard
+// AGENT_CONNECTOR_<PLATFORM>_DIR override (prepended, preferred when set).
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Candidate native "brain" roots for the Antigravity IDE, most-preferred-first.
- * The IDE persists per-conversation transcripts under a `brain/` subtree of its
- * global dir. The 2.0 canonical dir is `~/.gemini/antigravity-ide/`; older / the
- * launch-era build used `~/.gemini/antigravity/` (both seen in the wild), so we
- * probe both. The reader walks each for `transcript*.jsonl`.
+ * The native Antigravity store root for DETECTION: `~/.gemini/antigravity/`
+ * (CONFIRMED). Its `conversations/<uuid>.pb` payloads are protobuf with no public
+ * schema, so this dir is NOT parsed for usage — only its presence is a signal.
  *
- * Honors AGENT_CONNECTOR_ANTIGRAVITY_DIR (verbatim, when set) as the override —
- * pointed at whatever the user's install actually uses.
+ * Honors AGENT_CONNECTOR_ANTIGRAVITY_DIR (verbatim, when set) as the override.
  */
 export function antigravityNativeRoots(): string[] {
   const out: string[] = [];
   const override = envOverride("AGENT_CONNECTOR_ANTIGRAVITY_DIR");
   if (override) out.push(override);
-  out.push(join(homedir(), ".gemini", "antigravity-ide"));
   out.push(join(homedir(), ".gemini", "antigravity"));
   return out;
 }
 
 /**
- * Candidate native global roots for the Antigravity CLI (`agy`), most-preferred
- * first. The CLI keeps its own per-conversation `brain/<conv>/transcript*.jsonl`
- * store (+ a `history.jsonl` index) under `~/.gemini/antigravity-cli/`.
+ * The native store root for the Antigravity CLI (`agy`) for DETECTION. CONFIRMED:
+ * `agy` has NO separate dir — it SHARES the IDE's `~/.gemini/antigravity/` (also
+ * protobuf, not parsed for usage).
  *
- * Honors AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR (verbatim, when set) as the override
- * via the same machinery as every other platform.
+ * Honors AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR (verbatim, when set) as the override.
  */
 export function antigravityCliNativeRoots(): string[] {
   const out: string[] = [];
   const override = envOverride("AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR");
   if (override) out.push(override);
-  out.push(join(homedir(), ".gemini", "antigravity-cli"));
+  out.push(join(homedir(), ".gemini", "antigravity"));
   return out;
 }
 
@@ -235,18 +236,17 @@ export function hostRoots(platformId: string): string[] {
       out.push(tokscaleCacheDir("cursor-cache"));
       break;
     case "antigravity":
-      // Synced FALLBACK: a tokscale cache mirror, if a separate tokscale run
-      // produced one. The reader ALSO reads the native IDE brain transcripts
-      // directly (see antigravityNativeRoots) — that is its primary source.
+      // SYNCED: the native store is protobuf (.pb, no public schema) and NOT
+      // parseable, so the reader reads only the tokscale synced-cache mirror if a
+      // separate tokscale run produced one (else [] → "requires sync"). The
+      // native `~/.gemini/antigravity/` dir is used only for detection.
       out.push(tokscaleCacheDir("antigravity-cache"));
       break;
     case "antigravity-cli":
-      // LOCAL: the Antigravity CLI's own native global dir, read directly. The
-      // reader walks `<root>/brain/<conv>/transcript*.jsonl` (+ history.jsonl).
-      // The AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR override is already prepended
-      // above by the generic `override` handling; here we add the canonical
-      // default only (so it is not pushed twice).
-      out.push(join(homedir(), ".gemini", "antigravity-cli"));
+      // SYNCED: `agy` shares the IDE's protobuf (.pb) store (no schema), so the
+      // reader reads only the tokscale synced-cache mirror if present (else [] →
+      // "requires sync"). Shares the IDE's antigravity-cache name (same data).
+      out.push(tokscaleCacheDir("antigravity-cache"));
       break;
     case "trae":
       out.push(tokscaleCacheDir("trae-cache"));
