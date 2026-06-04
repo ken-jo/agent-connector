@@ -68,7 +68,7 @@ export interface Tokenizer {
 }
 
 /**
- * What a record measures. Three DISTINCT origins that must never be summed:
+ * What a record measures. DISTINCT origins that must never be summed:
  *   • `call`       — one per-MCP `tools/call` round-trip (serve-proxy bytes).
  *   • `tool_defs`  — the one-time `tools/list` schema overhead (serve-proxy).
  *   • `model_turn` — a WHOLE-CONVERSATION host-native turn reported by the host
@@ -77,8 +77,24 @@ export interface Tokenizer {
  *     as it treats `tool_defs` specially) and it is surfaced as its own labeled
  *     section rather than added to the per-MCP `call` totals or to the
  *     usage-reader host-scan numbers.
+ *   • `hook`       — one RUNTIME hook dispatch through the home-bin `hook`
+ *     entrypoint (src/runtime/hook-entrypoint). The framework tokenizes the
+ *     inbound normalized event payload the handler reads (input) and what the
+ *     handler returns that becomes context/decision (output). The per-item
+ *     `toolName` is the hook EVENT name (e.g. "SessionStart"). This is the
+ *     developer-axis "hook" surface — measured live, like `call`.
  */
-export type EventScope = "call" | "tool_defs" | "model_turn";
+export type EventScope = "call" | "tool_defs" | "model_turn" | "hook";
+
+/**
+ * Which of the FIVE developer-axis surfaces a record (or footprint) belongs to.
+ * `server`/`hook` are RUNTIME-measured surfaces that produce {@link ToolEventRecord}
+ * store rows; `command`/`skill`/`subagent` are STATIC footprints computed from the
+ * registered connector (the host loads them as context — we never intercept them,
+ * so they are NEVER written as usage rows). OPTIONAL on the record so rows written
+ * before this field existed (every legacy serve-proxy row) read as `server`.
+ */
+export type SurfaceKind = "server" | "hook" | "command" | "skill" | "subagent";
 
 /**
  * The install scope a wrapped server was deployed under, narrowed to the two
@@ -138,6 +154,15 @@ export interface ToolEventRecord {
    * "launch-method" slicing dimension. OPTIONAL: older rows lack it → "unknown".
    */
   launchMethod?: LaunchMethod;
+  /**
+   * Which developer-axis surface produced this row. OPTIONAL and
+   * backward-compatible: rows written before this field existed (every legacy
+   * serve-proxy `call`/`tool_defs` row) lack it and MUST be read as `server`.
+   * Runtime rows stamp it explicitly (`server` for the proxy, `hook` for the
+   * hook runtime); the static command/skill/subagent surfaces never produce
+   * store rows (they are reported as footprints — see surface-footprint.ts).
+   */
+  surfaceKind?: SurfaceKind;
 }
 
 export interface QueryFilter {

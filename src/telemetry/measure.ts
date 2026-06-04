@@ -182,3 +182,31 @@ export function measureToolDefs(
 ): TokenCount {
   return tok.countValue(tools, family);
 }
+
+/**
+ * Measure one RUNTIME hook dispatch (the new `hook` developer-axis surface).
+ *
+ * Input  = canonical JSON of the inbound normalized event payload the handler
+ *          reads (the host-provided fields: toolInput / prompt / raw / etc.).
+ * Output = canonical JSON of what the handler RETURNS that becomes context or a
+ *          decision the host consumes (additionalContext / updatedInput / reason
+ *          and the rest of the normalized {@link HookResponse}).
+ *
+ * Uses the SAME tokenizer + worst-of confidence combination as the proxy. Pure:
+ * no IO, no mutation. The two values are tokenized whole (a hook payload has no
+ * binary content blocks to special-case, unlike a tool result).
+ */
+export function measureHook(
+  eventPayload: unknown,
+  handlerReturn: unknown,
+  family: ModelFamily,
+  tok: Tokenizer = getTokenizer(),
+): ToolCallMeasurement {
+  const input = tok.countValue(eventPayload, family);
+  const output = tok.countValue(handlerReturn, family);
+  return {
+    inputTokens: input.tokens,
+    outputTokens: output.tokens,
+    source: worstConfidence(input.source, output.source),
+  };
+}

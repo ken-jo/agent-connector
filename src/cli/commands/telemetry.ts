@@ -19,14 +19,24 @@ import { openStore } from "../../telemetry/store.js";
 import { summarize, toCSV, toJSONExport } from "../../telemetry/report.js";
 import {
   formatMcpLeaderboard,
+  formatSurfaceLeaderboard,
   formatToolLeaderboard,
   isScopeFilter,
   mcpLeaderboard,
   SCOPE_FILTER_VALUES,
+  surfaceLeaderboard,
   toolLeaderboard,
   type LeaderboardOptions,
   type ScopeFilter,
+  type SurfaceLeaderboardOptions,
 } from "../../telemetry/leaderboard.js";
+import {
+  connectorFromMeta,
+  listRegisteredConnectors,
+  loadRegisteredConnector,
+  readRegisteredMeta,
+} from "../../core/load-connector.js";
+import type { ResolvedConnector } from "../../core/types.js";
 import { fail, print } from "../app.js";
 
 /**
@@ -141,10 +151,12 @@ function runExport(argv: string[]): number {
 
 /**
  * `telemetry leaderboard` — rank the per-MCP telemetry by connector (--by mcp,
- * the default and signature "which MCP server costs the most" metric) or by tool
- * (--by tool). Honors --since / --connector and the scope slice (--scope).
+ * the default and signature "which MCP server costs the most" metric), by tool
+ * (--by tool), or by developer-axis surface (--by surface — the FIVE surfaces:
+ * server + hook runtime rows plus static command/skill/subagent footprints).
+ * Honors --since / --connector and the scope slice (--scope).
  */
-function runLeaderboard(argv: string[]): number {
+async function runLeaderboard(argv: string[]): Promise<number> {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -158,8 +170,8 @@ function runLeaderboard(argv: string[]): number {
   });
 
   const by = values.by;
-  if (by !== "mcp" && by !== "tool") {
-    return fail(`invalid --by "${by}" (use mcp|tool)`);
+  if (by !== "mcp" && by !== "tool" && by !== "surface") {
+    return fail(`invalid --by "${by}" (use mcp|tool|surface)`);
   }
 
   const sinceMs = parseSince(values.since);
@@ -186,11 +198,52 @@ function runLeaderboard(argv: string[]): number {
   if (by === "tool") {
     const rows = toolLeaderboard(opts);
     print(values.json ? JSON.stringify(rows, null, 2) : formatToolLeaderboard(rows));
+  } else if (by === "surface") {
+    // The per-surface view folds the STATIC command/skill/subagent footprints of
+    // the registered connector(s) into the runtime server/hook rows.
+    const connectorId = values.connector?.trim();
+    const surfaceOpts: SurfaceLeaderboardOptions = {
+      ...opts,
+      connectors: await gatherConnectors(connectorId),
+    };
+    const rows = surfaceLeaderboard(surfaceOpts);
+    print(values.json ? JSON.stringify(rows, null, 2) : formatSurfaceLeaderboard(rows));
   } else {
     const rows = mcpLeaderboard(opts);
     print(values.json ? JSON.stringify(rows, null, 2) : formatMcpLeaderboard(rows));
   }
   return 0;
+}
+
+/**
+ * Gather the registered connector(s) whose STATIC command/skill/subagent
+ * footprints feed the per-surface view. When `connectorId` is given, prefer the
+ * LIVE module (freshest content) and fall back to the persisted meta record;
+ * otherwise enumerate every registered connector from its meta. Best-effort: a
+ * connector that cannot be loaded is skipped (the surface view still renders the
+ * runtime rows it can read from the store).
+ */
+async function gatherConnectors(
+  connectorId: string | undefined,
+): Promise<ResolvedConnector[]> {
+  if (connectorId !== undefined && connectorId !== "") {
+    try {
+      return [await loadRegisteredConnector(connectorId)];
+    } catch {
+      const meta = readRegisteredMetaSafe(connectorId);
+      return meta ? [connectorFromMeta(meta)] : [];
+    }
+  }
+  return listRegisteredConnectors();
+}
+
+/** readRegisteredMeta wrapped so a missing/corrupt record never throws here. */
+function readRegisteredMetaSafe(id: string): ReturnType<typeof readRegisteredMeta> {
+  try {
+    return readRegisteredMeta(id);
+  } catch {
+    return null;
+  }
 }
 
 export async function run(argv: string[]): Promise<number> {
@@ -203,14 +256,14 @@ export async function run(argv: string[]): Promise<number> {
     case "export":
       return runExport(rest);
     case "leaderboard":
-      return runLeaderboard(rest);
+      return await runLeaderboard(rest);
     case undefined:
     case "--help":
     case "-h":
       print("usage: agent-connector telemetry <report|export|leaderboard> [flags]");
       print("  report       --by tool|session|project  --since 7d  --connector <id>  --json");
       print("  export       --format csv|json  --out <file>  --since 7d  --connector <id>");
-      print("  leaderboard  --by mcp|tool  --since 7d  --connector <id>  --scope <slice>  --json");
+      print("  leaderboard  --by mcp|tool|surface  --since 7d  --connector <id>  --scope <slice>  --json");
       return sub === undefined ? 1 : 0;
     default:
       return fail(`unknown telemetry subcommand "${sub}" (use report|export|leaderboard)`);

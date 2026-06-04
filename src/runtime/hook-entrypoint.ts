@@ -18,11 +18,20 @@
  * (a deliberate security decision) is preserved rather than swallowed.
  */
 
-import type { HookEventName, HookResponse } from "../core/types.js";
+import type {
+  HookEventName,
+  HookResponse,
+  PlatformId,
+  ResolvedConnector,
+} from "../core/types.js";
 import { log } from "../core/logger.js";
 import { loadRegisteredConnector } from "../core/load-connector.js";
-import { loadAdapter } from "../adapters/registry.js";
+import { loadAdapter, REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import type { NormalizedEvent } from "../adapters/spi.js";
+import { projectIdentity } from "../core/paths.js";
+import { measureHook } from "../telemetry/measure.js";
+import { openStore, newRecordId } from "../telemetry/store.js";
+import { getTokenizer, inferModelFamily } from "../telemetry/tokenizer.js";
 
 /** Flags + stdin the CLI hands to {@link runHook}. */
 export interface RunHookOptions {
@@ -88,6 +97,99 @@ function normalizeResponse(value: HookResponse | void): HookResponse {
 }
 
 /**
+ * Resolve the host platform to stamp on a hook telemetry row. Mirrors the serve
+ * `--host` plumbing: the install-target platform id is baked into the hook
+ * command (`hook <platformId> <event> …`) so `opts.platformId` is authoritative,
+ * but an explicit env override (AGENT_CONNECTOR_HOST) wins when it names a known
+ * platform. Falls back to the event's adapter-stamped hostPlatform, then
+ * "unknown" — never throws.
+ */
+function resolveHookHostPlatform(
+  platformId: string,
+  evt: NormalizedEvent,
+): PlatformId {
+  const override = process.env.AGENT_CONNECTOR_HOST;
+  if (
+    override !== undefined &&
+    REGISTERED_PLATFORM_IDS.has(override as PlatformId)
+  ) {
+    return override as PlatformId;
+  }
+  if (REGISTERED_PLATFORM_IDS.has(platformId as PlatformId)) {
+    return platformId as PlatformId;
+  }
+  const fromEvent = (evt as { hostPlatform?: unknown }).hostPlatform;
+  if (
+    typeof fromEvent === "string" &&
+    REGISTERED_PLATFORM_IDS.has(fromEvent as PlatformId)
+  ) {
+    return fromEvent as PlatformId;
+  }
+  return "unknown";
+}
+
+/**
+ * Record one RUNTIME hook dispatch as a `hook` developer-axis telemetry row.
+ *
+ * input  = the inbound normalized event payload the handler reads;
+ * output = the normalized {@link HookResponse} the handler returned (the part
+ *          that becomes host context/decision: additionalContext/updatedInput/
+ *          reason/…). Tokenized with the SAME tokenizer the proxy uses.
+ *
+ * MUST be fail-open (the hook runtime is fail-open by contract): any error here
+ * is swallowed so a measurement bug can NEVER break a host's hook. Honors the
+ * AGENT_CONNECTOR_TELEMETRY=0 kill switch (skips entirely; the store's append is
+ * already a no-op under it, but we also skip the tokenize work).
+ */
+function recordHookTelemetry(
+  opts: RunHookOptions,
+  connector: ResolvedConnector,
+  evt: NormalizedEvent,
+  response: HookResponse,
+): void {
+  if (process.env.AGENT_CONNECTOR_TELEMETRY === "0") return;
+  try {
+    const family = inferModelFamily("", connector.telemetry.modelFamilyHint);
+    const measurement = measureHook(evt, response, family, getTokenizer());
+
+    const sessionId =
+      typeof (evt as { sessionId?: unknown }).sessionId === "string"
+        ? ((evt as { sessionId: string }).sessionId)
+        : "";
+    const evtProjectDir = (evt as { projectDir?: unknown }).projectDir;
+    const projectDir =
+      typeof evtProjectDir === "string" && evtProjectDir !== ""
+        ? evtProjectDir
+        : process.cwd();
+    const id = projectIdentity(projectDir);
+
+    const store = openStore({});
+    try {
+      store.append({
+        id: newRecordId(0),
+        ts: Date.now(),
+        connectorId: opts.connectorId,
+        toolName: opts.event, // for a hook row the per-item name IS the event
+        scope: "hook",
+        surfaceKind: "hook",
+        hostPlatform: resolveHookHostPlatform(opts.platformId, evt),
+        sessionId,
+        projectKey: id.key,
+        projectDir: id.dir,
+        inputTokens: measurement.inputTokens,
+        outputTokens: measurement.outputTokens,
+        confidenceSource: measurement.source,
+        isError: false,
+      });
+    } finally {
+      store.close();
+    }
+  } catch {
+    // Fail-open: a telemetry error must NEVER break the hook runtime.
+  }
+}
+
+/**
  * Dispatch one host hook invocation. Always resolves (never rejects): every
  * failure path returns a concrete {@link RunHookResult} so the CLI can exit
  * cleanly. See the module header for the fail-open contract.
@@ -133,6 +235,10 @@ export async function runHook(opts: RunHookOptions): Promise<RunHookResult> {
       evt as never,
     );
     const response = normalizeResponse(handlerResult);
+
+    // Developer-axis telemetry for the RUNTIME `hook` surface. Fail-open: never
+    // lets a measurement error break the hook (handled inside the helper).
+    recordHookTelemetry(opts, connector, evt, response);
 
     const reply = adapter.formatReply(event, response);
     return {

@@ -97,6 +97,14 @@ describe("leaderboard CLI in an empty HOME (built dist/cli.js)", () => {
     expect(stdout).toContain("(no host usage found)");
   });
 
+  it("`telemetry leaderboard --by surface` exits 0 and prints the empty surface table", () => {
+    const { code, stdout } = runCli(["telemetry", "leaderboard", "--by", "surface"]);
+    expect(code).toBe(0);
+    expect(stdout).toContain("SURFACE");
+    expect(stdout).toContain("KIND");
+    expect(stdout).toContain("(no developer surfaces recorded)");
+  });
+
   it("the unified `leaderboard` (table form) prints BOTH sections and the never-summed note", () => {
     const { code, stdout } = runCli(["leaderboard"]);
     expect(code).toBe(0);
