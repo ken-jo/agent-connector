@@ -26,8 +26,8 @@ const oldWay = [
 
 const newWay = [
   "Declare your server + hooks + commands + tools once with defineConnector({…})",
-  "Pick which platforms to activate via targets — or let it auto-detect",
-  "install · sync · uninstall · doctor render the native config everywhere",
+  "Pick which platforms to activate via targets — or let it auto-detect every installed host",
+  "install · sync · uninstall · doctor deploy it straight into each host's native MCP + plugin/extension system — no per-marketplace packaging, submission, or review",
   "A new platform? Change one line. You maintain none of the adapter code",
 ];
 

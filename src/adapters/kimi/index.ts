@@ -3,7 +3,7 @@
  *
  * Kimi CLI is a json-stdio host: the runner pipes a JSON payload to a command on
  * stdin and reads an exit code (and optional reason) back. Two native config
- * files live under the Kimi base dir (`$KIMI_CODE_HOME` || `~/.kimi-code`):
+ * files live under the Kimi base dir (`$KIMI_HOME` || `$KIMI_CODE_HOME` || `~/.kimi`):
  *   - mcp.json     → `mcpServers.<id>` MCP registration (JSON, stdio shape:
  *     {command,args,env}). Handled via BaseAdapter's JSON helpers.
  *   - config.toml  → `[[hooks]]` array-of-tables (TOML), each table
@@ -21,18 +21,18 @@
  * permissionDecision:"deny" + permissionDecisionReason — that is how Kimi's
  * runner blocks the pending tool call. An allow is exit 0 with empty stdout.
  *
- * Path confidence is "medium": the `~/.kimi-code` base + mcp.json/config.toml layout
- * is the documented Moonshot CLI shape, but it is less battle-tested than the
- * Claude/Codex adapters. We still install; doctor reports presence so a wrong
- * guess surfaces as a FAIL rather than silently misbehaving.
+ * Path confidence: the `~/.kimi` base + mcp.json (`mcpServers`) layout is
+ * LIVE-CONFIRMED against the real Moonshot Kimi CLI (v1.46.0, `pip install
+ * kimi-cli`) via a `kimi mcp` probe. We still install + doctor-report presence
+ * so a future path move surfaces as a FAIL rather than silently misbehaving.
  *
  * FUTURE COVERAGE (non-functional note — no behavior change here): this adapter
  * intentionally wires only PreToolUse, but Kimi CLI actually supports a much
  * wider event surface — Stop, UserPromptSubmit, PostToolUse, SessionStart,
  * SessionEnd, PreCompact, Notification, and SubagentStart/SubagentStop. Kimi
  * also has a PLUGIN system (plugins live at
- * `$KIMI_CODE_HOME/plugins/<name>/kimi.plugin.json`) and a SKILLS surface
- * (`~/.kimi-code/skills/`). None of these are covered yet; they are flagged here
+ * `<base>/plugins/<name>/kimi.plugin.json`) and a SKILLS surface
+ * (`~/.kimi/skills/`). None of these are covered yet; they are flagged here
  * as candidates for a future events/plugins/skills expansion of the adapter.
  */
 
@@ -203,16 +203,22 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     return join(this.getConfigDir(ctx), "config.toml");
   }
 
-  /** `$KIMI_CODE_HOME` (with `~` expansion) || `~/.kimi-code`. */
+  /**
+   * `$KIMI_HOME` || `$KIMI_CODE_HOME` (with `~` expansion) || `~/.kimi`.
+   * The real Moonshot Kimi CLI (v1.46.0) keeps its config under `~/.kimi`
+   * (mcp.json · mcpServers) — verified by a live `kimi mcp` probe; the legacy
+   * `~/.kimi-code` guess was wrong. `$KIMI_CODE_HOME` is still honored as an
+   * override for back-compat alongside the newer `$KIMI_HOME`.
+   */
   private baseDir(): string {
-    const env = process.env.KIMI_CODE_HOME;
+    const env = process.env.KIMI_HOME ?? process.env.KIMI_CODE_HOME;
     if (env && env.trim() !== "") {
       if (env.startsWith("~")) {
         return join(homedir(), env.replace(/^~[/\\]?/, ""));
       }
       return env;
     }
-    return join(homedir(), ".kimi-code");
+    return join(homedir(), ".kimi");
   }
 
   // ── MCP server install / uninstall (mcp.json → mcpServers.<id>) ──────────

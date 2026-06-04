@@ -7,7 +7,7 @@
  *   • overwrite guard — a present, non-empty, TRULY-malformed settings file is
  *     left untouched (a "warn"), never blanked to {}.
  *   • kimi — deny uses the Claude/Codex hookSpecificOutput shape (exit 0); the
- *     base dir is ~/.kimi-code (honoring $KIMI_CODE_HOME).
+ *     base dir defaults to ~/.kimi (live-confirmed), honoring $KIMI_HOME / $KIMI_CODE_HOME.
  *   • qwen-code — remote http renders key "httpUrl" (not type:"http"); sse → "url".
  *   • hermes — installHooks writes the native "pre_tool_call" key, not "PreToolUse".
  *   • omp — the generated plugin degrades "modify" to allow (no modify-block).
@@ -15,12 +15,7 @@
  *     bracket without corruption; dual registration still works.
  */
 
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -86,17 +81,20 @@ function buildCtx(
 let savedHome: string | undefined;
 let savedDataDir: string | undefined;
 let savedKimiHome: string | undefined;
+let savedKimiHomeNew: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedKimiHome = process.env.KIMI_CODE_HOME;
+  savedKimiHomeNew = process.env.KIMI_HOME;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
   restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore("KIMI_CODE_HOME", savedKimiHome);
+  restore("KIMI_HOME", savedKimiHomeNew);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -109,6 +107,7 @@ function freshProject(prefix: string): string {
   process.env.HOME = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   delete process.env.KIMI_CODE_HOME;
+  delete process.env.KIMI_HOME;
   return dir;
 }
 
@@ -243,14 +242,15 @@ describe("kimi deny protocol + base dir", () => {
     expect(reply.stdout).toBeUndefined();
   });
 
-  it("baseDir falls back to ~/.kimi-code (NOT ~/.kimi) when KIMI_CODE_HOME is unset", () => {
+  it("baseDir defaults to ~/.kimi (live-confirmed real Kimi CLI path, NOT ~/.kimi-code) when no env override is set", () => {
     const projectDir = freshProject("ac-rf-kimi-");
+    delete process.env.KIMI_HOME;
     delete process.env.KIMI_CODE_HOME;
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     // HOME is redirected to projectDir, so the base dir resolves into the sandbox.
     const serverPath = kimiAdapter.getServerConfigPath(ctx);
-    expect(serverPath).toBe(join(projectDir, ".kimi-code", "mcp.json"));
-    expect(serverPath).not.toContain(join(projectDir, ".kimi", "mcp.json"));
+    expect(serverPath).toBe(join(projectDir, ".kimi", "mcp.json"));
+    expect(serverPath).not.toContain(".kimi-code");
   });
 
   it("baseDir honors $KIMI_CODE_HOME when set", () => {

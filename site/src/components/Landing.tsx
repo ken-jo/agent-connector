@@ -18,10 +18,10 @@ export function Landing() {
       <Nav />
       <main id="main-content" tabIndex={-1} className="outline-none">
         <Hero />
+        <Efficiency />
         <Pillars />
         <Surfaces />
         <Platforms />
-        <Efficiency />
         <WriteOnceTabs />
         <Telemetry />
         <Cli />
