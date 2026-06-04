@@ -1,3 +1,5 @@
+import * as React from "react";
+import { Link } from "react-router-dom";
 import { CodeBlock } from "@/components/ui/code-block";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +55,7 @@ import { PackagingGuideSection } from "./PackagingGuide";
 /* Getting Started                                                     */
 /* ================================================================== */
 
-function Introduction() {
+export function Introduction() {
   return (
     <DocSection id="introduction" eyebrow="Getting Started" title="Introduction">
       <Lead>
@@ -92,7 +94,7 @@ function Introduction() {
   );
 }
 
-function Installation() {
+export function Installation() {
   return (
     <DocSection id="installation" eyebrow="Getting Started" title="Installation">
       <P>Install the CLI globally. It is ESM-only and ships pure-JS / WASM deps.</P>
@@ -109,7 +111,7 @@ function Installation() {
   );
 }
 
-function QuickStart() {
+export function QuickStart() {
   return (
     <DocSection id="quick-start" eyebrow="Getting Started" title="Quick start">
       <P>
@@ -121,9 +123,9 @@ function QuickStart() {
       <P>
         Every command is idempotent, reversible, and <C>--dry-run</C>-able. The
         config below is the canonical example — see{" "}
-        <a className="underline hover:text-foreground" href="#define-connector">
+        <Link className="underline hover:text-foreground" to="/docs/define-connector">
           defineConnector
-        </a>{" "}
+        </Link>{" "}
         for the full field reference.
       </P>
       <CodeBlock
@@ -139,7 +141,7 @@ function QuickStart() {
 /* Core API                                                            */
 /* ================================================================== */
 
-function DefineConnector() {
+export function DefineConnector() {
   return (
     <DocSection id="define-connector" eyebrow="Core API" title="defineConnector">
       <Lead>
@@ -198,7 +200,7 @@ function DefineConnector() {
   );
 }
 
-function ServerSection() {
+export function ServerSection() {
   return (
     <DocSection id="server" eyebrow="Core API" title="Server">
       <Lead>
@@ -241,7 +243,7 @@ function ServerSection() {
   );
 }
 
-function HooksSection() {
+export function HooksSection() {
   return (
     <DocSection id="hooks" eyebrow="Core API" title="Hooks">
       <Lead>
@@ -359,7 +361,7 @@ function HooksSection() {
   );
 }
 
-function SurfacesSection() {
+export function SurfacesSection() {
   return (
     <DocSection
       id="surfaces"
@@ -463,7 +465,7 @@ function SurfacesSection() {
 /* Telemetry                                                           */
 /* ================================================================== */
 
-function TelemetryOverview() {
+export function TelemetryOverview() {
   return (
     <DocSection
       id="telemetry-overview"
@@ -555,7 +557,7 @@ function TelemetryOverview() {
   );
 }
 
-function TelemetrySurfaces() {
+export function TelemetrySurfaces() {
   return (
     <DocSection
       id="telemetry-surfaces"
@@ -721,9 +723,12 @@ function TelemetrySurfaces() {
       <P>
         Every row (and every static footprint) carries one confidence source so
         an estimate is never read as exact — see{" "}
-        <a className="underline hover:text-foreground" href="#confidence-sources">
+        <Link
+          className="underline hover:text-foreground"
+          to="/docs/telemetry-overview#confidence-sources"
+        >
           the confidence sources table
-        </a>
+        </Link>
         . Static footprints are labeled with the tokenizer source for the
         connector&apos;s family (<C>tokenizer-exact</C> for OpenAI-family,{" "}
         <C>tokenizer-approx</C> otherwise).
@@ -773,7 +778,7 @@ function TelemetrySurfaces() {
   );
 }
 
-function Leaderboards() {
+export function Leaderboards() {
   return (
     <DocSection id="leaderboards" eyebrow="Telemetry" title="Leaderboards">
       <Lead>
@@ -835,9 +840,9 @@ function Leaderboards() {
         For the developer/connector axis there is also{" "}
         <C>agent-connector telemetry leaderboard --by mcp|tool|surface</C>: the{" "}
         <C>--by surface</C> variant ranks across the{" "}
-        <a className="underline hover:text-foreground" href="#telemetry-surfaces">
+        <Link className="underline hover:text-foreground" to="/docs/telemetry-surfaces">
           five developer surfaces
-        </a>{" "}
+        </Link>{" "}
         (server + hook runtime rows plus the static command/skill/subagent
         footprints), with the columns <C>SURFACE</C> | <C>NAME</C> | <C>IN</C> |{" "}
         <C>OUT</C> | <C>TOTAL</C> | <C>KIND</C>.
@@ -852,7 +857,7 @@ function Leaderboards() {
   );
 }
 
-function Privacy() {
+export function Privacy() {
   return (
     <DocSection id="privacy" eyebrow="Telemetry" title="Privacy & opt-out">
       <Lead>
@@ -918,7 +923,7 @@ function Privacy() {
 /* Reference                                                           */
 /* ================================================================== */
 
-function CliSection() {
+export function CliSection() {
   return (
     <DocSection id="cli" eyebrow="Reference" title="CLI">
       <Lead>
@@ -1071,7 +1076,7 @@ function PlatformTable({
   );
 }
 
-function PlatformsSection() {
+export function PlatformsSection() {
   return (
     <DocSection id="platforms" eyebrow="Reference" title="Platforms">
       <Lead>
@@ -1109,7 +1114,7 @@ function PlatformsSection() {
 /* Guides                                                              */
 /* ================================================================== */
 
-function AddPlatform() {
+export function AddPlatform() {
   return (
     <DocSection id="add-a-platform" eyebrow="Guides" title="Add a platform">
       <Lead>
@@ -1142,7 +1147,7 @@ function AddPlatform() {
   );
 }
 
-function OperatingModel() {
+export function OperatingModel() {
   return (
     <DocSection id="operating-model" eyebrow="Guides" title="Operating model">
       <Lead>
@@ -1189,7 +1194,7 @@ function OperatingModel() {
   );
 }
 
-function Troubleshooting() {
+export function Troubleshooting() {
   return (
     <DocSection id="troubleshooting" eyebrow="Guides" title="Troubleshooting">
       <Lead>
@@ -1244,9 +1249,9 @@ function Troubleshooting() {
         <strong>&quot;hooks unavailable here&quot;</strong> for them; this is
         expected, not an error. Declared hooks are simply skipped (with a
         warning) on those targets. See{" "}
-        <a className="underline hover:text-foreground" href="#paradigms">
+        <Link className="underline hover:text-foreground" to="/docs/hooks#paradigms">
           the three paradigms
-        </a>
+        </Link>
         .
       </P>
 
@@ -1339,30 +1344,33 @@ function Troubleshooting() {
 }
 
 /* ================================================================== */
-/* Composed content                                                    */
+/* Per-section registry                                                 */
 /* ================================================================== */
 
-export function DocsContent() {
-  return (
-    <div className="space-y-14">
-      <Introduction />
-      <Installation />
-      <QuickStart />
-      <DefineConnector />
-      <ServerSection />
-      <HooksSection />
-      <HooksGuideSection />
-      <SurfacesSection />
-      <PackagingGuideSection />
-      <TelemetryOverview />
-      <TelemetrySurfaces />
-      <Leaderboards />
-      <Privacy />
-      <CliSection />
-      <PlatformsSection />
-      <AddPlatform />
-      <OperatingModel />
-      <Troubleshooting />
-    </div>
-  );
-}
+/**
+ * Each leaf section id → the component that renders ONLY that section's
+ * content. DocsPage looks the active :section param up here and renders the
+ * single matching node, so /docs/:section is its own page (not the whole doc).
+ * HooksGuideSection / PackagingGuideSection are already standalone components —
+ * registered here by their own section id (hooks-guide / packaging).
+ */
+export const sectionRegistry: Record<string, () => React.JSX.Element> = {
+  introduction: Introduction,
+  installation: Installation,
+  "quick-start": QuickStart,
+  "define-connector": DefineConnector,
+  server: ServerSection,
+  hooks: HooksSection,
+  "hooks-guide": HooksGuideSection,
+  surfaces: SurfacesSection,
+  packaging: PackagingGuideSection,
+  "telemetry-overview": TelemetryOverview,
+  "telemetry-surfaces": TelemetrySurfaces,
+  leaderboards: Leaderboards,
+  privacy: Privacy,
+  cli: CliSection,
+  platforms: PlatformsSection,
+  "add-a-platform": AddPlatform,
+  "operating-model": OperatingModel,
+  troubleshooting: Troubleshooting,
+};

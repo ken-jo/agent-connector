@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { sectionOrder, sectionLabel, navGroups } from "./docs-data";
 
@@ -8,8 +9,8 @@ function groupOf(id: string): string | undefined {
 
 /**
  * Prev / next page footer pager, driven entirely by sectionOrder + sectionLabel.
- * `activeId` is the section currently in view (from scroll-spy); the pager points
- * at its neighbours in reading order.
+ * `activeId` is the section id of the current page; the pager links to its
+ * neighbours' pages in reading order.
  */
 export function DocsPager({ activeId }: { activeId: string }) {
   const idx = sectionOrder.indexOf(activeId);
@@ -26,8 +27,8 @@ export function DocsPager({ activeId }: { activeId: string }) {
       className="mt-14 grid gap-4 border-t border-border/60 pt-8 sm:grid-cols-2"
     >
       {prevId ? (
-        <a
-          href={`#${prevId}`}
+        <Link
+          to={`/docs/${prevId}`}
           className="group flex flex-col rounded-xl border border-border bg-card/40 p-4 transition-colors hover:border-foreground/30 hover:bg-card/70"
         >
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -40,13 +41,13 @@ export function DocsPager({ activeId }: { activeId: string }) {
           <span className="mt-0.5 font-medium text-foreground">
             {sectionLabel[prevId]}
           </span>
-        </a>
+        </Link>
       ) : (
         <span />
       )}
       {nextId ? (
-        <a
-          href={`#${nextId}`}
+        <Link
+          to={`/docs/${nextId}`}
           className="group flex flex-col rounded-xl border border-border bg-card/40 p-4 text-right transition-colors hover:border-foreground/30 hover:bg-card/70 sm:items-end"
         >
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -59,7 +60,7 @@ export function DocsPager({ activeId }: { activeId: string }) {
           <span className="mt-0.5 font-medium text-foreground">
             {sectionLabel[nextId]}
           </span>
-        </a>
+        </Link>
       ) : (
         <span />
       )}

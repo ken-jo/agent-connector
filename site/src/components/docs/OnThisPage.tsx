@@ -14,7 +14,14 @@ interface TocEntry {
  * content. Picks up every <h2 id> (top-level section) and <h3 id> (sub-heading)
  * inside the docs content container.
  */
-export function OnThisPage({ containerId }: { containerId: string }) {
+export function OnThisPage({
+  containerId,
+  sectionId,
+}: {
+  containerId: string;
+  /** Re-scan when the routed section page changes (its content swaps in). */
+  sectionId?: string;
+}) {
   const [entries, setEntries] = React.useState<TocEntry[]>([]);
 
   React.useEffect(() => {
@@ -39,7 +46,7 @@ export function OnThisPage({ containerId }: { containerId: string }) {
         };
       }),
     );
-  }, [containerId]);
+  }, [containerId, sectionId]);
 
   const ids = React.useMemo(() => entries.map((e) => e.id), [entries]);
   const activeId = useScrollSpy(ids);

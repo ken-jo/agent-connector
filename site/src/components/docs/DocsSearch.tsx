@@ -133,13 +133,24 @@ export function DocsSearchDialog({
   const go = React.useCallback(
     (entry: SearchEntry) => {
       onOpenChange(false);
-      // Navigate to the docs hash; the browser scrolls to the anchor. We also
-      // imperatively scroll in case the hash is already current (no nav event).
-      navigate(`/docs#${entry.id}`);
+      // Navigate to the owning section's own page. Section results land on the
+      // page; heading results add the H3 anchor as a #hash so the page deep-links
+      // to that sub-heading. We also imperatively scroll in case we're already on
+      // that page (no nav event fires for an identical route).
+      const isHeading = entry.kind === "heading";
+      const path = isHeading
+        ? `/docs/${entry.sectionId}#${entry.id}`
+        : `/docs/${entry.sectionId}`;
+      navigate(path);
       window.requestAnimationFrame(() => {
-        document
-          .getElementById(entry.id)
-          ?.scrollIntoView({ block: "start", behavior: "smooth" });
+        const target = isHeading
+          ? document.getElementById(entry.id)
+          : null;
+        if (target) {
+          target.scrollIntoView({ block: "start", behavior: "smooth" });
+        } else {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
       });
     },
     [navigate, onOpenChange],

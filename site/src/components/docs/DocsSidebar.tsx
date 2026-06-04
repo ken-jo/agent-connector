@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navGroups } from "./docs-data";
@@ -87,8 +88,8 @@ export function DocsSidebar({
                     const active = item.id === activeId;
                     return (
                       <li key={item.id}>
-                        <a
-                          href={`#${item.id}`}
+                        <Link
+                          to={`/docs/${item.id}`}
                           onClick={onNavigate}
                           aria-current={active ? "page" : undefined}
                           className={cn(
@@ -99,7 +100,7 @@ export function DocsSidebar({
                           )}
                         >
                           {item.label}
-                        </a>
+                        </Link>
                       </li>
                     );
                   })}

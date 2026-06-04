@@ -13,14 +13,23 @@ import {
   DocsSearchDialog,
   useDocsSearch,
 } from "./DocsSearch";
-import { sectionOrder } from "./docs-data";
-import { useScrollSpy } from "./use-scroll-spy";
 
 const CONTENT_ID = "docs-content";
 
-export function DocsLayout({ children }: { children: React.ReactNode }) {
+/**
+ * Docs chrome around a single section page. `activeId` is the section id of the
+ * page currently routed (from /docs/:section) — it drives the sidebar highlight,
+ * breadcrumb, and prev/next pager. The right-hand "On this page" rail keeps its
+ * own DOM-derived scroll-spy for the in-page H3 anchors.
+ */
+export function DocsLayout({
+  children,
+  activeId,
+}: {
+  children: React.ReactNode;
+  activeId: string;
+}) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const activeId = useScrollSpy(sectionOrder);
   const { open: searchOpen, setOpen: setSearchOpen } = useDocsSearch();
 
   // Lock body scroll + close on Escape while the mobile sidebar sheet is open.
@@ -86,7 +95,7 @@ export function DocsLayout({ children }: { children: React.ReactNode }) {
 
         {/* Right "on this page" — xl only */}
         <aside className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-56 shrink-0 overflow-y-auto py-12 xl:block">
-          <OnThisPage containerId={CONTENT_ID} />
+          <OnThisPage containerId={CONTENT_ID} sectionId={activeId} />
         </aside>
       </div>
 
