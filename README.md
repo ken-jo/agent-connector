@@ -8,7 +8,7 @@
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
-![marketplace](https://img.shields.io/badge/package-Claude%20plugin%20%2B%20marketplace-2563eb)
+![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
 ![tests](https://img.shields.io/badge/tests-832%20passing-22c55e)
 
 Every agent host — Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp,
@@ -101,15 +101,21 @@ Same one definition, your choice of distribution:
 - **Direct install** (above) — `install` writes each host's native MCP + plugin/
   extension config in place; no per-platform marketplace submission or review.
 - **Marketplace package** — `agent-connector package` turns the connector into a
-  **Claude Code plugin** (`.claude-plugin/plugin.json` + bundled commands, agents,
-  skills, hooks, `.mcp.json`) **plus a `marketplace.json`**, so anyone can install
-  it through the platform marketplace:
+  marketplace/extension bundle (manifest + bundled commands, agents, skills,
+  hooks, MCP) for **9 formats** across the ecosystem, from one definition:
+  `claude-plugin` (Claude Code · Codex · VS Code Copilot · OpenClaw · OMP) ·
+  `codex-plugin` · `factory-plugin` (Droid) · `gemini-extension` (Gemini CLI) ·
+  `qwen-extension` · `agy-plugin` (Antigravity CLI/IDE) · `cursor-plugin` ·
+  `kimi-plugin` · `npm-plugin` (OpenCode / Kilo CLI / Pi). Hooks + MCP keep the
+  telemetry serve-wrapper, so a marketplace-installed connector still reports
+  per-tool tokens.
 
   ```bash
-  agent-connector package --out ./dist-plugin   # emit plugin + marketplace.json
-  # then, in Claude Code:
-  #   /plugin marketplace add ./dist-plugin
-  #   /plugin install <connector-id>@agent-connector
+  agent-connector package --format all  --out ./dist-plugin   # emit every format
+  agent-connector package --format gemini-extension --out ./ext   # or one
+  # e.g. Claude Code:  /plugin marketplace add ./dist-plugin/claude-plugin
+  #                    /plugin install <connector-id>@agent-connector
+  # e.g. Gemini CLI:   gemini extensions install ./dist-plugin/gemini-extension/<id>
   ```
 
 ## Define once

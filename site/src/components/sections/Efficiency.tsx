@@ -27,7 +27,7 @@ const oldWay = [
 const newWay = [
   "Declare your server + hooks + commands + tools once with defineConnector({…})",
   "Pick which platforms to activate via targets — or let it auto-detect every installed host",
-  "Ship it your way: install directly into every host, or `package` one connector into a Claude Code plugin + marketplace.json for one-command /plugin install",
+  "Ship it your way: install directly into every host, or `package` one connector into 9 marketplace/extension formats (Claude Code, Gemini, Antigravity, Cursor, Kimi, npm…) for one-command install",
   "A new platform? Change one line. You maintain none of the adapter code",
 ];
 
