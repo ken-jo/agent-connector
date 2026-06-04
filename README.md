@@ -3,6 +3,13 @@
 > **Write your MCP server + hooks once. Ship them to every AI-agent platform —
 > and finally see how many tokens your tools actually cost.**
 
+![platforms](https://img.shields.io/badge/platforms-29-2563eb)
+![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools-2563eb)
+![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
+![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
+![headless runtime](https://img.shields.io/badge/headless%20runtime-real%20hosts%20activated-22c55e)
+![tests](https://img.shields.io/badge/tests-832%20passing-22c55e)
+
 Every agent host — Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp,
 … — re-invents the same two integration surfaces (**MCP registration** and
 **lifecycle hooks**) with incompatible config files, root keys, formats (JSON /
@@ -21,18 +28,51 @@ agent-connector is the middleware that does it for you:
    platform-independent answer to *"which of my tools cost the most context?"*,
    with **aggregate counts only, stored locally, zero egress by default.**
 
-> Status: **28 platforms, all 3 hook paradigms** (exceeds the
+> Status: **29 platforms, all 3 hook paradigms** (exceeds the
 > [tokscale](https://github.com/junhoyeo/tokscale) token-leaderboard coverage).
 >
 > | Paradigm | Platforms |
 > |---|---|
 > | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Antigravity · Antigravity CLI |
 > | `mcp-only` (MCP registration only) | Warp · Kilo · Droid (Factory) · Roo Code · Trae · Zed · Amp · Codebuff · Mux · Pi |
-> | `ts-plugin` (generated bridge module) | OpenCode · OMP · OpenClaw |
+> | `ts-plugin` (generated bridge module) | OpenCode · Kilo CLI · OMP · OpenClaw |
 >
 > …plus the telemetry core. Adding a platform = **one registry entry + one
 > adapter**. (Google Antigravity is now fully supported, including the `agy` CLI,
 > as Gemini CLI sunsets.) See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Verification
+
+The full single-API contract is **install-verified across all 29 platforms**. A
+sample connector declaring **all four surfaces** — MCP server **+** lifecycle
+hooks **+** slash commands **+** tools (skills + subagents) — was installed into
+an isolated environment for every adapter and inspected on disk:
+
+- **29 / 29 platforms — zero missing, zero failed surfaces.** Each surface is
+  written where the host supports it and gracefully *skip-warned* (never silently
+  dropped) where it does not, across all three hook paradigms — JSON/TOML/YAML
+  hook entries (`json-stdio`), synthesized + registered plugin modules
+  (`ts-plugin`), and MCP-only graceful degradation.
+- **Live hook dispatch + telemetry, proven end-to-end.** Hooks fire with the
+  correct allow / deny / context decisions through the universal entrypoint, and
+  the telemetry serve-proxy records per-MCP token usage in vivo — both the
+  🔌 MCP/plugin and 🖥️ host/user leaderboards verified against real CLI logs.
+- **Runtime-activated, headlessly.** Real host CLIs — **Claude Code, OpenCode,
+  Kilo CLI, OpenClaw** — were driven through their own `mcp list` handshake with
+  *no API key, no login, no model turn*; each genuinely loaded the config,
+  spawned our telemetry serve-wrapper, completed the MCP handshake, and was
+  captured in vivo by our own telemetry store. (6 of 7 testable CLIs spawned the
+  server; GUI/IDE hosts are verified at the config-write layer and need the
+  editor itself for full runtime activation.)
+- **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
+  deregisters the connector record and tears down the home binary when no
+  connectors remain (29 / 29).
+- **832 tests passing** · `tsc` clean · build green.
+
+Coverage was confirmed by **installing the real, not-yet-present agent CLIs into
+isolated homes and observing their actual config** — which caught defects a
+static code/web audit missed. See the reports under
+[`docs/research/`](docs/research/).
 
 ## Quick start
 

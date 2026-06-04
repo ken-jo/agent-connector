@@ -4,6 +4,7 @@ import { Hero } from "@/components/sections/Hero";
 import { Pillars } from "@/components/sections/Pillars";
 import { Surfaces } from "@/components/sections/Surfaces";
 import { Platforms } from "@/components/sections/Platforms";
+import { Efficiency } from "@/components/sections/Efficiency";
 import { WriteOnceTabs } from "@/components/sections/WriteOnceTabs";
 import { Telemetry } from "@/components/sections/Telemetry";
 import { Cli } from "@/components/sections/Cli";
@@ -20,6 +21,7 @@ export function Landing() {
         <Pillars />
         <Surfaces />
         <Platforms />
+        <Efficiency />
         <WriteOnceTabs />
         <Telemetry />
         <Cli />
