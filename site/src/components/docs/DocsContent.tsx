@@ -39,9 +39,15 @@ import {
   configErrorRows,
   syncedPlatforms,
   telemetryEmptyRows,
+  telemetryAxes,
+  telemetrySurfaces,
+  eventScopeRows,
+  surfaceKindRows,
+  surfaceLeaderboardColumns,
   type PlatformEntry,
 } from "./docs-data";
 import { HooksGuideSection } from "./HooksGuide";
+import { PackagingGuideSection } from "./PackagingGuide";
 
 /* ================================================================== */
 /* Getting Started                                                     */
@@ -549,6 +555,224 @@ function TelemetryOverview() {
   );
 }
 
+function TelemetrySurfaces() {
+  return (
+    <DocSection
+      id="telemetry-surfaces"
+      eyebrow="Telemetry"
+      title="The 5-surface model"
+    >
+      <Lead>
+        Telemetry has <strong>two axes</strong>. The <strong>user/host axis</strong>{" "}
+        measures whole-conversation usage (what the user spent); the{" "}
+        <strong>developer/surface axis</strong> measures what the connector costs
+        — now across <strong>all five</strong> developer surfaces.
+      </Lead>
+
+      <H3 id="two-axes">The two axes</H3>
+      <div className="not-prose my-6 grid gap-4 md:grid-cols-2">
+        {telemetryAxes.map((a) => (
+          <div
+            key={a.axis}
+            className="rounded-xl border border-border bg-card/40 p-5 shadow-sm"
+          >
+            <div className="mb-2 flex items-center gap-2">
+              <span aria-hidden className="text-lg">
+                {a.glyph}
+              </span>
+              <span className="text-base font-semibold text-foreground">
+                {a.axis}
+              </span>
+            </div>
+            <p className="text-sm leading-relaxed text-foreground/90">
+              {a.measures}
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              {a.source}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <H3 id="five-surfaces">The five developer surfaces</H3>
+      <P>
+        Two surfaces are <strong>RUNTIME</strong> (measured live, producing store
+        rows): <C>server</C> (per-MCP-tool <C>call</C> + <C>tool_defs</C> via the
+        serve-proxy) and <C>hooks</C> (per-event, measured at the home-bin hook
+        entrypoint). Three are <strong>STATIC</strong> footprints computed
+        on-demand from the connector — <C>command</C>, <C>skill</C>,{" "}
+        <C>subagent</C> — the context cost the host pays to load them.{" "}
+        <strong>Static footprints are sizes, not usage</strong>, and are never
+        written as fake rows.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Surface</Th>
+            <Th>Kind</Th>
+            <Th>What is measured</Th>
+            <Th>Detail</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {telemetrySurfaces.map((s) => (
+            <tr key={s.surface}>
+              <Td className="whitespace-nowrap">
+                <Code>{s.surface}</Code>
+              </Td>
+              <Td className="whitespace-nowrap">
+                <Badge
+                  variant="muted"
+                  className={
+                    s.kind === "RUNTIME"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                  }
+                >
+                  {s.kind}
+                </Badge>
+              </Td>
+              <Td className="text-muted-foreground">
+                <span className="font-mono text-[0.75rem]">{s.measured}</span>
+              </Td>
+              <Td className="text-muted-foreground">{s.detail}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <Callout title="hook scope + surfaceKind are new">
+        The runtime hook surface adds a new <C>EventScope</C> value{" "}
+        <C>&quot;hook&quot;</C> and stamps <C>surfaceKind: &quot;hook&quot;</C> on
+        each row. Measurement happens at the home-bin hook entrypoint and is{" "}
+        <strong>fail-open</strong>: a telemetry error can never break a
+        host&apos;s hook.
+      </Callout>
+
+      <H3 id="event-scope">EventScope &amp; SurfaceKind</H3>
+      <P>
+        Every store row carries an <C>EventScope</C> (what it measures) and an
+        optional <C>SurfaceKind</C> (which developer surface). The four scopes are{" "}
+        <strong>distinct origins that must never be summed</strong>:
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>EventScope</Th>
+            <Th>Meaning</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {eventScopeRows.map((r) => (
+            <tr key={r.scope}>
+              <Td className="whitespace-nowrap">
+                <Code>{r.scope}</Code>
+              </Td>
+              <Td className="text-muted-foreground">{r.meaning}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>SurfaceKind</Th>
+            <Th>Meaning</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {surfaceKindRows.map((r) => (
+            <tr key={r.kind}>
+              <Td className="whitespace-nowrap">
+                <Code>{r.kind}</Code>
+              </Td>
+              <Td className="text-muted-foreground">{r.meaning}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <P>
+        <C>surfaceKind</C> is optional and backward-compatible: rows written
+        before the field existed (every legacy serve-proxy{" "}
+        <C>call</C>/<C>tool_defs</C> row) lack it and are read as <C>server</C>.
+        The <C>command</C>/<C>skill</C>/<C>subagent</C> kinds only ever appear on
+        static footprints — they never produce store rows.
+      </P>
+
+      <H3 id="guarantees">Local-first, zero-egress, opt-out</H3>
+      <List>
+        <LI>
+          <strong>Local-first.</strong> Everything is tokenized locally and
+          stored under the home data-root — aggregate counts only, never raw
+          arguments or results.
+        </LI>
+        <LI>
+          <strong>Zero network egress by default.</strong> The hot path makes no
+          network call; only the opt-in calibration sampler ever sends content
+          off-box.
+        </LI>
+        <LI>
+          <strong>Opt-out.</strong> <C>AGENT_CONNECTOR_TELEMETRY=0</C> (or{" "}
+          <C>telemetry: &#123; enabled: false &#125;</C>) is a global kill switch
+          honored by both the serve-proxy and the hook runtime.
+        </LI>
+      </List>
+
+      <H3 id="confidence">Confidence sources</H3>
+      <P>
+        Every row (and every static footprint) carries one confidence source so
+        an estimate is never read as exact — see{" "}
+        <a className="underline hover:text-foreground" href="#confidence-sources">
+          the confidence sources table
+        </a>
+        . Static footprints are labeled with the tokenizer source for the
+        connector&apos;s family (<C>tokenizer-exact</C> for OpenAI-family,{" "}
+        <C>tokenizer-approx</C> otherwise).
+      </P>
+
+      <H3 id="per-surface-leaderboard">The per-surface leaderboard</H3>
+      <P>
+        <C>agent-connector telemetry leaderboard --by mcp|tool|surface</C> ranks
+        the per-MCP telemetry by connector (the default <C>--by mcp</C>,
+        &quot;which MCP server costs the most&quot;), by tool, or — new —{" "}
+        <strong>by developer-axis surface</strong>. The <C>--by surface</C> view
+        folds the runtime <C>server</C>/<C>hook</C> store rows together with the
+        static <C>command</C>/<C>skill</C>/<C>subagent</C> footprints of the
+        registered connector(s). Its columns:
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Column</Th>
+            <Th>Meaning</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {surfaceLeaderboardColumns.map((c) => (
+            <tr key={c.column}>
+              <Td className="whitespace-nowrap">
+                <Code>{c.column}</Code>
+              </Td>
+              <Td className="text-muted-foreground">{c.meaning}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <CodeBlock
+        code={S.surfaceLeaderboardSnippet}
+        language="text"
+        filename="terminal"
+      />
+      <Callout title="Sizes are never summed with usage" tone="warn">
+        Static footprints are <strong>sizes</strong> (the context-load cost of a
+        surface), not runtime usage. The <C>KIND</C> column keeps{" "}
+        <C>runtime</C> vs <C>static</C> explicit so the two are never silently
+        conflated, and the whole-conversation <C>model_turn</C> rows are excluded
+        from this view entirely (they get their own leaderboard section).
+      </Callout>
+    </DocSection>
+  );
+}
+
 function Leaderboards() {
   return (
     <DocSection id="leaderboards" eyebrow="Telemetry" title="Leaderboards">
@@ -607,6 +831,17 @@ function Leaderboards() {
         narrow per-MCP rows to a slice without affecting the host boards.
       </P>
       <CodeBlock code={S.leaderboardSnippet} language="bash" filename="terminal" />
+      <P>
+        For the developer/connector axis there is also{" "}
+        <C>agent-connector telemetry leaderboard --by mcp|tool|surface</C>: the{" "}
+        <C>--by surface</C> variant ranks across the{" "}
+        <a className="underline hover:text-foreground" href="#telemetry-surfaces">
+          five developer surfaces
+        </a>{" "}
+        (server + hook runtime rows plus the static command/skill/subagent
+        footprints), with the columns <C>SURFACE</C> | <C>NAME</C> | <C>IN</C> |{" "}
+        <C>OUT</C> | <C>TOTAL</C> | <C>KIND</C>.
+      </P>
       <Callout title="Why two non-summed boards" tone="warn">
         Per-MCP server bytes (🔌) measure your server&apos;s own I/O; host/user
         usage (🖥️) measures whole-conversation usage from CLI logs; live
@@ -1118,7 +1353,9 @@ export function DocsContent() {
       <HooksSection />
       <HooksGuideSection />
       <SurfacesSection />
+      <PackagingGuideSection />
       <TelemetryOverview />
+      <TelemetrySurfaces />
       <Leaderboards />
       <Privacy />
       <CliSection />

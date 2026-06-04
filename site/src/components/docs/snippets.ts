@@ -209,6 +209,41 @@ export const leaderboardSnippet = `$ agent-connector leaderboard --since 7d
 
 # the three boards measure DIFFERENT things — never summed.`;
 
+export const packageSnippet = `# default format (claude-plugin) → <cwd>/dist-plugin
+agent-connector package
+
+# pick a format + output dir; preview without writing
+agent-connector package --format gemini-extension --out ./dist --dry-run
+
+# emit EVERY feasible format, each into <out>/<format>/
+agent-connector package --format all --out ./dist
+
+# an unknown format exits 2
+agent-connector package --format bogus   # → invalid --format "bogus" (exit 2)`;
+
+export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:
+/plugin marketplace add ./dist-plugin
+/plugin install my-connector@agent-connector
+
+# the wrapped MCP entry in the bundle still routes through the home-bin:
+#   agent-connector serve --connector my-connector --host claude-code -- <real cmd>
+# so a marketplace-installed connector STILL reports per-tool tokens.`;
+
+export const surfaceLeaderboardSnippet = `$ agent-connector telemetry leaderboard --by surface
+
+SURFACE   NAME              IN      OUT    TOTAL  KIND
+----------------------------------------------------------
+server    query           4,210   9,880  14,090  runtime
+hook      PreToolUse      1,120     640   1,760  runtime
+skill     deep-research     980       0     980  static
+command   deploy            612       0     612  static
+subagent  reviewer          540       0     540  static
+----------------------------------------------------------
+TOTAL                     7,462  11,160  18,622
+
+note: KIND=static rows are the tokenized FOOTPRINT a command/skill/subagent
+imposes on a host that loads it as context — not intercepted usage rows.`;
+
 export const addPlatformSnippet = `// 1. src/adapters/registry.ts — one lazily-loaded entry
 { id: "myhost", load: () => import("./myhost/index.js") },
 

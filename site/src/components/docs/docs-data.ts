@@ -38,9 +38,16 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: "Packaging",
+    items: [
+      { id: "packaging", label: "Packaging & marketplaces" },
+    ],
+  },
+  {
     title: "Telemetry",
     items: [
       { id: "telemetry-overview", label: "Overview" },
+      { id: "telemetry-surfaces", label: "The 5-surface model" },
       { id: "leaderboards", label: "Leaderboards" },
       { id: "privacy", label: "Privacy & opt-out" },
     ],
@@ -92,8 +99,12 @@ export const sectionDescription: Record<string, string> = {
     "The precise, visible cross-platform hook map: 8 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
     "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform.",
+  packaging:
+    "Two ways to ship: direct install, or a packaged bundle. agent-connector package emits any of 9 marketplace/extension formats — each with its own manifest + install command — and every bundle keeps the telemetry serve-wrapper + home-bin hooks so a marketplace-installed connector still reports per-tool tokens.",
   "telemetry-overview":
     "Default per-MCP token telemetry: the serve proxy tokenizes input/output locally with documented confidence sources. Aggregate counts only.",
+  "telemetry-surfaces":
+    "The two axes (host/user vs developer/surface) and the five developer surfaces — server, hooks (runtime) and commands, skills, subagents (static footprints) — with the EventScope/SurfaceKind model and the per-surface leaderboard.",
   leaderboards:
     "Three origin-labeled leaderboards (MCP/plugin, host/user, host-native turns) that measure different things and are never summed.",
   privacy:
@@ -754,6 +765,27 @@ export const cliCommands: CliCommand[] = [
       "Prints managed-update guidance (the exact npm i -g agent-connector@<dist>) and refreshes the stable home-bin pointer so hosts keep execing a working CLI. Never silently auto-updates. Exit 1 only if the pointer refresh fails.",
   },
   {
+    name: "package",
+    signature:
+      "agent-connector package [--connector <path>] [--format <fmt>] [--out <dir>] [--project <dir>] [--dry-run]",
+    summary:
+      "Emit a marketplace / extension-installable bundle from a connector. Resolves the config (--connector, else auto-discovered walking up from --project), packages it for --format into --out (default <cwd>/dist-plugin), and prints the emitted file tree plus per-format install instructions. Every bundle re-renders the SAME command/skill/subagent markdown the live adapters write, the home-bin hooks, and the serve-wrapped MCP entry (--host <platform>) — so a marketplace-installed connector still reports per-tool telemetry.",
+    flags: [
+      {
+        flag: "--format <fmt>",
+        desc: 'One of the 9 formats (default claude-plugin), or "all" to emit every feasible format into <out>/<fmt>/. An invalid --format exits 2.',
+      },
+      {
+        flag: "--out <dir>",
+        desc: "Output directory (default <cwd>/dist-plugin). For --format all, each format writes to <out>/<format>/.",
+      },
+      {
+        flag: "--dry-run",
+        desc: "Compute the file tree without writing anything.",
+      },
+    ],
+  },
+  {
     name: "telemetry",
     signature:
       "agent-connector telemetry <report|export|leaderboard> [flags]",
@@ -769,8 +801,8 @@ export const cliCommands: CliCommand[] = [
         desc: "Raw aggregate records (stdout or to --out).",
       },
       {
-        flag: "leaderboard --by mcp|tool --since … --connector <id> --scope <slice> [--json]",
-        desc: 'Ranks per-connector ("which MCP costs the most") or per-tool.',
+        flag: "leaderboard --by mcp|tool|surface --since … --connector <id> --scope <slice> [--json]",
+        desc: 'Ranks per-connector ("which MCP costs the most"), per-tool, or per-surface (the 5 developer-axis surfaces).',
       },
     ],
   },
@@ -989,5 +1021,234 @@ export const telemetryEmptyRows: { reason: string; fix: string }[] = [
   {
     reason: "Host-native turns not calibrated / not opted in",
     fix: "model_turn rows only exist when host-native usage is enabled (hostNativeUsage / AGENT_CONNECTOR_HOST_NATIVE=1) on a supporting host.",
+  },
+];
+
+/* ------------------------------------------------------------------ */
+/* Packaging & marketplaces (core/package.ts + package-formats/*)       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The 9 PackageFormat values, in ALL_FORMATS order (also the order
+ * `--format all` emits). Each row is read directly from
+ * src/core/package-formats/*.ts: the --format value, the target platform(s) it
+ * serves, the manifest file(s) it emits, and the user install command.
+ */
+export interface PackageFormatRow {
+  /** The --format value. */
+  format: string;
+  /** Target platform(s) this bundle serves. */
+  targets: string;
+  /** The manifest / key file(s) the emitter writes. */
+  manifest: string;
+  /** The user-facing install command(s). */
+  install: string;
+  /** Optional note (lossy formats / structural quirks). */
+  note?: string;
+}
+
+export const packageFormatRows: PackageFormatRow[] = [
+  {
+    format: "claude-plugin",
+    targets: "Claude Code · Codex · VS Code Copilot · OpenClaw · OMP",
+    manifest: ".claude-plugin/plugin.json + .claude-plugin/marketplace.json (+ commands/, agents/, skills/<n>/SKILL.md, hooks/hooks.json, .mcp.json)",
+    install: "/plugin marketplace add <out> · /plugin install <id>@agent-connector",
+    note: "The default format. plugin.json carries a $schema; the marketplace catalog is the object-owner shape.",
+  },
+  {
+    format: "codex-plugin",
+    targets: "Codex CLI",
+    manifest: ".codex-plugin/plugin.json + .codex-plugin/marketplace.json (same component tree as claude-plugin; .mcp.json)",
+    install: "codex plugin marketplace add <out> · codex plugin add <id>@agent-connector",
+    note: "A manifest-dir rename of claude-plugin (.codex-plugin/ instead of .claude-plugin/).",
+  },
+  {
+    format: "factory-plugin",
+    targets: "Droid (Factory)",
+    manifest: ".factory-plugin/plugin.json + droids/ + mcp.json + marketplace.json (git-repo catalog at the repo root)",
+    install: "droid plugin marketplace add <out> · droid plugin install <id>@agent-connector",
+    note: "Subagents go in droids/ (not agents/); MCP filename is mcp.json; plugin.json pins version + author.",
+  },
+  {
+    format: "gemini-extension",
+    targets: "Gemini CLI",
+    manifest: "gemini-extension.json (inline mcpServers + contextFileName) + commands/<n>.toml + agents/, skills/, hooks/hooks.json + GEMINI.md",
+    install: "gemini extensions install <out>/<id>",
+    note: "MCP is declared INLINE in the manifest (no separate .mcp.json); commands are TOML.",
+  },
+  {
+    format: "qwen-extension",
+    targets: "Qwen Code",
+    manifest: "qwen-extension.json (inline mcpServers) + commands/<n>.md + agents/, skills/, hooks/hooks.json + QWEN.md",
+    install: "qwen extensions install <out>/<id>",
+    note: "A Gemini-CLI fork: commands are Markdown (not TOML) and the context file is QWEN.md.",
+  },
+  {
+    format: "agy-plugin",
+    targets: "Antigravity CLI / IDE",
+    manifest: "plugin.json (root marker) + mcp_config.json (SEPARATE) + commands/, agents/, skills/, hooks/hooks.json",
+    install: "agy plugin install <out>/<id>  (validate: agy plugin validate <out>/<id>)",
+    note: "MCP MUST be a separate mcp_config.json — an inline mcpServers in plugin.json is NOT read. No marketplace catalog ships.",
+  },
+  {
+    format: "cursor-plugin",
+    targets: "Cursor",
+    manifest: ".cursor-plugin/plugin.json (pointer fields) + .cursor-plugin/marketplace.json + commands/, agents/, skills/, hooks/hooks.json, mcp.json",
+    install: "link <out>/<id> into ~/.cursor/plugins/local/<id>/ then Reload Window (or publish <out> as a Cursor marketplace repo)",
+    note: "Manifest surface fields are POINTERS (\"skills\":\"./skills/\", \"mcpServers\":\"./mcp.json\"). MCP file is mcp.json (no leading dot).",
+  },
+  {
+    format: "kimi-plugin",
+    targets: "Kimi CLI",
+    manifest: "kimi.plugin.json (skills pointer + inline mcpServers) + skills/<n>/SKILL.md",
+    install: "kimi plugin install <out>/<id>",
+    note: "Skills + MCP ONLY. Commands, subagents, and hooks are DROPPED (Kimi ignores them) and a drop note is returned.",
+  },
+  {
+    format: "npm-plugin",
+    targets: "OpenCode · Kilo CLI · Pi",
+    manifest: "package.json (type:module, exports, keywords) + index.js (ESM bridge) + skills/<n>/SKILL.md + README.md",
+    install: "npm publish <out>/<id>  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)",
+    note: "A publishable npm package whose default export is a plugin fn that shells each hook to the home-bin. Commands/subagents are native host dirs and MCP is a config key, so they are NOT bundled (notes record this).",
+  },
+];
+
+/* ------------------------------------------------------------------ */
+/* Telemetry — the 5-surface model (telemetry/types.ts + leaderboard)   */
+/* ------------------------------------------------------------------ */
+
+/** The two telemetry axes (host/user vs developer/surface). */
+export const telemetryAxes: {
+  axis: string;
+  glyph: string;
+  measures: string;
+  source: string;
+}[] = [
+  {
+    glyph: "🖥️",
+    axis: "User / host axis",
+    measures:
+      "Whole-conversation host usage — what the USER spent across the entire conversation.",
+    source:
+      "The model_turn host-native hook (live, exact) + the host-scan CLI-log readers. Surfaced by the Host/User + Host-native-turns leaderboards.",
+  },
+  {
+    glyph: "🔌",
+    axis: "Developer / surface axis",
+    measures:
+      "What the CONNECTOR costs — the footprint your connector imposes, now across ALL FIVE surfaces.",
+    source:
+      "server + hooks measured live (RUNTIME store rows); commands + skills + subagents computed on demand as STATIC context footprints.",
+  },
+];
+
+/** The 5 developer-axis surfaces — server/hook are runtime, the other 3 static. */
+export const telemetrySurfaces: {
+  surface: string;
+  kind: "RUNTIME" | "STATIC";
+  measured: string;
+  detail: string;
+}[] = [
+  {
+    surface: "server",
+    kind: "RUNTIME",
+    measured: "per-MCP-tool call + tool_defs",
+    detail:
+      "The serve-proxy tokenizes each tools/call round-trip (scope call) and the one-time tools/list schema overhead (scope tool_defs). surfaceKind \"server\" (the backward-compatible default for legacy rows).",
+  },
+  {
+    surface: "hooks",
+    kind: "RUNTIME",
+    measured: "per-event hook dispatch",
+    detail:
+      "Measured at the home-bin hook entrypoint (src/runtime/hook-entrypoint): one row per RUNTIME hook dispatch (scope \"hook\", surfaceKind \"hook\"). Input = the inbound normalized event payload; output = the HookResponse that becomes context/decision. The per-item name IS the event (e.g. SessionStart). Fail-open: a telemetry error never breaks the hook.",
+  },
+  {
+    surface: "command",
+    kind: "STATIC",
+    measured: "context footprint (description + prompt + argumentHint)",
+    detail:
+      "Computed on demand from the connector (surface-footprint.ts) — a tokenized footprint of the context the host loads, NOT runtime usage. Never written as a store row.",
+  },
+  {
+    surface: "skill",
+    kind: "STATIC",
+    measured: "context footprint (description + body + resources)",
+    detail:
+      "Static footprint of SKILL.md + every resource value (sorted by path for determinism). Computed on demand, never a usage row.",
+  },
+  {
+    surface: "subagent",
+    kind: "STATIC",
+    measured: "context footprint (description + prompt)",
+    detail:
+      "Static footprint of the subagent's description + system prompt. Computed on demand, never a usage row.",
+  },
+];
+
+/** EventScope — the four DISTINCT origins a record can carry (never summed). */
+export const eventScopeRows: { scope: string; meaning: string }[] = [
+  {
+    scope: '"call"',
+    meaning:
+      "One per-MCP tools/call round-trip (serve-proxy bytes). The headline per-tool cost.",
+  },
+  {
+    scope: '"tool_defs"',
+    meaning:
+      "The one-time tools/list schema overhead (serve-proxy). Counted as tokens but never as a call.",
+  },
+  {
+    scope: '"model_turn"',
+    meaning:
+      "A WHOLE-CONVERSATION host-native turn the host reported (e.g. Gemini/Antigravity AfterModel usageMetadata). EXCLUDED from the per-MCP/per-surface views — its own leaderboard section.",
+  },
+  {
+    scope: '"hook"',
+    meaning:
+      "One RUNTIME hook dispatch through the home-bin entrypoint. The developer-axis hook surface — measured live, like call.",
+  },
+];
+
+/** SurfaceKind — which of the 5 developer-axis surfaces a row/footprint is. */
+export const surfaceKindRows: { kind: string; meaning: string }[] = [
+  {
+    kind: '"server"',
+    meaning:
+      "RUNTIME serve-proxy rows (call / tool_defs). The backward-compatible default: rows written before surfaceKind existed read as server.",
+  },
+  {
+    kind: '"hook"',
+    meaning: "RUNTIME hook-entrypoint rows (scope hook), stamped explicitly.",
+  },
+  {
+    kind: '"command"',
+    meaning: "STATIC command footprint — never a store row.",
+  },
+  {
+    kind: '"skill"',
+    meaning: "STATIC skill footprint — never a store row.",
+  },
+  {
+    kind: '"subagent"',
+    meaning: "STATIC subagent footprint — never a store row.",
+  },
+];
+
+/** Columns of the per-surface leaderboard table (telemetry leaderboard --by surface). */
+export const surfaceLeaderboardColumns: { column: string; meaning: string }[] = [
+  { column: "SURFACE", meaning: "The surfaceKind (server | hook | command | skill | subagent)." },
+  {
+    column: "NAME",
+    meaning:
+      "The per-item name: the tool name (server), the event name (hook), or the command/skill/subagent name (static).",
+  },
+  { column: "IN", meaning: "Input tokens. For static rows, the whole footprint sits here." },
+  { column: "OUT", meaning: "Output tokens. Always 0 for static rows." },
+  { column: "TOTAL", meaning: "IN + OUT for the (surface, name) group." },
+  {
+    column: "KIND",
+    meaning:
+      "runtime (live usage, aggregated from the store) vs static (a context-load footprint). The distinction is never silently conflated.",
   },
 ];

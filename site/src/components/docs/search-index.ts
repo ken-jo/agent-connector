@@ -64,12 +64,25 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "surface-validation", title: "Validation rules" },
     { id: "surface-support", title: "Per-platform surface support" },
   ],
+  packaging: [
+    { id: "package-command", title: "The package command" },
+    { id: "package-formats", title: "The nine formats" },
+    { id: "package-telemetry", title: "Telemetry carries through every bundle" },
+  ],
   "telemetry-overview": [
     { id: "telemetry-config", title: "TelemetryConfig" },
     { id: "tokenizer", title: "Tokenizer" },
     { id: "confidence-sources", title: "Confidence sources" },
     { id: "store", title: "Store" },
     { id: "host-usage-layer", title: "Host usage layer" },
+  ],
+  "telemetry-surfaces": [
+    { id: "two-axes", title: "The two axes" },
+    { id: "five-surfaces", title: "The five developer surfaces" },
+    { id: "event-scope", title: "EventScope & SurfaceKind" },
+    { id: "guarantees", title: "Local-first, zero-egress, opt-out" },
+    { id: "confidence", title: "Confidence sources" },
+    { id: "per-surface-leaderboard", title: "The per-surface leaderboard" },
   ],
   cli: [
     { id: "shared-flags", title: "Shared flags" },
