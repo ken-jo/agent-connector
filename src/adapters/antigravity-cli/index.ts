@@ -30,6 +30,20 @@
  * (install/uninstall/list/enable/disable) — future work would deploy as an agy
  * plugin; for now the MCP/workflows/skills surfaces ride the shared IDE files.
  *
+ * LIVE-TEST UPDATE (2026-06-04, real `agy` login + spawn attempt): the prior
+ * "no separate config dir / shares ~/.gemini/antigravity/" claim is now STALE for
+ * agy v1.0.0. On login `agy` DID create its own home `~/.gemini/antigravity-cli/`
+ * (antigravity-oauth-token, settings.json, conversations, brain, …). Crucially,
+ * a live `agy -p` session did NOT pick up an MCP server written to
+ * ~/.gemini/antigravity/mcp_config.json NOR ~/.gemini/antigravity-cli/mcp_config.json
+ * ("no MCP tools available"), and `agy mcp add` is TTY-only (bubbletea, no
+ * headless write). The binary references a `cortex` McpServerStatus gRPC service —
+ * agy v1.0.0 appears to manage MCP servers via the Antigravity backend, not a
+ * file our adapter can write. NET: install still writes the documented IDE path
+ * (correct for the IDE), but the standalone `agy` CLI's MCP intake is UNVERIFIED
+ * and the file path likely needs revisiting once agy exposes a headless/file MCP
+ * surface. Runtime spawn for `agy` could NOT be confirmed headlessly.
+ *
  * Project scope is IDENTICAL to the IDE adapter (`<proj>/.agents/…`), as is every
  * hook/command/skill render and the runtime parse/format — all inherited.
  *

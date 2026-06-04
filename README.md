@@ -7,7 +7,7 @@
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
-![headless runtime](https://img.shields.io/badge/headless%20runtime-6%20CLIs%20activated-22c55e)
+![headless runtime](https://img.shields.io/badge/headless%20runtime-9%20CLIs%20activated-22c55e)
 ![tests](https://img.shields.io/badge/tests-832%20passing-22c55e)
 
 Every agent host — Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp,
@@ -57,14 +57,19 @@ an isolated environment for every adapter and inspected on disk:
   correct allow / deny / context decisions through the universal entrypoint, and
   the telemetry serve-proxy records per-MCP token usage in vivo — both the
   🔌 MCP/plugin and 🖥️ host/user leaderboards verified against real CLI logs.
-- **Runtime-activated, headlessly.** Six real host CLIs — **Claude Code, Codex,
-  OpenCode, Kilo CLI, OpenClaw, Hermes** — genuinely loaded the config, spawned
-  our telemetry serve-wrapper, completed the MCP handshake, and were captured in
-  vivo by our own telemetry store. Most via their own `mcp list` handshake (no
-  API key, login, or model turn); **Codex** via a real tool call on a live login
-  — it even recorded the call's token counts. (Kimi & two more also spawned the
-  server; GUI/IDE hosts and the GUI-only Coder Mux are verified at the
-  config-write layer and need the app itself for full runtime activation.)
+- **Runtime-activated, headlessly — 9 real host CLIs.** **Claude Code · Codex ·
+  OpenCode · Kilo CLI · OpenClaw · qwen-code · Hermes · Gemini CLI · GitHub
+  Copilot CLI** each genuinely loaded the config, spawned our telemetry
+  serve-wrapper, completed the MCP handshake, and were captured *in vivo* by our
+  own telemetry store. Most via their own `mcp list`/`reconnect` handshake with
+  no API key, login, or model turn; Codex, Gemini CLI & Copilot CLI on real
+  logged-in sessions (Codex/Gemini recorded actual tool-call rows). Each row now
+  carries the correct `hostPlatform` (the install target is baked into the
+  wrapper as `--host`). Kimi also spawned the server (its probe tears the pipe
+  down before the row flushes). Login-gated CLIs not configured here (amp, goose,
+  codebuff, omp), TUI-only Crush, the GUI-only Coder Mux, and the IDE/editor
+  hosts are verified at the config-write layer and need the app itself for full
+  runtime activation.
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
