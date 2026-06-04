@@ -21,18 +21,18 @@ agent-connector is the middleware that does it for you:
    platform-independent answer to *"which of my tools cost the most context?"*,
    with **aggregate counts only, stored locally, zero egress by default.**
 
-> Status: **26 platforms, all 3 hook paradigms** (parity with the
+> Status: **28 platforms, all 3 hook paradigms** (exceeds the
 > [tokscale](https://github.com/junhoyeo/tokscale) token-leaderboard coverage).
 >
 > | Paradigm | Platforms |
 > |---|---|
-> | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes |
-> | `mcp-only` (MCP registration only) | Warp · Kilo · Droid (Factory) · Roo Code · Trae · Antigravity · Zed · Amp · Codebuff · Mux |
+> | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Antigravity · Antigravity CLI |
+> | `mcp-only` (MCP registration only) | Warp · Kilo · Droid (Factory) · Roo Code · Trae · Zed · Amp · Codebuff · Mux · Pi |
 > | `ts-plugin` (generated bridge module) | OpenCode · OMP · OpenClaw |
 >
 > …plus the telemetry core. Adding a platform = **one registry entry + one
-> adapter**. (Pi is excluded — it exposes no writable MCP config; it's a future
-> telemetry-only target.) See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> adapter**. (Google Antigravity is now fully supported, including the `agy` CLI,
+> as Gemini CLI sunsets.) See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Quick start
 

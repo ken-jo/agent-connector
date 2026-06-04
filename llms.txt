@@ -1,0 +1,81 @@
+# agent-connector
+
+> Write your MCP server + hooks (and commands / skills / subagents) ONCE; install them across every detected AI-agent CLI in its native config dialect — and get default, platform-independent, local-first per-tool token telemetry.
+
+## What it is
+
+Middleware that solves two recurring problems for MCP/agent-tooling developers:
+1. Every agent host re-invents MCP registration + lifecycle hooks with incompatible config files, root keys, formats (JSON/JSONC/TOML/YAML/exported TS), transports, scopes, and event names.
+2. No host reports per-tool token usage back to an MCP server — so "which of my tools cost the most context?" is otherwise unanswerable.
+
+Declare once with `defineConnector({...})`; the CLI detects installed hosts, renders each native config, installs/syncs/uninstalls, and measures your server's own token footprint locally.
+
+## Two pillars
+
+- **Single-API multi-platform deployment.** One declarative + programmatic config → adapters render it into each platform's native MCP + hook + content config; one CLI installs/syncs/uninstalls everywhere.
+- **Default per-MCP token telemetry.** Platform-independent, local-first, privacy-preserving (aggregate counts, never content). On by default, opt-out granular.
+
+## Surfaces (declare once, deploy everywhere)
+
+- `server` — one transport-polymorphic MCP server (stdio | http | sse | ws).
+- `hooks` — normalized lifecycle hooks (SessionStart, PreToolUse, PostToolUse, …).
+- `commands` — slash commands (content files).
+- `skills` — Agent Skills (SKILL.md folders + resources).
+- `subagents` — named subagents (system prompt + tool/model scoping).
+
+## Quick start
+
+```bash
+npm i -g agent-connector
+cd my-mcp-project            # contains agent-connector.config.mjs
+agent-connector detect       # which hosts are installed here?
+agent-connector install --dry-run   # preview every change, everywhere
+agent-connector install             # deploy across detected hosts
+agent-connector doctor              # per-platform health checks
+agent-connector telemetry report    # per-tool token footprint
+```
+
+## Key API: defineConnector fields
+
+- `id` (required, kebab-case), `displayName`, `version`.
+- `server?: ServerDef` — `transport`, `command`/`args`/`env`/`cwd` (stdio) or `url`/`headers`/`auth` (remote), `tools`, `timeoutMs`, `enabled`, `wrapForTelemetry`.
+- `hooks?: HooksConfig` — per event: `{ matcher?, handler(evt) }`; handler returns `{ decision: allow|deny|modify|context|ask, reason?, updatedInput?, additionalContext?, updatedOutput? }` or void.
+- `commands?`, `skills?`, `subagents?` — content-only surfaces.
+- `telemetry?: TelemetryConfig` — `enabled` (default true), `modelFamilyHint`, `measureToolDefs`, `hostNativeUsage`, `store`, `calibration`.
+- `platforms?` — per-platform overrides / escape hatch (`extra`, disable a surface, force scope).
+- `targets?` — `"auto"` (default, all detected) or an explicit `PlatformId[]`.
+
+Validation: throws `ConnectorConfigError` on bad id, non-function handler, missing required field, duplicate surface name, skill description >1024 chars, or unsafe `resources` path.
+
+## CLI commands
+
+- `detect` — list installed platforms, scope, capabilities, hook paradigm.
+- `install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]`
+- `sync` — idempotent re-render; heals the stable home pointer.
+- `uninstall [--connector-id <id>] [--targets …] [--dry-run]`
+- `doctor [--targets …] [--json]` — health checks; non-zero exit on FAIL.
+- `update [--channel stable|latest]` — managed update + pointer refresh (never silent).
+- `telemetry report|export|leaderboard` — per-MCP token telemetry.
+- `usage report|export|leaderboard` — host-native usage parsed read-only from CLI logs.
+- `leaderboard` — unified: 🔌 per-MCP · 🖥️ host/user · 🛰️ live host-native turns (never summed).
+- `hook`, `serve`, `usage-event` — internal entrypoints hosts point at.
+
+## Supported platforms by paradigm (28)
+
+- `json-stdio` (full hook dispatch): claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, antigravity, antigravity-cli.
+- `mcp-only` (MCP registration only): warp, kilo, droid, roo-code, trae, zed, amp, codebuff, mux, pi.
+- `ts-plugin` (generated bridge module): opencode, omp, openclaw.
+
+## Telemetry / leaderboards
+
+- Default tokenizer: `gpt-tokenizer` (pure-JS); `o200k_base` for OpenAI/Codex, documented approximation for Anthropic; falls back to `chars/4` heuristic. Every row tagged `tokenizer-exact | tokenizer-approx | heuristic | host-native`.
+- Two distinct leaderboards: per-MCP server bytes (telemetry) vs host CLI usage (usage). They measure different things and are never summed.
+- Privacy: aggregate counts only; zero egress by default. Opt out: `AGENT_CONNECTOR_TELEMETRY=0` or `telemetry: { enabled: false }`.
+
+## Links
+
+- [README](README.md) — overview + quick start.
+- [Architecture](docs/ARCHITECTURE.md) — the authoritative design.
+- [Full LLM reference](llms-full.txt) — exhaustive API + CLI + platform + telemetry reference.
+- [Example connector](examples/acme-db/agent-connector.config.mjs).
+- [Skill](skills/agent-connector/SKILL.md) — agent-facing how-to (deployable via the skills surface).
