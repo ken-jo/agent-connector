@@ -30,7 +30,7 @@ import type {
 } from "../core/types.js";
 import { backupsDir, ensureDir } from "../core/paths.js";
 import { parseJsonc } from "../core/jsonc.js";
-import { stringify as stringifyYaml } from "yaml";
+import { renderFrontmatterMd } from "./claude-code/render.js";
 import type { Adapter, InstallContext } from "./spi.js";
 
 /** Content-surface kinds with BaseAdapter default install/uninstall handling. */
@@ -246,13 +246,14 @@ export abstract class BaseAdapter implements Adapter {
   /**
    * Render a YAML-frontmatter + markdown body document:
    *   "---\n" + <yaml> + "---\n\n" + <body> + "\n".
-   * Reuses the `yaml` package's stringify (the same serializer core/yaml uses).
+   * Delegates to the shared renderer (adapters/claude-code/render) so every
+   * content-file path — adapters AND the plugin packager — emits identical bytes.
    */
   protected renderFrontmatterMd(
     frontmatter: Record<string, unknown>,
     body: string,
   ): string {
-    return `---\n${stringifyYaml(frontmatter)}---\n\n${body}\n`;
+    return renderFrontmatterMd(frontmatter, body);
   }
 
   // ── JSON config helpers (used by JSON-format adapters) ───────────────────

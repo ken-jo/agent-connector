@@ -118,6 +118,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   install: () => import("./commands/install.js"),
   sync: () => import("./commands/sync.js"),
   uninstall: () => import("./commands/uninstall.js"),
+  package: () => import("./commands/package.js"),
   doctor: () => import("./commands/doctor.js"),
   update: () => import("./commands/update.js"),
   telemetry: () => import("./commands/telemetry.js"),
@@ -140,6 +141,7 @@ commands:
   install      Deploy a connector across its target platforms.
   sync         Idempotent re-install (re-renders config, heals the home pointer).
   uninstall    Remove a connector's MCP + hook registrations.
+  package      Emit a marketplace-installable Claude Code plugin bundle + marketplace.json.
   doctor       Health-check every detected platform; non-zero exit on any failure.
   update       Managed-update guidance + refresh of the stable home pointer.
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).

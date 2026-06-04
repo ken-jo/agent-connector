@@ -57,6 +57,7 @@ import {
   extractSessionId,
   toolResponseToString,
 } from "./wire.js";
+import { renderCommandMd, renderSkillMd, renderSubagentMd } from "./render.js";
 
 const HOST: PlatformId = "claude-code";
 const MCP_ROOT_KEY = "mcpServers";
@@ -443,16 +444,9 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     );
   }
 
-  /** Render a command to md+frontmatter (description, argument-hint, allowed-tools, model). */
+  /** Render a command to md+frontmatter (delegates to the shared renderer). */
   private renderCommand(cmd: CommandDef): string {
-    const frontmatter: Record<string, unknown> = {};
-    if (cmd.description !== undefined) frontmatter.description = cmd.description;
-    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
-    const allow = cmd.tools?.allow;
-    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
-    if (cmd.model !== undefined) frontmatter.model = cmd.model;
-    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
-    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+    return renderCommandMd(cmd);
   }
 
   // ── Skills ────────────────────────────────────────────────────────────────
@@ -513,23 +507,9 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     return changes;
   }
 
-  /**
-   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
-   * allowed-tools, disable-model-invocation) + body.
-   */
+  /** Render a skill's SKILL.md (delegates to the shared renderer). */
   private renderSkill(skill: SkillDef): string {
-    const frontmatter: Record<string, unknown> = {
-      name: skill.name,
-      description: skill.description,
-    };
-    if (skill.model !== undefined) frontmatter.model = skill.model;
-    const allow = skill.tools?.allow;
-    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
-    if (skill.disableModelInvocation !== undefined) {
-      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
-    }
-    if (skill.extra) Object.assign(frontmatter, skill.extra);
-    return this.renderFrontmatterMd(frontmatter, skill.body);
+    return renderSkillMd(skill);
   }
 
   // ── Subagents ───────────────────────────────────────────────────────────────
@@ -561,17 +541,9 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     );
   }
 
-  /** Render a subagent to md+frontmatter (name, description, tools, model) + prompt body. */
+  /** Render a subagent to md+frontmatter (delegates to the shared renderer). */
   private renderSubagent(agent: SubagentDef): string {
-    const frontmatter: Record<string, unknown> = {
-      name: agent.name,
-      description: agent.description,
-    };
-    const allow = agent.tools?.allow;
-    if (allow && allow.length > 0) frontmatter.tools = allow.join(", ");
-    if (agent.model !== undefined) frontmatter.model = agent.model;
-    if (agent.extra) Object.assign(frontmatter, agent.extra);
-    return this.renderFrontmatterMd(frontmatter, agent.prompt);
+    return renderSubagentMd(agent);
   }
 
   /** True when a hook command references our home binary AND this connector id
