@@ -461,61 +461,74 @@ const alignStyle: Record<
 function ClaudeVsKilo() {
   const claude = platformById("claude-code")!;
   const kilo = platformById("kilo-cli")!;
+
+  // Position card for one host (config path + capabilities). Rendered inside the
+  // active toggle tab so claude/kilo swap in the SAME spot.
+  const renderCard = (p: typeof claude) => (
+    <div className="rounded-xl border border-border bg-card/40 p-5 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-base font-semibold text-foreground">{p.displayName}</span>
+        <ParadigmChip paradigm={p.paradigm} />
+      </div>
+      <code className="mt-3 block overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[0.72rem] text-foreground/90">
+        {p.configPath}
+      </code>
+      <div className="mt-3 flex flex-col gap-1.5">
+        <CapIcon on={p.capabilities.canModifyArgs} label="canModifyArgs" />
+        <CapIcon on={p.capabilities.canModifyOutput} label="canModifyOutput" />
+        <CapIcon on={p.capabilities.canInjectSessionContext} label="canInjectSessionContext" />
+      </div>
+    </div>
+  );
+
   return (
     <div className="not-prose mt-6">
-      {/* Two-column header / position cards */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {[claude, kilo].map((p) => (
-          <div
-            key={p.platform}
-            className="rounded-xl border border-border bg-card/40 p-5 shadow-sm"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-base font-semibold text-foreground">
-                {p.displayName}
-              </span>
-              <ParadigmChip paradigm={p.paradigm} />
-            </div>
-            <code className="mt-3 block overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[0.72rem] text-foreground/90">
-              {p.configPath}
-            </code>
-            <div className="mt-3 flex flex-col gap-1.5">
-              <CapIcon on={p.capabilities.canModifyArgs} label="canModifyArgs" />
-              <CapIcon on={p.capabilities.canModifyOutput} label="canModifyOutput" />
-              <CapIcon
-                on={p.capabilities.canInjectSessionContext}
-                label="canInjectSessionContext"
+      {/* TOGGLE the headline PreToolUse hook between hosts IN PLACE — compare by
+          flipping, instead of scrolling past two tall side-by-side code blocks. */}
+      <p className="mb-3 text-sm text-muted-foreground">
+        One handler, two native renderings of the headline <C>PreToolUse</C> hook —
+        toggle to flip Claude Code ↔ Kilo CLI in the same spot and compare.
+      </p>
+      <Tabs defaultValue="claude-code" className="w-full">
+        <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+          <TabsTrigger value="claude-code">Claude Code · json-stdio</TabsTrigger>
+          <TabsTrigger value="kilo-cli">Kilo CLI · ts-plugin</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="claude-code" className="mt-4">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,17rem)_1fr]">
+            {renderCard(claude)}
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+                <span className={cn("size-1.5 rounded-full", paradigmAccent["json-stdio"].dot)} />
+                claude-code · <code className="font-mono text-emerald-600 dark:text-emerald-400">PreToolUse</code>
+              </div>
+              <CodeBlock
+                code={CLAUDE_HOOKS_JSON}
+                language="json"
+                filename="json-stdio: settings.json hook"
               />
             </div>
           </div>
-        ))}
-      </div>
+        </TabsContent>
 
-      {/* The PreToolUse code pairing (the user's headline example) */}
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-            <span className={cn("size-1.5 rounded-full", paradigmAccent["json-stdio"].dot)} />
-            claude-code · <code className="font-mono text-emerald-600 dark:text-emerald-400">PreToolUse</code>
+        <TabsContent value="kilo-cli" className="mt-4">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,17rem)_1fr]">
+            {renderCard(kilo)}
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+                <span className={cn("size-1.5 rounded-full", paradigmAccent["ts-plugin"].dot)} />
+                kilo-cli · <code className="font-mono text-violet-600 dark:text-violet-400">tool.execute.before</code>
+              </div>
+              <CodeBlock
+                code={KILO_PLUGIN_JS}
+                language="ts"
+                filename="ts-plugin: synthesized @kilocode/plugin module"
+              />
+            </div>
           </div>
-          <CodeBlock
-            code={CLAUDE_HOOKS_JSON}
-            language="json"
-            filename="json-stdio: settings hook"
-          />
-        </div>
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-            <span className={cn("size-1.5 rounded-full", paradigmAccent["ts-plugin"].dot)} />
-            kilo-cli · <code className="font-mono text-violet-600 dark:text-violet-400">tool.execute.before</code>
-          </div>
-          <CodeBlock
-            code={KILO_PLUGIN_JS}
-            language="ts"
-            filename="ts-plugin: synthesized module"
-          />
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Per-event alignment table */}
       <div className="mt-6 overflow-x-auto rounded-xl border border-border bg-card/40 shadow-sm">
