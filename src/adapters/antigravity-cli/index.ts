@@ -30,19 +30,21 @@
  * (install/uninstall/list/enable/disable) — future work would deploy as an agy
  * plugin; for now the MCP/workflows/skills surfaces ride the shared IDE files.
  *
- * LIVE-TEST UPDATE (2026-06-04, real `agy` login + spawn attempt): the prior
- * "no separate config dir / shares ~/.gemini/antigravity/" claim is now STALE for
- * agy v1.0.0. On login `agy` DID create its own home `~/.gemini/antigravity-cli/`
- * (antigravity-oauth-token, settings.json, conversations, brain, …). Crucially,
- * a live `agy -p` session did NOT pick up an MCP server written to
- * ~/.gemini/antigravity/mcp_config.json NOR ~/.gemini/antigravity-cli/mcp_config.json
- * ("no MCP tools available"), and `agy mcp add` is TTY-only (bubbletea, no
- * headless write). The binary references a `cortex` McpServerStatus gRPC service —
- * agy v1.0.0 appears to manage MCP servers via the Antigravity backend, not a
- * file our adapter can write. NET: install still writes the documented IDE path
- * (correct for the IDE), but the standalone `agy` CLI's MCP intake is UNVERIFIED
- * and the file path likely needs revisiting once agy exposes a headless/file MCP
- * surface. Runtime spawn for `agy` could NOT be confirmed headlessly.
+ * LIVE-TEST RESOLUTION (2026-06-04, real `agy` v1.0.5 login + spawn): the prior
+ * "shares the IDE's ~/.gemini/antigravity/ file" claim was WRONG for the CLI. The
+ * standalone `agy` reads user MCP from **~/.gemini/config/mcp_config.json**
+ * (root key `mcpServers`; project scope <proj>/.agents/mcp_config.json) — PROVEN:
+ * a live `agy -p` session spawned an MCP server placed in `config/` and completed
+ * a real initialize+tools/list+tools/call handshake; a negative control in
+ * `antigravity/` was ignored. The binary carries "failed to read mcp_config.json"
+ * + a literal "/.gemini/config" path; there is NO `--mcp-config` flag and `agy
+ * mcp` is TUI-only. So this adapter now OVERRIDES userConfigCandidates to prefer
+ * `~/.gemini/config/mcp_config.json` (canonical) over the inherited IDE
+ * `antigravity/` default (kept as a prefer-existing fallback). Telemetry-wrap is
+ * compatible: agy spawns command+args verbatim, so the home-bin serve wrapper is
+ * spawned as written — i.e. a real agy session now emits a per-MCP telemetry row.
+ * (agy also keeps its own home ~/.gemini/antigravity-cli/ for auth/state, but MCP
+ * config lives in the shared ~/.gemini/config/.)
  *
  * Project scope is IDENTICAL to the IDE adapter (`<proj>/.agents/…`), as is every
  * hook/command/skill render and the runtime parse/format — all inherited.
@@ -121,9 +123,27 @@ export class AntigravityCliAdapter extends AntigravityAdapter implements Adapter
     };
   }
 
-  // User scope shares the IDE's ~/.gemini/antigravity/ tree (CONFIRMED: `agy` has
-  // no separate config dir), so we inherit userConfigCandidates / resolveSkillsDir
-  // / resolveWorkflowsDir unchanged. Only identity + detection differ from the IDE.
+  /**
+   * MCP user-config path — LIVE-PROVEN for `agy` v1.0.5 (2026-06-04). The
+   * standalone CLI reads user MCP servers from `~/.gemini/config/mcp_config.json`
+   * (root key `mcpServers`), NOT the IDE's `~/.gemini/antigravity/mcp_config.json`:
+   * a real `agy -p` session spawned an MCP server ONLY when it was placed in
+   * `config/` (negative control: a server in `antigravity/` was ignored), and the
+   * binary carries the error string "failed to read mcp_config.json" + a literal
+   * "/.gemini/config" path. `agy mcp` is TUI-only (no headless add) and there is
+   * no `--mcp-config` flag. So the CLI must PREFER `config/` over the inherited
+   * `antigravity/` default; the IDE path stays as a prefer-existing fallback.
+   * (Skills/workflows/hooks dirs remain inherited; project scope
+   * `<proj>/.agents/mcp_config.json` is already correct and live-proven.)
+   */
+  private static readonly CLI_USER_CONFIG_CANDIDATES = [
+    [".gemini", "config", "mcp_config.json"], // CONFIRMED canonical for agy v1.0.5
+    [".gemini", "antigravity", "mcp_config.json"], // legacy IDE layout (prefer-existing)
+  ] as const;
+
+  protected override userConfigCandidates(): ReadonlyArray<readonly string[]> {
+    return AntigravityCliAdapter.CLI_USER_CONFIG_CANDIDATES;
+  }
 }
 
 export const adapter = new AntigravityCliAdapter();

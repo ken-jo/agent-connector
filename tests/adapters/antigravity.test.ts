@@ -250,21 +250,36 @@ describe("antigravity + antigravity-cli MCP render", () => {
     expect(antigravityAdapter.getServerConfigPath(ctx2)).toBe(cliPath);
   });
 
-  it("antigravity-cli USER-scope SHARES the IDE's ~/.gemini/antigravity/ (no separate CLI dir)", () => {
+  it("antigravity-cli USER-scope MCP resolves to ~/.gemini/config/ (agy v1.0.5 live-proven), NOT the IDE's antigravity/", () => {
     const home = freshHome("ac-antigcli-userorder-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
-    // CONFIRMED: `agy` has no separate config dir → it resolves to the SAME
-    // canonical IDE path as a fresh install.
-    const shared = join(home, ".gemini", "antigravity", "mcp_config.json");
-    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(shared);
-    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(
+    // LIVE-PROVEN (2026-06-04): the standalone `agy` CLI reads user MCP from
+    // ~/.gemini/config/mcp_config.json, NOT the IDE's ~/.gemini/antigravity/.
+    // A fresh CLI install therefore resolves to config/ (its candidate[0]).
+    const cliCanonical = join(home, ".gemini", "config", "mcp_config.json");
+    const ideDefault = join(home, ".gemini", "antigravity", "mcp_config.json");
+    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(cliCanonical);
+    // It DIFFERS from the IDE adapter's fresh default (which stays antigravity/).
+    expect(antigravityCliAdapter.getServerConfigPath(ctx)).not.toBe(
       antigravityAdapter.getServerConfigPath(ctx),
     );
+    expect(antigravityAdapter.getServerConfigPath(ctx)).toBe(ideDefault);
 
-    // Installing the CLI connector writes THERE (the shared IDE file).
+    // Installing the CLI connector writes to the config/ path agy actually reads.
     antigravityCliAdapter.installServer(ctx);
-    expect(existsSync(shared)).toBe(true);
+    expect(existsSync(cliCanonical)).toBe(true);
+    expect(existsSync(ideDefault)).toBe(false);
+  });
+
+  it("antigravity-cli prefer-existing: an existing IDE antigravity/ file is still honored", () => {
+    const home = freshHome("ac-antigcli-prefer-ide-");
+    const ctx = buildCtx(home, stdioConnector(), "user");
+    const idePath = join(home, ".gemini", "antigravity", "mcp_config.json");
+    mkdirSync(join(home, ".gemini", "antigravity"), { recursive: true });
+    writeFileSync(idePath, "{}\n");
+    // config/ absent but antigravity/ present → prefer-existing honors the legacy file.
+    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(idePath);
   });
 });
 
