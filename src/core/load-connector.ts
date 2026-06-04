@@ -14,7 +14,7 @@
  * `modulePath`; the runtime re-imports that module to recover the live handlers.
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -186,6 +186,24 @@ export function registerConnector(
   const outPath = join(dir, "connector.json");
   writeFileSync(outPath, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
   return outPath;
+}
+
+/**
+ * Deregister a connector by removing its DATA-dir record directory
+ * (`connectorDir(id)`) recursively. This is the inverse of {@link registerConnector}:
+ * registerConnector writes `connectorDir(id)/connector.json`, but per-target
+ * uninstall only strips host-native registrations — it never removes this record,
+ * leaving an orphan behind. Best-effort + guarded: returns the directory path and
+ * whether it existed before removal.
+ */
+export function deregisterConnector(id: string): {
+  removed: boolean;
+  path: string;
+} {
+  const dir = connectorDir(id);
+  const existed = existsSync(dir);
+  if (existed) rmSync(dir, { recursive: true, force: true });
+  return { removed: existed, path: dir };
 }
 
 /**

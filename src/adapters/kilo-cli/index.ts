@@ -385,7 +385,7 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
         platform: this.id,
         action,
         path: file.path,
-        detail: `kilo plugin module (${ctx.connector.hookEvents.join(",")})`,
+        detail: `kilo plugin module (${this.hookDetail(ctx)})`,
       });
     }
 
@@ -394,6 +394,22 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
     changes.push(this.upsertPluginInArray(configPath, pluginPath, ctx.dryRun));
 
     return changes;
+  }
+
+  /**
+   * Human-facing summary of which declared events the synthesized module ACTUALLY
+   * wires. Only events present in EVENT_TO_KILO are mapped/wired; any declared
+   * event with no Kilo mapping is reported separately as "unsupported here" so
+   * the detail never overstates coverage.
+   */
+  private hookDetail(ctx: InstallContext): string {
+    const declared = ctx.connector.hookEvents;
+    const mapped = declared.filter((e) => EVENT_TO_KILO[e] !== undefined);
+    const unsupported = declared.filter((e) => EVENT_TO_KILO[e] === undefined);
+    const base = mapped.join(",");
+    return unsupported.length > 0
+      ? `${base}; unsupported here: ${unsupported.join(",")}`
+      : base;
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {

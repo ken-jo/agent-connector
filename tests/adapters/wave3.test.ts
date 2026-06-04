@@ -322,6 +322,59 @@ describe("goose adapter render + round-trip", () => {
     expect(out.reason).toBe("blocked by policy");
     expect(out.hookSpecificOutput).toBeUndefined();
   });
+
+  // CAPABILITY-CONTRACT (D1): Goose declares userPromptSubmit:false and only
+  // delivers PreToolUse/PostToolUse/SessionStart. installHooks must filter
+  // declared events against the adapter capabilities BEFORE writing — a
+  // connector that declares an UNSUPPORTED event (UserPromptSubmit) must NOT
+  // get that event written into hooks.json, only a graceful warn ChangeRecord.
+  it("installHooks SKIPS an unsupported event (UserPromptSubmit) with a warn but still writes PreToolUse", () => {
+    const upsConnector = defineConnector({
+      id: CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      hooks: {
+        PreToolUse: {
+          matcher: PRE_MATCHER,
+          handler() {
+            return { decision: "allow" };
+          },
+        },
+        UserPromptSubmit: {
+          handler() {
+            return { decision: "allow" };
+          },
+        },
+      },
+    });
+    const upsCtx = buildCtx(projectDir, upsConnector, "user");
+
+    const changes = gooseAdapter.installHooks(upsCtx);
+
+    // UserPromptSubmit is unsupported → a warn ChangeRecord, never written.
+    const warn = changes.find(
+      (c) => c.action === "warn" && c.detail?.includes("UserPromptSubmit"),
+    );
+    expect(warn).toBeTruthy();
+    expect(warn?.detail).toContain("unsupported on goose");
+    // PreToolUse IS supported → created.
+    expect(
+      changes.some((c) => c.action === "create" && c.detail === "hooks.PreToolUse"),
+    ).toBe(true);
+    // No change record was emitted that would write hooks.UserPromptSubmit.
+    expect(
+      changes.some(
+        (c) =>
+          c.action !== "warn" && c.detail === "hooks.UserPromptSubmit",
+      ),
+    ).toBe(false);
+
+    const hookPath = gooseAdapter.getHookConfigPath(upsCtx);
+    const file = readJsonFile(hookPath);
+    // The on-disk file carries PreToolUse but NOT the unsupported UserPromptSubmit.
+    expect(file.hooks.PreToolUse).toBeTruthy();
+    expect(file.hooks.UserPromptSubmit).toBeUndefined();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────

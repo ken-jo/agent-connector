@@ -495,8 +495,42 @@ describe("jetbrains-copilot adapter render + round-trip", () => {
     expect(cfg.hooks.PreToolUse).toHaveLength(1);
 
     jetbrainsCopilotAdapter.uninstallHooks(ctx);
-    const after = readJson(hooksPath);
-    expect(JSON.stringify(after.hooks ?? {})).not.toContain(HOME_BIN);
+    // The connector-owned file is DELETED (not left as an empty shell), so it
+    // no longer exists to re-read.
+    expect(existsSync(hooksPath)).toBe(false);
+  });
+
+  // CLEAN-UNINSTALL (D2): the hook file is connector-OWNED
+  // (<connector-id>.json). When uninstall empties it, the whole file must be
+  // DELETED — NOT rewritten as a `{ "hooks": {}, "version": 1 }` orphan shell.
+  it("install then uninstall leaves NO file at .github/hooks/<id>.json (no empty shell)", () => {
+    const hooksPath = join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`);
+
+    jetbrainsCopilotAdapter.installHooks(ctx);
+    expect(existsSync(hooksPath)).toBe(true);
+
+    const changes = jetbrainsCopilotAdapter.uninstallHooks(ctx);
+    // The file is gone entirely — not an empty shell.
+    expect(existsSync(hooksPath)).toBe(false);
+    // A remove ChangeRecord for the file was emitted.
+    expect(
+      changes.some((c) => c.action === "remove" && c.path === hooksPath),
+    ).toBe(true);
+  });
+
+  it("dryRun uninstall reports the would-be remove but leaves the file in place", () => {
+    const hooksPath = join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`);
+    jetbrainsCopilotAdapter.installHooks(ctx);
+    expect(existsSync(hooksPath)).toBe(true);
+
+    const dryCtx: InstallContext = { ...ctx, dryRun: true };
+    const changes = jetbrainsCopilotAdapter.uninstallHooks(dryCtx);
+    // Reports the remove…
+    expect(
+      changes.some((c) => c.action === "remove" && c.path === hooksPath),
+    ).toBe(true);
+    // …but the filesystem is untouched.
+    expect(existsSync(hooksPath)).toBe(true);
   });
 
   it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout hookSpecificOutput deny, exit 0", () => {

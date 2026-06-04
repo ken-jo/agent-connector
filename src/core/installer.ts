@@ -21,7 +21,7 @@
  * stale pointers").
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,8 +35,18 @@ import type {
 import type { Adapter, InstallContext } from "../adapters/spi.js";
 import { REGISTERED_PLATFORM_IDS, loadAdapter } from "../adapters/registry.js";
 import { detectInstalledPlatforms } from "../adapters/detect.js";
-import { loadRegisteredConnector, registerConnector } from "./load-connector.js";
-import { dataRoot, ensureHomeBin, homeBinPath } from "./paths.js";
+import {
+  deregisterConnector,
+  loadRegisteredConnector,
+  registerConnector,
+} from "./load-connector.js";
+import {
+  connectorDir,
+  connectorsDir,
+  dataRoot,
+  ensureHomeBin,
+  homeBinPath,
+} from "./paths.js";
 import { log } from "./logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -71,6 +81,13 @@ export interface UninstallOptions {
   targets?: PlatformId[];
   /** Compute changes but do not write anything. */
   dryRun: boolean;
+  /**
+   * Also remove the framework-state for this connector after stripping every
+   * per-target registration: the DATA-dir connector record (connectorDir(id)) and,
+   * when no connectors remain, the shared home-bin launcher. Respects dryRun (no
+   * mutation, but the would-be changes are still reported).
+   */
+  purge?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -191,7 +208,7 @@ export async function syncConnector(
 export async function uninstallConnector(
   opts: UninstallOptions,
 ): Promise<InstallResult> {
-  const { connectorId, scope, projectDir, dryRun } = opts;
+  const { connectorId, scope, projectDir, dryRun, purge } = opts;
 
   const connector = await loadConnectorForUninstall(connectorId);
   const result = newResult(connectorId, dryRun);
@@ -201,6 +218,9 @@ export async function uninstallConnector(
     result.warnings.push(
       "no target platforms resolved for uninstall (none installed / detected, or all filtered out)",
     );
+    // --purge still removes the orphan framework-state even when no host targets
+    // resolve (e.g. the user already uninstalled from every host).
+    if (purge) purgeFrameworkState(connectorId, dryRun, result);
     return result;
   }
 
@@ -236,7 +256,94 @@ export async function uninstallConnector(
     });
   }
 
+  // --purge: after every per-target registration is stripped, also remove the
+  // framework-state this connector left behind (its DATA-dir record and, when no
+  // connectors remain, the shared home-bin launcher).
+  if (purge) purgeFrameworkState(connectorId, dryRun, result);
+
   return result;
+}
+
+/**
+ * Remove the framework-state a connector left behind (the inverse of install's
+ * registerConnector + ensureHomeBin):
+ *   1. Deregister the DATA-dir connector record (connectorDir(id)).
+ *   2. When no connector records remain, remove the shared home-bin launcher.
+ * All steps are guarded/best-effort and respect dryRun — on a dry run nothing is
+ * mutated, but the would-be `remove` changes are still reported.
+ */
+function purgeFrameworkState(
+  connectorId: string,
+  dryRun: boolean,
+  result: InstallResult,
+): void {
+  // These are framework-state changes, not platform-native ones. ChangeRecord
+  // types `platform` as the closed PlatformId union, so label them with the
+  // connector id (cast once) — there is no real host platform to attribute.
+  const platform = connectorId as PlatformId;
+
+  // 1. Deregister the connector record directory.
+  const recordDir = connectorDir(connectorId);
+  const recordExisted = existsSync(recordDir);
+  if (recordExisted) {
+    if (!dryRun) {
+      try {
+        deregisterConnector(connectorId);
+      } catch (err) {
+        log.warn(`deregisterConnector failed: ${errMessage(err)}`);
+      }
+    }
+    result.changes.push({
+      platform,
+      action: "remove",
+      path: recordDir,
+      detail: "deregistered connector record",
+    });
+  }
+
+  // 2. If no connector records remain, remove the shared home-bin launcher.
+  if (noConnectorsRemain(connectorId, dryRun, recordExisted)) {
+    const binPath = homeBinPath();
+    if (existsSync(binPath)) {
+      if (!dryRun) {
+        try {
+          rmSync(binPath, { force: true });
+        } catch (err) {
+          log.warn(`home-bin removal failed: ${errMessage(err)}`);
+        }
+      }
+      result.changes.push({
+        platform,
+        action: "remove",
+        path: binPath,
+        detail: "removed home-bin (no connectors remain)",
+      });
+    }
+  }
+}
+
+/**
+ * True when `connectorsDir()` holds no remaining connector records. On a dry run
+ * the just-deregistered record is still on disk, so it is discounted: the dir is
+ * "empty" when its only remaining entry is the connector we are purging.
+ */
+function noConnectorsRemain(
+  connectorId: string,
+  dryRun: boolean,
+  recordExisted: boolean,
+): boolean {
+  const dir = connectorsDir();
+  if (!existsSync(dir)) return true;
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return false;
+  }
+  const remaining = entries.filter(
+    (e) => !(dryRun && recordExisted && e === connectorId),
+  );
+  return remaining.length === 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

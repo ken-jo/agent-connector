@@ -390,11 +390,27 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
         path: file.path,
         detail: file.path.endsWith("package.json")
           ? "omp extension manifest"
-          : `omp plugin module (${ctx.connector.hookEvents.join(",")})`,
+          : `omp plugin module (${this.hookDetail(ctx)})`,
       });
     }
 
     return changes;
+  }
+
+  /**
+   * Human-facing summary of which declared events the synthesized module ACTUALLY
+   * wires. Only events present in EVENT_TO_OMP are mapped/wired; any declared
+   * event with no OMP mapping (e.g. UserPromptSubmit) is reported separately as
+   * "unsupported here" so the detail never overstates coverage.
+   */
+  private hookDetail(ctx: InstallContext): string {
+    const declared = ctx.connector.hookEvents;
+    const mapped = declared.filter((e) => EVENT_TO_OMP[e] !== undefined);
+    const unsupported = declared.filter((e) => EVENT_TO_OMP[e] === undefined);
+    const base = mapped.join(",");
+    return unsupported.length > 0
+      ? `${base}; unsupported here: ${unsupported.join(",")}`
+      : base;
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {

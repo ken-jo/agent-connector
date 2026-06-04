@@ -5,6 +5,11 @@
  * connector config (--connector <path> / findConnectorConfig). The installer's
  * uninstall orchestration loads the registered connector for context and removes
  * its entries from every resolved target.
+ *
+ * --purge additionally removes the framework-state this connector left behind:
+ * its DATA-dir connector record (connectorDir(id)) and, when no connectors
+ * remain, the shared home-bin launcher. Without --purge those linger so the
+ * connector can be re-synced without re-registering.
  */
 
 import { parseArgs } from "node:util";
@@ -36,6 +41,7 @@ export async function run(argv: string[]): Promise<number> {
       "connector-id": { type: "string" },
       project: { type: "string" },
       "dry-run": { type: "boolean", default: false },
+      purge: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });
@@ -64,6 +70,7 @@ export async function run(argv: string[]): Promise<number> {
     scope,
     projectDir,
     dryRun: values["dry-run"],
+    purge: values.purge,
     ...(targets ? { targets } : {}),
   });
 

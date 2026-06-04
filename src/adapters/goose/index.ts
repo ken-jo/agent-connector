@@ -28,7 +28,7 @@
  *   - Windows:            %APPDATA%/Block/goose/config/config.yaml
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -66,6 +66,25 @@ import {
 const HOST: PlatformId = "goose";
 /** Root key under which Goose stores MCP servers ("extensions") in config.yaml. */
 const MCP_ROOT_KEY = "extensions";
+
+/**
+ * Map each normalized hook event to the matching capability flag on this
+ * adapter. The adapter's own `capabilities` literal is the single source of
+ * truth for what Goose's Open-Plugins runtime delivers (PreToolUse/PostToolUse/
+ * SessionStart); installHooks filters declared events through this map so an
+ * unsupported event (e.g. UserPromptSubmit) is never written verbatim into
+ * hooks.json — it is reported as a graceful warn/skip instead.
+ */
+const EVENT_CAPABILITY: Record<HookEventName, keyof PlatformCapabilities> = {
+  SessionStart: "sessionStart",
+  SessionEnd: "sessionEnd",
+  UserPromptSubmit: "userPromptSubmit",
+  PreToolUse: "preToolUse",
+  PostToolUse: "postToolUse",
+  PreCompact: "preCompact",
+  Stop: "stop",
+  Notification: "notification",
+};
 
 /**
  * Goose extension (MCP server) entry — note the Goose-specific field names:
@@ -343,6 +362,21 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     let mutated = false;
 
     for (const event of events) {
+      // CAPABILITY FILTER: only write events Goose's Open-Plugins runtime
+      // actually delivers. Derive support from THIS adapter's capabilities (the
+      // single source of truth) so an event Goose does not support (e.g.
+      // UserPromptSubmit) is reported as a graceful warn and never written
+      // verbatim into hooks.json — mirroring the cursor adapter's pattern.
+      if (this.capabilities[EVENT_CAPABILITY[event]] !== true) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path,
+          detail: `${event} unsupported on goose — skipped`,
+        });
+        continue;
+      }
+
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
       const matcher = connector.hooks[event]?.matcher ?? "";
       const desired: GooseHookRule = {
