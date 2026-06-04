@@ -1,32 +1,118 @@
 /**
- * cli/commands/package — emit a marketplace-installable Claude Code plugin bundle.
+ * cli/commands/package — emit a marketplace/extension-installable connector bundle.
  *
  * Resolves the connector config (--connector <path>, else findConnectorConfig
- * walking up from the project dir, exactly like install.ts), packages it into a
- * plugin directory + marketplace.json under --out (default <cwd>/dist-plugin),
- * then prints the emitted file tree plus the two-step install instructions.
+ * walking up from the project dir, exactly like install.ts), packages it for the
+ * requested --format into --out (default <cwd>/dist-plugin), then prints the
+ * emitted file tree plus per-format install instructions.
  *
- * Only --format claude-plugin is supported today (also the default).
+ * `--format <x>` accepts the full union; `--format all` emits EVERY feasible
+ * format, each into <out>/<format>/..., printing install instructions per format.
+ * Default --format claude-plugin.
  */
 
 import { parseArgs } from "node:util";
-import { relative } from "node:path";
+import { join, relative } from "node:path";
 
 import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-connector.js";
-import { packageConnector, type PackageFormat } from "../../core/package.js";
+import {
+  ALL_FORMATS,
+  FEASIBLE_FORMATS,
+  isPackageFormat,
+  packageConnector,
+  packageConnectorAll,
+  type PackageFormat,
+  type PackageResult,
+} from "../../core/package.js";
 import { fail, print } from "../app.js";
 
-const HELP = `agent-connector package — emit a Claude Code plugin bundle + marketplace.json.
+const HELP = `agent-connector package — emit a plugin/extension/marketplace bundle.
 
 usage: agent-connector package [flags]
 
 flags:
   --connector <path>   Connector config to package (else auto-discovered).
-  --format <fmt>       Output format. Only "claude-plugin" (default).
-  --out <dir>          Output directory (the marketplace root). Default: <cwd>/dist-plugin.
+  --format <fmt>       Output format (default: claude-plugin). One of:
+                         ${ALL_FORMATS.join(", ")}
+                       or "all" to emit every feasible format into <out>/<fmt>/.
+  --out <dir>          Output directory. Default: <cwd>/dist-plugin.
   --project <dir>      Project root for connector discovery (default: cwd).
   --dry-run            Compute the file tree without writing anything.
   --help               Show this help.`;
+
+/** Print the file tree + the per-format install instructions for one bundle. */
+function printFormatResult(
+  format: PackageFormat,
+  connectorId: string,
+  outDir: string,
+  result: PackageResult,
+): void {
+  print(`  pluginDir: ${result.pluginDir}`);
+  if (result.marketplacePath) {
+    print(`  marketplace: ${relative(outDir, result.marketplacePath)}`);
+  }
+  print("  emitted files:");
+  for (const f of result.files) {
+    print(`    + ${relative(outDir, f)}`);
+  }
+  if (result.notes && result.notes.length > 0) {
+    print("  notes:");
+    for (const n of result.notes) print(`    ! ${n}`);
+  }
+  print("  install:");
+  for (const line of installInstructions(format, connectorId, outDir)) {
+    print(`    ${line}`);
+  }
+  print("");
+}
+
+/** Per-format install commands (the accurate two-step add+install where applicable). */
+function installInstructions(
+  format: PackageFormat,
+  id: string,
+  outDir: string,
+): string[] {
+  switch (format) {
+    case "claude-plugin":
+      return [
+        `/plugin marketplace add ${outDir}`,
+        `/plugin install ${id}@agent-connector`,
+        `(CLI: claude plugin marketplace add ${outDir} && claude plugin install ${id}@agent-connector)`,
+      ];
+    case "codex-plugin":
+      return [
+        `codex plugin marketplace add ${outDir}`,
+        `codex plugin add ${id}@agent-connector`,
+      ];
+    case "factory-plugin":
+      return [
+        `droid plugin marketplace add ${outDir}`,
+        `droid plugin install ${id}@agent-connector`,
+      ];
+    case "gemini-extension":
+      return [`gemini extensions install ${join(outDir, id)}`];
+    case "qwen-extension":
+      return [`qwen extensions install ${join(outDir, id)}`];
+    case "agy-plugin":
+      return [
+        `agy plugin install ${join(outDir, id)}`,
+        `(validate: agy plugin validate ${join(outDir, id)})`,
+      ];
+    case "cursor-plugin":
+      return [
+        `link ${join(outDir, id)} into ~/.cursor/plugins/local/${id}/ then Developer: Reload Window`,
+        `(or publish ${outDir} as a Cursor marketplace repo)`,
+      ];
+    case "kimi-plugin":
+      return [`kimi plugin install ${join(outDir, id)}`];
+    case "npm-plugin":
+      return [
+        `npm publish ${join(outDir, id)}  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)`,
+      ];
+    default:
+      return [];
+  }
+}
 
 export async function run(argv: string[]): Promise<number> {
   const { values } = parseArgs({
@@ -47,10 +133,13 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
-  if (values.format !== "claude-plugin") {
-    return fail(`invalid --format "${values.format}" (only "claude-plugin" is supported)`);
+  const formatArg = values.format ?? "claude-plugin";
+  const isAll = formatArg === "all";
+  if (!isAll && !isPackageFormat(formatArg)) {
+    return fail(
+      `invalid --format "${formatArg}" (expected one of: ${ALL_FORMATS.join(", ")}, or "all")`,
+    );
   }
-  const format: PackageFormat = "claude-plugin";
 
   const projectDir = values.project ?? process.cwd();
   const configPath = values.connector ?? findConnectorConfig(projectDir);
@@ -63,28 +152,30 @@ export async function run(argv: string[]): Promise<number> {
 
   const outDir = values.out ?? `${process.cwd()}/dist-plugin`;
   const dryRun = values["dry-run"];
+  const mode = dryRun ? " (dry-run — nothing written)" : "";
 
   const { connector } = await loadConnectorFromPath(configPath);
 
+  if (isAll) {
+    print(`package "${connector.id}" → all formats${mode}`);
+    print(`  outDir: ${outDir}`);
+    print("");
+    const results = packageConnectorAll(connector, { outDir, dryRun });
+    for (const { format, result } of results) {
+      const formatOut = join(outDir, format);
+      print(`── ${format} ──`);
+      printFormatResult(format, connector.id, formatOut, result);
+    }
+    print(`emitted ${results.length} formats: ${FEASIBLE_FORMATS.join(", ")}`);
+    return 0;
+  }
+
+  const format: PackageFormat = formatArg;
   const result = packageConnector(connector, { outDir, format, dryRun });
 
-  const mode = dryRun ? " (dry-run — nothing written)" : "";
-  print(`package "${connector.id}" → claude-plugin${mode}`);
-  print(`  outDir:    ${outDir}`);
-  print(`  pluginDir: ${result.pluginDir}`);
+  print(`package "${connector.id}" → ${format}${mode}`);
+  print(`  outDir: ${outDir}`);
   print("");
-  print("emitted files:");
-  for (const f of result.files) {
-    print(`  + ${relative(outDir, f)}`);
-  }
-  print("");
-  print("install (Claude Code):");
-  print(`  1) /plugin marketplace add ${outDir}`);
-  print(`  2) /plugin install ${connector.id}@agent-connector`);
-  print("");
-  print(`  CLI equivalent:`);
-  print(`     claude plugin marketplace add ${outDir}`);
-  print(`     claude plugin install ${connector.id}@agent-connector`);
-
+  printFormatResult(format, connector.id, outDir, result);
   return 0;
 }

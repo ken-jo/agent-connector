@@ -1,62 +1,105 @@
 /**
- * core/package — emit a marketplace-installable Claude Code plugin bundle.
+ * core/package — emit a marketplace/extension-installable connector bundle.
  *
- * Turns a ResolvedConnector into a self-contained plugin directory plus a
- * sibling marketplace.json, laid out exactly as the Claude Code plugin +
- * marketplace spec requires:
+ * Turns a {@link ResolvedConnector} into a self-contained plugin/extension bundle
+ * for ANY of the emit-feasible plugin/marketplace formats the agent ecosystem
+ * supports. The format-specific emitters live under `package-formats/<family>.ts`,
+ * each conforming to the shared {@link FormatEmitter} signature; this module is
+ * the single, consistent dispatch over them.
  *
- *   <outDir>/
- *   ├── .claude-plugin/marketplace.json          (lists the one plugin; source ./<id>)
- *   └── <id>/                                     (the plugin root)
- *       ├── .claude-plugin/plugin.json            (ONLY file inside .claude-plugin/)
- *       ├── commands/<name>.md                    (one per connector.command)
- *       ├── agents/<name>.md                      (one per connector.subagent)
- *       ├── skills/<name>/SKILL.md (+ resources)  (one dir per connector.skill)
- *       ├── hooks/hooks.json                      (mapped claude-code events only)
- *       └── .mcp.json                             (connector.server, serve-wrapped)
- *
- * STRICT layout rule honored: only plugin.json lives under `.claude-plugin/`;
- * every component dir (commands/agents/skills/hooks) sits at the plugin ROOT.
+ * Supported formats (PackageFormat):
+ *   • claude-plugin    — Claude Code / codex / vscode-copilot / openclaw / omp
+ *   • codex-plugin     — Codex `.codex-plugin/` manifest variant of claude-plugin
+ *   • factory-plugin   — droid `.factory-plugin/` (droids/, mcp.json) variant
+ *   • gemini-extension — Gemini CLI extension (gemini-extension.json + TOML commands)
+ *   • qwen-extension   — Qwen Code extension (qwen-extension.json + Markdown commands)
+ *   • agy-plugin       — Antigravity CLI/IDE (root plugin.json + mcp_config.json)
+ *   • cursor-plugin    — Cursor (.cursor-plugin/ + pointer fields + marketplace.json)
+ *   • kimi-plugin      — Kimi (skills + MCP only; hooks/commands/subagents dropped)
+ *   • npm-plugin       — opencode / kilo-cli / pi (publishable npm package + bridge)
  *
  * The command / skill / subagent markdown is rendered through the SAME shared
- * helpers (adapters/claude-code/render) the live claude-code adapter writes
- * with, so an installed plugin and a `agent-connector install` produce
- * byte-identical content files.
- *
- * Hooks point at agent-connector's external home-bin via an ABSOLUTE path in
- * EXEC form (`args: ["hook", "claude-code", "<event>", "--connector", "<id>"]`),
- * which means the plugin hard-depends on agent-connector being installed at that
- * path — the same coupling the install path has. The MCP server is wrapped with
- * `serve` for transparent telemetry, also via the home-bin.
+ * claude-code renderers the live adapters write with (where the target uses
+ * markdown), hooks via buildHomeBinHookCommand, and MCP via buildServeWrapperCommand
+ * with `--host <platform>` — so telemetry-wrap + the universal home-bin pointer
+ * carry through every bundle exactly as an `agent-connector install` would.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import type {
-  HookEventName,
-  ResolvedConnector,
-  ServerDef,
-} from "./types.js";
-import { ensureDir, homeBinPath as defaultHomeBinPath } from "./paths.js";
+import type { ResolvedConnector } from "./types.js";
+import { homeBinPath as defaultHomeBinPath } from "./paths.js";
+import type { EmitContext, FormatEmitter, PackageResult } from "./package-formats/shared.js";
 import {
-  buildHomeBinHookCommand,
-  buildServeWrapperCommand,
-  shouldWrapForTelemetry,
-} from "./spawn.js";
+  emitClaudePlugin,
+  emitCodexPlugin,
+  emitFactoryPlugin,
+} from "./package-formats/claude-family.js";
+import { emitCursorPlugin } from "./package-formats/cursor.js";
 import {
-  renderCommandMd,
-  renderSkillMd,
-  renderSubagentMd,
-} from "../adapters/claude-code/render.js";
+  emitGeminiExtension,
+  emitQwenExtension,
+} from "./package-formats/gemini.js";
+import { emitAgyPlugin } from "./package-formats/agy.js";
+import { emitKimiPlugin } from "./package-formats/kimi.js";
+import { emitNpmPlugin } from "./package-formats/npm.js";
 
-/** The one packaging format supported today. */
-export type PackageFormat = "claude-plugin";
+export type { PackageResult } from "./package-formats/shared.js";
+
+/** Every packaging format `package` can emit. */
+export type PackageFormat =
+  | "claude-plugin"
+  | "codex-plugin"
+  | "factory-plugin"
+  | "gemini-extension"
+  | "qwen-extension"
+  | "agy-plugin"
+  | "cursor-plugin"
+  | "kimi-plugin"
+  | "npm-plugin";
+
+/** The single consistent dispatch map: format → emitter. */
+const EMITTERS: Record<PackageFormat, FormatEmitter> = {
+  "claude-plugin": emitClaudePlugin,
+  "codex-plugin": emitCodexPlugin,
+  "factory-plugin": emitFactoryPlugin,
+  "gemini-extension": emitGeminiExtension,
+  "qwen-extension": emitQwenExtension,
+  "agy-plugin": emitAgyPlugin,
+  "cursor-plugin": emitCursorPlugin,
+  "kimi-plugin": emitKimiPlugin,
+  "npm-plugin": emitNpmPlugin,
+};
+
+/** All formats, in a stable, documented order (also the order `--format all` emits). */
+export const ALL_FORMATS: readonly PackageFormat[] = [
+  "claude-plugin",
+  "codex-plugin",
+  "factory-plugin",
+  "gemini-extension",
+  "qwen-extension",
+  "agy-plugin",
+  "cursor-plugin",
+  "kimi-plugin",
+  "npm-plugin",
+] as const;
+
+/**
+ * The formats `--format all` emits. npm-plugin is included because it emits a
+ * CLEAN publishable package (not a half-baked stub), per the build plan.
+ */
+export const FEASIBLE_FORMATS: readonly PackageFormat[] = ALL_FORMATS;
+
+/** Type guard: is `s` a supported {@link PackageFormat}? */
+export function isPackageFormat(s: string): s is PackageFormat {
+  return Object.prototype.hasOwnProperty.call(EMITTERS, s);
+}
 
 export interface PackageOptions {
-  /** Directory the bundle is written under (the marketplace root). */
+  /** Directory the bundle is written under (the format root). */
   outDir: string;
-  /** Output format. Only "claude-plugin" today (also the default). */
+  /** Output format. Defaults to "claude-plugin". */
   format?: PackageFormat;
   /**
    * Absolute path to agent-connector's stable home-bin that hooks + the MCP
@@ -67,260 +110,57 @@ export interface PackageOptions {
   dryRun?: boolean;
 }
 
-export interface PackageResult {
-  /** Absolute paths of every file the bundle comprises (written, or planned for dryRun). */
-  files: string[];
-  /** Absolute path to the emitted marketplace.json. */
-  marketplacePath: string;
-  /** Absolute path to the plugin root directory (<outDir>/<id>). */
-  pluginDir: string;
-}
-
-/** Claude event names a claude-code plugin's hooks.json may key on. */
-const CLAUDE_MAPPED_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
-  "PreToolUse",
-  "PostToolUse",
-  "PreCompact",
-  "SessionStart",
-  "SessionEnd",
-  "UserPromptSubmit",
-  "Stop",
-  "Notification",
-]);
-
-/** A single hooks.json entry, identical in shape to a settings.json hooks block. */
-interface PluginHookEntry {
-  matcher?: string;
-  hooks: Array<{ type: "command"; command: string }>;
-}
-
 /**
- * Build the plugin manifest emitted at <plugin-root>/.claude-plugin/plugin.json.
- * Only `name` is strictly required; we additionally emit `description` (always)
- * and a `version` ONLY when the connector declares a meaningful one (omitting it
- * lets the git commit SHA drive updates for actively-developed connectors — and
- * never sets version in BOTH places).
- */
-function buildPluginManifest(connector: ResolvedConnector): Record<string, unknown> {
-  const manifest: Record<string, unknown> = {
-    $schema: "https://json.schemastore.org/claude-code-plugin-manifest.json",
-    name: connector.id,
-    description: `${connector.displayName} — connector emitted by agent-connector`,
-  };
-  // Only carry a version when the connector pins a real (non-placeholder) one;
-  // defineConnector defaults version to "0.0.0", which we treat as "unset" so
-  // the git commit SHA drives plugin updates.
-  if (connector.version && connector.version !== "0.0.0") {
-    manifest.version = connector.version;
-  }
-  return manifest;
-}
-
-/**
- * Build the marketplace manifest emitted at
- * <marketplace-root>/.claude-plugin/marketplace.json. Lists the single plugin
- * with a relative `source` of `./<id>` (resolved against the marketplace ROOT).
- * `owner` is an OBJECT (a frequent emitter bug to get wrong).
- */
-function buildMarketplaceManifest(
-  connector: ResolvedConnector,
-): Record<string, unknown> {
-  return {
-    name: "agent-connector",
-    owner: { name: "agent-connector" },
-    plugins: [
-      {
-        name: connector.id,
-        source: `./${connector.id}`,
-        description: `${connector.displayName} — connector emitted by agent-connector`,
-      },
-    ],
-  };
-}
-
-/**
- * Build the hooks.json body for the MAPPED claude-code events the connector
- * declares. Each hook command is the SAME single-string form the claude-code
- * adapter writes (via buildHomeBinHookCommand) — Claude Code's hooks schema is
- * `{ type:"command", command:"<shell string>" }` with NO separate args array, so
- * the home-bin path + its args are joined into one quoted command string.
- * Returns null when there is nothing to write.
- */
-function buildHooksJson(
-  connector: ResolvedConnector,
-  homeBin: string,
-): { hooks: Record<string, PluginHookEntry[]> } | null {
-  const events = connector.hookEvents.filter((e) => CLAUDE_MAPPED_EVENTS.has(e));
-  if (events.length === 0) return null;
-
-  const hooks: Record<string, PluginHookEntry[]> = {};
-  for (const event of events) {
-    const matcher = connector.hooks[event]?.matcher ?? "";
-    const command = {
-      type: "command" as const,
-      command: buildHomeBinHookCommand(homeBin, "claude-code", event, connector.id),
-    };
-    const entry: PluginHookEntry = matcher
-      ? { matcher, hooks: [command] }
-      : { hooks: [command] };
-    hooks[event] = [entry];
-  }
-  return { hooks };
-}
-
-/** Native MCP server entry shape a claude-code plugin's .mcp.json accepts. */
-interface PluginMcpEntry {
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-  cwd?: string;
-}
-
-/**
- * Render the connector's ServerDef into the plugin .mcp.json entry, wrapping the
- * real stdio command with `serve` for transparent telemetry where applicable.
- * Returns null when there is no stdio server to register (remote/no server).
- */
-function buildMcpJson(
-  connector: ResolvedConnector,
-  homeBin: string,
-): { mcpServers: Record<string, PluginMcpEntry> } | null {
-  const server = connector.server;
-  if (!server) return null;
-  // The plugin .mcp.json carries a launchable command, so only stdio servers
-  // are emitted here (remote/http servers register a URL elsewhere, out of scope
-  // for the bundled plugin).
-  if (server.transport !== "stdio") return null;
-
-  const realCommand = server.command ?? "";
-  if (realCommand === "") return null;
-  const realArgs = [...(server.args ?? [])];
-
-  let entry: PluginMcpEntry;
-  if (shouldWrapForTelemetry(server, connector.telemetry)) {
-    const wrapped = buildServeWrapperCommand(
-      homeBin,
-      connector.id,
-      realCommand,
-      realArgs,
-      undefined,
-      "claude-code",
-    );
-    entry = { command: wrapped.command, args: wrapped.args };
-  } else {
-    entry = { command: realCommand, args: realArgs };
-  }
-
-  const env = renderEnv(server.env);
-  if (env) entry.env = env;
-  if (server.cwd) entry.cwd = server.cwd;
-
-  return { mcpServers: { [connector.id]: entry } };
-}
-
-/** Pass env through unchanged when present, else undefined (drops empty objects). */
-function renderEnv(
-  env: Record<string, string> | undefined,
-): Record<string, string> | undefined {
-  if (!env || Object.keys(env).length === 0) return undefined;
-  return { ...env };
-}
-
-/**
- * Resolve a skill-resource relative key against the skill dir, returning the
- * absolute target ONLY when it stays inside the dir (defense-in-depth — the
- * config-time validation already rejects traversal, but never trust input).
- */
-function resolveWithin(baseDir: string, rel: string): string | null {
-  const base = resolve(baseDir);
-  const target = resolve(base, rel);
-  if (target === base) return null;
-  const rind = relative(base, target);
-  if (rind === "" || rind.startsWith("..") || resolve(base, rind) !== target) {
-    return null;
-  }
-  if (rind === ".." || rind.startsWith(`..${sep}`)) return null;
-  return target;
-}
-
-/**
- * Emit a marketplace-installable Claude Code plugin bundle for `connector`.
+ * Emit a bundle for `connector` in a single `format` (default claude-plugin).
  *
- * Writes (or, for dryRun, only enumerates) the plugin tree + a sibling
- * marketplace.json under `opts.outDir`. Returns the absolute file list, the
- * marketplace.json path, and the plugin root dir.
+ * Writes (or, for dryRun, only enumerates) the bundle under `opts.outDir`.
+ * Returns the absolute file list, the plugin root dir, an optional marketplace
+ * path, and optional drop notes (for lossy formats like kimi-plugin).
  */
 export function packageConnector(
   connector: ResolvedConnector,
-  opts: {
-    outDir: string;
-    format?: PackageFormat;
-    homeBinPath?: string;
-    dryRun?: boolean;
-  },
+  opts: PackageOptions,
 ): PackageResult {
   const format = opts.format ?? "claude-plugin";
-  if (format !== "claude-plugin") {
+  const emitter = EMITTERS[format];
+  if (!emitter) {
     throw new Error(`unsupported package format: ${format}`);
   }
 
-  const dryRun = opts.dryRun ?? false;
-  const homeBin = opts.homeBinPath ?? defaultHomeBinPath();
-
-  const outDir = resolve(opts.outDir);
-  const pluginDir = join(outDir, connector.id);
-  const marketplacePath = join(outDir, ".claude-plugin", "marketplace.json");
-
-  const files: string[] = [];
-
-  /** Write `contents` to `path` (skipping the write under dryRun) and record it. */
-  const emit = (path: string, contents: string): void => {
-    if (!dryRun) {
-      ensureDir(dirname(path));
-      writeFileSync(path, contents, "utf8");
-    }
-    files.push(path);
+  const ctx: EmitContext = {
+    outDir: resolve(opts.outDir),
+    homeBinPath: opts.homeBinPath ?? defaultHomeBinPath(),
+    dryRun: opts.dryRun ?? false,
   };
+  return emitter(connector, ctx);
+}
 
-  const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
+/** One entry in a multi-format ({@link packageConnectorAll}) emit. */
+export interface MultiPackageResult {
+  format: PackageFormat;
+  result: PackageResult;
+}
 
-  // ── plugin.json (the ONLY file inside .claude-plugin/) ───────────────────
-  const pluginManifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
-  emit(pluginManifestPath, json(buildPluginManifest(connector)));
-
-  // ── commands/<name>.md ───────────────────────────────────────────────────
-  for (const cmd of connector.commands) {
-    emit(join(pluginDir, "commands", `${cmd.name}.md`), renderCommandMd(cmd));
-  }
-
-  // ── agents/<name>.md ──────────────────────────────────────────────────────
-  for (const agent of connector.subagents) {
-    emit(join(pluginDir, "agents", `${agent.name}.md`), renderSubagentMd(agent));
-  }
-
-  // ── skills/<name>/SKILL.md (+ resources) ──────────────────────────────────
-  for (const skill of connector.skills) {
-    const skillDir = join(pluginDir, "skills", skill.name);
-    emit(join(skillDir, "SKILL.md"), renderSkillMd(skill));
-    for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
-      const target = resolveWithin(skillDir, rel);
-      if (target === null) continue; // never write outside the skill dir
-      emit(target, contents);
-    }
-  }
-
-  // ── hooks/hooks.json (mapped claude-code events only) ─────────────────────
-  const hooksJson = buildHooksJson(connector, homeBin);
-  if (hooksJson) emit(join(pluginDir, "hooks", "hooks.json"), json(hooksJson));
-
-  // ── .mcp.json (serve-wrapped stdio server) ────────────────────────────────
-  const mcpJson = buildMcpJson(connector, homeBin);
-  if (mcpJson) emit(join(pluginDir, ".mcp.json"), json(mcpJson));
-
-  // ── marketplace.json (lists this plugin; source ./<id>) ───────────────────
-  emit(marketplacePath, json(buildMarketplaceManifest(connector)));
-
-  return { files, marketplacePath, pluginDir };
+/**
+ * Emit EVERY feasible format, each into its own `<outDir>/<format>/` subdir, so a
+ * single `package --format all` produces the whole matrix without collisions.
+ */
+export function packageConnectorAll(
+  connector: ResolvedConnector,
+  opts: { outDir: string; homeBinPath?: string; dryRun?: boolean },
+): MultiPackageResult[] {
+  const base = resolve(opts.outDir);
+  const homeBin = opts.homeBinPath ?? defaultHomeBinPath();
+  const dryRun = opts.dryRun ?? false;
+  return FEASIBLE_FORMATS.map((format) => ({
+    format,
+    result: packageConnector(connector, {
+      outDir: resolve(base, format),
+      format,
+      homeBinPath: homeBin,
+      dryRun,
+    }),
+  }));
 }
 
 /** Read + parse a JSON file (used by callers/tests). Returns null on absence/parse error. */
