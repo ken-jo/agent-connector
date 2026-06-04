@@ -313,6 +313,7 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
         cmd,
         args,
         ctx.scope,
+        this.id,
       );
       cmd = wrapped.command;
       args = wrapped.args;

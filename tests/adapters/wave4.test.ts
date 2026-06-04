@@ -97,7 +97,10 @@ const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
 
-const WRAPPED_TAIL = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
+// The serve-wrapper tail also bakes the install TARGET platform as `--host <id>`
+// (before `--`) so the proxy stamps hostPlatform under a headless spawn.
+const wrappedTail = (host: string): string[] =>
+  ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--host", host, "--", "npx", "-y", "@x/y"];
 
 /** A connector with a stdio server (env-ref) + PreToolUse and SessionStart hooks. */
 function buildConnector(): ResolvedConnector {
@@ -224,7 +227,7 @@ describe("omp adapter (ts-plugin) render", () => {
     // OMP uses the PORTABLE field names: command (string) + args (array) + env.
     expect(entry.command).toBe(HOME_BIN);
     expect(Array.isArray(entry.args)).toBe(true);
-    expect(entry.args).toEqual(WRAPPED_TAIL);
+    expect(entry.args).toEqual(wrappedTail("omp"));
     expect(entry.args).toContain("serve");
     expect(entry.args).toContain("--connector");
     expect(entry.args).toContain(CONNECTOR_ID);
@@ -459,9 +462,12 @@ describe("openclaw adapter (ts-plugin) render + dual registration", () => {
 
     const entry = cfg.mcp.servers[CONNECTOR_ID];
     expect(entry).toBeTruthy();
-    expect(entry.transport).toBe("stdio");
+    // OpenClaw 2026.6.1 REJECTS transport:"stdio" — a stdio sidecar is inferred
+    // from `command`, so the entry must carry NO transport key.
+    expect(entry.transport).toBeUndefined();
+    expect("transport" in entry).toBe(false);
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_TAIL);
+    expect(entry.args).toEqual(wrappedTail("openclaw"));
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });

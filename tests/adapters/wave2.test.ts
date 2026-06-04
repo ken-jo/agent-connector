@@ -57,9 +57,13 @@ const ENV_LITERAL = "postgres://acme/db";
 const SERVER_CWD = "/srv/acme";
 const PRE_MATCHER = "acme_query|acme_write";
 
-const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
+// The serve-wrapper args also bake the install TARGET platform as `--host <id>`
+// (before `--`) so the proxy stamps hostPlatform under a headless spawn.
+const wrappedArgs = (host: string): string[] =>
+  ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--host", host, "--", "npx", "-y", "@x/y"];
 // User-scoped adapters (kimi, qwen-code, kiro) stamp `--scope user` instead.
-const WRAPPED_ARGS_USER = ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--", "npx", "-y", "@x/y"];
+const wrappedArgsUser = (host: string): string[] =>
+  ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--host", host, "--", "npx", "-y", "@x/y"];
 
 /**
  * A connector with a stdio server (env-ref + cwd) + PreToolUse and SessionStart
@@ -227,7 +231,7 @@ describe("qwen-code adapter render + round-trip", () => {
 
     // Telemetry serve-wrapper: command points at the home binary.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
+    expect(entry.args).toEqual(wrappedArgsUser("qwen-code"));
 
     // Qwen has no ${env:VAR} support → env-ref resolves to a LITERAL value.
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
@@ -370,7 +374,7 @@ describe("kiro adapter render + round-trip", () => {
     // Kiro stdio entry is { command, args, env, cwd } — no `type` discriminator.
     expect(entry).not.toHaveProperty("type");
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
+    expect(entry.args).toEqual(wrappedArgsUser("kiro"));
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.cwd).toBe(SERVER_CWD);
   });
@@ -579,7 +583,7 @@ describe("kimi adapter render + round-trip", () => {
     const entry = cfg.mcpServers[CONNECTOR_ID];
     expect(entry).toBeTruthy();
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
+    expect(entry.args).toEqual(wrappedArgsUser("kimi"));
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
@@ -676,7 +680,7 @@ describe("crush adapter render + round-trip", () => {
     expect(entry.type).toBe("stdio");
     expect(entry.disabled).toBe(false);
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("crush"));
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });

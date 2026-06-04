@@ -1,7 +1,7 @@
 /**
  * cli/commands/serve — the telemetry-wrapping MCP stdio proxy entrypoint.
  *
- *   agent-connector serve --connector <id> [--scope <user|project>] -- <realCommand> <realArgs...>
+ *   agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] -- <realCommand> <realArgs...>
  *
  * A stdio MCP server that opts into transparent telemetry has its host config
  * rewritten to launch THIS instead of the server directly. We split argv at the
@@ -9,12 +9,16 @@
  * the right (taken verbatim). The optional `--scope` flag records the install
  * dimension (global user vs project-local) onto telemetry; it is absent for
  * configs written before scope plumbing existed → the runtime reads "unknown".
+ * The optional `--host` flag carries the install TARGET platform id so the proxy
+ * stamps hostPlatform correctly under a headless spawn; absent configs fall back
+ * to runtime env detection.
  * runServe stands up the per-session telemetry context and proxies bytes both
  * ways, resolving with the child's exit code.
  */
 
 import { parseArgs } from "node:util";
 
+import type { PlatformId } from "../../core/types.js";
 import type { TelemetryInstallScope } from "../../telemetry/types.js";
 import { runServe } from "../../runtime/index.js";
 import { fail } from "../app.js";
@@ -25,7 +29,7 @@ export async function run(argv: string[]): Promise<number> {
   const sepIndex = argv.indexOf("--");
   if (sepIndex === -1) {
     return fail(
-      "usage: agent-connector serve --connector <id> [--scope <user|project>] -- <command> [args...]",
+      "usage: agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] -- <command> [args...]",
     );
   }
   const flagArgs = argv.slice(0, sepIndex);
@@ -40,6 +44,10 @@ export async function run(argv: string[]): Promise<number> {
     options: {
       connector: { type: "string" },
       scope: { type: "string" },
+      // `--host <platformId>` bakes the install TARGET platform into the wrapper
+      // so the proxy stamps hostPlatform correctly under a headless spawn (where
+      // runtime env markers are absent). Optional + tolerated (strict:false).
+      host: { type: "string" },
     },
     allowPositionals: true,
     strict: false,
@@ -59,6 +67,12 @@ export async function run(argv: string[]): Promise<number> {
   const installScope: TelemetryInstallScope | undefined =
     rawScope === "user" || rawScope === "project" ? rawScope : undefined;
 
+  // `--host` carries the install TARGET platform id (string only). runServe
+  // validates it against the registry and falls back to runtime detection when
+  // it is absent or unrecognized — so a future/older wrapper never breaks here.
+  const hostPlatformOverride =
+    typeof values.host === "string" ? (values.host as PlatformId) : undefined;
+
   const serverCommand = serverInvocation[0];
   if (!serverCommand) {
     return fail("serve requires a command after `--`");
@@ -70,6 +84,7 @@ export async function run(argv: string[]): Promise<number> {
     serverCommand,
     serverArgs,
     installScope,
+    hostPlatformOverride,
   });
   process.exit(code);
 }

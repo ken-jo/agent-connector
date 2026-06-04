@@ -348,6 +348,62 @@ describe("HIGH: serve unknown-flag tolerance", () => {
     expect(code).toBeGreaterThan(0); // fail() returns a non-zero code, never throws
     expect(runServeRuntimeMock).not.toHaveBeenCalled();
   });
+
+  it("parses --host and passes it through to runServe as hostPlatformOverride (headless host stamping)", async () => {
+    const savedExit = process.exit;
+    let exitCode: number | undefined;
+    (process as { exit: (code?: number) => never }).exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`__exit__:${code}`);
+    }) as never;
+    try {
+      await runServe([
+        "--connector",
+        "demo",
+        "--scope",
+        "user",
+        "--host",
+        "opencode", // the install TARGET platform baked into the wrapper
+        "--",
+        "my-server",
+      ]).catch((e: unknown) => {
+        if (!(e instanceof Error) || !e.message.startsWith("__exit__:")) throw e;
+      });
+    } finally {
+      process.exit = savedExit;
+    }
+    expect(runServeRuntimeMock).toHaveBeenCalledTimes(1);
+    const opts = runServeRuntimeMock.mock.calls[0]![0] as {
+      connectorId: string;
+      installScope?: string;
+      hostPlatformOverride?: string;
+    };
+    expect(opts.connectorId).toBe("demo");
+    expect(opts.installScope).toBe("user");
+    // The override the wrapper baked in is forwarded verbatim so the proxy can
+    // stamp hostPlatform correctly under a headless spawn.
+    expect(opts.hostPlatformOverride).toBe("opencode");
+    expect(exitCode).toBe(0);
+  });
+
+  it("leaves hostPlatformOverride undefined when --host is absent (backward-compatible)", async () => {
+    const savedExit = process.exit;
+    (process as { exit: (code?: number) => never }).exit = ((code?: number) => {
+      throw new Error("__exit__");
+    }) as never;
+    try {
+      await runServe(["--connector", "demo", "--", "my-server"]).catch((e: unknown) => {
+        if (!(e instanceof Error) || !e.message.startsWith("__exit__")) throw e;
+      });
+    } finally {
+      process.exit = savedExit;
+    }
+    expect(runServeRuntimeMock).toHaveBeenCalledTimes(1);
+    const opts = runServeRuntimeMock.mock.calls[0]![0] as {
+      hostPlatformOverride?: string;
+    };
+    expect(opts.hostPlatformOverride).toBeUndefined();
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════

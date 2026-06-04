@@ -59,7 +59,10 @@ const ENV_LITERAL = "postgres://acme/db";
 const SERVER_CWD = "/srv/acme";
 const PRE_MATCHER = "acme_query|acme_write";
 
-const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--", "npx", "-y", "@x/y"];
+// The serve-wrapper args also bake the install TARGET platform as `--host <id>`
+// (before `--`) so the proxy stamps hostPlatform under a headless spawn.
+const wrappedArgs = (host: string): string[] =>
+  ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--host", host, "--", "npx", "-y", "@x/y"];
 
 /**
  * A connector with a stdio server (env-ref) + PreToolUse and SessionStart hooks.
@@ -226,7 +229,7 @@ describe("goose adapter render + round-trip", () => {
 
     // Telemetry serve-wrapper: cmd points at the home binary, wrapped args.
     expect(entry.cmd).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("goose"));
 
     // Goose has no ${env:VAR} support → env-ref resolves to a LITERAL value.
     expect(entry.envs[ENV_VAR]).toBe(ENV_LITERAL);
@@ -407,7 +410,7 @@ describe("hermes adapter render + round-trip", () => {
     expect(entry).toBeTruthy();
     // Hermes uses the portable field names (command/args/env), unlike Goose.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("hermes"));
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });

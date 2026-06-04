@@ -159,7 +159,21 @@ function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-const WRAPPED_TAIL = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
+// The serve-wrapper tail also bakes the install TARGET platform as `--host <id>`
+// (before `--`) so the proxy stamps hostPlatform under a headless spawn.
+const wrappedTail = (host: string): string[] => [
+  "serve",
+  "--connector",
+  CONNECTOR_ID,
+  "--scope",
+  "project",
+  "--host",
+  host,
+  "--",
+  "npx",
+  "-y",
+  "@x/y",
+];
 
 // ─────────────────────────────────────────────────────────────────────────
 // Kilo CLI (ts-plugin) — the SQLite-backed OpenCode FORK loading @kilocode/plugin
@@ -201,7 +215,7 @@ describe("kilo-cli adapter (ts-plugin) render", () => {
     expect(Array.isArray(entry.command)).toBe(true);
     expect(entry.command[0]).toBe(HOME_BIN);
     // The telemetry serve-wrapper tail is flattened into the same array.
-    expect(entry.command).toEqual([HOME_BIN, ...WRAPPED_TAIL]);
+    expect(entry.command).toEqual([HOME_BIN, ...wrappedTail("kilo-cli")]);
     expect(entry.command).toContain("serve");
     expect(entry.command).toContain("--connector");
     expect(entry.command).toContain(CONNECTOR_ID);
@@ -354,7 +368,7 @@ describe("kilo adapter (Kilo Code VS Code extension, mcp-only) render", () => {
     // Backend dialect: a single command ARRAY (exe + args folded together).
     expect(Array.isArray(entry.command)).toBe(true);
     expect(entry.command[0]).toBe(HOME_BIN);
-    expect(entry.command).toEqual([HOME_BIN, ...WRAPPED_TAIL]);
+    expect(entry.command).toEqual([HOME_BIN, ...wrappedTail("kilo")]);
 
     // No native interpolation token → env resolves to a LITERAL value.
     expect(entry.environment[ENV_VAR]).toBe(ENV_LITERAL);
@@ -429,7 +443,7 @@ describe("opencode adapter (ts-plugin) render", () => {
     expect(entry).toBeTruthy();
     expect(entry.type).toBe("local");
     expect(Array.isArray(entry.command)).toBe(true);
-    expect(entry.command).toEqual([HOME_BIN, ...WRAPPED_TAIL]);
+    expect(entry.command).toEqual([HOME_BIN, ...wrappedTail("opencode")]);
 
     // No native interpolation token → env resolves to a LITERAL value.
     expect(entry.environment[ENV_VAR]).toBe(ENV_LITERAL);

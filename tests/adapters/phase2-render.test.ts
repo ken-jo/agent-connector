@@ -128,24 +128,33 @@ function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-const WRAPPED_ARGS = [
+/**
+ * The serve-wrapper args also bake the install TARGET platform as `--host <id>`
+ * (before the `--` separator) so the proxy stamps hostPlatform correctly under a
+ * headless spawn. The id differs per adapter, so build it per call.
+ */
+const wrappedArgs = (host: string): string[] => [
   "serve",
   "--connector",
   CONNECTOR_ID,
   "--scope",
   "project",
+  "--host",
+  host,
   "--",
   "npx",
   "-y",
   "@x/y",
 ];
 // User-scoped adapters (copilot-cli) stamp `--scope user` instead of project.
-const WRAPPED_ARGS_USER = [
+const wrappedArgsUser = (host: string): string[] => [
   "serve",
   "--connector",
   CONNECTOR_ID,
   "--scope",
   "user",
+  "--host",
+  host,
   "--",
   "npx",
   "-y",
@@ -184,7 +193,7 @@ describe("vscode-copilot adapter render/round-trip", () => {
 
     // Telemetry serve-wrapper: command points at the home binary.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("vscode-copilot"));
 
     // VS Code keeps a NATIVE interpolation token (${env:VAR}) — secret not baked in.
     expect(entry.env[ENV_VAR]).toBe(`\${env:${ENV_VAR}}`);
@@ -291,7 +300,7 @@ describe("copilot-cli adapter render/round-trip", () => {
 
     // Telemetry serve-wrapper: command points at the home binary.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS_USER);
+    expect(entry.args).toEqual(wrappedArgsUser("copilot-cli"));
 
     // No native interpolation → env-ref resolves to a LITERAL value.
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
@@ -394,7 +403,7 @@ describe("gemini-cli adapter render/round-trip", () => {
     // Gemini selects transport BY KEY (command/args), not a `type` field.
     expect(entry).not.toHaveProperty("type");
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("gemini-cli"));
 
     // No native ${env:VAR} support → env-ref resolves to a LITERAL value.
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
@@ -495,7 +504,7 @@ describe("warp adapter render/round-trip", () => {
 
     // Telemetry serve-wrapper: command points at the home binary.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("warp"));
 
     // QUIRK: Warp keys the working directory as `working_directory`, never `cwd`.
     expect(entry.working_directory).toBe(SERVER_CWD);

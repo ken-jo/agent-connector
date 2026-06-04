@@ -96,6 +96,81 @@ describe("buildServeWrapperCommand embeds --scope", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// buildServeWrapperCommand — embedding --host (install TARGET platform)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildServeWrapperCommand embeds --host", () => {
+  it("emits `--host <platformId>` in the FLAG section, before the `--` separator", () => {
+    const { args } = buildServeWrapperCommand(
+      HOME_BIN,
+      "acme-db",
+      "npx",
+      ["-y", "@acme/db-mcp"],
+      "user",
+      "opencode",
+    );
+    expect(args).toEqual([
+      "serve",
+      "--connector",
+      "acme-db",
+      "--scope",
+      "user",
+      "--host",
+      "opencode",
+      "--",
+      "npx",
+      "-y",
+      "@acme/db-mcp",
+    ]);
+    const sep = args.indexOf("--");
+    const hostIdx = args.indexOf("--host");
+    expect(hostIdx).toBeGreaterThan(-1);
+    expect(hostIdx).toBeLessThan(sep);
+    // The value follows the flag and is itself before the separator.
+    expect(args[hostIdx + 1]).toBe("opencode");
+    expect(hostIdx + 1).toBeLessThan(sep);
+    // The real command tail is untouched.
+    expect(args.slice(sep + 1)).toEqual(["npx", "-y", "@acme/db-mcp"]);
+  });
+
+  it("emits `--host` even when no scope is supplied (scope omitted, host present)", () => {
+    const { args } = buildServeWrapperCommand(
+      HOME_BIN,
+      "c1",
+      "node",
+      ["server.js"],
+      undefined,
+      "kilo-cli",
+    );
+    expect(args).not.toContain("--scope");
+    expect(args).toEqual([
+      "serve",
+      "--connector",
+      "c1",
+      "--host",
+      "kilo-cli",
+      "--",
+      "node",
+      "server.js",
+    ]);
+  });
+
+  it("OMITS --host entirely when no platformId is supplied (backward-compatible)", () => {
+    const { args } = buildServeWrapperCommand(HOME_BIN, "c1", "srv", [], "user");
+    expect(args).not.toContain("--host");
+    expect(args).toEqual([
+      "serve",
+      "--connector",
+      "c1",
+      "--scope",
+      "user",
+      "--",
+      "srv",
+    ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // narrowInstallScope
 // ─────────────────────────────────────────────────────────────────────────
 

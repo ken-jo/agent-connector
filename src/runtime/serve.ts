@@ -17,9 +17,11 @@
 import { randomUUID } from "node:crypto";
 
 import { detectRuntimeHost } from "../adapters/detect.js";
+import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { loadRegisteredConnector } from "../core/load-connector.js";
 import { projectIdentity } from "../core/paths.js";
 import { detectLaunchMethod } from "../core/spawn.js";
+import type { PlatformId } from "../core/types.js";
 import { runServeProxy } from "../telemetry/proxy.js";
 import { openStore } from "../telemetry/store.js";
 import { getTokenizer } from "../telemetry/tokenizer.js";
@@ -39,6 +41,14 @@ export interface RunServeOptions {
    * as "unknown". Stamped verbatim onto every telemetry record when present.
    */
   installScope?: TelemetryInstallScope;
+  /**
+   * Install TARGET platform id from `--host <platformId>` (baked into the
+   * wrapper at install time). OPTIONAL: when a recognized platform id, it
+   * OVERRIDES runtime env detection so headless spawns stamp hostPlatform
+   * correctly (detectRuntimeHost only knows env markers for a few hosts and
+   * otherwise mis-attributes). Absent/unrecognized → fall back to detection.
+   */
+  hostPlatformOverride?: PlatformId;
 }
 
 /**
@@ -68,12 +78,20 @@ function resolveSessionId(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export async function runServe(opts: RunServeOptions): Promise<number> {
-  const { connectorId, serverCommand, serverArgs, installScope } = opts;
+  const { connectorId, serverCommand, serverArgs, installScope, hostPlatformOverride } =
+    opts;
 
   const connector = await loadRegisteredConnector(connectorId);
 
   const id = projectIdentity(process.cwd());
-  const host = detectRuntimeHost();
+  // Prefer the install TARGET platform baked into the wrapper (--host), but only
+  // when it is a KNOWN registered platform id — a bad/unknown value falls back to
+  // runtime env detection so a config typo can never poison hostPlatform.
+  const hostPlatform: PlatformId =
+    hostPlatformOverride !== undefined &&
+    REGISTERED_PLATFORM_IDS.has(hostPlatformOverride)
+      ? hostPlatformOverride
+      : detectRuntimeHost().platform;
   const sessionId = resolveSessionId();
 
   // `serve` only ever wraps a locally-spawned stdio server (a remote/http server
@@ -90,7 +108,7 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
     store,
     tokenizer: tok,
     modelFamilyHint: connector.telemetry.modelFamilyHint,
-    hostPlatform: host.platform,
+    hostPlatform,
     sessionId,
     projectKey: id.key,
     projectDir: id.dir,

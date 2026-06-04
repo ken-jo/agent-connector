@@ -183,6 +183,7 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
           command,
           args,
           ctx.scope,
+          this.id,
         );
         command = wrapped.command;
         args = wrapped.args;

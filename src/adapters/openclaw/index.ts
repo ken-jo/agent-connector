@@ -166,13 +166,19 @@ interface OpenClawBridgePayload {
   projectDir?: string;
 }
 
-/** Native MCP server entry shapes OpenClaw accepts under mcp.servers.<id>. */
+/**
+ * Native MCP server entry shapes OpenClaw accepts under mcp.servers.<id>.
+ *
+ * A stdio sidecar carries NO `transport` field: OpenClaw's config validator
+ * only accepts `transport: "sse" | "streamable-http"` for remote servers and
+ * REJECTS `transport: "stdio"` (verified against OpenClaw 2026.6.1). A stdio
+ * server is INFERRED from the presence of `command`, so we must never write a
+ * transport key here.
+ */
 interface OpenClawStdioServer {
   command: string;
   args?: string[];
   env?: Record<string, string>;
-  /** OpenClaw stdio sidecar transport (explicit for clarity). */
-  transport?: "stdio";
   enabled?: boolean;
 }
 interface OpenClawRemoteServer {
@@ -354,7 +360,9 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   /**
    * Render a normalized ServerDef into OpenClaw's native mcp.servers.<id> entry.
    *
-   * stdio  → { command, args?, env?, transport: "stdio" }
+   * stdio  → { command, args?, env? }  (NO transport key — a stdio sidecar is
+   *          inferred from `command`; OpenClaw's validator rejects
+   *          transport:"stdio" and only accepts "sse"/"streamable-http")
    * remote → { url, transport: "sse"|"http", headers? }
    *
    * OpenClaw documents no native ${env:VAR} token, so refs resolve to literals.
@@ -376,14 +384,16 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
           command,
           args,
           ctx.scope,
+          this.id,
         );
         command = wrapped.command;
         args = wrapped.args;
       }
 
+      // NO `transport` key: OpenClaw infers a stdio sidecar from `command` and
+      // its validator rejects transport:"stdio" (only "sse"/"streamable-http").
       const entry: OpenClawStdioServer = {
         command: resolveEnvRefsDeep(command),
-        transport: "stdio",
       };
       const resolvedArgs = resolveEnvRefsDeep(args).filter((s) => s !== "");
       if (resolvedArgs.length > 0) entry.args = resolvedArgs;

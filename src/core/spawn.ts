@@ -7,7 +7,7 @@
  * double-quoting. No-ops on macOS/Linux.
  */
 
-import type { InstallScope, ServerDef } from "./types.js";
+import type { InstallScope, PlatformId, ServerDef } from "./types.js";
 import type {
   LaunchMethod,
   TelemetryInstallScope,
@@ -166,13 +166,20 @@ export function shouldWrapForTelemetry(
 
 /**
  * Build the telemetry-wrapping server command:
- *   "<homeBin>" serve --connector <id> --scope <scope> -- <realCommand> <realArgs...>
+ *   "<homeBin>" serve --connector <id> --scope <scope> --host <platformId> -- <realCommand> <realArgs...>
  * Used when a stdio server opts into transparent telemetry capture.
  *
  * `scope` records the install dimension (global user vs project-local) on every
  * telemetry row so usage can be sliced by it later. It is OPTIONAL for backward
  * compatibility: when omitted, the `--scope` flag is not emitted and the runtime
  * treats the scope as "unknown".
+ *
+ * `platformId` bakes the install TARGET platform into the wrapper so the proxy
+ * stamps `hostPlatform` correctly even under a headless spawn where runtime env
+ * markers are absent (detectRuntimeHost only knows claude-code/cursor/codex and
+ * otherwise mis-attributes). Emitted as `--host <platformId>` in the FLAG
+ * section (before `--`). It is OPTIONAL + backward-compatible: when omitted the
+ * `--host` flag is not emitted and the runtime falls back to env detection.
  */
 export function buildServeWrapperCommand(
   homeBinPath: string,
@@ -180,9 +187,11 @@ export function buildServeWrapperCommand(
   realCommand: string,
   realArgs: string[],
   scope?: InstallScope,
+  platformId?: PlatformId,
 ): { command: string; args: string[] } {
   const flags = ["serve", "--connector", connectorId];
   if (scope !== undefined) flags.push("--scope", narrowInstallScope(scope));
+  if (platformId !== undefined) flags.push("--host", platformId);
   return {
     command: homeBinPath,
     args: [...flags, "--", realCommand, ...realArgs],

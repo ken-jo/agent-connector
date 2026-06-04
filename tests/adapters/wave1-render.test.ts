@@ -143,7 +143,24 @@ function seedJson(path: string, data: unknown): void {
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-const WRAPPED_ARGS = ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--", "npx", "-y", "@x/y"];
+/**
+ * The serve-wrapper args now also bake the install TARGET platform as
+ * `--host <id>` (before the `--` separator) so the proxy stamps hostPlatform
+ * correctly under a headless spawn. The id differs per adapter, so build it.
+ */
+const wrappedArgs = (host: string): string[] => [
+  "serve",
+  "--connector",
+  CONNECTOR_ID,
+  "--scope",
+  "project",
+  "--host",
+  host,
+  "--",
+  "npx",
+  "-y",
+  "@x/y",
+];
 
 // ─────────────────────────────────────────────────────────────────────────
 // droid (root key "mcpServers"; { type:"stdio", ..., disabled })
@@ -175,7 +192,7 @@ describe("droid adapter render/round-trip", () => {
 
     // Telemetry serve-wrapper: command points at the home binary.
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("droid"));
 
     // No native interpolation token → env-ref resolves to a LITERAL value.
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
@@ -254,7 +271,7 @@ describe("roo-code adapter render/round-trip", () => {
     expect(entry.disabled).toBe(false);
 
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("roo-code"));
 
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
@@ -314,7 +331,7 @@ describe("trae adapter render/round-trip", () => {
     expect(entry).toBeTruthy();
 
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("trae"));
 
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
@@ -375,7 +392,7 @@ describe("antigravity adapter render/round-trip", () => {
     expect(entry).toBeTruthy();
 
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("antigravity"));
 
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
@@ -456,7 +473,7 @@ describe("zed adapter render/round-trip", () => {
     // FLAT shape — `command` is a STRING (the home bin), not a nested object.
     expect(typeof entry.command).toBe("string");
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("zed"));
 
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
@@ -539,7 +556,7 @@ describe("amp adapter render/round-trip", () => {
     expect(entry).toBeTruthy();
 
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("amp"));
 
     // Amp expands ${VAR} natively → ref rewritten to Amp's token, NOT a literal.
     expect(entry.env[ENV_VAR]).toBe(`\${${ENV_VAR}}`);
@@ -618,7 +635,7 @@ describe("codebuff adapter render/round-trip", () => {
     expect(entry.type).toBe("stdio");
 
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(WRAPPED_ARGS);
+    expect(entry.args).toEqual(wrappedArgs("codebuff"));
 
     // Codebuff expands $VAR natively → ref rewritten to $VAR, NOT a literal.
     expect(entry.env[ENV_VAR]).toBe(`$${ENV_VAR}`);
@@ -684,7 +701,7 @@ describe("mux adapter render/round-trip", () => {
 
     // The command routes through the home-bin serve wrapper:
     //   "<homeBin> serve --connector <id> -- npx -y @x/y"
-    expect(entry).toBe([HOME_BIN, ...WRAPPED_ARGS].join(" "));
+    expect(entry).toBe([HOME_BIN, ...wrappedArgs("mux")].join(" "));
     expect(entry.startsWith(HOME_BIN)).toBe(true);
     expect(entry).toContain("serve --connector acme-db --scope project --");
   });
