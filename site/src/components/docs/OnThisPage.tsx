@@ -48,10 +48,20 @@ export function OnThisPage({
     );
   }, [containerId, sectionId]);
 
-  const ids = React.useMemo(() => entries.map((e) => e.id), [entries]);
+  // "On this page" lists the in-page JUMP targets — i.e. the <h3> sub-headings
+  // only. The section <h2> is the page title (already shown by the breadcrumb +
+  // the active item in the left sidebar), so listing it here just duplicates the
+  // left nav. We also HIDE the whole panel when there are fewer than 2 sub-
+  // headings: a 0–1 item TOC is noise that makes the right rail look redundant
+  // with the left on short section pages (kept for long guides like Hooks).
+  const subHeadings = React.useMemo(
+    () => entries.filter((e) => e.level === 3),
+    [entries],
+  );
+  const ids = React.useMemo(() => subHeadings.map((e) => e.id), [subHeadings]);
   const activeId = useScrollSpy(ids);
 
-  if (entries.length === 0) return null;
+  if (subHeadings.length < 2) return null;
 
   return (
     <nav aria-label="On this page" className="text-sm">
@@ -59,7 +69,7 @@ export function OnThisPage({
         On this page
       </p>
       <ul className="space-y-1.5">
-        {entries.map((e) => {
+        {subHeadings.map((e) => {
           const active = e.id === activeId;
           return (
             <li key={e.id}>
@@ -68,7 +78,6 @@ export function OnThisPage({
                 aria-current={active ? "location" : undefined}
                 className={cn(
                   "block leading-snug transition-colors",
-                  e.level === 3 && "pl-3 text-[0.82rem]",
                   active
                     ? "font-medium text-foreground"
                     : "text-muted-foreground hover:text-foreground",
