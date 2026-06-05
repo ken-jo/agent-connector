@@ -126,6 +126,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   update: () => import("./commands/upgrade.js"),
   package: () => import("./commands/package.js"),
   doctor: () => import("./commands/doctor.js"),
+  status: () => import("./commands/status.js"),
   telemetry: () => import("./commands/telemetry.js"),
   usage: () => import("./commands/usage.js"),
   leaderboard: () => import("./commands/leaderboard.js"),
@@ -157,6 +158,7 @@ commands:
   upgrade      Bring everything current: re-render host config + heal the home pointer + managed update guidance (alias: update, sync).
   package      Emit a marketplace-installable Claude Code plugin bundle + marketplace.json.
   doctor       Health-check every detected platform; non-zero exit on any failure.
+  status       Light install-state summary: which connectors are present on which hosts (always exits 0).
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
   usage        Inspect host-native token usage from agent CLI logs (report | export | leaderboard).
   leaderboard  Three leaderboards: 🔌 MCP/plugin (mcp-self) + 🖥️ host/user (host-scan-logs) + 🛰️ host-native turns (host-native-live) — never summed.

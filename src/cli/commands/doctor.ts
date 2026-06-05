@@ -27,6 +27,7 @@ import {
   loadConnectorFromPath,
 } from "../../core/load-connector.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
+import { probeStdioServer } from "../../runtime/probe.js";
 import { fail, parseScope, parseTargets, print } from "../app.js";
 
 const STATUS_GLYPH: Record<DiagnosticResult["status"], string> = {
@@ -109,6 +110,7 @@ export async function run(argv: string[]): Promise<number> {
       connector: { type: "string" },
       project: { type: "string" },
       json: { type: "boolean", default: false },
+      probe: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });
@@ -132,7 +134,7 @@ export async function run(argv: string[]): Promise<number> {
     ids = detected.map((p) => p.id);
   }
 
-  if (ids.length === 0) {
+  if (ids.length === 0 && !values.probe) {
     print("doctor: no target platforms (none detected; pass --targets to force).");
     return 0;
   }
@@ -177,13 +179,52 @@ export async function run(argv: string[]): Promise<number> {
     byPlatform.push({ platform: id, results });
   }
 
+  // ── Live MCP probe (--probe): connector-scoped, not platform-scoped ──────
+  // Spawns each connector's REAL stdio server and runs initialize → ping →
+  // tools/list. Probe FAILs fold into the doctor exit code.
+  const probes: { connector: string; results: DiagnosticResult[] }[] = [];
+  if (values.probe) {
+    for (const connector of connectors) {
+      const s = connector.server;
+      if (!s || s.transport !== "stdio" || !s.command) {
+        probes.push({
+          connector: connector.id,
+          results: [
+            {
+              check: `${connector.id}: MCP probe`,
+              status: "warn",
+              message: s
+                ? `transport "${s.transport}" is not stdio — live probe skipped`
+                : "no server to probe",
+            },
+          ],
+        });
+        continue;
+      }
+      const results = await probeStdioServer(s.command, s.args ?? [], {
+        label: connector.id,
+        ...(s.env ? { env: s.env } : {}),
+      });
+      if (results.some((d) => d.status === "fail")) anyFail = true;
+      probes.push({ connector: connector.id, results });
+    }
+  }
+
   if (values.json) {
-    print(JSON.stringify(byPlatform, null, 2));
+    print(JSON.stringify(values.probe ? { platforms: byPlatform, probes } : byPlatform, null, 2));
     return anyFail ? 1 : 0;
   }
 
   for (const { platform, results } of byPlatform) {
     print(`${platform}:`);
+    for (const r of results) {
+      print(`  ${STATUS_GLYPH[r.status]} ${r.check} — ${r.message}`);
+      if (r.fix) print(`         fix: ${r.fix}`);
+    }
+    print("");
+  }
+  for (const { connector, results } of probes) {
+    print(`probe ${connector}:`);
     for (const r of results) {
       print(`  ${STATUS_GLYPH[r.status]} ${r.check} — ${r.message}`);
       if (r.fix) print(`         fix: ${r.fix}`);

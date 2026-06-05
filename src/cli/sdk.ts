@@ -70,6 +70,7 @@ const CONFIG_PATH_COMMANDS: ReadonlySet<string> = new Set([
   "sync",
   "update",
   "doctor",
+  "status",
   "package",
 ]);
 

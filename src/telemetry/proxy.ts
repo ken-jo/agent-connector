@@ -20,9 +20,9 @@
  */
 
 import { spawn } from "node:child_process";
-import { StringDecoder } from "node:string_decoder";
 
 import type { PlatformId } from "../core/types.js";
+import { type JsonRpcMessage, LineBuffer, idKey, isObject } from "./jsonrpc.js";
 import {
   applyCalibration,
   countTokensAnthropic,
@@ -86,24 +86,10 @@ export interface RunServeProxyOptions {
 
 // ── JSON-RPC shapes we read (kept local + narrow; everything else opaque) ─────
 
-/** Any newline-delimited JSON-RPC message — request, response, or notification. */
-interface JsonRpcMessage {
-  jsonrpc?: unknown;
-  id?: unknown;
-  method?: unknown;
-  params?: unknown;
-  result?: unknown;
-  error?: unknown;
-}
-
 /** A client→server `tools/call` we remember until its result comes back. */
 interface PendingCall {
   toolName: string;
   args: unknown;
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
 }
 
 /**
@@ -118,47 +104,6 @@ function canonicalArgs(value: unknown): string {
     return JSON.stringify(value) ?? "";
   } catch {
     return "";
-  }
-}
-
-/** JSON-RPC ids are number | string; normalize to a Map key. `null` → no key. */
-function idKey(id: unknown): string | null {
-  if (typeof id === "string") return `s:${id}`;
-  if (typeof id === "number") return `n:${id}`;
-  return null;
-}
-
-/**
- * Buffer a byte stream into complete `\n`-terminated lines and invoke `onLine`
- * for each. Carriage returns are tolerated (some hosts emit CRLF). This is a
- * pure side-channel: it never owns or mutates the bytes being forwarded — the
- * caller has already written the original chunk downstream verbatim.
- */
-class LineBuffer {
-  private buf = "";
-  private readonly onLine: (line: string) => void;
-  // Incremental UTF-8 decoder: `data` events split on arbitrary byte
-  // boundaries, so a multi-byte sequence (emoji/CJK in a tool arg or result)
-  // can straddle two chunks. StringDecoder holds back a trailing partial
-  // sequence until it completes, keeping the measured copy byte-accurate.
-  // (The forwarded stream is untouched — this is only the tee copy.)
-  private readonly decoder = new StringDecoder("utf8");
-
-  constructor(onLine: (line: string) => void) {
-    this.onLine = onLine;
-  }
-
-  push(chunk: Buffer): void {
-    this.buf += this.decoder.write(chunk);
-    let nl = this.buf.indexOf("\n");
-    while (nl !== -1) {
-      // Slice off one line (without the newline), tolerate a trailing CR.
-      let line = this.buf.slice(0, nl);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line.length > 0) this.onLine(line);
-      this.buf = this.buf.slice(nl + 1);
-      nl = this.buf.indexOf("\n");
-    }
   }
 }
 
