@@ -13,10 +13,12 @@ import type {
   ConnectorConfig,
   HookEventName,
   HooksConfig,
+  PublishConfig,
   ResolvedConnector,
   SkillDef,
   SubagentDef,
 } from "./types.js";
+import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
 
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -129,9 +131,42 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     subagents,
     platforms: config.platforms ?? {},
     targets: config.targets ?? "auto",
+    ...(config.publish ? { publish: normalizePublish(config.publish) } : {}),
   };
 
   return resolved;
+}
+
+/**
+ * Validate the optional `publish` block (registry server.json + MCPB bundle
+ * distribution metadata). Light, dependency-free: we only reject shapes that
+ * would emit a clearly INVALID standard artifact. The per-format required-field
+ * checks (e.g. server.json needs registryNamespace, mcpb needs author.name)
+ * live in the emitters so a connector that never publishes pays nothing.
+ */
+function normalizePublish(publish: PublishConfig): PublishConfig {
+  if (typeof publish !== "object" || Array.isArray(publish)) {
+    throw new ConnectorConfigError("publish must be an object");
+  }
+  if (publish.registryNamespace !== undefined) {
+    const ns = publish.registryNamespace;
+    if (typeof ns !== "string" || !REGISTRY_NAMESPACE_RE.test(ns)) {
+      throw new ConnectorConfigError(
+        `publish.registryNamespace must be a reverse-DNS namespace matching ${REGISTRY_NAMESPACE_RE} ` +
+          `(e.g. "io.github.acme" or "com.acme"); got ${JSON.stringify(ns)}`,
+      );
+    }
+  }
+  if (publish.packageName !== undefined && typeof publish.packageName !== "string") {
+    throw new ConnectorConfigError("publish.packageName must be a string");
+  }
+  if (publish.author !== undefined) {
+    const a = publish.author;
+    if (typeof a !== "object" || a == null || typeof a.name !== "string" || a.name === "") {
+      throw new ConnectorConfigError("publish.author.name must be a non-empty string");
+    }
+  }
+  return { ...publish };
 }
 
 /** Validate a surface name (kebab-case) or throw a ConnectorConfigError. */

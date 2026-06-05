@@ -404,6 +404,38 @@ export interface PlatformOverride {
   extra?: Record<string, unknown>;
 }
 
+/**
+ * Distribution metadata for the OFFICIAL MCP standard artifacts `package` can
+ * emit — the registry `server.json` and the MCPB `.mcpb` bundle. These describe
+ * the developer's REAL upstream MCP server (what a registry installer / Claude
+ * Desktop runs directly), NOT agent-connector's telemetry `serve` wrapper, so
+ * they need inputs the cross-platform install does not: the namespace the dev
+ * proved ownership of, their published package name, and bundle author info.
+ *
+ * All optional — a connector that never publishes to the registry or as a
+ * bundle can omit this entirely; the relevant `package --format` raises a clear,
+ * actionable error only when its required field is missing.
+ */
+export interface PublishConfig {
+  /**
+   * Reverse-DNS namespace the developer OWNS, e.g. "io.github.acme" or
+   * "com.acme". server.json `name` is rendered as `${registryNamespace}/${id}`.
+   * agent-connector never mints a namespace on the dev's behalf — the registry
+   * requires proven ownership (the `mcp-publisher login` step the dev runs).
+   */
+  registryNamespace?: string;
+  /**
+   * The developer's REAL published package that runs the MCP server, e.g.
+   * "@acme/acme-db-mcp" — server.json packages[].identifier. Required to emit a
+   * registry npm package entry (we cannot guess the published name).
+   */
+  packageName?: string;
+  /** Package registry base URL. Default https://registry.npmjs.org for npm. */
+  registryBaseUrl?: string;
+  /** Bundle author. The MCPB manifest requires author.name. */
+  author?: { name: string; email?: string; url?: string };
+}
+
 /** What a developer passes to defineConnector(). */
 export interface ConnectorConfig {
   /** Stable connector id (kebab-case). Replaces context-mode's hardcoded identity. */
@@ -426,6 +458,8 @@ export interface ConnectorConfig {
   platforms?: Partial<Record<PlatformId, PlatformOverride>>;
   /** "auto" (all detected) or an explicit allow-list. Default "auto". */
   targets?: "auto" | PlatformId[];
+  /** Distribution metadata for the registry server.json + MCPB bundle formats. */
+  publish?: PublishConfig;
 }
 
 /**
@@ -450,6 +484,8 @@ export interface ResolvedConnector {
   subagents: SubagentDef[];
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
+  /** Distribution metadata (registry server.json + MCPB bundle); passed through verbatim. */
+  publish?: PublishConfig;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
