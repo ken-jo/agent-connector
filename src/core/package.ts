@@ -45,6 +45,7 @@ import { emitAgyPlugin } from "./package-formats/agy.js";
 import { emitKimiPlugin } from "./package-formats/kimi.js";
 import { emitNpmPlugin } from "./package-formats/npm.js";
 import { emitMcpServerJson } from "./package-formats/mcp-server.js";
+import { emitMcpbBundle } from "./package-formats/mcpb.js";
 
 export type { PackageResult } from "./package-formats/shared.js";
 
@@ -62,7 +63,8 @@ export type PackageFormat =
   // Official MCP standard artifacts (describe the dev's REAL upstream server,
   // not our serve wrapper; require `publish` metadata, so they are opt-in and
   // excluded from `--format all`).
-  | "mcp-server-json";
+  | "mcp-server-json"
+  | "mcpb";
 
 /** The single consistent dispatch map: format → emitter. */
 const EMITTERS: Record<PackageFormat, FormatEmitter> = {
@@ -76,6 +78,7 @@ const EMITTERS: Record<PackageFormat, FormatEmitter> = {
   "kimi-plugin": emitKimiPlugin,
   "npm-plugin": emitNpmPlugin,
   "mcp-server-json": emitMcpServerJson,
+  mcpb: emitMcpbBundle,
 };
 
 /** All formats, in a stable, documented order. */
@@ -90,6 +93,7 @@ export const ALL_FORMATS: readonly PackageFormat[] = [
   "kimi-plugin",
   "npm-plugin",
   "mcp-server-json",
+  "mcpb",
 ] as const;
 
 /**
