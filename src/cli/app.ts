@@ -63,11 +63,11 @@ const ACTION_GLYPH: Record<ChangeRecord["action"], string> = {
 /**
  * Render an InstallResult as a readable diff: one line per ChangeRecord (glyph,
  * platform, detail, path) followed by any warnings and a summary tally. Used by
- * install / sync / uninstall.
+ * install / upgrade / uninstall.
  */
 export function renderInstallResult(
   result: InstallResult,
-  verb: "install" | "sync" | "uninstall",
+  verb: "install" | "upgrade" | "uninstall",
 ): string {
   const lines: string[] = [];
   const mode = result.dryRun ? " (dry-run — nothing written)" : "";
@@ -116,11 +116,16 @@ type CommandModule = { run: (argv: string[]) => Promise<number> | number };
 const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   detect: () => import("./commands/detect.js"),
   install: () => import("./commands/install.js"),
-  sync: () => import("./commands/sync.js"),
   uninstall: () => import("./commands/uninstall.js"),
+  // `upgrade` is the single "bring everything current" verb (re-render host
+  // config + refresh the home pointer + managed channel guidance). `sync` and
+  // `update` are kept as back-compat aliases that route to the same module so
+  // existing scripts/docs keep working without a second concept to learn.
+  upgrade: () => import("./commands/upgrade.js"),
+  sync: () => import("./commands/upgrade.js"),
+  update: () => import("./commands/upgrade.js"),
   package: () => import("./commands/package.js"),
   doctor: () => import("./commands/doctor.js"),
-  update: () => import("./commands/update.js"),
   telemetry: () => import("./commands/telemetry.js"),
   usage: () => import("./commands/usage.js"),
   leaderboard: () => import("./commands/leaderboard.js"),
@@ -148,11 +153,10 @@ usage: ${programName} <command> [flags]
 commands:
   detect       List the AI-agent platforms installed on this machine.
   install      Deploy a connector across its target platforms.
-  sync         Idempotent re-install (re-renders config, heals the home pointer).
   uninstall    Remove a connector's MCP + hook registrations.
+  upgrade      Bring everything current: re-render host config + heal the home pointer + managed update guidance (alias: update, sync).
   package      Emit a marketplace-installable Claude Code plugin bundle + marketplace.json.
   doctor       Health-check every detected platform; non-zero exit on any failure.
-  update       Managed-update guidance + refresh of the stable home pointer.
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
   usage        Inspect host-native token usage from agent CLI logs (report | export | leaderboard).
   leaderboard  Three leaderboards: 🔌 MCP/plugin (mcp-self) + 🖥️ host/user (host-scan-logs) + 🛰️ host-native turns (host-native-live) — never summed.

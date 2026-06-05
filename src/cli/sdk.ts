@@ -64,7 +64,11 @@ export interface ConnectorCli {
 const CONFIG_PATH_COMMANDS: ReadonlySet<string> = new Set([
   "install",
   "uninstall",
+  "upgrade",
+  // `sync` + `update` are back-compat aliases of `upgrade`; scope them too so a
+  // branded `acme-db sync` / `acme-db update` still targets the dev connector.
   "sync",
+  "update",
   "doctor",
   "package",
 ]);
