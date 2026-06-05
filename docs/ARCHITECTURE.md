@@ -244,7 +244,9 @@ agent-connector detect                       # installed platforms + scope + cap
 agent-connector install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]
 agent-connector uninstall [--targets ...]    # full inverse — removes server + hook registrations
 agent-connector upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
-agent-connector doctor                       # per-platform health checks
+agent-connector doctor [--probe]             # per-platform health checks; --probe = live MCP handshake
+agent-connector status                       # light install-state per host (always exits 0)
+agent-connector package --format mcp-server-json|mcpb   # OFFICIAL MCP standard artifacts (registry server.json / MCPB bundle)
 agent-connector hook <platform> <event> --connector <id>   # universal hook entrypoint (internal)
 agent-connector serve --connector <id> -- <server cmd...>   # telemetry-wrapping MCP proxy (internal)
 agent-connector telemetry report|export [...]

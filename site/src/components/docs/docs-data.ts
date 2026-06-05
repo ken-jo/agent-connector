@@ -757,9 +757,16 @@ export const cliCommands: CliCommand[] = [
   {
     name: "doctor",
     signature:
-      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
+      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe]",
     summary:
-      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail).",
+      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code.",
+  },
+  {
+    name: "status",
+    signature:
+      "agent-connector status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
+    summary:
+      "A light, glanceable install-state summary: one line per detected host showing which connectors are present (server / hooks). There is no MCP standard for local install state, so this is agent-connector infra — it reuses detect + a read-only config-present check, adds no adapter methods, and ALWAYS exits 0 (descriptive, never a gate — that contrast with doctor is why it exists).",
   },
   {
     name: "package",
@@ -770,7 +777,7 @@ export const cliCommands: CliCommand[] = [
     flags: [
       {
         flag: "--format <fmt>",
-        desc: 'One of the 9 formats (default claude-plugin), or "all" to emit every feasible format into <out>/<fmt>/. An invalid --format exits 2.',
+        desc: 'One of the host plugin/marketplace formats (default claude-plugin), or "all" to emit every feasible host format into <out>/<fmt>/. Two OFFICIAL MCP standard artifacts are also available by name — mcp-server-json (a registry server.json) and mcpb (an MCPB bundle manifest) — but require a `publish` block, so they are opt-in and excluded from `all`. An invalid --format exits 2.',
       },
       {
         flag: "--out <dir>",
@@ -1107,6 +1114,20 @@ export const packageFormatRows: PackageFormatRow[] = [
     manifest: "package.json (type:module, exports, keywords) + index.js (ESM bridge) + skills/<n>/SKILL.md + README.md",
     install: "npm publish <out>/<id>  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)",
     note: "A publishable npm package whose default export is a plugin fn that shells each hook to the home-bin. Commands/subagents are native host dirs and MCP is a config key, so they are NOT bundled (notes record this).",
+  },
+  {
+    format: "mcp-server-json",
+    targets: "Official MCP Registry (cross-vendor discovery)",
+    manifest: "server.json (schema 2025-12-11: name = <namespace>/<id>, version, packages[]{registryType,identifier,transport} | remotes[])",
+    install: "mcp-publisher login … && mcp-publisher publish   (the dev runs this)",
+    note: "OFFICIAL standard artifact. Describes the dev's REAL upstream server (NOT our serve wrapper). Opt-in: requires publish.registryNamespace (a namespace you own) + publish.packageName; excluded from --format all.",
+  },
+  {
+    format: "mcpb",
+    targets: "Claude Desktop + any MCPB host (one-click local install)",
+    manifest: "manifest.json (manifest_version 0.3, self-contained node server, secrets→user_config) + README packaging recipe",
+    install: "vendor server/ then: npx @anthropic-ai/mcpb pack .   (the dev runs this)",
+    note: "OFFICIAL standard artifact. Emits a conformant manifest + recipe, NOT the .mcpb zip (self-contained bundling is the dev's step). Opt-in: requires publish.author.name + a stdio server; excluded from --format all.",
   },
 ];
 

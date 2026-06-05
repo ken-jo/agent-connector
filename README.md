@@ -250,7 +250,9 @@ everywhere.
 | `install [--scope user\|project] [--targets …] [--dry-run]` | Render + write MCP + hooks across targets. |
 | `uninstall [--targets …]` | Full inverse — removes everything we wrote. |
 | `upgrade [--channel stable\|latest]` | One verb (alias: `update`, `sync`) — re-render host config + heal stale pointers + managed update of the single home binary. |
-| `doctor` | Per-platform health checks with fixes. |
+| `doctor [--probe]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real server. |
+| `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
+| `package [--format <fmt>\|all]` | Emit a host bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
 | `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | Token footprint (scope to your connector with `--connector`). |
 | `telemetry export [--format csv\|json] [--connector <id>]` | Raw aggregate records. |
 | `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards; `--connector` filters the 🔌 MCP/plugin section to one connector. |
@@ -260,6 +262,44 @@ everywhere.
 > `<your-tool> telemetry report` ≈ `agent-connector telemetry report --connector
 > <id>` — so a connector developer sees **their** connector's token usage by
 > default.
+
+## Publish to the MCP ecosystem
+
+Where the MCP standard already covers your server's functionality, agent-connector
+**emits the standard exactly** so your already-standard work is portable — you
+write the server, we carry the distribution:
+
+- **`package --format mcp-server-json`** → an official **MCP Registry** `server.json`
+  (schema `2025-12-11`). It describes your **real upstream server** (what a registry
+  installer runs), not our telemetry wrapper. Publish it with the official
+  `mcp-publisher` CLI.
+- **`package --format mcpb`** → an official **MCPB** (`.mcpb`, formerly DXT) bundle
+  `manifest.json` (`manifest_version 0.3`) for one-click local install in Claude
+  Desktop and any MCPB host, with secrets routed through the host keychain
+  (`user_config`).
+
+Both read a `publish` block on your connector (the namespace you own + your
+published package + author):
+
+```ts
+defineConnector({
+  id: "acme-db",
+  version: "1.2.0",
+  server: { transport: "stdio", command: "npx", args: ["-y", "@acme/acme-db-mcp"] },
+  publish: {
+    registryNamespace: "io.github.acme", // a namespace YOU proved ownership of
+    packageName: "@acme/acme-db-mcp",     // your REAL published package
+    author: { name: "Acme Inc" },
+  },
+});
+```
+
+> **Config we write is the standard.** `install` writes each host's native MCP
+> config in the de-facto canonical `mcpServers` shape — `{ command, args, env }`
+> for stdio, `{ url, headers }` for remote — across every target in one call. The
+> spec transport slug for streamable HTTP is `streamable-http` (registry
+> `server.json`); host configs canonically use `http`. WebSocket (`ws`) is **not**
+> an MCP spec transport and the standard artifacts reject it.
 
 ## Telemetry & privacy
 
