@@ -395,6 +395,16 @@ export function HooksSection() {
         the host&apos;s native control surface.
       </Lead>
 
+      <Callout title="Hooks vary the most across hosts">
+        This page is the API reference. For the full canonical-event × platform{" "}
+        <strong>mapping matrix</strong>, per-platform tabs, and the Claude Code ↔
+        Kilo CLI comparison, see the dedicated{" "}
+        <Link className="underline hover:text-foreground" to="/docs/hooks-guide">
+          Hooks: cross-platform guide
+        </Link>
+        .
+      </Callout>
+
       <CodeBlock code={S.hooksConfigSnippet} language="ts" filename="HooksConfig" />
       <P>
         <C>matcher</C> is a regex matched against the tool name (tool events

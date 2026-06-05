@@ -34,7 +34,6 @@ export const navGroups: NavGroup[] = [
       { id: "define-connector", label: "defineConnector" },
       { id: "server", label: "Server" },
       { id: "hooks", label: "Hooks" },
-      { id: "hooks-guide", label: "Hooks: cross-platform map" },
       { id: "surfaces", label: "Commands, Skills & Subagents" },
     ],
   },
@@ -63,6 +62,7 @@ export const navGroups: NavGroup[] = [
   {
     title: "Guides",
     items: [
+      { id: "hooks-guide", label: "Hooks: cross-platform guide" },
       { id: "add-a-platform", label: "Add a platform" },
       { id: "operating-model", label: "Operating model" },
       { id: "troubleshooting", label: "Troubleshooting" },
