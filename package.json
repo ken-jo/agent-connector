@@ -30,6 +30,10 @@
     "./runtime": {
       "types": "./dist/runtime/index.d.ts",
       "import": "./dist/runtime/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli/sdk.d.ts",
+      "import": "./dist/cli/sdk.js"
     }
   },
   "files": [

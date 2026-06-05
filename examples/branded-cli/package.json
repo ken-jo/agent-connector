@@ -1,0 +1,17 @@
+{
+  "name": "acme-db-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Acme's database MCP server + hooks, shipped with its own branded CLI on top of agent-connector.",
+  "type": "module",
+  "bin": {
+    "acme-db": "./bin.mjs"
+  },
+  "files": [
+    "bin.mjs",
+    "agent-connector.config.mjs"
+  ],
+  "dependencies": {
+    "agent-connector": "^0.1.0"
+  }
+}

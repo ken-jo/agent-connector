@@ -16,10 +16,14 @@
  * side by side but their totals are NEVER added together.
  *
  * Flags:
- *   --since 7d|24h|…   lower-bound window applied to both sources.
- *   --scope <value>    MCP-section scope slice (user|project|npx|binary|http|…);
- *                      ignored by the host section (host logs carry no scope).
- *   --json             emit { mcp:[...], host:[...] } instead of the tables.
+ *   --since 7d|24h|…     lower-bound window applied to both sources.
+ *   --scope <value>      MCP-section scope slice (user|project|npx|binary|http|…);
+ *                        ignored by the host section (host logs carry no scope).
+ *   --connector <id>     restrict the 🔌 MCP/plugin + 🛰️ host-native-turns
+ *                        sections to ONE connector id. The 🖥️ host-scan section
+ *                        is connector-agnostic (host CLI logs carry no connector
+ *                        attribution) and is intentionally NOT filtered.
+ *   --json               emit { mcp:[...], host:[...] } instead of the tables.
  */
 
 import { parseArgs } from "node:util";
@@ -63,6 +67,7 @@ export async function run(argv: string[]): Promise<number> {
     print("usage: agent-connector leaderboard [flags]");
     print("  --since 7d|24h|…   window applied to BOTH sources");
     print(`  --scope <value>    MCP-section slice (${SCOPE_FILTER_VALUES.join("|")})`);
+    print("  --connector <id>   restrict the 🔌 MCP + 🛰️ host-native sections to one connector");
     print("  --json             emit { mcp:[...], host:[...] } (never summed)");
     return 0;
   }
@@ -72,6 +77,7 @@ export async function run(argv: string[]): Promise<number> {
     options: {
       since: { type: "string" },
       scope: { type: "string" },
+      connector: { type: "string" },
       json: { type: "boolean", default: false },
     },
     allowPositionals: false,
@@ -91,22 +97,34 @@ export async function run(argv: string[]): Promise<number> {
     scope = s;
   }
 
+  // The optional --connector <id> FILTER restricts the two connector-attributed
+  // sections (🔌 MCP/plugin + 🛰️ host-native turns) to one connector. The
+  // 🖥️ host-scan section below is intentionally NOT filtered: host CLI logs carry
+  // no connector attribution, so it stays connector-agnostic (whole-conversation).
+  const connectorId =
+    values.connector !== undefined && values.connector.trim() !== ""
+      ? values.connector.trim()
+      : undefined;
+
   // 🔌 MCP / Plugin leaderboard — serve-proxy telemetry (origin: mcp-self).
-  const mcpOpts: { sinceMs?: number; scope?: ScopeFilter } = {};
+  const mcpOpts: { sinceMs?: number; scope?: ScopeFilter; connectorId?: string } = {};
   if (sinceMs !== undefined) mcpOpts.sinceMs = sinceMs;
   if (scope !== undefined) mcpOpts.scope = scope;
+  if (connectorId !== undefined) mcpOpts.connectorId = connectorId;
   const mcp = mcpLeaderboard(mcpOpts);
 
   // 🖥️ Host / User leaderboard — host usage readers (origin: host-scan-logs).
+  // Connector-agnostic by construction: NOT filtered by --connector.
   const hostOpts: { sinceMs?: number } = {};
   if (sinceMs !== undefined) hostOpts.sinceMs = sinceMs;
   const host = await hostLeaderboard(hostOpts);
 
   // 🛰️ Host-native turns — opt-in AfterModel usage hook (origin: host-native-live).
   // Scope `model_turn` rows ONLY; the MCP section above already excludes them.
-  const turnsOpts: { sinceMs?: number; scope?: ScopeFilter } = {};
+  const turnsOpts: { sinceMs?: number; scope?: ScopeFilter; connectorId?: string } = {};
   if (sinceMs !== undefined) turnsOpts.sinceMs = sinceMs;
   if (scope !== undefined) turnsOpts.scope = scope;
+  if (connectorId !== undefined) turnsOpts.connectorId = connectorId;
   const turns = hostNativeTurns(turnsOpts);
 
   if (values.json) {
@@ -132,12 +150,16 @@ export async function run(argv: string[]): Promise<number> {
       "excludes host-native model_turn rows)",
   );
   if (scope !== undefined) lines.push(`   scope: ${scope}`);
+  if (connectorId !== undefined) lines.push(`   connector: ${connectorId}`);
   lines.push("");
   lines.push(formatMcpLeaderboard(mcp));
   lines.push("");
   lines.push(
     "🖥️  Host / User leaderboard  (origin: host-scan-logs — whole-conversation usage from CLI logs)",
   );
+  if (connectorId !== undefined) {
+    lines.push("   (connector-agnostic — host CLI logs carry no connector attribution; --connector not applied here)");
+  }
   lines.push("");
   lines.push(formatHostLeaderboard(host));
   lines.push("");

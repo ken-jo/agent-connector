@@ -132,9 +132,18 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   "usage-event": () => import("./commands/usage-event.js"),
 };
 
-const USAGE = `agent-connector — write your MCP server + hooks once, install everywhere.
+/** Default program name; an embedding SDK CLI overrides it via {@link MainOptions}. */
+export const DEFAULT_PROGRAM_NAME = "agent-connector";
 
-usage: agent-connector <command> [flags]
+/**
+ * Build the top-level usage string for a given program name. The brand replaces
+ * "agent-connector" in the title, the `usage:` line, and the per-command help
+ * footer so an embedded CLI (e.g. `acme-db`) reads as its own tool.
+ */
+function buildUsage(programName: string): string {
+  return `${programName} — write your MCP server + hooks once, install everywhere.
+
+usage: ${programName} <command> [flags]
 
 commands:
   detect       List the AI-agent platforms installed on this machine.
@@ -150,24 +159,37 @@ commands:
   hook         Universal json-stdio hook entrypoint (hosts call this).
   serve        Telemetry-wrapping MCP stdio proxy (wraps a real server command).
 
-Run \`agent-connector <command> --help\` for command-specific flags.`;
+Run \`${programName} <command> --help\` for command-specific flags.`;
+}
 
-export async function main(argv: string[]): Promise<number> {
+/** Options accepted by {@link main}. */
+export interface MainOptions {
+  /**
+   * The brand shown in usage/help text. Defaults to {@link DEFAULT_PROGRAM_NAME}.
+   * An embedding SDK CLI (see cli/sdk.ts) passes its own bin name so every
+   * subcommand's help reads as the developer's tool.
+   */
+  programName?: string;
+}
+
+export async function main(argv: string[], opts: MainOptions = {}): Promise<number> {
+  const programName = opts.programName ?? DEFAULT_PROGRAM_NAME;
+  const usage = buildUsage(programName);
   const command = argv[0];
 
   if (command == null || command === "--help" || command === "-h" || command === "help") {
-    print(USAGE);
+    print(usage);
     return command == null ? 1 : 0;
   }
   if (command === "--version" || command === "-v") {
-    print("agent-connector");
+    print(programName);
     return 0;
   }
 
   const loader = COMMANDS[command];
   if (!loader) {
-    process.stderr.write(`agent-connector: unknown command "${command}"\n\n`);
-    process.stderr.write(`${USAGE}\n`);
+    process.stderr.write(`${programName}: unknown command "${command}"\n\n`);
+    process.stderr.write(`${usage}\n`);
     return 2;
   }
 
