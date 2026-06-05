@@ -75,7 +75,7 @@ updates behavior in every platform at once** — exactly the requested ergonomic
 > **stable** path (`~/.agent-connector/bin/agent-connector`), never a versioned
 > cache dir (this also sidesteps the whole class of bug that forces context-mode's
 > `cache-heal` SessionStart hook). Updates are **explicit/managed**
-> (`agent-connector update`, channel = stable|latest), with an optional
+> (`agent-connector upgrade`, channel = stable|latest), with an optional
 > **per-project version pin** override. One place to update — without global
 > instant breakage.
 
@@ -242,10 +242,9 @@ export default defineConnector({
 ```
 agent-connector detect                       # installed platforms + scope + capabilities + paradigm
 agent-connector install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]
-agent-connector sync                         # idempotent re-render after edit/upgrade; heals stale pointers
 agent-connector uninstall [--targets ...]    # full inverse — removes server + hook registrations
+agent-connector upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
 agent-connector doctor                       # per-platform health checks
-agent-connector update [--channel stable|latest]
 agent-connector hook <platform> <event> --connector <id>   # universal hook entrypoint (internal)
 agent-connector serve --connector <id> -- <server cmd...>   # telemetry-wrapping MCP proxy (internal)
 agent-connector telemetry report|export [...]

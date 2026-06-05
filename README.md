@@ -22,7 +22,7 @@ agent-connector is the middleware that does it for you:
 
 1. **One API, every platform.** Declare your server + hooks once with
    `defineConnector({...})`; the CLI detects every installed host and renders the
-   right native config in each — install, sync, uninstall, doctor.
+   right native config in each — install, uninstall, upgrade, doctor.
 2. **Token telemetry, by default.** No host reports per-tool usage back to an MCP
    server. agent-connector measures your server's *own* bytes (args in, results
    out, tool schemas) and tokenizes them locally — so you get a
@@ -149,7 +149,7 @@ After a consumer installs **your** package (`npm install acme-db-tools`), the
 
 ```bash
 acme-db install              # deploy the acme-db connector everywhere (no --connector)
-acme-db sync                 # idempotent re-install
+acme-db upgrade              # bring everything current (alias: sync, update)
 acme-db doctor               # health-check every platform for acme-db
 acme-db leaderboard          # the 🔌 MCP/plugin section, scoped to acme-db
 acme-db telemetry report --by tool   # acme-db's per-tool token footprint
@@ -232,7 +232,7 @@ everywhere.
 - **Home-dir, single binary.** The runtime installs once under
   `~/.agent-connector` (override `AGENT_CONNECTOR_DATA_DIR`). Every platform
   config we write is a thin pointer back to that one binary — update it in one
-  place. Updates are **explicit/managed** (`agent-connector update`), never silent
+  place. Updates are **explicit/managed** (`agent-connector upgrade`), never silent
   auto-update, so one bad release can't break every project at once.
 - **Per-project data, kept.** Telemetry/state is keyed by a stable project
   identity (git remote or normalized path), partitioned per project, stored under
@@ -248,10 +248,9 @@ everywhere.
 |---|---|
 | `detect` | List installed platforms, scopes, capabilities, hook paradigm. |
 | `install [--scope user\|project] [--targets …] [--dry-run]` | Render + write MCP + hooks across targets. |
-| `sync` | Idempotent re-render after edits/upgrade; heals stale pointers. |
 | `uninstall [--targets …]` | Full inverse — removes everything we wrote. |
+| `upgrade [--channel stable\|latest]` | One verb (alias: `update`, `sync`) — re-render host config + heal stale pointers + managed update of the single home binary. |
 | `doctor` | Per-platform health checks with fixes. |
-| `update [--channel stable\|latest]` | Managed update of the single home binary. |
 | `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | Token footprint (scope to your connector with `--connector`). |
 | `telemetry export [--format csv\|json] [--connector <id>]` | Raw aggregate records. |
 | `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards; `--connector` filters the 🔌 MCP/plugin section to one connector. |

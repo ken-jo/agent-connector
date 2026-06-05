@@ -143,7 +143,7 @@ npm install acme-db-tools
 # deploy the acme-db connector across every detected agent platform.
 acme-db install                 # auto-scoped — no --connector needed
 acme-db install --dry-run       # preview the plan, nothing written
-acme-db sync                    # idempotent re-install
+acme-db upgrade                 # bring everything current (alias: sync, update)
 acme-db doctor                  # health-check every platform for acme-db
 
 # telemetry + leaderboards, scoped to the acme-db connector:

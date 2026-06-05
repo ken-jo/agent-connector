@@ -214,8 +214,8 @@ export const surfaces: Surface[] = [
 export const cliCommands: { cmd: string; purpose: string }[] = [
   { cmd: "detect", purpose: "List installed platforms, scopes, capabilities & paradigm." },
   { cmd: "install", purpose: "Render + write MCP + hooks across detected targets." },
-  { cmd: "sync", purpose: "Idempotent re-render; heals stale pointers." },
   { cmd: "uninstall", purpose: "Full inverse — removes everything we wrote." },
+  { cmd: "upgrade", purpose: "Bring all current: re-render config, heal pointers, managed update (alias: update, sync)." },
   { cmd: "doctor", purpose: "Per-platform health checks with fixes." },
   { cmd: "telemetry", purpose: "Per-tool token footprint, input/output split." },
   { cmd: "usage", purpose: "Aggregate usage rollups by tool, session or project." },
@@ -375,9 +375,9 @@ export const howItWorks: HowItWorksStep[] = [
       "Telemetry is keyed by stable project identity (git remote or normalized path), surviving git clean.",
   },
   {
-    title: "Managed update",
+    title: "Managed upgrade",
     detail:
-      "agent-connector update bumps the one binary — explicit, never silent. One bad release can't break everything.",
+      "agent-connector upgrade refreshes the one binary pointer — explicit, never silent. One bad release can't break everything.",
   },
   {
     title: "Windows-safe",

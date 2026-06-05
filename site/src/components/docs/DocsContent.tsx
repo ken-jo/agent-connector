@@ -240,7 +240,7 @@ export function EmbedCli() {
       <P>
         A branded subcommand is just the matching agent-connector command with
         your connector pre-injected — argument transformation only, no duplicated
-        logic. Config-path commands (<C>install</C>, <C>sync</C>, <C>doctor</C>,{" "}
+        logic. Config-path commands (<C>install</C>, <C>upgrade</C>, <C>doctor</C>,{" "}
         <C>uninstall</C>, <C>package</C>) get your config <strong>path</strong>;{" "}
         <C>leaderboard</C> / <C>telemetry</C> get your connector{" "}
         <strong>id</strong> as a filter; <C>serve</C> / <C>hook</C> get the id for
@@ -1354,9 +1354,9 @@ export function OperatingModel() {
           project.
         </LI>
         <LI>
-          <strong>Explicit updates.</strong> <C>agent-connector update</C> bumps
-          the one binary — never silent auto-update, so one bad release can&apos;t
-          break every project at once.
+          <strong>Explicit upgrades.</strong> <C>agent-connector upgrade</C>{" "}
+          refreshes the one binary pointer — never silent auto-update, so one bad
+          release can&apos;t break every project at once.
         </LI>
         <LI>
           <strong>Windows-first.</strong> Resolves home per-OS; no symlinks, no
@@ -1430,7 +1430,7 @@ export function Troubleshooting() {
 
       <H3 id="warn-exit-1">The warn action → exit 1</H3>
       <P>
-        <C>install</C> and <C>sync</C> exit <C>1</C> when any change in the diff
+        <C>install</C> and <C>upgrade</C> exit <C>1</C> when any change in the diff
         is a <C>warn</C> (glyph <C>!</C>) — for example a host that can&apos;t
         honor a requested transport (it downgrades-or-skips and reports it) or a
         surface an adapter doesn&apos;t support (it skips + warns). The write

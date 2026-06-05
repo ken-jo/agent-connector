@@ -742,10 +742,10 @@ export const cliCommands: CliCommand[] = [
       "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. Exit code 1 if any change is a warn, else 0.",
   },
   {
-    name: "sync",
-    signature: "agent-connector sync [same flags as install]",
+    name: "upgrade",
+    signature: "agent-connector upgrade [--channel stable|latest] [same flags as install]",
     summary:
-      "Idempotent re-render after editing a connector or upgrading the framework: byte-identical entries report skip, and the stable home-bin pointer is healed. Same diff output and exit semantics as install.",
+      "The single “bring everything current” verb (aliases: update, sync). Re-renders the connector into every target host idempotently (byte-identical entries report skip — this is also the self-heal path: run upgrade to repair a drifted install), then refreshes the stable home-bin pointer and prints managed update guidance (the exact npm i -g agent-connector@<dist>). With no resolvable connector it does the tool-only refresh from anywhere. Never silently auto-updates. Same diff output + exit semantics as install for the re-render; exit 1 if the pointer refresh fails.",
   },
   {
     name: "uninstall",
@@ -760,12 +760,6 @@ export const cliCommands: CliCommand[] = [
       "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
     summary:
       "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail).",
-  },
-  {
-    name: "update",
-    signature: "agent-connector update [--channel stable|latest]",
-    summary:
-      "Prints managed-update guidance (the exact npm i -g agent-connector@<dist>) and refreshes the stable home-bin pointer so hosts keep execing a working CLI. Never silently auto-updates. Exit 1 only if the pointer refresh fails.",
   },
   {
     name: "package",
