@@ -302,6 +302,18 @@ defineConnector({
 > `server.json`); host configs canonically use `http`. WebSocket (`ws`) is **not**
 > an MCP spec transport and the standard artifacts reject it.
 
+> **Forward-compatible by transport.** The `serve` proxy is **byte-transparent**:
+> it forwards every JSON-RPC message verbatim and only tees a copy to count
+> `tools/call` round-trips (+ the one-time `tools/list` overhead). So newer MCP
+> features ride through untouched and uncounted — **MCP Apps** (the official
+> `io.modelcontextprotocol/ui` extension: `ui://` resource templates, `_meta.ui`
+> tool linkage, the bidirectional `ui/*` + `sampling` traffic) and **any
+> reverse-DNS extension** negotiated at `initialize`. A connector whose server
+> already speaks these deploys across every host and keeps its telemetry today,
+> no agent-connector change required. (Authoring such a UI is the dev's own MCP
+> server's job; we deploy + wrap it. `doctor --probe` offers the latest released
+> protocol revision and accepts whatever a server negotiates.)
+
 ## Telemetry & privacy
 
 - Default tokenizer: `gpt-tokenizer` (pure-JS, no native build) — `o200k_base`

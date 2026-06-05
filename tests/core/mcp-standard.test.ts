@@ -22,7 +22,8 @@ describe("pinned constants", () => {
       "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
     );
     expect(MCPB_MANIFEST_VERSION).toBe("0.3");
-    expect(MCP_PROTOCOL_VERSION).toBe("2025-06-18");
+    // Latest RELEASED revision (2026-07-28 is RC-only — do not advance to it).
+    expect(MCP_PROTOCOL_VERSION).toBe("2025-11-25");
   });
 });
 

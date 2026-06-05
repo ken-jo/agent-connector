@@ -11,7 +11,11 @@
  * Sources:
  *  • server.schema.json 2025-12-11 — https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json
  *  • MCPB manifest 0.3 — github.com/anthropics/mcpb (MANIFEST.md)
- *  • MCP protocol 2025-06-18 — modelcontextprotocol.io/specification/2025-06-18
+ *  • MCP protocol 2025-11-25 — modelcontextprotocol.io/specification/2025-11-25
+ *    (latest RELEASED revision. 2026-07-28 is a release-candidate only — do NOT
+ *    advance to it until it publishes as a stable dated revision. The probe
+ *    offers this version but ACCEPTS whatever a server negotiates, so the
+ *    offered literal being stale never breaks interop — only this constant.)
  */
 
 import type { Transport } from "./types.js";
@@ -23,8 +27,13 @@ export const MCP_SERVER_SCHEMA_URL =
 /** Current MCPB bundle manifest_version (anthropics/mcpb). MUST-VERIFY on bump. */
 export const MCPB_MANIFEST_VERSION = "0.3";
 
-/** Latest MCP protocol revision `doctor --probe` offers in `initialize`. MUST-VERIFY on bump. */
-export const MCP_PROTOCOL_VERSION = "2025-06-18";
+/**
+ * Latest RELEASED MCP protocol revision `doctor --probe` offers in `initialize`.
+ * Current = 2025-11-25. MUST-VERIFY on bump; stay on the latest *released*
+ * revision (2026-07-28 is RC-only as of 2026-06). Negotiation accepts whatever
+ * the server returns, so this is the offered value, not a hard requirement.
+ */
+export const MCP_PROTOCOL_VERSION = "2025-11-25";
 
 /** Default npm registry base URL stamped into server.json npm packages. */
 export const NPM_REGISTRY_BASE_URL = "https://registry.npmjs.org";
