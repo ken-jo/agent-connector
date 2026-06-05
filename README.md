@@ -173,7 +173,8 @@ Same one definition, your choice of distribution:
   extension config in place; no per-platform marketplace submission or review.
 - **Marketplace package** — `agent-connector package` turns the connector into a
   marketplace/extension bundle (manifest + bundled commands, agents, skills,
-  hooks, MCP) for **9 formats** across the ecosystem, from one definition:
+  hooks, MCP) for **9 host formats** (plus 2 official MCP standard artifacts —
+  see *Publish to the MCP ecosystem*) across the ecosystem, from one definition:
   `claude-plugin` (Claude Code · Codex · VS Code Copilot · OpenClaw · OMP) ·
   `codex-plugin` · `factory-plugin` (Droid) · `gemini-extension` (Gemini CLI) ·
   `qwen-extension` · `agy-plugin` (Antigravity CLI/IDE) · `cursor-plugin` ·

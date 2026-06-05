@@ -135,7 +135,10 @@ export function PackagingGuideSection() {
         directly with the CLI, or emit a marketplace / extension{" "}
         <strong>bundle</strong> others install through their host&apos;s own
         plugin flow. The <C>agent-connector package</C> command renders the
-        bundle for any of <strong>nine</strong> ecosystem formats.
+        bundle for any of <strong>nine</strong> host ecosystem formats — plus two
+        official <strong>MCP standard artifacts</strong> (a registry{" "}
+        <C>server.json</C> and an <C>mcpb</C> bundle) that plug your real upstream
+        server into the cross-vendor distribution graph.
       </Lead>
 
       <TwoWaysToShip />
@@ -172,7 +175,7 @@ export function PackagingGuideSection() {
       </List>
       <CodeBlock code={S.packageSnippet} language="bash" filename="terminal" />
 
-      <H3 id="package-formats">The nine formats</H3>
+      <H3 id="package-formats">Host formats + standard artifacts</H3>
       <P>
         For each format: the <C>--format</C> value, the target platform(s) it
         serves, the manifest file(s) it emits, and the user install command. The

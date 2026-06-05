@@ -75,7 +75,7 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
   ],
   packaging: [
     { id: "package-command", title: "The package command" },
-    { id: "package-formats", title: "The nine formats" },
+    { id: "package-formats", title: "Host formats + standard artifacts" },
     { id: "package-telemetry", title: "Telemetry carries through every bundle" },
   ],
   "telemetry-overview": [
