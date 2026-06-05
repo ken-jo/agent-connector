@@ -44,6 +44,7 @@ import {
 import { emitAgyPlugin } from "./package-formats/agy.js";
 import { emitKimiPlugin } from "./package-formats/kimi.js";
 import { emitNpmPlugin } from "./package-formats/npm.js";
+import { emitMcpServerJson } from "./package-formats/mcp-server.js";
 
 export type { PackageResult } from "./package-formats/shared.js";
 
@@ -57,7 +58,11 @@ export type PackageFormat =
   | "agy-plugin"
   | "cursor-plugin"
   | "kimi-plugin"
-  | "npm-plugin";
+  | "npm-plugin"
+  // Official MCP standard artifacts (describe the dev's REAL upstream server,
+  // not our serve wrapper; require `publish` metadata, so they are opt-in and
+  // excluded from `--format all`).
+  | "mcp-server-json";
 
 /** The single consistent dispatch map: format → emitter. */
 const EMITTERS: Record<PackageFormat, FormatEmitter> = {
@@ -70,9 +75,10 @@ const EMITTERS: Record<PackageFormat, FormatEmitter> = {
   "cursor-plugin": emitCursorPlugin,
   "kimi-plugin": emitKimiPlugin,
   "npm-plugin": emitNpmPlugin,
+  "mcp-server-json": emitMcpServerJson,
 };
 
-/** All formats, in a stable, documented order (also the order `--format all` emits). */
+/** All formats, in a stable, documented order. */
 export const ALL_FORMATS: readonly PackageFormat[] = [
   "claude-plugin",
   "codex-plugin",
@@ -83,13 +89,28 @@ export const ALL_FORMATS: readonly PackageFormat[] = [
   "cursor-plugin",
   "kimi-plugin",
   "npm-plugin",
+  "mcp-server-json",
 ] as const;
 
 /**
- * The formats `--format all` emits. npm-plugin is included because it emits a
- * CLEAN publishable package (not a half-baked stub), per the build plan.
+ * The formats `--format all` emits — the host plugin/marketplace bundles that
+ * work for ANY connector. The official MCP standard artifacts (mcp-server-json,
+ * and the MCPB bundle) are deliberately EXCLUDED: they require `publish`
+ * metadata (a namespace the dev owns, their published package) and would error
+ * for a connector that has not opted into publishing, so they are emitted only
+ * when requested explicitly by name.
  */
-export const FEASIBLE_FORMATS: readonly PackageFormat[] = ALL_FORMATS;
+export const FEASIBLE_FORMATS: readonly PackageFormat[] = [
+  "claude-plugin",
+  "codex-plugin",
+  "factory-plugin",
+  "gemini-extension",
+  "qwen-extension",
+  "agy-plugin",
+  "cursor-plugin",
+  "kimi-plugin",
+  "npm-plugin",
+] as const;
 
 /** Type guard: is `s` a supported {@link PackageFormat}? */
 export function isPackageFormat(s: string): s is PackageFormat {

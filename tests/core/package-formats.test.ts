@@ -31,7 +31,6 @@ import {
   isPackageFormat,
   packageConnector,
   packageConnectorAll,
-  type PackageFormat,
 } from "../../src/core/package.js";
 import { readTomlString } from "../../src/core/toml.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
@@ -92,6 +91,13 @@ function buildConnector(): ResolvedConnector {
         model: "opus",
       },
     ],
+    // Distribution metadata so the opt-in mcp-server-json format can emit in the
+    // ALL_FORMATS coverage loops (describes the REAL @acme/db-mcp package).
+    publish: {
+      registryNamespace: "io.github.acme",
+      packageName: "@acme/db-mcp",
+      author: { name: "Acme Inc" },
+    },
   });
 }
 
@@ -444,11 +450,16 @@ describe("packageConnector — npm-plugin", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("packageConnectorAll — every feasible format", () => {
-  it("emits each format into <out>/<format>/ and covers ALL_FORMATS", () => {
+  it("emits each FEASIBLE format into <out>/<format>/ (the standard artifacts are opt-in, not in --format all)", () => {
     const results = packageConnectorAll(connector, { outDir, homeBinPath: HOME_BIN });
     const emitted = results.map((r) => r.format).sort();
     expect(emitted).toEqual([...FEASIBLE_FORMATS].sort());
-    expect(emitted).toEqual([...ALL_FORMATS].sort());
+    // FEASIBLE (--format all) is the host-bundle subset of ALL_FORMATS; the
+    // official standard artifacts (mcp-server-json) require publish metadata and
+    // are excluded, so ALL_FORMATS is strictly larger.
+    expect(FEASIBLE_FORMATS.length).toBeLessThan(ALL_FORMATS.length);
+    expect(emitted).not.toContain("mcp-server-json");
+    expect(ALL_FORMATS).toContain("mcp-server-json");
 
     for (const { format, result } of results) {
       // Every bundle lands under its own <out>/<format>/ subdir.
