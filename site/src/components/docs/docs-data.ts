@@ -25,6 +25,7 @@ export const navGroups: NavGroup[] = [
       { id: "introduction", label: "Introduction" },
       { id: "installation", label: "Installation" },
       { id: "quick-start", label: "Quick start" },
+      { id: "embed-cli", label: "Embed it / branded CLI" },
     ],
   },
   {
@@ -86,9 +87,11 @@ export const sectionDescription: Record<string, string> = {
   introduction:
     "Write your MCP server + hooks once with defineConnector; agent-connector renders it natively across 28 AI-agent platforms with default local-first token telemetry.",
   installation:
-    "Install the agent-connector CLI globally. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
+    "Install agent-connector as a dependency of your connector package (npm install agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
-    "Create an agent-connector.config file and drive install / sync / uninstall — every command is idempotent, reversible, and --dry-run-able.",
+    "Depend on agent-connector, write defineConnector, then ship a branded CLI or run npx agent-connector — install / sync / uninstall are idempotent, reversible, and --dry-run-able.",
+  "embed-cli":
+    "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
   "define-connector":
     "defineConnector(config): the write-once surface. Validates eagerly, throws ConnectorConfigError, and returns a fully-defaulted ResolvedConnector.",
   server:

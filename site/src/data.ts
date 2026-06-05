@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 
 export const REPO_URL = "https://github.com/ken-jo/agent-connector";
-export const INSTALL_CMD = "npm i -g agent-connector";
+export const INSTALL_CMD = "npm install agent-connector";
 
 /* ------------------------------------------------------------------ */
 /* Hook paradigms                                                      */

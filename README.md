@@ -83,16 +83,87 @@ static code/web audit missed. See the reports under
 
 ## Quick start
 
-```bash
-npm i -g agent-connector
+agent-connector is an **SDK you depend on**, not a global tool. Add it to the
+package that holds your connector, declare the connector once, then **either**
+ship a branded CLI your users drive directly **or** run it with `npx`. No
+separate global install is required.
 
-cd my-mcp-project        # contains agent-connector.config.mjs (see examples/)
-agent-connector detect           # which platforms are installed here?
-agent-connector install --dry-run  # preview every change, everywhere
-agent-connector install            # deploy across all detected hosts
-agent-connector telemetry report   # per-tool token footprint
-agent-connector package            # OR emit a marketplace-installable plugin (below)
+```bash
+# 1. add agent-connector as a DEPENDENCY of your connector package
+npm install agent-connector
+
+# 2. write agent-connector.config.mjs (defineConnector — see "Define once" below)
+
+# 3a. ship a branded CLI so YOUR users drive it (auto-scoped — no --connector):
+acme-db detect             # which platforms are installed here?
+acme-db install --dry-run  # preview every change, everywhere
+acme-db install            # deploy across all detected hosts
+acme-db leaderboard        # which of acme-db's tools cost the most tokens
+acme-db package            # OR emit a marketplace-installable plugin (below)
+
+# 3b. …or just run it from the project with npx — still no global install:
+npx agent-connector detect
+npx agent-connector install
 ```
+
+> **Optional convenience.** A global `npm i -g agent-connector` is **not**
+> required for the flow above — `npx agent-connector …` runs it straight from
+> your project. Install it globally only if you want to poke at the CLI by hand
+> outside any connector package.
+
+### Embed it / ship a branded CLI
+
+A connector developer adds agent-connector as a dependency and ships their
+**own** bin. `createConnectorCli({ name, connector })` (from the
+`agent-connector/cli` export) exposes **every** agent-connector subcommand under
+your brand, fully delegated and **auto-scoped** to your connector — so your
+users never install agent-connector globally or type `--connector`. See
+[`examples/branded-cli`](examples/branded-cli) for the full, runnable package.
+
+```jsonc
+// package.json — agent-connector is a dependency (not -g); your package owns the bin
+{
+  "name": "acme-db-tools",
+  "type": "module",
+  "bin": { "acme-db": "./bin.mjs" },
+  "dependencies": { "agent-connector": "^0.1.0" }
+}
+```
+
+```js
+#!/usr/bin/env node
+// bin.mjs — every agent-connector subcommand, branded as `acme-db`
+import { fileURLToPath } from "node:url";
+import { createConnectorCli } from "agent-connector/cli";
+
+createConnectorCli({
+  name: "acme-db",
+  connector: fileURLToPath(
+    new URL("./agent-connector.config.mjs", import.meta.url),
+  ),
+}).run();
+```
+
+After a consumer installs **your** package (`npm install acme-db-tools`), the
+`acme-db` bin is on their PATH and every command is scoped to your connector:
+
+```bash
+acme-db install              # deploy the acme-db connector everywhere (no --connector)
+acme-db sync                 # idempotent re-install
+acme-db doctor               # health-check every platform for acme-db
+acme-db leaderboard          # the 🔌 MCP/plugin section, scoped to acme-db
+acme-db telemetry report --by tool   # acme-db's per-tool token footprint
+acme-db --help               # every agent-connector subcommand, branded
+```
+
+**Auto-scoping is pure argument injection over the SAME single home binary.** A
+branded subcommand is the matching agent-connector command with your connector
+pre-injected — `acme-db leaderboard` ≈ `agent-connector leaderboard --connector
+acme-db`, `acme-db install` ≈ `agent-connector install --connector
+./agent-connector.config.mjs`. `serve` and `hook` still route through the one
+`~/.agent-connector` home binary every host config points back to, so branded
+tools share that infrastructure. An explicit `--connector` / `--connector-id`
+always overrides the injected default.
 
 ### Two ways to ship: direct install **or** a marketplace package
 
@@ -181,8 +252,15 @@ everywhere.
 | `uninstall [--targets …]` | Full inverse — removes everything we wrote. |
 | `doctor` | Per-platform health checks with fixes. |
 | `update [--channel stable\|latest]` | Managed update of the single home binary. |
-| `telemetry report [--by tool\|session\|project] [--since 7d]` | Token footprint. |
-| `telemetry export [--format csv\|json]` | Raw aggregate records. |
+| `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | Token footprint (scope to your connector with `--connector`). |
+| `telemetry export [--format csv\|json] [--connector <id>]` | Raw aggregate records. |
+| `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards; `--connector` filters the 🔌 MCP/plugin section to one connector. |
+
+> A **branded CLI** auto-injects `--connector` for you: `<your-tool>
+> leaderboard` ≈ `agent-connector leaderboard --connector <id>`, and
+> `<your-tool> telemetry report` ≈ `agent-connector telemetry report --connector
+> <id>` — so a connector developer sees **their** connector's token usage by
+> default.
 
 ## Telemetry & privacy
 

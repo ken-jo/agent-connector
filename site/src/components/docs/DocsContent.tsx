@@ -98,13 +98,46 @@ export function Introduction() {
 export function Installation() {
   return (
     <DocSection id="installation" eyebrow="Getting Started" title="Installation">
-      <P>Install the CLI globally. It is ESM-only and ships pure-JS / WASM deps.</P>
+      <Lead>
+        agent-connector is an <strong>SDK you depend on</strong>, not a global
+        tool. Add it to your connector package, then either ship a{" "}
+        <strong>branded CLI</strong> your users drive directly, or run it with{" "}
+        <C>npx</C> from the project. Your consumers never need a separate global
+        install.
+      </Lead>
+      <P>
+        Add agent-connector as a dependency of the package that holds your{" "}
+        <C>agent-connector.config</C>:
+      </P>
       <CodeBlock code={S.installSnippet} language="bash" filename="terminal" />
+      <P>
+        Then expose every subcommand under your own brand with{" "}
+        <C>createConnectorCli</C> from the <C>agent-connector/cli</C> export — the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/embed-cli">
+          branded-CLI flow
+        </Link>
+        . Each command is auto-scoped to your connector, so your users never type{" "}
+        <C>--connector</C>:
+      </P>
+      <CodeBlock
+        code={S.brandedCliSnippet}
+        language="ts"
+        filename="bin.mjs"
+      />
       <Callout title="Engines">
         Node <C>&gt;=18.17</C>, ESM only. Runtime deps are pure-JS / WASM (
         <C>gpt-tokenizer</C>, <C>sql.js</C>, <C>fzstd</C>, <C>@iarna/toml</C>,{" "}
         <C>yaml</C>) — no native build. License: MIT © KenJo.
       </Callout>
+
+      <H3 id="optional-global">Optional: use the CLI directly</H3>
+      <P>
+        You do <strong>not</strong> need a global install for the SDK flow above
+        — <C>npx agent-connector …</C> runs it straight from your project. A
+        global install is a convenience only, for trying the CLI by hand outside
+        any connector package:
+      </P>
+      <CodeBlock code={S.globalInstallSnippet} language="bash" filename="terminal" />
 
       <H3 id="from-source">From source</H3>
       <CodeBlock code={S.fromSourceSnippet} language="bash" filename="terminal" />
@@ -115,25 +148,120 @@ export function Installation() {
 export function QuickStart() {
   return (
     <DocSection id="quick-start" eyebrow="Getting Started" title="Quick start">
+      <Lead>
+        Three steps: depend on agent-connector, declare your connector with{" "}
+        <C>defineConnector</C>, then <strong>either</strong> ship a branded CLI{" "}
+        <strong>or</strong> run <C>npx agent-connector</C> from the project.
+      </Lead>
       <P>
-        Create an <C>agent-connector.config.&#123;mjs,js,json&#125;</C> at your
-        project root (found by walking up from the project dir, or pass{" "}
-        <C>--connector &lt;path&gt;</C>), then drive it with the CLI:
+        Add the dependency and create an{" "}
+        <C>agent-connector.config.&#123;mjs,js,json&#125;</C> at your project root
+        (found by walking up from the project dir, or pass{" "}
+        <C>--connector &lt;path&gt;</C>):
       </P>
       <CodeBlock code={S.quickStartSnippet} language="bash" filename="terminal" />
       <P>
-        Every command is idempotent, reversible, and <C>--dry-run</C>-able. The
-        config below is the canonical example — see{" "}
+        The config below is the canonical example — see{" "}
         <Link className="underline hover:text-foreground" to="/docs/define-connector">
           defineConnector
         </Link>{" "}
-        for the full field reference.
+        for the full field reference. Every command is idempotent, reversible,
+        and <C>--dry-run</C>-able.
       </P>
       <CodeBlock
         code={S.defineConnectorSnippet}
         language="ts"
         filename="agent-connector.config.ts"
       />
+      <Callout title="Two ways to drive it">
+        Ship a <strong>branded CLI</strong> so your users run{" "}
+        <C>&lt;your-tool&gt; install</C> / <C>&lt;your-tool&gt; leaderboard</C>{" "}
+        (auto-scoped to your connector — see{" "}
+        <Link className="underline hover:text-foreground" to="/docs/embed-cli">
+          Embed it / branded CLI
+        </Link>
+        ), or just run <C>npx agent-connector …</C> from the project. Either way,
+        no separate global install is required.
+      </Callout>
+    </DocSection>
+  );
+}
+
+export function EmbedCli() {
+  return (
+    <DocSection
+      id="embed-cli"
+      eyebrow="Getting Started"
+      title="Embed it / ship a branded CLI"
+    >
+      <Lead>
+        agent-connector is an <strong>SDK a connector developer depends on</strong>
+        . With <C>createConnectorCli(&#123; name, connector &#125;)</C> you expose{" "}
+        <strong>every</strong> agent-connector subcommand under your own brand —
+        fully delegated and <strong>auto-scoped</strong> to the connector your
+        package ships. Your users run <C>&lt;your-tool&gt; install</C> /{" "}
+        <C>&lt;your-tool&gt; leaderboard</C> / <C>&lt;your-tool&gt; telemetry</C>{" "}
+        and never install agent-connector globally or type <C>--connector</C>.
+      </Lead>
+
+      <H3 id="embed-package">1. Depend on it + add a bin</H3>
+      <P>
+        agent-connector is a normal <C>dependency</C> (not <C>-g</C>). Your
+        package declares a <C>bin</C>; installing your package links that bin onto
+        the user&apos;s PATH.
+      </P>
+      <CodeBlock
+        code={S.brandedPackageJsonSnippet}
+        language="json"
+        filename="package.json"
+      />
+
+      <H3 id="embed-bin">2. createConnectorCli in your bin</H3>
+      <P>
+        Import <C>createConnectorCli</C> from the <C>agent-connector/cli</C>{" "}
+        export, point it at your shipped config, and <C>.run()</C> it. That is the
+        whole bin — every command behavior still lives in agent-connector; this is
+        pure brand + auto-scope.
+      </P>
+      <CodeBlock code={S.brandedBinSnippet} language="ts" filename="bin.mjs" />
+
+      <H3 id="embed-usage">3. Your users drive your brand</H3>
+      <P>
+        After installing <em>your</em> package, the consumer runs your bin. Each
+        subcommand targets your connector with no <C>--connector</C>:
+      </P>
+      <CodeBlock
+        code={S.brandedUsageSnippet}
+        language="bash"
+        filename="terminal"
+      />
+
+      <H3 id="embed-scoping">Auto-scoping &amp; the shared home binary</H3>
+      <P>
+        A branded subcommand is just the matching agent-connector command with
+        your connector pre-injected — argument transformation only, no duplicated
+        logic. Config-path commands (<C>install</C>, <C>sync</C>, <C>doctor</C>,{" "}
+        <C>uninstall</C>, <C>package</C>) get your config <strong>path</strong>;{" "}
+        <C>leaderboard</C> / <C>telemetry</C> get your connector{" "}
+        <strong>id</strong> as a filter; <C>serve</C> / <C>hook</C> get the id for
+        the runtime.
+      </P>
+      <CodeBlock
+        code={S.brandedScopingSnippet}
+        language="bash"
+        filename="branded ≈ agent-connector"
+      />
+      <Callout title="One home binary underneath every brand">
+        Branded CLIs are a thin scoping layer over the <strong>same</strong>{" "}
+        single home binary: <C>serve</C> and <C>hook</C> still route through the
+        one <C>~/.agent-connector</C> runtime that <C>&lt;your-tool&gt; install</C>{" "}
+        wires every host&apos;s native config back to. Two packages that each ship
+        their own brand share that infrastructure — see the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/operating-model">
+          operating model
+        </Link>
+        .
+      </Callout>
     </DocSection>
   );
 }
@@ -851,6 +979,26 @@ export function Leaderboards() {
         narrow per-MCP rows to a slice without affecting the host boards.
       </P>
       <CodeBlock code={S.leaderboardSnippet} language="bash" filename="terminal" />
+
+      <H3 id="connector-scoped">Scoped to your connector</H3>
+      <P>
+        As a connector developer you usually want only <strong>your</strong>{" "}
+        connector&apos;s usage. Pass <C>--connector &lt;id&gt;</C> to filter the{" "}
+        🔌 MCP/Plugin section — and that is exactly what a{" "}
+        <Link className="underline hover:text-foreground" to="/docs/embed-cli">
+          branded CLI
+        </Link>{" "}
+        injects for you: <C>&lt;your-tool&gt; leaderboard</C> ≈{" "}
+        <C>agent-connector leaderboard --connector &lt;id&gt;</C>. The 🖥️ Host/User
+        board stays connector-agnostic (host CLI logs carry no connector
+        attribution), so only the 🔌 MCP/Plugin and 🛰️ host-native sections are
+        filtered.
+      </P>
+      <CodeBlock
+        code={S.connectorLeaderboardSnippet}
+        language="bash"
+        filename="terminal"
+      />
       <P>
         For the developer/connector axis there is also{" "}
         <C>agent-connector telemetry leaderboard --by mcp|tool|surface</C>: the{" "}
@@ -1373,6 +1521,7 @@ export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   introduction: Introduction,
   installation: Installation,
   "quick-start": QuickStart,
+  "embed-cli": EmbedCli,
   "define-connector": DefineConnector,
   server: ServerSection,
   hooks: HooksSection,

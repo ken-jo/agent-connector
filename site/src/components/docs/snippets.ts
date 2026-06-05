@@ -1,12 +1,51 @@
 /** Code snippets used across the docs. Mirrors llms-full.txt examples. */
 
-export const installSnippet = `npm i -g agent-connector`;
+/**
+ * The primary install: agent-connector is an SDK you depend on, not a global
+ * tool. Add it to your connector package, then either ship a branded CLI or run
+ * it with npx.
+ */
+export const installSnippet = `npm install agent-connector`;
 
-export const quickStartSnippet = `cd my-mcp-project                 # contains agent-connector.config.mjs
-agent-connector detect            # list installed hosts + paradigms
-agent-connector install --dry-run # preview the diff
-agent-connector install           # write native configs everywhere
-agent-connector telemetry report  # per-tool token footprint`;
+/**
+ * Ship a branded CLI: createConnectorCli wraps EVERY agent-connector subcommand
+ * under your own bin name, auto-scoped to your connector. Your users never run a
+ * global install and never type --connector.
+ */
+export const brandedCliSnippet = `#!/usr/bin/env node
+// bin.mjs — your tool's bin, e.g. "acme-db"
+import { fileURLToPath } from "node:url";
+import { createConnectorCli } from "agent-connector/cli";
+
+createConnectorCli({
+  name: "acme-db",
+  connector: fileURLToPath(
+    new URL("./agent-connector.config.mjs", import.meta.url),
+  ),
+}).run();`;
+
+/**
+ * Optional convenience only: install the CLI globally to try it directly,
+ * outside of any connector package. Not required for the SDK/branded-CLI flow.
+ */
+export const globalInstallSnippet = `# optional — to try the CLI directly, outside a connector package
+npm i -g agent-connector
+agent-connector --help`;
+
+export const quickStartSnippet = `# 1. add agent-connector as a dependency of your connector package
+npm install agent-connector
+
+# 2. write agent-connector.config.mjs (defineConnector — see below)
+
+# 3a. ship a branded CLI so YOUR users drive it (auto-scoped, no --connector):
+acme-db detect            # list installed hosts + paradigms
+acme-db install --dry-run # preview the diff
+acme-db install           # write native configs everywhere
+acme-db leaderboard       # which of acme-db's tools cost the most tokens
+
+# 3b. …or just run it from the project with npx — no global install:
+npx agent-connector detect
+npx agent-connector install`;
 
 export const fromSourceSnippet = `npm install
 npm run typecheck
@@ -50,6 +89,83 @@ export default defineConnector({
   platforms: { warp: { hooks: false } }, // Warp is mcp-only: skip hooks
   targets: "auto",
 });`;
+
+/* ---- Embed it: ship a branded CLI on top of agent-connector ---- */
+
+/**
+ * The consumer package: agent-connector is a DEPENDENCY (not -g), and the
+ * package ships its own bin. Installing it links `acme-db` onto the user's PATH.
+ */
+export const brandedPackageJsonSnippet = `{
+  "name": "acme-db-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "acme-db": "./bin.mjs"
+  },
+  "files": ["bin.mjs", "agent-connector.config.mjs"],
+  "dependencies": {
+    "agent-connector": "^0.1.0"
+  }
+}`;
+
+/**
+ * The branded bin. createConnectorCli({ name, connector }) returns a runner that
+ * exposes every agent-connector subcommand under your brand, AUTO-SCOPED to the
+ * connector shipped beside it — so the consumer never passes --connector.
+ */
+export const brandedBinSnippet = `#!/usr/bin/env node
+// bin.mjs
+import { fileURLToPath } from "node:url";
+import { createConnectorCli } from "agent-connector/cli";
+
+const connector = fileURLToPath(
+  new URL("./agent-connector.config.mjs", import.meta.url),
+);
+
+createConnectorCli({ name: "acme-db", connector })
+  .run()
+  .then((code) => { process.exitCode = code; })
+  .catch((err) => {
+    process.stderr.write(\`acme-db: fatal: \${err?.stack ?? err}\\n\`);
+    process.exitCode = 1;
+  });`;
+
+/**
+ * What the consumer of your package runs. Each command targets YOUR connector
+ * without --connector: serve/hook still route through the one ~/.agent-connector
+ * home binary; install/leaderboard/telemetry are scoped to acme-db.
+ */
+export const brandedUsageSnippet = `# the consumer installs YOUR package; the acme-db bin is linked.
+# agent-connector itself is never installed globally.
+npm install acme-db-tools
+
+# deploy the acme-db connector across every detected agent platform.
+acme-db install                 # auto-scoped — no --connector needed
+acme-db install --dry-run       # preview the plan, nothing written
+acme-db sync                    # idempotent re-install
+acme-db doctor                  # health-check every platform for acme-db
+
+# telemetry + leaderboards, scoped to the acme-db connector:
+acme-db leaderboard             # the 🔌 MCP/plugin section shows acme-db
+acme-db telemetry report --by tool   # acme-db's per-tool token footprint
+acme-db telemetry leaderboard        # which acme-db tool costs the most
+
+# every agent-connector subcommand is available, branded as acme-db:
+acme-db --help`;
+
+/**
+ * The auto-scoping equivalence: a branded subcommand is just the matching
+ * agent-connector command with the developer's connector injected.
+ */
+export const brandedScopingSnippet = `# a branded command  ≈  the agent-connector command, connector pre-injected:
+acme-db install        ≈  agent-connector install --connector ./agent-connector.config.mjs
+acme-db leaderboard    ≈  agent-connector leaderboard --connector acme-db
+acme-db telemetry report --by tool
+                       ≈  agent-connector telemetry report --by tool --connector acme-db
+
+# the consumer can still override the auto-scope explicitly when they need to —
+# an explicit --connector / --connector-id always wins over the injected default.`;
 
 export const serverDefSnippet = `interface ServerDef {
   transport: "stdio" | "http" | "sse" | "ws";
@@ -208,6 +324,27 @@ export const leaderboardSnippet = `$ agent-connector leaderboard --since 7d
   1. gemini-cli @ devbox      1.2k   2.04M tok   host-native
 
 # the three boards measure DIFFERENT things — never summed.`;
+
+/**
+ * Connector-scoped leaderboard: a branded `acme-db leaderboard` is exactly
+ * `agent-connector leaderboard --connector acme-db`, so a connector developer
+ * sees only THEIR connector's token usage in the 🔌 MCP/plugin section.
+ */
+export const connectorLeaderboardSnippet = `# as a connector developer, scope the leaderboard to YOUR connector:
+$ acme-db leaderboard --since 7d
+#  ≈  agent-connector leaderboard --connector acme-db --since 7d
+
+🔌 MCP / Plugin            (origin: mcp-self · connector: acme-db)
+  1. acme-db        12.4k calls   4.81M tok   tokenizer-exact
+  #   ^ only acme-db rows — other connectors are filtered out
+
+# per-tool, still scoped to acme-db:
+$ acme-db telemetry leaderboard --by tool
+#  ≈  agent-connector telemetry leaderboard --by tool --connector acme-db
+
+# NOTE: the 🖥️ Host/User section stays connector-agnostic — host CLI logs carry
+# no connector attribution, so only the 🔌 MCP/plugin (+ 🛰️ host-native) sections
+# are filtered to acme-db.`;
 
 export const packageSnippet = `# default format (claude-plugin) → <cwd>/dist-plugin
 agent-connector package

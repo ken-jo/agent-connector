@@ -35,7 +35,16 @@ export interface SearchEntry {
  */
 const sectionHeadings: Record<string, { id: string; title: string }[]> = {
   introduction: [{ id: "two-pillars", title: "Two pillars" }],
-  installation: [{ id: "from-source", title: "From source" }],
+  installation: [
+    { id: "optional-global", title: "Optional: use the CLI directly" },
+    { id: "from-source", title: "From source" },
+  ],
+  "embed-cli": [
+    { id: "embed-package", title: "Depend on it + add a bin" },
+    { id: "embed-bin", title: "createConnectorCli in your bin" },
+    { id: "embed-usage", title: "Your users drive your brand" },
+    { id: "embed-scoping", title: "Auto-scoping & the shared home binary" },
+  ],
   "define-connector": [
     { id: "connector-config", title: "ConnectorConfig" },
     { id: "validation-rules", title: "Top-level validation rules" },
@@ -83,6 +92,9 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "guarantees", title: "Local-first, zero-egress, opt-out" },
     { id: "confidence", title: "Confidence sources" },
     { id: "per-surface-leaderboard", title: "The per-surface leaderboard" },
+  ],
+  leaderboards: [
+    { id: "connector-scoped", title: "Scoped to your connector" },
   ],
   cli: [
     { id: "shared-flags", title: "Shared flags" },
