@@ -92,6 +92,20 @@ vi.mock("node:child_process", () => ({
   execSync: execFileSyncMock,
 }));
 
+// Pin process.platform to a POSIX value for the whole file so the generated
+// bridge takes its execFileSync(HOME_BIN, [args]) path (on Windows it would use
+// execSync(one quoted string) — correct in production, proven separately, but it
+// would not match these bridges' execFileSync(bin, argv) call-shape assertions).
+// node:path is already bound at import and os.homedir() is native, so neither is
+// affected by this string override.
+const REAL_PLATFORM = process.platform;
+beforeEach(() => {
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+});
+afterEach(() => {
+  Object.defineProperty(process, "platform", { value: REAL_PLATFORM, configurable: true });
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
