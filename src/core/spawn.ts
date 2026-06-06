@@ -7,6 +7,9 @@
  * double-quoting. No-ops on macOS/Linux.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import type { InstallScope, PlatformId, ServerDef } from "./types.js";
 import type {
   LaunchMethod,
@@ -83,13 +86,19 @@ export function isHomeBinHookCommand(
   connectorId: string,
 ): boolean {
   if (!command) return false;
-  if (!command.includes(homeBinPath)) return false;
+  // The stored command was forward-slashed by quoteArg(); homeBinPath() yields
+  // NATIVE (back)slashes on Windows (node:path join). Normalize BOTH sides so the
+  // ownership substring test holds on win32 (without this, detection always
+  // returns false there → duplicate hooks on re-install + orphans on uninstall).
+  // No-op on POSIX.
+  const hay = command.replace(/\\/g, "/");
+  if (!hay.includes(homeBinPath.replace(/\\/g, "/"))) return false;
   const token = `--connector ${connectorId}`;
   let from = 0;
   for (;;) {
-    const idx = command.indexOf(token, from);
+    const idx = hay.indexOf(token, from);
     if (idx < 0) return false;
-    const after = command.charAt(idx + token.length);
+    const after = hay.charAt(idx + token.length);
     if (after === "" || after === '"' || /\s/.test(after)) return true;
     from = idx + token.length;
   }
@@ -123,8 +132,10 @@ export function isUsageEventCommand(
   connectorId: string,
 ): boolean {
   if (!command) return false;
-  if (!command.includes(homeBinPath)) return false;
-  if (!command.includes(" usage-event ")) return false;
+  // Normalize separators like isHomeBinHookCommand (win32 ownership detection).
+  const hay = command.replace(/\\/g, "/");
+  if (!hay.includes(homeBinPath.replace(/\\/g, "/"))) return false;
+  if (!hay.includes(" usage-event ")) return false;
   return isHomeBinHookCommand(command, homeBinPath, connectorId);
 }
 
@@ -196,6 +207,71 @@ export function buildServeWrapperCommand(
     command: homeBinPath,
     args: [...flags, "--", realCommand, ...realArgs],
   };
+}
+
+/** Injectable deps for {@link resolveSpawnCommand} (so the win32 branch is unit-testable on POSIX). */
+export interface SpawnResolveDeps {
+  platform?: NodeJS.Platform;
+  /** PATH value (`;`-separated on Windows). */
+  pathEnv?: string;
+  /** PATHEXT value (`;`-separated). */
+  pathExt?: string;
+  /** File-existence probe (defaults to fs.existsSync). */
+  exists?: (p: string) => boolean;
+}
+
+/** How a child command should be handed to spawn() on this platform. */
+export interface SpawnResolution {
+  /** The command to pass to spawn() (an absolute path on win32 when resolved). */
+  file: string;
+  /**
+   * Whether spawn() MUST use `shell: true`. On native Windows a `.cmd`/`.bat`
+   * shim (npx.cmd, pnpm.cmd, the agent-connector.cmd launcher) cannot be run by
+   * raw CreateProcess — Node throws EINVAL since the 2024 security fix unless a
+   * shell is used. `.exe` resolves directly with no shell.
+   */
+  needsShell: boolean;
+}
+
+/**
+ * Resolve a child command for spawn() across platforms. NO-OP on macOS/Linux
+ * (returns the command unchanged, no shell). On native Windows it fixes the two
+ * spawn failure modes for bare package runners:
+ *   1. raw CreateProcess ignores PATHEXT, so spawn("npx") → ENOENT even though
+ *      `npx.cmd` is on PATH. We search PATH × PATHEXT and return the resolved
+ *      absolute path.
+ *   2. a resolved `.cmd`/`.bat` still cannot be launched without a shell, so we
+ *      flag `needsShell` for those (and `.exe`/`.com` run directly).
+ * A bare name that PATH search misses falls back to `{ file: command,
+ * needsShell: true }` so cmd.exe's own PATHEXT lookup still finds it.
+ */
+export function resolveSpawnCommand(
+  command: string,
+  deps: SpawnResolveDeps = {},
+): SpawnResolution {
+  const platform = deps.platform ?? process.platform;
+  if (platform !== "win32") return { file: command, needsShell: false };
+
+  const isBatch = (s: string): boolean => /\.(cmd|bat)$/i.test(s);
+
+  // Already a path or already has an extension → don't search; only decide shell.
+  if (/[\\/]/.test(command) || /\.[a-z0-9]+$/i.test(command)) {
+    return { file: command, needsShell: isBatch(command) };
+  }
+
+  const exists = deps.exists ?? existsSync;
+  const pathEnv = deps.pathEnv ?? process.env.PATH ?? process.env.Path ?? "";
+  const pathExt = deps.pathExt ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
+  const dirs = pathEnv.split(";").filter((d) => d !== "");
+  const exts = pathExt.split(";").filter((e) => e !== "");
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const candidate = join(dir, command + ext);
+      if (exists(candidate)) return { file: candidate, needsShell: isBatch(ext) };
+    }
+  }
+  // Not found on PATH — let cmd.exe resolve it (handles shim dirs we may miss).
+  return { file: command, needsShell: true };
 }
 
 /** Basenames (case-insensitive, sans common extensions) of the ephemeral package runners. */

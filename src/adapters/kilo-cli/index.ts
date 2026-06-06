@@ -588,7 +588,9 @@ function bridge(event, payload) {
     const stdout = execFileSync(
       HOME_BIN,
       ["hook", "kilo-cli", event, "--connector", CONNECTOR_ID],
-      { input: JSON.stringify(payload), encoding: "utf8" },
+      // shell on Windows: HOME_BIN is the agent-connector.cmd launcher, which
+      // Node cannot execFile without a shell (EINVAL). No-op on macOS/Linux.
+      { input: JSON.stringify(payload), encoding: "utf8", shell: process.platform === "win32" },
     );
     const text = (stdout || "").trim();
     if (text === "") return { decision: "allow" };

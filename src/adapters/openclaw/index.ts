@@ -829,7 +829,8 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       "    const stdout = execFileSync(\n" +
       "      HOME_BIN,\n" +
       '      ["hook", "openclaw", event, "--connector", CONNECTOR_ID],\n' +
-      '      { input: JSON.stringify(payload), encoding: "utf8" },\n' +
+      "      // shell on Windows: HOME_BIN is the .cmd launcher (execFile EINVAL without a shell).\n" +
+      '      { input: JSON.stringify(payload), encoding: "utf8", shell: process.platform === "win32" },\n' +
       "    );\n" +
       '    const text = (stdout || "").trim();\n' +
       '    if (text === "") return { decision: "allow" };\n' +

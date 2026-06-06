@@ -97,7 +97,10 @@ function bridge(event, payload) {
     const stdout = execFileSync(
       HOME_BIN,
       ["hook", "opencode", event, "--connector", CONNECTOR_ID],
-      { input: JSON.stringify(payload), encoding: "utf8" },
+      // shell on Windows: the published bridge resolves HOME_BIN by bare name via
+      // the consumer's PATH, where it is agent-connector.cmd — cmd.exe applies
+      // PATHEXT and can launch a .cmd; raw execFile cannot. No-op on macOS/Linux.
+      { input: JSON.stringify(payload), encoding: "utf8", shell: process.platform === "win32" },
     );
     const text = (stdout || "").trim();
     if (text === "") return { decision: "allow" };

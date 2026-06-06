@@ -20,6 +20,7 @@ import { spawn } from "node:child_process";
 
 import type { DiagnosticResult } from "../core/types.js";
 import { MCP_PROTOCOL_VERSION } from "../core/mcp-standard.js";
+import { resolveSpawnCommand } from "../core/spawn.js";
 import { type JsonRpcMessage, LineBuffer, idKey, isObject } from "../telemetry/jsonrpc.js";
 
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -71,9 +72,13 @@ export async function probeStdioServer(
   const protocolVersion = opts.protocolVersion ?? MCP_PROTOCOL_VERSION;
   const results: DiagnosticResult[] = [];
 
-  const child = spawn(command, args, {
+  // Resolve a bare Windows package runner (npx/uvx → .cmd/.exe) so the probe
+  // agrees with the live serve path; no-op on macOS/Linux.
+  const launch = resolveSpawnCommand(command);
+  const child = spawn(launch.file, args, {
     stdio: ["pipe", "pipe", "inherit"],
     env: { ...process.env, ...resolveEnv(opts.env) },
+    shell: launch.needsShell,
   });
 
   interface Pending {

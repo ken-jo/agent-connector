@@ -22,6 +22,7 @@
 import { spawn } from "node:child_process";
 
 import type { PlatformId } from "../core/types.js";
+import { resolveSpawnCommand } from "../core/spawn.js";
 import { type JsonRpcMessage, LineBuffer, idKey, isObject } from "./jsonrpc.js";
 import {
   applyCalibration,
@@ -141,9 +142,15 @@ export async function runServeProxy(
   // does not change mid-session. Off by default; privacy-safe.
   const calibrationEnabled = isCalibrationEnabled();
 
-  const child = spawn(command, args, {
+  // On native Windows a bare package runner (npx/uvx/pnpm) resolves to a .cmd
+  // shim that raw CreateProcess can't find/launch — resolve it against
+  // PATH×PATHEXT and use a shell only when the resolved target is a .cmd/.bat.
+  // No-op on macOS/Linux.
+  const launch = resolveSpawnCommand(command);
+  const child = spawn(launch.file, args, {
     stdio: ["pipe", "pipe", "inherit"],
     env: process.env,
+    shell: launch.needsShell,
   });
 
   // ── Per-session measurement state ───────────────────────────────────────
