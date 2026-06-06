@@ -87,21 +87,23 @@ function buildIndexJs(connector: ResolvedConnector): string {
  * home binary's universal entrypoint and JSON-parses the normalized response.
  * Fail-open: any bridge error degrades to "allow".
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 
 const HOME_BIN = ${homeBin};
 const CONNECTOR_ID = ${connectorId};
 
 function bridge(event, payload) {
   try {
-    const stdout = execFileSync(
-      HOME_BIN,
-      ["hook", "opencode", event, "--connector", CONNECTOR_ID],
-      // shell on Windows: the published bridge resolves HOME_BIN by bare name via
-      // the consumer's PATH, where it is agent-connector.cmd — cmd.exe applies
-      // PATHEXT and can launch a .cmd; raw execFile cannot. No-op on macOS/Linux.
-      { input: JSON.stringify(payload), encoding: "utf8", shell: process.platform === "win32" },
-    );
+    // The published bridge resolves HOME_BIN by bare name via the consumer's
+    // PATH, where on Windows it is agent-connector.cmd. Node cannot execFile a
+    // .cmd, and shell+args is deprecated (DEP0190), so on Windows run one quoted
+    // command line via a shell (cmd.exe applies PATHEXT). POSIX keeps execFile.
+    const args = ["hook", "opencode", event, "--connector", CONNECTOR_ID];
+    const opts = { input: JSON.stringify(payload), encoding: "utf8" };
+    const stdout =
+      process.platform === "win32"
+        ? execSync([HOME_BIN, ...args].map((a) => '"' + a + '"').join(" "), opts)
+        : execFileSync(HOME_BIN, args, opts);
     const text = (stdout || "").trim();
     if (text === "") return { decision: "allow" };
     return JSON.parse(text);

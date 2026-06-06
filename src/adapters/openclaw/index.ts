@@ -811,7 +811,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       " * (loads this module) + mcp.servers.<id> (surfaces the MCP tools). The\n" +
       " * gateway hot-reloads its config on SIGUSR1.\n" +
       " */\n" +
-      'import { execFileSync } from "node:child_process";\n\n' +
+      'import { execFileSync, execSync } from "node:child_process";\n\n' +
       "const HOME_BIN = " +
       homeBin +
       ";\n" +
@@ -826,12 +826,15 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       " */\n" +
       "function bridge(event, payload) {\n" +
       "  try {\n" +
-      "    const stdout = execFileSync(\n" +
-      "      HOME_BIN,\n" +
-      '      ["hook", "openclaw", event, "--connector", CONNECTOR_ID],\n' +
-      "      // shell on Windows: HOME_BIN is the .cmd launcher (execFile EINVAL without a shell).\n" +
-      '      { input: JSON.stringify(payload), encoding: "utf8", shell: process.platform === "win32" },\n' +
-      "    );\n" +
+      "    // On Windows HOME_BIN is the agent-connector.cmd launcher: Node cannot\n" +
+      "    // execFile a batch file, and shell+args is deprecated (DEP0190), so run\n" +
+      "    // one quoted command line via a shell. POSIX keeps the direct execFile.\n" +
+      '    const args = ["hook", "openclaw", event, "--connector", CONNECTOR_ID];\n' +
+      '    const opts = { input: JSON.stringify(payload), encoding: "utf8" };\n' +
+      "    const stdout =\n" +
+      '      process.platform === "win32"\n' +
+      "        ? execSync([HOME_BIN, ...args].map((a) => '\"' + a + '\"').join(\" \"), opts)\n" +
+      "        : execFileSync(HOME_BIN, args, opts);\n" +
       '    const text = (stdout || "").trim();\n' +
       '    if (text === "") return { decision: "allow" };\n' +
       "    return JSON.parse(text);\n" +

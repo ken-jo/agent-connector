@@ -512,7 +512,7 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
  * OMP loads this module via the sibling package.json "omp" manifest field; the
  * default export is the HookFactory (pi) => void called once at load time.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 
 const HOME_BIN = ${homeBin};
 const CONNECTOR_ID = ${connectorId};
@@ -525,13 +525,15 @@ const CONNECTOR_ID = ${connectorId};
  */
 function bridge(event, payload) {
   try {
-    const stdout = execFileSync(
-      HOME_BIN,
-      ["hook", "omp", event, "--connector", CONNECTOR_ID],
-      // shell on Windows: HOME_BIN is the agent-connector.cmd launcher, which
-      // Node cannot execFile without a shell (EINVAL). No-op on macOS/Linux.
-      { input: JSON.stringify(payload), encoding: "utf8", shell: process.platform === "win32" },
-    );
+    // On Windows HOME_BIN is the agent-connector.cmd launcher: Node cannot
+    // execFile a batch file, and shell+args is deprecated (DEP0190), so run one
+    // quoted command line via a shell. POSIX keeps the direct execFile (no shell).
+    const args = ["hook", "omp", event, "--connector", CONNECTOR_ID];
+    const opts = { input: JSON.stringify(payload), encoding: "utf8" };
+    const stdout =
+      process.platform === "win32"
+        ? execSync([HOME_BIN, ...args].map((a) => '"' + a + '"').join(" "), opts)
+        : execFileSync(HOME_BIN, args, opts);
     const text = (stdout || "").trim();
     if (text === "") return { decision: "allow" };
     return JSON.parse(text);

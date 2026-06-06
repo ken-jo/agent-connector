@@ -260,7 +260,7 @@ describe("kilo-cli adapter (ts-plugin) render", () => {
     const src = readFileSync(pluginPath, "utf8");
     expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
     expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
-    expect(src).toContain('import { execFileSync } from "node:child_process"');
+    expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
     expect(src).toContain('"hook", "kilo-cli"');
     expect(src).toContain(HOME_BIN);
     // @kilocode/plugin PluginModule shape: default export with a server factory.

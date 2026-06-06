@@ -19,10 +19,8 @@
  * The proxy resolves with the child's exit code and propagates SIGINT/SIGTERM.
  */
 
-import { spawn } from "node:child_process";
-
 import type { PlatformId } from "../core/types.js";
-import { resolveSpawnCommand } from "../core/spawn.js";
+import { spawnChild } from "../core/spawn-child.js";
 import { type JsonRpcMessage, LineBuffer, idKey, isObject } from "./jsonrpc.js";
 import {
   applyCalibration,
@@ -142,15 +140,12 @@ export async function runServeProxy(
   // does not change mid-session. Off by default; privacy-safe.
   const calibrationEnabled = isCalibrationEnabled();
 
-  // On native Windows a bare package runner (npx/uvx/pnpm) resolves to a .cmd
-  // shim that raw CreateProcess can't find/launch — resolve it against
-  // PATH×PATHEXT and use a shell only when the resolved target is a .cmd/.bat.
-  // No-op on macOS/Linux.
-  const launch = resolveSpawnCommand(command);
-  const child = spawn(launch.file, args, {
+  // spawnChild fixes native-Windows package-runner launches: a bare npx/uvx
+  // resolves to a .cmd shim that raw CreateProcess can't find/launch, so it is
+  // run via a quoted single command line with a shell. No-op on macOS/Linux.
+  const child = spawnChild(command, args, {
     stdio: ["pipe", "pipe", "inherit"],
     env: process.env,
-    shell: launch.needsShell,
   });
 
   // ── Per-session measurement state ───────────────────────────────────────

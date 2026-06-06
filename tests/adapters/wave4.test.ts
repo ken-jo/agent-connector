@@ -278,7 +278,7 @@ describe("omp adapter (ts-plugin) render", () => {
     const src = readFileSync(entryPath, "utf8");
     expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
     expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
-    expect(src).toContain('import { execFileSync } from "node:child_process"');
+    expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
     expect(src).toContain("execFileSync");
     expect(src).toContain('"hook"');
     expect(src).toContain('"omp"');
@@ -530,7 +530,7 @@ describe("openclaw adapter (ts-plugin) render + dual registration", () => {
     const src = readFileSync(pluginPath, "utf8");
     expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
     expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
-    expect(src).toContain('import { execFileSync } from "node:child_process"');
+    expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
     expect(src).toContain("execFileSync");
     expect(src).toContain('"hook"');
     expect(src).toContain('"openclaw"');
