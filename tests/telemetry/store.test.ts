@@ -33,6 +33,7 @@ beforeEach(() => {
   storePath = join(tmp, "telemetry.ndjson");
   // Point framework state at the temp dir even though tests pass explicit paths.
   process.env.HOME = tmp;
+  process.env.USERPROFILE = tmp;
   process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
   delete process.env.AGENT_CONNECTOR_TELEMETRY;
 });

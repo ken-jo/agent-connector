@@ -99,6 +99,7 @@ beforeEach(async () => {
   for (const key of SAVED_ENV) savedEnv[key] = process.env[key];
   tmpHome = mkdtempSync(join(tmpdir(), "ac-u3-home-"));
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   process.env.XDG_DATA_HOME = join(tmpHome, ".local", "share");
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");
   // Point hermes at the fake home; neutralize every other override so each test

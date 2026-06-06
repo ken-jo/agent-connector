@@ -76,6 +76,7 @@ beforeEach(() => {
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   projectDir = mkdtempSync(join(tmpdir(), "ac-hookdetail-"));
   process.env.HOME = projectDir;
+  process.env.USERPROFILE = projectDir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(projectDir, ".agent-connector");
   ctx = buildCtx(projectDir, buildConnector());
 });

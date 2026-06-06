@@ -56,6 +56,7 @@ const SAVED = {
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "ac-calib-"));
   process.env.HOME = tmp;
+  process.env.USERPROFILE = tmp;
   process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
   delete process.env.AGENT_CONNECTOR_CALIBRATE;
   delete process.env.ANTHROPIC_API_KEY;

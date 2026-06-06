@@ -67,6 +67,7 @@ beforeEach(() => {
   for (const key of SAVED_ENV) savedEnv[key] = process.env[key];
   tmpHome = mkdtempSync(join(tmpdir(), "ac-u2-home-"));
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   // Pin XDG so amp / codebuff resolve under the fake HOME deterministically.
   process.env.XDG_DATA_HOME = join(tmpHome, ".local", "share");
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");

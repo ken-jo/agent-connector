@@ -118,6 +118,7 @@ function restore(key: string, value: string | undefined): void {
 function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-p2-render-"));
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   // Set the env-ref var so literal-resolution produces a known value.
   process.env[ENV_VAR] = ENV_LITERAL;

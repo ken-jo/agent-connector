@@ -172,6 +172,7 @@ function restore(key: string, value: string | undefined): void {
 function freshHome(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
   return dir;
 }
 

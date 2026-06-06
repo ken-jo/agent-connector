@@ -58,6 +58,7 @@ beforeEach(() => {
   for (const key of SAVED_ENV) savedEnv[key] = process.env[key];
   tmpHome = mkdtempSync(join(tmpdir(), "ac-u1-home-"));
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   // Neutralize overrides so each reader resolves under the fake HOME by default.
   delete process.env.KIMI_CODE_HOME;
   delete process.env.PI_CODING_AGENT_DIR;

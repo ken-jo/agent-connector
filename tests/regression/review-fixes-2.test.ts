@@ -77,6 +77,7 @@ beforeEach(() => {
   for (const k of SAVED_ENV) savedEnv[k] = process.env[k];
   tmpHome = mkdtempSync(join(tmpdir(), "ac-rf2-home-"));
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   process.env.XDG_DATA_HOME = join(tmpHome, ".local", "share");
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");
 });

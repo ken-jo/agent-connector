@@ -37,7 +37,11 @@ let driverPath: string;
 
 // The SDK is exercised through src (tsx), so the driver imports the source.
 const SDK_SRC = join(__dirname, "..", "..", "src", "cli", "sdk.ts");
-const TSX_BIN = join(__dirname, "..", "..", "node_modules", ".bin", "tsx");
+// On Windows the .bin shim is tsx.cmd, and a .cmd cannot be execFile'd without a
+// shell — append the extension + run through a shell there. No-op on POSIX.
+const TSX_BIN =
+  join(__dirname, "..", "..", "node_modules", ".bin", "tsx") +
+  (process.platform === "win32" ? ".cmd" : "");
 
 /** A connector config module body for a given id (a server so install has work). */
 function connectorModule(id: string): string {
@@ -104,6 +108,8 @@ function runDriver(args: string[]): RunResult {
     const stdout = execFileSync(TSX_BIN, [driverPath, ...args], {
       env,
       encoding: "utf8",
+      // tsx.cmd on Windows needs a shell to launch (no-op on POSIX).
+      shell: process.platform === "win32",
     });
     return { code: 0, stdout, stderr: "" };
   } catch (err) {

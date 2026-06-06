@@ -188,7 +188,18 @@ export async function probeStdioServer(
         ),
       );
     } else if (exitCode !== null) {
-      results.push(diag("fail", `${label}MCP initialize`, `server exited (code ${exitCode}) before initialize`));
+      // On Windows an unresolvable command surfaces as an early non-zero exit
+      // (cmd.exe "command not found") rather than a spawn 'error' event, so fold
+      // the not-launchable hint in here too — useful whether the command is
+      // missing or the server genuinely crashed before initialize.
+      results.push(
+        diag(
+          "fail",
+          `${label}MCP initialize`,
+          `server exited (code ${exitCode}) before initialize — the command may not be launchable`,
+          `check that "${command}" is installed and on PATH`,
+        ),
+      );
     } else {
       results.push(diag("fail", `${label}MCP initialize`, errMsg(e)));
     }

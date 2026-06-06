@@ -164,6 +164,7 @@ function restore(key: string, value: string | undefined): void {
 function freshProject(prefix = "ac-wave2-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
   process.env.KIMI_CODE_HOME = join(dir, ".kimi");
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   process.env[ENV_VAR] = ENV_LITERAL;

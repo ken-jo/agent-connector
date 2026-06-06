@@ -17,6 +17,7 @@ let tmpHome: string;
 beforeEach(() => {
   tmpHome = mkdtempSync(join(tmpdir(), "ac-qwen-home-"));
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
 });
 
 afterEach(() => {

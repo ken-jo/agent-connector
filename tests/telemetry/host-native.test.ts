@@ -46,6 +46,7 @@ const SAVED = {
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "ac-hostnative-"));
   process.env.HOME = tmp;
+  process.env.USERPROFILE = tmp;
   process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
   delete process.env.AGENT_CONNECTOR_TELEMETRY;
 });

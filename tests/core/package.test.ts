@@ -101,6 +101,7 @@ beforeEach(() => {
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   outDir = mkdtempSync(join(tmpdir(), "ac-pkg-"));
   process.env.HOME = outDir;
+  process.env.USERPROFILE = outDir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(outDir, ".agent-connector");
   connector = buildConnector();
 });

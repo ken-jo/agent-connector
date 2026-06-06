@@ -150,6 +150,7 @@ function restore(key: string, value: string | undefined): void {
 function freshProject(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;

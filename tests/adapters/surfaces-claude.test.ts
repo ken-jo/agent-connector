@@ -108,6 +108,7 @@ function restore(key: string, value: string | undefined): void {
 function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-surfaces-"));
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   return dir;
 }

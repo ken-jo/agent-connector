@@ -40,6 +40,7 @@ beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "ac-surf-lb-"));
   storePath = join(tmp, "telemetry.ndjson");
   process.env.HOME = tmp;
+  process.env.USERPROFILE = tmp;
   process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
   delete process.env.AGENT_CONNECTOR_TELEMETRY;
 });

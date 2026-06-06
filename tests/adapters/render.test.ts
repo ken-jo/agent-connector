@@ -118,6 +118,7 @@ function freshProject(): string {
   // Point HOME + data-root at a temp location so any accidental user-scope or
   // backup write lands in the sandbox, never the real home.
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   // Set the env-ref var so codex literal-resolution produces a known value.
   process.env[ENV_VAR] = ENV_LITERAL;

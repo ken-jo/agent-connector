@@ -150,6 +150,7 @@ function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-surfaces-s2-"));
   // Redirect HOME so user-scope writes (copilot-cli, pi) land under the temp dir.
   process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   return dir;
 }
