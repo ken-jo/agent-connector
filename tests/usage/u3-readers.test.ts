@@ -102,6 +102,10 @@ beforeEach(async () => {
   process.env.USERPROFILE = tmpHome;
   process.env.XDG_DATA_HOME = join(tmpHome, ".local", "share");
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");
+  // Zed reads %LOCALAPPDATA%\Zed on Windows — isolate it into the sandbox so the
+  // reader looks where the fixture is written (and never at the real AppData).
+  process.env.APPDATA = join(tmpHome, "AppData", "Roaming");
+  process.env.LOCALAPPDATA = join(tmpHome, "AppData", "Local");
   // Point hermes at the fake home; neutralize every other override so each test
   // starts from "db absent" unless it writes one.
   process.env.HERMES_HOME = join(tmpHome, ".hermes");
@@ -574,7 +578,12 @@ describe("crush reader", () => {
 // ═════════════════════════════════════════════════════════════════════════
 
 describe("zed reader", () => {
-  const dbPath = (): string => join(tmpHome, ".local", "share", "zed", "threads", "threads.db");
+  // Match where the reader looks: %LOCALAPPDATA%\Zed on Windows, else
+  // $XDG_DATA_HOME/zed (~/.local/share/zed).
+  const dbPath = (): string =>
+    process.platform === "win32"
+      ? join(process.env.LOCALAPPDATA as string, "Zed", "threads", "threads.db")
+      : join(tmpHome, ".local", "share", "zed", "threads", "threads.db");
 
   /** Build a threads fixture; `payload` is the JSON object, compressed per dataType. */
   function writeThreadsDb(

@@ -119,12 +119,16 @@ let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
 let savedDataDir: string | undefined;
 let savedEnvVar: string | undefined;
+let savedAppData: string | undefined;
+let savedLocalAppData: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedUserProfile = process.env.USERPROFILE;
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
+  savedAppData = process.env.APPDATA;
+  savedLocalAppData = process.env.LOCALAPPDATA;
 });
 
 afterEach(() => {
@@ -132,6 +136,8 @@ afterEach(() => {
   restore("USERPROFILE", savedUserProfile);
   restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
+  restore("APPDATA", savedAppData);
+  restore("LOCALAPPDATA", savedLocalAppData);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -148,6 +154,10 @@ function freshProject(prefix = "ac-wave3-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
+  // Goose uses %APPDATA%/Block/goose on Windows — isolate it (and LOCALAPPDATA)
+  // into the sandbox so the test never reads or pollutes the real user AppData.
+  process.env.APPDATA = join(dir, "AppData", "Roaming");
+  process.env.LOCALAPPDATA = join(dir, "AppData", "Local");
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
@@ -208,8 +218,12 @@ describe("goose adapter render + round-trip", () => {
     const changes = gooseAdapter.installServer(ctx);
     expect(changes[0]?.action).toBe("create");
 
-    const serverPath = join(projectDir, ".config", "goose", "config.yaml");
-    expect(serverPath).toBe(gooseAdapter.getServerConfigPath(ctx));
+    const serverPath = gooseAdapter.getServerConfigPath(ctx);
+    // Goose config is config.yaml under a goose dir (~/.config/goose on POSIX,
+    // %APPDATA%/Block/goose/config on Windows) — assert the shape portably.
+    const norm = serverPath.replace(/\\/g, "/");
+    expect(norm).toContain("goose/");
+    expect(norm.endsWith("config.yaml")).toBe(true);
     expect(existsSync(serverPath)).toBe(true);
 
     // The on-disk file is valid YAML (independent parse).
@@ -277,7 +291,7 @@ describe("goose adapter render + round-trip", () => {
     expect(gooseAdapter.installServer(ctx)[0]?.action).toBe("skip");
     expect(gooseAdapter.installHooks(ctx).every((c) => c.action === "skip")).toBe(true);
 
-    const serverPath = join(projectDir, ".config", "goose", "config.yaml");
+    const serverPath = gooseAdapter.getServerConfigPath(ctx);
     const hookPath = gooseAdapter.getHookConfigPath(ctx);
 
     // No duplicate extension entries / hook entries after the second run.
@@ -295,7 +309,7 @@ describe("goose adapter render + round-trip", () => {
   });
 
   it("MERGE: a pre-authored unrelated YAML key survives installServer", () => {
-    const serverPath = join(projectDir, ".config", "goose", "config.yaml");
+    const serverPath = gooseAdapter.getServerConfigPath(ctx);
     seedUnrelatedYaml(serverPath);
 
     gooseAdapter.installServer(ctx);
