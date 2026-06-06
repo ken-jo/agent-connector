@@ -25,6 +25,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { newRecordId, openStore } from "../../src/telemetry/store.js";
 import type { ToolEventRecord } from "../../src/telemetry/types.js";
@@ -45,8 +46,10 @@ const TSX_BIN =
 
 /** A connector config module body for a given id (a server so install has work). */
 function connectorModule(id: string): string {
+  // Use a file:// URL: a raw absolute Windows path (C:\...) is not a valid ESM
+  // import specifier (ERR_UNSUPPORTED_ESM_URL_SCHEME). No-op semantics on POSIX.
   return `import { defineConnector } from ${JSON.stringify(
-    join(__dirname, "..", "..", "src", "index.ts"),
+    pathToFileURL(join(__dirname, "..", "..", "src", "index.ts")).href,
   )};
 export default defineConnector({
   id: ${JSON.stringify(id)},
@@ -60,7 +63,7 @@ export default defineConnector({
 
 /** The driver: build the branded CLI for the dev connector + run with cli argv. */
 function driverModule(): string {
-  return `import { createConnectorCli } from ${JSON.stringify(SDK_SRC)};
+  return `import { createConnectorCli } from ${JSON.stringify(pathToFileURL(SDK_SRC).href)};
 const cli = createConnectorCli({ name: "acme", connector: ${JSON.stringify(
     connectorPath,
   )} });

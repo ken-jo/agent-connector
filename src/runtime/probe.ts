@@ -196,7 +196,7 @@ export async function probeStdioServer(
         diag(
           "fail",
           `${label}MCP initialize`,
-          `server exited (code ${exitCode}) before initialize — the command may not be launchable`,
+          `server not launchable, or it exited (code ${exitCode}) before initialize`,
           `check that "${command}" is installed and on PATH`,
         ),
       );

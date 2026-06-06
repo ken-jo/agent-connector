@@ -73,8 +73,12 @@ import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
 let execFileSyncImpl: (...args: any[]) => string = () => "";
 const execFileSyncMock = vi.fn((...args: any[]) => execFileSyncImpl(...args));
 
+// The generated bridge uses execFileSync on POSIX and execSync on Windows (a .cmd
+// launcher needs a shell). Route BOTH to the same mock so the bridge tests pass
+// on either platform.
 vi.mock("node:child_process", () => ({
   execFileSync: execFileSyncMock,
+  execSync: execFileSyncMock,
 }));
 
 // ─────────────────────────────────────────────────────────────────────────
