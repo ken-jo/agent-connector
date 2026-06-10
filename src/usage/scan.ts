@@ -61,7 +61,11 @@ export async function scanUsage(opts: ScanOptions = {}): Promise<ScanResult> {
 
   for (const r of results) {
     if (r.skipped) skipped.push(r.skipped);
-    if (r.records.length > 0) collected.push(...r.records);
+    // Loop-push, never push(...spread): a reader over a large host history can
+    // return hundreds of thousands of records, and spreading them as call
+    // arguments overflows the stack (RangeError) — hit on a real machine the
+    // first time the claude-code reader saw a multi-week log directory.
+    for (const rec of r.records) collected.push(rec);
   }
 
   const deduped = dedupe(collected);
