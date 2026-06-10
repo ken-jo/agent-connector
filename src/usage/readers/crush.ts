@@ -3,7 +3,7 @@
  *
  * Faithful port of tokscale sessions/crush.rs. Crush persists usage in a single
  * SQLite database at ~/.cache/crush/crush.db (the host root, incl. the
- * AGENTCONNECT_CRUSH_DIR override, is resolved by paths.ts hostRoots("crush")).
+ * AGENT_CONNECTOR_CRUSH_DIR override, is resolved by paths.ts hostRoots("crush")).
  *
  * Crush stores reliable session-level COST but NOT a stable per-message token
  * breakdown. Tokscale v1 therefore preserves cost and assistant-message counts

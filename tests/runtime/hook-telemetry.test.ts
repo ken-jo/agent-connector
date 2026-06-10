@@ -8,7 +8,7 @@
  * per-item `toolName` is the hook EVENT name.
  *
  * This MUST be fail-open: a measurement error can never break the hook, and the
- * AGENTCONNECT_TELEMETRY=0 kill switch writes NOTHING.
+ * AGENT_CONNECTOR_TELEMETRY=0 kill switch writes NOTHING.
  *
  * Like tests/integration/hook.test.ts, the live handlers come from a fixture
  * .mjs importing defineConnector from the BUILT dist entry (functions can't
@@ -34,9 +34,9 @@ const CONNECTOR_ID = "tele-guard";
 const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
-  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
-  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
-  HOST: process.env.AGENTCONNECT_HOST,
+  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
+  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
+  HOST: process.env.AGENT_CONNECTOR_HOST,
 };
 
 let tmpHome: string;
@@ -92,9 +92,9 @@ beforeEach(async () => {
   tmpData = mkdtempSync(join(tmpdir(), "ac-htele-data-"));
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
-  process.env.AGENTCONNECT_DATA_DIR = tmpData;
-  delete process.env.AGENTCONNECT_TELEMETRY;
-  delete process.env.AGENTCONNECT_HOST;
+  process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+  delete process.env.AGENT_CONNECTOR_TELEMETRY;
+  delete process.env.AGENT_CONNECTOR_HOST;
 
   const modPath = writeFixtureModule(tmpData);
   const { connector } = await loadConnectorFromPath(modPath);
@@ -173,8 +173,8 @@ describe("runHook writes a scope:hook telemetry row", () => {
     expect(hookRows[0]!.inputTokens).toBeGreaterThan(0);
   });
 
-  it("prefers the AGENTCONNECT_HOST override for hostPlatform", async () => {
-    process.env.AGENTCONNECT_HOST = "opencode";
+  it("prefers the AGENT_CONNECTOR_HOST override for hostPlatform", async () => {
+    process.env.AGENT_CONNECTOR_HOST = "opencode";
     await runHook({
       platformId: "claude-code",
       event: "SessionStart",
@@ -188,8 +188,8 @@ describe("runHook writes a scope:hook telemetry row", () => {
 });
 
 describe("runHook hook telemetry is fail-open", () => {
-  it("writes NOTHING when AGENTCONNECT_TELEMETRY=0 (kill switch)", async () => {
-    process.env.AGENTCONNECT_TELEMETRY = "0";
+  it("writes NOTHING when AGENT_CONNECTOR_TELEMETRY=0 (kill switch)", async () => {
+    process.env.AGENT_CONNECTOR_TELEMETRY = "0";
     const res = await runHook({
       platformId: "claude-code",
       event: "SessionStart",

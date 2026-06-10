@@ -6,7 +6,7 @@
  *   • Linux:  ~/.local/share/goose/sessions/sessions.db
  *   • macOS:  ~/Library/Application Support/goose/sessions/sessions.db
  *   • Legacy: ~/.local/share/Block/goose/sessions/sessions.db
- * (host roots, incl. the AGENTCONNECT_GOOSE_DIR override, are resolved by
+ * (host roots, incl. the AGENT_CONNECTOR_GOOSE_DIR override, are resolved by
  * paths.ts hostRoots("goose"); the macOS / Block variants are listed there.)
  *
  * One SELECT pulls every session that carries a model config:

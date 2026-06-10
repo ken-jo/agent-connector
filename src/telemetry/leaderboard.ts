@@ -304,7 +304,7 @@ export function toolLeaderboard(opts: LeaderboardOptions = {}): ToolLeaderboardR
   const groups = new Map<string, ToolLeaderboardRow>();
 
   for (const r of selectRecords(opts)) {
-    const key = `${r.connectorId} ${r.toolName} ${r.scope}`;
+    const key = `${r.connectorId}\u0000${r.toolName}\u0000${r.scope}`;
     const g = groups.get(key);
     if (g === undefined) {
       groups.set(key, {
@@ -344,7 +344,7 @@ export function scopeBreakdown(opts: LeaderboardOptions = {}): ScopeBreakdownRow
   for (const r of selectRecords(opts)) {
     const installScope: TelemetryInstallScope | "unknown" = r.installScope ?? "unknown";
     const launchMethod: LaunchMethod = r.launchMethod ?? "unknown";
-    const key = `${installScope} ${launchMethod}`;
+    const key = `${installScope}\u0000${launchMethod}`;
     const g = groups.get(key);
     if (g === undefined) {
       groups.set(key, {
@@ -383,7 +383,7 @@ export function hostNativeTurns(opts: LeaderboardOptions = {}): HostNativeTurnsR
   const groups = new Map<string, HostNativeAcc>();
 
   for (const r of selectRecords(opts, /* includeModelTurn */ true)) {
-    const key = `${r.hostPlatform} ${r.sessionId}`;
+    const key = `${r.hostPlatform}\u0000${r.sessionId}`;
     let g = groups.get(key);
     if (g === undefined) {
       g = {
@@ -695,7 +695,7 @@ function appendEstimateLegend(
       lines.push(
         "note: tokenizer-calibrated = local approx adjusted by a sampled " +
           "Anthropic count_tokens factor (opt-in; content sampled off-box only " +
-          "when AGENTCONNECT_CALIBRATE=anthropic).",
+          "when AGENT_CONNECTOR_CALIBRATE=anthropic).",
       );
     }
   }

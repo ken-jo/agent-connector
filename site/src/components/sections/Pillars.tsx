@@ -11,7 +11,7 @@ export function Pillars() {
       <SectionHeading
         eyebrow="Two pillars"
         title="One integration layer. One honest metric."
-        description="Every agent host re-invents MCP registration and lifecycle hooks with incompatible dialects. agentconnect unifies the deploy — and finally answers what your tools cost."
+        description="Every agent host re-invents MCP registration and lifecycle hooks with incompatible dialects. agent-connector unifies the deploy — and finally answers what your tools cost."
       />
 
       <div className="mt-14 grid gap-6 lg:grid-cols-2">

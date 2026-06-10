@@ -8,13 +8,13 @@
  *     no factor is stored, or when the factor record has zero samples.
  *   • CONFIDENCE_RANK orders heuristic < approx < calibrated < exact < host-native
  *     and worstConfidence picks the least-confident of two.
- *   • isCalibrationEnabled is a hard AND-gate (AGENTCONNECT_CALIBRATE includes
+ *   • isCalibrationEnabled is a hard AND-gate (AGENT_CONNECTOR_CALIBRATE includes
  *     "anthropic" AND ANTHROPIC_API_KEY non-empty) — the privacy-safe default off.
  *   • countTokensAnthropic is fail-open: a mocked global fetch returning non-200,
  *     a non-numeric body, or a thrown network error all resolve to null — never
  *     throws into the data path.
  *
- * Isolation: AGENTCONNECT_DATA_DIR is redirected to a fresh mkdtemp dir so the
+ * Isolation: AGENT_CONNECTOR_DATA_DIR is redirected to a fresh mkdtemp dir so the
  * factor store (dataRoot/calibration.json) never touches the real home; every
  * mutated env + the global fetch stub are saved and restored in afterEach.
  */
@@ -47,20 +47,20 @@ let tmp: string;
 
 const SAVED = {
   HOME: process.env.HOME,
-  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
-  CALIBRATE: process.env.AGENTCONNECT_CALIBRATE,
+  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
+  CALIBRATE: process.env.AGENT_CONNECTOR_CALIBRATE,
   API_KEY: process.env.ANTHROPIC_API_KEY,
-  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
+  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
 };
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "ac-calib-"));
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
-  process.env.AGENTCONNECT_DATA_DIR = tmp;
-  delete process.env.AGENTCONNECT_CALIBRATE;
+  process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
+  delete process.env.AGENT_CONNECTOR_CALIBRATE;
   delete process.env.ANTHROPIC_API_KEY;
-  delete process.env.AGENTCONNECT_TELEMETRY;
+  delete process.env.AGENT_CONNECTOR_TELEMETRY;
 });
 
 afterEach(() => {
@@ -185,8 +185,8 @@ describe("isCalibrationEnabled", () => {
     expect(isCalibrationEnabled()).toBe(false);
   });
 
-  it("is OFF when only AGENTCONNECT_CALIBRATE=anthropic is set (no key)", () => {
-    process.env.AGENTCONNECT_CALIBRATE = "anthropic";
+  it("is OFF when only AGENT_CONNECTOR_CALIBRATE=anthropic is set (no key)", () => {
+    process.env.AGENT_CONNECTOR_CALIBRATE = "anthropic";
     expect(isCalibrationEnabled()).toBe(false);
   });
 
@@ -196,25 +196,25 @@ describe("isCalibrationEnabled", () => {
   });
 
   it("is OFF when the allowlist does not include anthropic", () => {
-    process.env.AGENTCONNECT_CALIBRATE = "openai";
+    process.env.AGENT_CONNECTOR_CALIBRATE = "openai";
     process.env.ANTHROPIC_API_KEY = "sk-test";
     expect(isCalibrationEnabled()).toBe(false);
   });
 
   it("is OFF when the key is blank/whitespace", () => {
-    process.env.AGENTCONNECT_CALIBRATE = "anthropic";
+    process.env.AGENT_CONNECTOR_CALIBRATE = "anthropic";
     process.env.ANTHROPIC_API_KEY = "   ";
     expect(isCalibrationEnabled()).toBe(false);
   });
 
   it("is ON when BOTH switches are set", () => {
-    process.env.AGENTCONNECT_CALIBRATE = "anthropic";
+    process.env.AGENT_CONNECTOR_CALIBRATE = "anthropic";
     process.env.ANTHROPIC_API_KEY = "sk-test";
     expect(isCalibrationEnabled()).toBe(true);
   });
 
   it("is ON when anthropic is one of several comma-separated allowlist families", () => {
-    process.env.AGENTCONNECT_CALIBRATE = "openai, anthropic";
+    process.env.AGENT_CONNECTOR_CALIBRATE = "openai, anthropic";
     process.env.ANTHROPIC_API_KEY = "sk-test";
     expect(isCalibrationEnabled()).toBe(true);
   });

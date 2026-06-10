@@ -59,7 +59,7 @@ export async function run(argv: string[]): Promise<number> {
   if (!connectorId) {
     return fail(
       "could not determine connector id. Pass --connector-id <id>, " +
-        "--connector <path>, or run inside a project with an agentconnect config.",
+        "--connector <path>, or run inside a project with an agent-connector config.",
     );
   }
 

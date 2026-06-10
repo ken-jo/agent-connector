@@ -6,7 +6,7 @@
  *   • Linux/FreeBSD: $XDG_DATA_HOME/zed/threads/threads.db (~/.local/share/zed/…)
  *   • macOS:         ~/Library/Application Support/Zed/threads/threads.db
  *   • Windows:       %LOCALAPPDATA%\Zed\threads\threads.db
- * (host roots, incl. the AGENTCONNECT_ZED_DIR override, are resolved by
+ * (host roots, incl. the AGENT_CONNECTOR_ZED_DIR override, are resolved by
  * paths.ts hostRoots("zed").)
  *
  * Only Zed-HOSTED model rows (provider == "zed.dev", case-insensitive) are

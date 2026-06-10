@@ -11,7 +11,7 @@
  * persisted (enforced by the {@link ToolEventRecord} shape, which carries no
  * content fields).
  *
- * Global kill switch: AGENTCONNECT_TELEMETRY=0 makes `append` a no-op so a
+ * Global kill switch: AGENT_CONNECTOR_TELEMETRY=0 makes `append` a no-op so a
  * disabled telemetry layer can never touch disk or break a host's tool call.
  */
 
@@ -36,9 +36,9 @@ export interface OpenStoreOptions {
 // Confidence ranking + worst-of comparison live in ./types (the single source
 // of truth) so a new ConfidenceSource value orders correctly everywhere.
 
-/** Is `process.env.AGENTCONNECT_TELEMETRY` an explicit off switch? */
+/** Is `process.env.AGENT_CONNECTOR_TELEMETRY` an explicit off switch? */
 function telemetryDisabled(): boolean {
-  return process.env.AGENTCONNECT_TELEMETRY === "0";
+  return process.env.AGENT_CONNECTOR_TELEMETRY === "0";
 }
 
 /**

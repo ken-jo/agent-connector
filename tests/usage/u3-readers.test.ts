@@ -5,7 +5,7 @@
  * Each block CREATEs a tiny fixture SQLite database with sql.js (the same WASM
  * engine the production openSqlite() loader uses), exports its bytes to the exact
  * on-disk path the reader resolves under a fresh fake HOME (+ XDG_DATA_HOME /
- * HERMES_HOME / AGENTCONNECT_*_DIR as each reader needs), calls the reader, and
+ * HERMES_HOME / AGENT_CONNECTOR_*_DIR as each reader needs), calls the reader, and
  * asserts the extracted TokenBreakdown + confidence + dedup. Grounded in the
  * tokscale Rust parsers (crates/tokscale-core/src/sessions/{opencode,goose,hermes,
  * kilo,synthetic,crush,zed}.rs) and the design spec (docs/research/usage-readers.json).
@@ -70,7 +70,7 @@ function lit(s: string): string {
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fake-HOME harness. Every SQLite reader resolves its db path via
 // homedir() / XDG_DATA_HOME (paths.ts), except hermes (HERMES_HOME) and
-// synthetic (AGENTCONNECT_SYNTHETIC_DIR or XDG_DATA_HOME/octofriend). We
+// synthetic (AGENT_CONNECTOR_SYNTHETIC_DIR or XDG_DATA_HOME/octofriend). We
 // snapshot + restore every env key these readers read so no test leaks state.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -81,13 +81,13 @@ const SAVED_ENV = [
   "HERMES_HOME",
   "APPDATA",
   "LOCALAPPDATA",
-  "AGENTCONNECT_OPENCODE_DIR",
-  "AGENTCONNECT_GOOSE_DIR",
-  "AGENTCONNECT_HERMES_DIR",
-  "AGENTCONNECT_KILO_CLI_DIR",
-  "AGENTCONNECT_SYNTHETIC_DIR",
-  "AGENTCONNECT_CRUSH_DIR",
-  "AGENTCONNECT_ZED_DIR",
+  "AGENT_CONNECTOR_OPENCODE_DIR",
+  "AGENT_CONNECTOR_GOOSE_DIR",
+  "AGENT_CONNECTOR_HERMES_DIR",
+  "AGENT_CONNECTOR_KILO_CLI_DIR",
+  "AGENT_CONNECTOR_SYNTHETIC_DIR",
+  "AGENT_CONNECTOR_CRUSH_DIR",
+  "AGENT_CONNECTOR_ZED_DIR",
 ] as const;
 
 let tmpHome: string;
@@ -110,7 +110,7 @@ beforeEach(async () => {
   // starts from "db absent" unless it writes one.
   process.env.HERMES_HOME = join(tmpHome, ".hermes");
   for (const key of SAVED_ENV) {
-    if (key.startsWith("AGENTCONNECT_")) delete process.env[key];
+    if (key.startsWith("AGENT_CONNECTOR_")) delete process.env[key];
   }
 });
 

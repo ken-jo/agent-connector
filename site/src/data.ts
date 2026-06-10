@@ -7,8 +7,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export const REPO_URL = "https://github.com/ken-jo/agentconnect";
-export const INSTALL_CMD = "npm install agentconnect";
+export const REPO_URL = "https://github.com/ken-jo/agent-connector";
+export const INSTALL_CMD = "npm install agent-connector";
 
 /* ------------------------------------------------------------------ */
 /* Hook paradigms                                                      */
@@ -149,7 +149,7 @@ export const pillars: Pillar[] = [
     eyebrow: "Pillar 02",
     title: "Token telemetry, by default",
     summary:
-      "No host reports per-tool usage back to an MCP server. AgentConnect measures your server's own bytes and tokenizes them locally — the metric MCP devs actually want.",
+      "No host reports per-tool usage back to an MCP server. agent-connector measures your server's own bytes and tokenizes them locally — the metric MCP devs actually want.",
     points: [
       {
         label: "Two leaderboards",
@@ -164,7 +164,7 @@ export const pillars: Pillar[] = [
       {
         label: "Local-first, opt-out",
         detail:
-          "Aggregate counts only, stored locally, zero egress by default. AGENTCONNECT_TELEMETRY=0.",
+          "Aggregate counts only, stored locally, zero egress by default. AGENT_CONNECTOR_TELEMETRY=0.",
       },
     ],
   },
@@ -236,7 +236,7 @@ export interface DialectSnippet {
   code: string;
 }
 
-const defineConnectorSource = `import { defineConnector } from "agentconnect";
+const defineConnectorSource = `import { defineConnector } from "agent-connector";
 
 export default defineConnector({
   id: "acme-db",
@@ -297,7 +297,7 @@ export const dialectSource: DialectSnippet = {
   id: "source",
   label: "defineConnector",
   language: "ts",
-  filename: "agentconnect.config.mjs",
+  filename: "agent-connector.config.mjs",
   code: defineConnectorSource,
 };
 
@@ -364,7 +364,7 @@ export const howItWorks: HowItWorksStep[] = [
   {
     title: "One home binary",
     detail:
-      "The runtime installs once under ~/.agentconnect (override AGENTCONNECT_DATA_DIR).",
+      "The runtime installs once under ~/.agent-connector (override AGENT_CONNECTOR_DATA_DIR).",
   },
   {
     title: "Thin native pointers",
@@ -379,7 +379,7 @@ export const howItWorks: HowItWorksStep[] = [
   {
     title: "Managed upgrade",
     detail:
-      "agentconnect upgrade refreshes the one binary pointer — explicit, never silent. One bad release can't break everything.",
+      "agent-connector upgrade refreshes the one binary pointer — explicit, never silent. One bad release can't break everything.",
   },
   {
     title: "Windows-safe",

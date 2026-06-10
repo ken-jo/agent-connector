@@ -32,15 +32,15 @@ let savedData: string | undefined;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "ac-status-"));
   savedHome = process.env.HOME;
-  savedData = process.env.AGENTCONNECT_DATA_DIR;
+  savedData = process.env.AGENT_CONNECTOR_DATA_DIR;
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
-  process.env.AGENTCONNECT_DATA_DIR = join(tmp, ".agentconnect");
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(tmp, ".agent-connector");
 });
 afterEach(() => {
   process.env.HOME = savedHome;
   process.env.USERPROFILE = savedHome;
-  process.env.AGENTCONNECT_DATA_DIR = savedData;
+  process.env.AGENT_CONNECTOR_DATA_DIR = savedData;
   vi.restoreAllMocks();
   rmSync(tmp, { recursive: true, force: true });
 });

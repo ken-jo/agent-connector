@@ -1,5 +1,5 @@
 /**
- * adapters/hermes — Hermes Agent platform adapter for agentconnect.
+ * adapters/hermes — Hermes Agent platform adapter for agent-connector.
  *
  * Hermes is a json-stdio host whose ENTIRE configuration — both the MCP servers
  * and the lifecycle hooks — lives in a single user-scope YAML file:

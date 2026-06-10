@@ -1,5 +1,5 @@
 /**
- * adapters/gemini-cli — Gemini CLI platform adapter for agentconnect.
+ * adapters/gemini-cli — Gemini CLI platform adapter for agent-connector.
  *
  * Gemini CLI (Google) is a json-stdio host: the host pipes a JSON payload to a
  * hook command on stdin and reads a JSON control object / exit code back — the
@@ -40,7 +40,7 @@
  * NOTE: Gemini's AfterModel hook payload carries `usageMetadata.totalTokenCount`
  * (per-LLM-call real token usage — the one host-native usage signal in the
  * matrix). This is the OPT-IN host-native usage enricher (4a): when host-native
- * capture is enabled (telemetry.hostNativeUsage, or AGENTCONNECT_HOST_NATIVE=1
+ * capture is enabled (telemetry.hostNativeUsage, or AGENT_CONNECTOR_HOST_NATIVE=1
  * at install), installHooks ALSO writes an AfterModel hook whose command is the
  * hidden `<homeBin> usage-event gemini-cli --connector <id>` entrypoint. That
  * records a DISTINCT `model_turn` telemetry row (confidence host-native) covering

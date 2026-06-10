@@ -43,12 +43,12 @@ export interface InstallContext {
   projectDir: string;
   /**
    * Stable absolute path to the single home binary
-   * (`~/.agentconnect/bin/agentconnect`). All hook commands and the
+   * (`~/.agent-connector/bin/agent-connector`). All hook commands and the
    * telemetry-wrapping `serve` invocation point here — so one update propagates
    * to every host. Never a versioned cache path (avoids the cache-heal bug class).
    */
   homeBinPath: string;
-  /** Framework data-root (`~/.agentconnect`, or AGENTCONNECT_DATA_DIR). */
+  /** Framework data-root (`~/.agent-connector`, or AGENT_CONNECTOR_DATA_DIR). */
   dataRoot: string;
   dryRun: boolean;
 }

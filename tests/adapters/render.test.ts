@@ -14,7 +14,7 @@
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, so
  * config files land under <tempDir>/.claude, /.codex, /.cursor — never the real
- * home or the repo tree. HOME + AGENTCONNECT_DATA_DIR are pointed at temp and
+ * home or the repo tree. HOME + AGENT_CONNECTOR_DATA_DIR are pointed at temp and
  * restored in afterEach.
  */
 
@@ -41,7 +41,7 @@ import cursorAdapter from "../../src/adapters/cursor/index.js";
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
+const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -95,14 +95,14 @@ let savedCodexHome: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
+  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
   savedCodexHome = process.env.CODEX_HOME;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
+  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
   restore("CODEX_HOME", savedCodexHome);
 });
@@ -119,7 +119,7 @@ function freshProject(): string {
   // backup write lands in the sandbox, never the real home.
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   // Set the env-ref var so codex literal-resolution produces a known value.
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;

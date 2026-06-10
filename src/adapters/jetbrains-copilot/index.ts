@@ -1,5 +1,5 @@
 /**
- * adapters/jetbrains-copilot — JetBrains Copilot platform adapter for agentconnect.
+ * adapters/jetbrains-copilot — JetBrains Copilot platform adapter for agent-connector.
  *
  * JetBrains Copilot shares the Copilot hook paradigm with VS Code Copilot
  * (Claude-compatible json-stdio), but diverges on MCP registration:

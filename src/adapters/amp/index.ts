@@ -1,5 +1,5 @@
 /**
- * adapters/amp — Amp (Sourcegraph / AmpCode) platform adapter for agentconnect.
+ * adapters/amp — Amp (Sourcegraph / AmpCode) platform adapter for agent-connector.
  *
  * Amp is an **mcp-only** host: it exposes no lifecycle hook system, so MCP is the
  * only extensibility surface. This adapter installs the MCP server entry and

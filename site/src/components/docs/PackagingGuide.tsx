@@ -18,7 +18,7 @@ function TwoWaysToShip() {
           <span className="text-base font-semibold text-foreground">
             Direct install
           </span>
-          <Badge variant="muted">agentconnect install</Badge>
+          <Badge variant="muted">agent-connector install</Badge>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
           The CLI detects every installed host and writes each one&apos;s native
@@ -32,7 +32,7 @@ function TwoWaysToShip() {
           <span className="text-base font-semibold text-foreground">
             Packaged bundle
           </span>
-          <Badge variant="muted">agentconnect package</Badge>
+          <Badge variant="muted">agent-connector package</Badge>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Emit a self-contained marketplace / extension bundle others install
@@ -134,7 +134,7 @@ export function PackagingGuideSection() {
         There are <strong>two ways to ship</strong> a connector: install it
         directly with the CLI, or emit a marketplace / extension{" "}
         <strong>bundle</strong> others install through their host&apos;s own
-        plugin flow. The <C>agentconnect package</C> command renders the
+        plugin flow. The <C>agent-connector package</C> command renders the
         bundle for any of <strong>nine</strong> host ecosystem formats — plus two
         official <strong>MCP standard artifacts</strong> (a registry{" "}
         <C>server.json</C> and an <C>mcpb</C> bundle) that plug your real upstream
@@ -146,7 +146,7 @@ export function PackagingGuideSection() {
       <H3 id="package-command">The package command</H3>
       <P>
         <C>
-          agentconnect package [--connector &lt;path&gt;] [--format &lt;fmt&gt;]
+          agent-connector package [--connector &lt;path&gt;] [--format &lt;fmt&gt;]
           [--out &lt;dir&gt;] [--dry-run]
         </C>
         . The connector is resolved from <C>--connector</C>, else auto-discovered
@@ -181,7 +181,7 @@ export function PackagingGuideSection() {
         serves, the manifest file(s) it emits, and the user install command. The
         command / skill / subagent markdown is rendered through the{" "}
         <strong>same shared claude-code renderers the live adapters write with</strong>
-        , so an installed plugin and an <C>agentconnect install</C> produce
+        , so an installed plugin and an <C>agent-connector install</C> produce
         byte-identical content files.
       </P>
       <FormatsTable />
@@ -190,7 +190,7 @@ export function PackagingGuideSection() {
       <P>
         Hooks use the universal home-bin <C>hook</C> command and the MCP entry is{" "}
         <strong>serve-wrapped with <C>--host &lt;platform&gt;</C></strong> in
-        every bundle — exactly as an <C>agentconnect install</C> would. So a{" "}
+        every bundle — exactly as an <C>agent-connector install</C> would. So a{" "}
         <strong>marketplace-installed connector still reports per-tool tokens</strong>
         : the wrapped MCP entry routes through the one stable home binary, and the
         hooks shell back to the same entrypoint, keeping the telemetry

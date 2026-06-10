@@ -51,7 +51,7 @@
  *     dir was NOT present on the confirmed install, so it stays medium-confidence
  *     + doctor "verify for your version."
  *   - Subagents: declarative subagents exist only inside a plugin bundle, which
- *     agentconnect does not emit; supportsSubagents is false and the
+ *     agent-connector does not emit; supportsSubagents is false and the
  *     BaseAdapter skip/warn default applies.
  *
  * Env handling: Antigravity (Gemini family) documents no `${env:VAR}` token of

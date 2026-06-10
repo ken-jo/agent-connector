@@ -77,7 +77,7 @@ describe("probeStdioServer", () => {
   });
 
   it("FAILs fast with an actionable fix when the server command is not launchable", async () => {
-    const results = await probeStdioServer("agentconnect-no-such-binary-xyz", [], {
+    const results = await probeStdioServer("agent-connector-no-such-binary-xyz", [], {
       label: "broken",
       timeoutMs: 3000,
     });

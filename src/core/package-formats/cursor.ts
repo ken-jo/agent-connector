@@ -47,7 +47,7 @@ function buildManifest(
 ): Record<string, unknown> {
   const manifest: Record<string, unknown> = {
     name: connector.id,
-    description: `${connector.displayName} — connector emitted by agentconnect`,
+    description: `${connector.displayName} — connector emitted by agent-connector`,
   };
   if (connector.version && connector.version !== "0.0.0") {
     manifest.version = connector.version;
@@ -63,16 +63,16 @@ function buildManifest(
 
 /** Build .cursor-plugin/marketplace.json (owner object carries name; email optional). */
 function buildMarketplace(connector: ResolvedConnector): Record<string, unknown> {
-  // Catalog NAME stays "agentconnect" (install instructions key on it); the
+  // Catalog NAME stays "agent-connector" (install instructions key on it); the
   // OWNER is the connector developer when publish.author is declared.
   return {
-    name: "agentconnect",
-    owner: { name: connector.publish?.author?.name ?? "agentconnect" },
+    name: "agent-connector",
+    owner: { name: connector.publish?.author?.name ?? "agent-connector" },
     plugins: [
       {
         name: connector.id,
         source: `./${connector.id}`,
-        description: `${connector.displayName} — connector emitted by agentconnect`,
+        description: `${connector.displayName} — connector emitted by agent-connector`,
       },
     ],
   };

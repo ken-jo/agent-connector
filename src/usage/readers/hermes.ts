@@ -5,7 +5,7 @@
  * per session in a `sessions` table inside a single SQLite database:
  *   • ~/.hermes/state.db
  *   • $HERMES_HOME/state.db   (when HERMES_HOME is set, non-empty)
- * (the AGENTCONNECT_HERMES_DIR override + the ~/.hermes default are resolved by
+ * (the AGENT_CONNECTOR_HERMES_DIR override + the ~/.hermes default are resolved by
  * paths.ts hostRoots("hermes"); HERMES_HOME is honored here, ahead of those, to
  * match the Rust storage-path spec which the fixed paths.ts does not encode.)
  *
@@ -105,7 +105,7 @@ const QUERY = `
 /**
  * Resolve the Hermes state DB. The Rust spec lists both `~/.hermes/state.db` and
  * `$HERMES_HOME/state.db`; the fixed paths.ts only encodes the former (+ the
- * AGENTCONNECT_HERMES_DIR override), so we honor HERMES_HOME first here.
+ * AGENT_CONNECTOR_HERMES_DIR override), so we honor HERMES_HOME first here.
  * Returns the first existing candidate, or undefined when none is present.
  */
 function resolveDbPath(): string | undefined {

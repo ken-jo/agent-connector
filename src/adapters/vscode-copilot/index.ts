@@ -1,5 +1,5 @@
 /**
- * adapters/vscode-copilot — VS Code Copilot platform adapter for agentconnect.
+ * adapters/vscode-copilot — VS Code Copilot platform adapter for agent-connector.
  *
  * Generalized from context-mode's proven VS Code Copilot adapter: the served
  * identity is now `ctx.connector` (not a hardcoded "context-mode"), and every

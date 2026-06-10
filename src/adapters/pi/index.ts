@@ -1,7 +1,7 @@
 /**
- * adapters/pi — Pi platform adapter for agentconnect.
+ * adapters/pi — Pi platform adapter for agent-connector.
  *
- * Pi is an **mcp-only** host with NO writable MCP config that agentconnect
+ * Pi is an **mcp-only** host with NO writable MCP config that agent-connector
  * can target, and no lifecycle hook system. Its one extensibility surface that
  * this connector drives is **Agent Skills**: folder-per-skill `SKILL.md` files
  * (md+frontmatter, the Agent Skills open standard) under `<piDir>/skills/`.
@@ -97,7 +97,7 @@ export class PiAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Pi has no writable MCP config that agentconnect targets. Returning the
+   * Pi has no writable MCP config that agent-connector targets. Returning the
    * config dir keeps the generic doctor/backup sensible while installServer
    * itself always skips.
    */

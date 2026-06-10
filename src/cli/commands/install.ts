@@ -31,7 +31,7 @@ export async function run(argv: string[]): Promise<number> {
   if (!configPath) {
     return fail(
       "no connector config found. Pass --connector <path> or add an " +
-        "agentconnect.config.{mjs,js,json} to your project.",
+        "agent-connector.config.{mjs,js,json} to your project.",
     );
   }
 

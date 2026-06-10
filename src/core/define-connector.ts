@@ -119,7 +119,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
       modelFamilyHint: t.modelFamilyHint ?? "auto",
       measureToolDefs: t.measureToolDefs ?? true,
       // OPT-IN: host-native turn-usage capture is OFF unless explicitly enabled
-      // in config (or forced on at install via AGENTCONNECT_HOST_NATIVE=1).
+      // in config (or forced on at install via AGENT_CONNECTOR_HOST_NATIVE=1).
       hostNativeUsage: t.hostNativeUsage ?? false,
       store: t.store ?? "ndjson",
       calibration: {

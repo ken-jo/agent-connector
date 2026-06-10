@@ -2,7 +2,7 @@
  * adapters/roo-code — Roo Code (VS Code extension) platform adapter.
  *
  * Roo Code (rooveterinaryinc.roo-cline) is a Cline-fork VS Code extension and an
- * **mcp-only** host from agentconnect's perspective: it exposes no lifecycle
+ * **mcp-only** host from agent-connector's perspective: it exposes no lifecycle
  * hook system, so MCP server registration is the only thing we install and hooks
  * are reported unavailable. This mirrors the Warp reference adapter exactly.
  *

@@ -16,7 +16,7 @@ import {
 
 const ORIG_HOME = process.env.HOME;
 const ORIG_USERPROFILE = process.env.USERPROFILE;
-const ORIG_DATA_DIR = process.env.AGENTCONNECT_DATA_DIR;
+const ORIG_DATA_DIR = process.env.AGENT_CONNECTOR_DATA_DIR;
 
 let tmpHome: string;
 let tmpData: string;
@@ -27,7 +27,7 @@ beforeEach(() => {
   process.env.HOME = tmpHome;
   // homedir() on some platforms reads USERPROFILE; keep both pointed at the temp.
   process.env.USERPROFILE = tmpHome;
-  delete process.env.AGENTCONNECT_DATA_DIR;
+  delete process.env.AGENT_CONNECTOR_DATA_DIR;
 });
 
 afterEach(() => {
@@ -35,8 +35,8 @@ afterEach(() => {
   else process.env.HOME = ORIG_HOME;
   if (ORIG_USERPROFILE === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = ORIG_USERPROFILE;
-  if (ORIG_DATA_DIR === undefined) delete process.env.AGENTCONNECT_DATA_DIR;
-  else process.env.AGENTCONNECT_DATA_DIR = ORIG_DATA_DIR;
+  if (ORIG_DATA_DIR === undefined) delete process.env.AGENT_CONNECTOR_DATA_DIR;
+  else process.env.AGENT_CONNECTOR_DATA_DIR = ORIG_DATA_DIR;
 
   for (const d of [tmpHome, tmpData]) {
     try {
@@ -48,22 +48,22 @@ afterEach(() => {
 });
 
 describe("dataRoot", () => {
-  it("honors AGENTCONNECT_DATA_DIR override (resolved to absolute)", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
+  it("honors AGENT_CONNECTOR_DATA_DIR override (resolved to absolute)", () => {
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     expect(dataRoot()).toBe(resolve(tmpData));
   });
 
   it("ignores a blank/whitespace override and falls back under HOME", () => {
-    process.env.AGENTCONNECT_DATA_DIR = "   ";
-    expect(dataRoot()).toBe(join(tmpHome, ".agentconnect"));
+    process.env.AGENT_CONNECTOR_DATA_DIR = "   ";
+    expect(dataRoot()).toBe(join(tmpHome, ".agent-connector"));
   });
 
-  it("falls back to <HOME>/.agentconnect when no override is set", () => {
-    expect(dataRoot()).toBe(join(tmpHome, ".agentconnect"));
+  it("falls back to <HOME>/.agent-connector when no override is set", () => {
+    expect(dataRoot()).toBe(join(tmpHome, ".agent-connector"));
   });
 
   it("derived dirs all sit under the data-root", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     const root = resolve(tmpData);
     expect(connectorsDir()).toBe(join(root, "connectors"));
     expect(connectorDir("acme")).toBe(join(root, "connectors", "acme"));
@@ -76,25 +76,25 @@ describe("dataRoot", () => {
 
 describe("homeBinPath", () => {
   it("sits under dataRoot/bin", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     const root = resolve(tmpData);
     const bin = homeBinPath();
     expect(bin.startsWith(join(root, "bin") + sep)).toBe(true);
   });
 
   it("uses the platform-appropriate launcher name", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     const root = resolve(tmpData);
     const expectedName =
-      process.platform === "win32" ? "agentconnect.cmd" : "agentconnect";
+      process.platform === "win32" ? "agent-connector.cmd" : "agent-connector";
     expect(homeBinPath()).toBe(join(root, "bin", expectedName));
   });
 });
 
 describe("ensureHomeBin", () => {
   it("writes a launcher that references the cli entry, and returns its path", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
-    const cliEntry = "/opt/agentconnect/dist/cli.js";
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+    const cliEntry = "/opt/agent-connector/dist/cli.js";
     const written = ensureHomeBin(cliEntry, "/usr/bin/node");
 
     expect(written).toBe(homeBinPath());
@@ -105,7 +105,7 @@ describe("ensureHomeBin", () => {
   });
 
   it("marks the launcher executable on POSIX", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     const written = ensureHomeBin("/opt/cli.js", "/usr/bin/node");
     const mode = statSync(written).mode;
     if (process.platform !== "win32") {
@@ -117,7 +117,7 @@ describe("ensureHomeBin", () => {
   });
 
   it("is idempotent — a second call overwrites cleanly and returns the same path", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     const first = ensureHomeBin("/opt/cli.js", "/usr/bin/node");
     const second = ensureHomeBin("/opt/cli.js", "/usr/bin/node");
     expect(second).toBe(first);
@@ -125,7 +125,7 @@ describe("ensureHomeBin", () => {
   });
 
   it("forward-slashes a Windows-style cli path inside the launcher", () => {
-    process.env.AGENTCONNECT_DATA_DIR = tmpData;
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     const written = ensureHomeBin("C:\\Apps\\dist\\cli.js", "C:\\node\\node.exe");
     const contents = readFileSync(written, "utf8");
     expect(contents).toContain("C:/Apps/dist/cli.js");

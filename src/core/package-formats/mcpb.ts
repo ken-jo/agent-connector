@@ -3,7 +3,7 @@
  *
  * MCPB is the official cross-client one-click LOCAL-install bundle (Claude
  * Desktop + any MCPB host). A real .mcpb is a SELF-CONTAINED zip (manifest.json
- * + the server + vendored node_modules), which agentconnect cannot assemble
+ * + the server + vendored node_modules), which agent-connector cannot assemble
  * at emit time — we do not have the developer's built server tree. So, per the
  * conformance analysis, we emit a CONFORMANT manifest.json describing a
  * self-contained node bundle (NOT an out-of-spec `npx` command-reference, which
@@ -49,7 +49,7 @@ function secretEnvNames(server: ServerDef): Set<string> {
 function recipeReadme(connector: ResolvedConnector): string {
   return `# ${connector.displayName} — MCPB bundle
 
-\`agentconnect package --format mcpb\` emitted the conformant **manifest.json**
+\`agent-connector package --format mcpb\` emitted the conformant **manifest.json**
 (manifest_version ${MCPB_MANIFEST_VERSION}) for this connector. It does NOT build
 the \`.mcpb\` zip — that step vendors your server and is yours to run, so the
 bundle stays self-contained and signable.

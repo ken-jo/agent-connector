@@ -1,7 +1,7 @@
 /**
  * cli/commands/serve — the telemetry-wrapping MCP stdio proxy entrypoint.
  *
- *   agentconnect serve --connector <id> [--scope <user|project>] [--host <platformId>] -- <realCommand> <realArgs...>
+ *   agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] -- <realCommand> <realArgs...>
  *
  * A stdio MCP server that opts into transparent telemetry has its host config
  * rewritten to launch THIS instead of the server directly. We split argv at the
@@ -29,7 +29,7 @@ export async function run(argv: string[]): Promise<number> {
   const sepIndex = argv.indexOf("--");
   if (sepIndex === -1) {
     return fail(
-      "usage: agentconnect serve --connector <id> [--scope <user|project>] [--host <platformId>] -- <command> [args...]",
+      "usage: agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] -- <command> [args...]",
     );
   }
   const flagArgs = argv.slice(0, sepIndex);

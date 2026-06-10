@@ -60,7 +60,7 @@ export function Introduction() {
   return (
     <DocSection id="introduction" eyebrow="Getting Started" title="Introduction">
       <Lead>
-        AgentConnect lets you write your MCP server + hooks (and slash
+        agent-connector lets you write your MCP server + hooks (and slash
         commands, Agent Skills, and subagents) <strong>once</strong> with{" "}
         <C>defineConnector(&#123;...&#125;)</C>. The CLI detects every installed
         AI-agent host, renders the right config in each one&apos;s native
@@ -99,20 +99,20 @@ export function Installation() {
   return (
     <DocSection id="installation" eyebrow="Getting Started" title="Installation">
       <Lead>
-        AgentConnect is an <strong>SDK you depend on</strong>, not a global
+        agent-connector is an <strong>SDK you depend on</strong>, not a global
         tool. Add it to your connector package, then either ship a{" "}
         <strong>branded CLI</strong> your users drive directly, or run it with{" "}
         <C>npx</C> from the project. Your consumers never need a separate global
         install.
       </Lead>
       <P>
-        Add agentconnect as a dependency of the package that holds your{" "}
-        <C>agentconnect.config</C>:
+        Add agent-connector as a dependency of the package that holds your{" "}
+        <C>agent-connector.config</C>:
       </P>
       <CodeBlock code={S.installSnippet} language="bash" filename="terminal" />
       <P>
         Then expose every subcommand under your own brand with{" "}
-        <C>createConnectorCli</C> from the <C>agentconnect/cli</C> export — the{" "}
+        <C>createConnectorCli</C> from the <C>agent-connector/cli</C> export — the{" "}
         <Link className="underline hover:text-foreground" to="/docs/embed-cli">
           branded-CLI flow
         </Link>
@@ -133,7 +133,7 @@ export function Installation() {
       <H3 id="optional-global">Optional: use the CLI directly</H3>
       <P>
         You do <strong>not</strong> need a global install for the SDK flow above
-        — <C>npx agentconnect …</C> runs it straight from your project. A
+        — <C>npx agent-connector …</C> runs it straight from your project. A
         global install is a convenience only, for trying the CLI by hand outside
         any connector package:
       </P>
@@ -149,13 +149,13 @@ export function QuickStart() {
   return (
     <DocSection id="quick-start" eyebrow="Getting Started" title="Quick start">
       <Lead>
-        Three steps: depend on agentconnect, declare your connector with{" "}
+        Three steps: depend on agent-connector, declare your connector with{" "}
         <C>defineConnector</C>, then <strong>either</strong> ship a branded CLI{" "}
-        <strong>or</strong> run <C>npx agentconnect</C> from the project.
+        <strong>or</strong> run <C>npx agent-connector</C> from the project.
       </Lead>
       <P>
         Add the dependency and create an{" "}
-        <C>agentconnect.config.&#123;mjs,js,json&#125;</C> at your project root
+        <C>agent-connector.config.&#123;mjs,js,json&#125;</C> at your project root
         (found by walking up from the project dir, or pass{" "}
         <C>--connector &lt;path&gt;</C>):
       </P>
@@ -171,7 +171,7 @@ export function QuickStart() {
       <CodeBlock
         code={S.defineConnectorSnippet}
         language="ts"
-        filename="agentconnect.config.mjs"
+        filename="agent-connector.config.mjs"
       />
       <Callout title="Two ways to drive it">
         Ship a <strong>branded CLI</strong> so your users run{" "}
@@ -180,7 +180,7 @@ export function QuickStart() {
         <Link className="underline hover:text-foreground" to="/docs/embed-cli">
           Embed it / branded CLI
         </Link>
-        ), or just run <C>npx agentconnect …</C> from the project. Either way,
+        ), or just run <C>npx agent-connector …</C> from the project. Either way,
         no separate global install is required.
       </Callout>
     </DocSection>
@@ -195,18 +195,18 @@ export function EmbedCli() {
       title="Embed it / ship a branded CLI"
     >
       <Lead>
-        AgentConnect is an <strong>SDK a connector developer depends on</strong>
+        agent-connector is an <strong>SDK a connector developer depends on</strong>
         . With <C>createConnectorCli(&#123; name, connector &#125;)</C> you expose{" "}
-        <strong>every</strong> agentconnect subcommand under your own brand —
+        <strong>every</strong> agent-connector subcommand under your own brand —
         fully delegated and <strong>auto-scoped</strong> to the connector your
         package ships. Your users run <C>&lt;your-tool&gt; install</C> /{" "}
         <C>&lt;your-tool&gt; leaderboard</C> / <C>&lt;your-tool&gt; telemetry</C>{" "}
-        and never install agentconnect globally or type <C>--connector</C>.
+        and never install agent-connector globally or type <C>--connector</C>.
       </Lead>
 
       <H3 id="embed-package">1. Depend on it + add a bin</H3>
       <P>
-        agentconnect is a normal <C>dependency</C> (not <C>-g</C>). Your
+        agent-connector is a normal <C>dependency</C> (not <C>-g</C>). Your
         package declares a <C>bin</C>; installing your package links that bin onto
         the user&apos;s PATH.
       </P>
@@ -218,9 +218,9 @@ export function EmbedCli() {
 
       <H3 id="embed-bin">2. createConnectorCli in your bin</H3>
       <P>
-        Import <C>createConnectorCli</C> from the <C>agentconnect/cli</C>{" "}
+        Import <C>createConnectorCli</C> from the <C>agent-connector/cli</C>{" "}
         export, point it at your shipped config, and <C>.run()</C> it. That is the
-        whole bin — every command behavior still lives in AgentConnect; this is
+        whole bin — every command behavior still lives in agent-connector; this is
         pure brand + auto-scope.
       </P>
       <CodeBlock code={S.brandedBinSnippet} language="ts" filename="bin.mjs" />
@@ -238,7 +238,7 @@ export function EmbedCli() {
 
       <H3 id="embed-scoping">Auto-scoping &amp; the shared home binary</H3>
       <P>
-        A branded subcommand is just the matching agentconnect command with
+        A branded subcommand is just the matching agent-connector command with
         your connector pre-injected — argument transformation only, no duplicated
         logic. Config-path commands (<C>install</C>, <C>upgrade</C> [+ <C>sync</C>/
         <C>update</C> aliases], <C>doctor</C>, <C>status</C>, <C>uninstall</C>,{" "}
@@ -250,12 +250,12 @@ export function EmbedCli() {
       <CodeBlock
         code={S.brandedScopingSnippet}
         language="bash"
-        filename="branded ≈ agentconnect"
+        filename="branded ≈ agent-connector"
       />
       <Callout title="One home binary underneath every brand">
         Branded CLIs are a thin scoping layer over the <strong>same</strong>{" "}
         single home binary: <C>serve</C> and <C>hook</C> still route through the
-        one <C>~/.agentconnect</C> runtime that <C>&lt;your-tool&gt; install</C>{" "}
+        one <C>~/.agent-connector</C> runtime that <C>&lt;your-tool&gt; install</C>{" "}
         wires every host&apos;s native config back to. Two packages that each ship
         their own brand share that infrastructure — see the{" "}
         <Link className="underline hover:text-foreground" to="/docs/operating-model">
@@ -324,7 +324,7 @@ export function DefineConnector() {
       <CodeBlock
         code={S.platformOverrideSnippet}
         language="ts"
-        filename="agentconnect.config.mjs"
+        filename="agent-connector.config.mjs"
       />
     </DocSection>
   );
@@ -361,7 +361,7 @@ export function ServerSection() {
 
       <H3 id="per-dialect-output">Per-dialect output</H3>
       <P>
-        For the example server, <C>agentconnect install</C> writes each host&apos;s
+        For the example server, <C>agent-connector install</C> writes each host&apos;s
         native shape (hooks land in a sibling settings file, all pointing back to
         the one stable home binary):
       </P>
@@ -479,7 +479,7 @@ export function HooksSection() {
       <CodeBlock
         code={S.hookHandlerSnippet}
         language="ts"
-        filename="agentconnect.config.mjs"
+        filename="agent-connector.config.mjs"
       />
 
       <H3 id="paradigms">Three paradigms</H3>
@@ -551,7 +551,7 @@ export function SurfacesSection() {
       <CodeBlock
         code={S.commandSnippet}
         language="ts"
-        filename="agentconnect.config.mjs"
+        filename="agent-connector.config.mjs"
       />
 
       <H3 id="surface-validation">Validation rules</H3>
@@ -630,7 +630,7 @@ export function TelemetryOverview() {
     >
       <Lead>
         The only data identical across hosts is the server&apos;s own bytes. The{" "}
-        <C>agentconnect serve</C> proxy intercepts every <C>tools/call</C> at
+        <C>agent-connector serve</C> proxy intercepts every <C>tools/call</C> at
         the server boundary and tokenizes input and output locally.
       </Lead>
       <P>
@@ -646,7 +646,7 @@ export function TelemetryOverview() {
       <CodeBlock
         code={S.telemetrySnippet}
         language="ts"
-        filename="agentconnect.config.mjs"
+        filename="agent-connector.config.mjs"
       />
 
       <H3 id="tokenizer">Tokenizer</H3>
@@ -705,7 +705,7 @@ export function TelemetryOverview() {
         <C>host-reported</C> (real numbers) vs <C>host-estimated</C> (e.g. Kiro
         char/4, Crush cost-only). It never writes host config and never collides
         with the serve-proxy store. Some hosts (cursor / antigravity /
-        antigravity-cli / trae / warp) need an external sync AgentConnect does
+        antigravity-cli / trae / warp) need an external sync agent-connector does
         not perform → those rows
         are &quot;requires sync, skipped&quot; unless a local cache already
         exists.
@@ -870,7 +870,7 @@ export function TelemetrySurfaces() {
           off-box.
         </LI>
         <LI>
-          <strong>Opt-out.</strong> <C>AGENTCONNECT_TELEMETRY=0</C> (or{" "}
+          <strong>Opt-out.</strong> <C>AGENT_CONNECTOR_TELEMETRY=0</C> (or{" "}
           <C>telemetry: &#123; enabled: false &#125;</C>) is a global kill switch
           honored by both the serve-proxy and the hook runtime.
         </LI>
@@ -893,7 +893,7 @@ export function TelemetrySurfaces() {
 
       <H3 id="per-surface-leaderboard">The per-surface leaderboard</H3>
       <P>
-        <C>agentconnect telemetry leaderboard --by mcp|tool|surface</C> ranks
+        <C>agent-connector telemetry leaderboard --by mcp|tool|surface</C> ranks
         the per-MCP telemetry by connector (the default <C>--by mcp</C>,
         &quot;which MCP server costs the most&quot;), by tool, or — new —{" "}
         <strong>by developer-axis surface</strong>. The <C>--by surface</C> view
@@ -939,7 +939,7 @@ export function Leaderboards() {
   return (
     <DocSection id="leaderboards" eyebrow="Telemetry" title="Leaderboards">
       <Lead>
-        AgentConnect prints <strong>three origin-labeled leaderboards that
+        agent-connector prints <strong>three origin-labeled leaderboards that
         measure different things and are NEVER summed.</strong>
       </Lead>
       <DocsTable>
@@ -986,7 +986,7 @@ export function Leaderboards() {
         </tbody>
       </DocsTable>
       <P>
-        The unified command <C>agentconnect leaderboard --scope &lt;slice&gt;</C>{" "}
+        The unified command <C>agent-connector leaderboard --scope &lt;slice&gt;</C>{" "}
         slices only the MCP section; <C>--json</C> emits{" "}
         <C>&#123; mcp, host, hostSkipped, hostNativeTurns &#125;</C>. The{" "}
         <strong>scope dimension</strong> applies to the MCP board, letting you
@@ -1003,7 +1003,7 @@ export function Leaderboards() {
           branded CLI
         </Link>{" "}
         injects for you: <C>&lt;your-tool&gt; leaderboard</C> ≈{" "}
-        <C>agentconnect leaderboard --connector &lt;id&gt;</C>. The 🖥️ Host/User
+        <C>agent-connector leaderboard --connector &lt;id&gt;</C>. The 🖥️ Host/User
         board stays connector-agnostic (host CLI logs carry no connector
         attribution), so only the 🔌 MCP/Plugin and 🛰️ host-native sections are
         filtered.
@@ -1015,7 +1015,7 @@ export function Leaderboards() {
       />
       <P>
         For the developer/connector axis there is also{" "}
-        <C>agentconnect telemetry leaderboard --by mcp|tool|surface</C>: the{" "}
+        <C>agent-connector telemetry leaderboard --by mcp|tool|surface</C>: the{" "}
         <C>--by surface</C> variant ranks across the{" "}
         <Link className="underline hover:text-foreground" to="/docs/telemetry-surfaces">
           five developer surfaces
@@ -1052,7 +1052,7 @@ export function Privacy() {
         <tbody>
           <tr>
             <Td className="whitespace-nowrap">
-              <Code>AGENTCONNECT_TELEMETRY=0</Code>
+              <Code>AGENT_CONNECTOR_TELEMETRY=0</Code>
             </Td>
             <Td className="text-muted-foreground">
               Global kill switch (equivalent to{" "}
@@ -1061,7 +1061,7 @@ export function Privacy() {
           </tr>
           <tr>
             <Td className="whitespace-nowrap">
-              <Code>AGENTCONNECT_HOST_NATIVE=1</Code>
+              <Code>AGENT_CONNECTOR_HOST_NATIVE=1</Code>
             </Td>
             <Td className="text-muted-foreground">
               Forces the opt-in host-native turn capture on at install.
@@ -1104,8 +1104,8 @@ export function CliSection() {
   return (
     <DocSection id="cli" eyebrow="Reference" title="CLI">
       <Lead>
-        <C>agentconnect &lt;command&gt; [flags]</C>. Run{" "}
-        <C>agentconnect &lt;command&gt; --help</C> for command-specific flags.{" "}
+        <C>agent-connector &lt;command&gt; [flags]</C>. Run{" "}
+        <C>agent-connector &lt;command&gt; --help</C> for command-specific flags.{" "}
         <C>--help</C>/<C>-h</C>/<C>help</C> print usage; <C>--version</C>/
         <C>-v</C> prints the program name and version.
       </Lead>
@@ -1331,26 +1331,26 @@ export function OperatingModel() {
     <DocSection id="operating-model" eyebrow="Guides" title="Operating model">
       <Lead>
         Home-dir-centric, single binary, per-project data. The runtime installs
-        once under <C>~/.agentconnect</C> (override{" "}
-        <C>AGENTCONNECT_DATA_DIR</C>).
+        once under <C>~/.agent-connector</C> (override{" "}
+        <C>AGENT_CONNECTOR_DATA_DIR</C>).
       </Lead>
       <CodeBlock
         code={S.operatingModelSnippet}
         language="text"
-        filename="~/.agentconnect"
+        filename="~/.agent-connector"
       />
       <List>
         <LI>
           <strong>One home binary.</strong> Every host config we write is a thin
           pointer back to this one stable binary (a hook command is{" "}
-          <C>agentconnect hook &lt;platform&gt; &lt;event&gt; --connector &lt;id&gt;</C>;
+          <C>agent-connector hook &lt;platform&gt; &lt;event&gt; --connector &lt;id&gt;</C>;
           a wrapped MCP entry runs{" "}
-          <C>agentconnect serve --connector &lt;id&gt; -- &lt;real cmd&gt;</C>
+          <C>agent-connector serve --connector &lt;id&gt; -- &lt;real cmd&gt;</C>
           ). Updating that single binary updates behavior in every host.
         </LI>
         <LI>
           <strong>Native config stays native.</strong>{" "}
-          <C>AGENTCONNECT_DATA_DIR</C> relocates only framework-owned state; a
+          <C>AGENT_CONNECTOR_DATA_DIR</C> relocates only framework-owned state; a
           host&apos;s own settings files are never relocated.
         </LI>
         <LI>
@@ -1360,7 +1360,7 @@ export function OperatingModel() {
           project.
         </LI>
         <LI>
-          <strong>Explicit upgrades.</strong> <C>agentconnect upgrade</C>{" "}
+          <strong>Explicit upgrades.</strong> <C>agent-connector upgrade</C>{" "}
           refreshes the one binary pointer — never silent auto-update, so one bad
           release can&apos;t break every project at once.
         </LI>
@@ -1385,7 +1385,7 @@ export function Troubleshooting() {
 
       <H3 id="reading-doctor">Reading doctor output</H3>
       <P>
-        <C>agentconnect doctor</C> loads each detected host adapter, runs its
+        <C>agent-connector doctor</C> loads each detected host adapter, runs its
         checks, and prints one status line per check. Any single{" "}
         <C>[FAIL]</C> makes the command exit <C>1</C>; warnings alone never fail
         it.
@@ -1449,8 +1449,8 @@ export function Troubleshooting() {
       <H3 id="requires-sync">&quot;requires sync, skipped&quot; usage rows</H3>
       <P>
         The host-usage layer reads each CLI&apos;s own logs read-only. Some hosts
-        keep their usage data behind an external sync AgentConnect does not
-        perform, so <C>agentconnect usage report</C> prints those platforms as{" "}
+        keep their usage data behind an external sync agent-connector does not
+        perform, so <C>agent-connector usage report</C> prints those platforms as{" "}
         <strong>&quot;requires sync, skipped&quot;</strong> unless a local cache
         already exists:
       </P>
@@ -1495,7 +1495,7 @@ export function Troubleshooting() {
 
       <H3 id="telemetry-empty">Telemetry shows nothing</H3>
       <P>
-        If <C>agentconnect telemetry report</C> is empty, work through these
+        If <C>agent-connector telemetry report</C> is empty, work through these
         in order:
       </P>
       <DocsTable>

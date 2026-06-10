@@ -1,14 +1,14 @@
 I now have the real adapter architecture (the `context_mode_adapter_architecture` field was null in the JSON, but I just read the actual code). I have everything needed to write a deeply grounded report. Writing it now.
 
-# agentconnect — Design-Input Report
+# agent-connector — Design-Input Report
 
 ## 1. Executive Summary
 
 **Problem.** The AI-agent tooling ecosystem has fractured into 15+ host platforms (Claude Code, Codex CLI, Cursor, OpenCode, Kilo, VS Code Copilot, Copilot CLI, Gemini CLI, Warp, Hermes, plus niche targets pi/openclaw/omp/zed/kiro/qwen/kimi/antigravity). Each one re-invents the same two integration surfaces — **MCP server registration** and **lifecycle hooks** — with mutually incompatible config files, key names, formats (JSON / JSONC / TOML / YAML / exported TS functions), transports, scopes, and event vocabularies. An MCP/hook developer who wants broad reach today must hand-author and maintain N config dialects, N hook adapters, and N install/uninstall flows, then chase each platform's quirks (Cursor's silent failure on a misspelled `mcpServers` root key; VS Code using `servers` not `mcpServers`; Codex using TOML `[mcp_servers.x]`; OpenCode using exported TS plugin functions instead of a hook table). This is exactly the cost context-mode already paid: it ships a 15-adapter layer (`src/adapters/`) precisely to hide this fragmentation for one server.
 
-**Opportunity.** Generalize context-mode's *proven* per-platform adapter layer into a standalone framework so a developer **writes once** against a single declarative + programmatic API and agentconnect **detects installed platforms, translates, installs, syncs, and uninstalls** the MCP registration + hooks everywhere. The adapter contract, platform detection registry, cross-platform spawn/quoting helpers, normalized hook event model, and storage-root override in context-mode are all directly reusable as the framework's spine.
+**Opportunity.** Generalize context-mode's *proven* per-platform adapter layer into a standalone framework so a developer **writes once** against a single declarative + programmatic API and agent-connector **detects installed platforms, translates, installs, syncs, and uninstalls** the MCP registration + hooks everywhere. The adapter contract, platform detection registry, cross-platform spawn/quoting helpers, normalized hook event model, and storage-root override in context-mode are all directly reusable as the framework's spine.
 
-**Second pillar — telemetry.** No host today reports per-tool token attribution back to an MCP server (the MCP spec has no `usage` field on `CallToolResult`, and even `sampling/createMessage` returns no usage block). So agentconnect ships a **default, platform-independent, local-first per-MCP token-usage estimator**: it measures the *server's own bytes* (tool args in, tool result out, tool-definition schemas), tokenizes them with a bundled BPE tokenizer (heuristic fallback), and writes aggregate counts to local storage keyed by tool/session/project. Because it measures bytes the server controls, the number is identical regardless of host — delivering the "what does installing my server cost in context, everywhere" metric devs actually want, with zero network egress by default.
+**Second pillar — telemetry.** No host today reports per-tool token attribution back to an MCP server (the MCP spec has no `usage` field on `CallToolResult`, and even `sampling/createMessage` returns no usage block). So agent-connector ships a **default, platform-independent, local-first per-MCP token-usage estimator**: it measures the *server's own bytes* (tool args in, tool result out, tool-definition schemas), tokenizes them with a bundled BPE tokenizer (heuristic fallback), and writes aggregate counts to local storage keyed by tool/session/project. Because it measures bytes the server controls, the number is identical regardless of host — delivering the "what does installing my server cost in context, everywhere" metric devs actually want, with zero network egress by default.
 
 ---
 
@@ -37,7 +37,7 @@ I now have the real adapter architecture (the `context_mode_adapter_architecture
 
 The union of platform behaviors collapses into a small set of cross-platform concepts. context-mode already validated most of these in `src/adapters/types.ts`.
 
-### 3.1 Core concepts agentconnect must model
+### 3.1 Core concepts agent-connector must model
 
 **(a) Server Definition (transport-polymorphic).** A normalized server descriptor:
 ```
@@ -83,21 +83,21 @@ The `context_mode_adapter_architecture` field came back null in the research JSO
 
 ### 4.1 Borrow almost verbatim (these *are* the framework spine)
 
-1. **The `HookAdapter` interface** (`types.ts`) — the contract is already platform-agnostic: `parse*Input`/`format*Response` per event, `getSettingsPath/getConfigDir/getSessionDir/getMemoryDir`, `generateHookConfig`, `configureAllHooks`/`unconfigureHooks` (install/uninstall symmetry), `validateHooks`/`getHealthChecks`/`checkPluginRegistration` (doctor), `backupSettings`, `updatePluginRegistry`. This is essentially the agentconnect adapter SPI minus context-mode-specific naming.
+1. **The `HookAdapter` interface** (`types.ts`) — the contract is already platform-agnostic: `parse*Input`/`format*Response` per event, `getSettingsPath/getConfigDir/getSessionDir/getMemoryDir`, `generateHookConfig`, `configureAllHooks`/`unconfigureHooks` (install/uninstall symmetry), `validateHooks`/`getHealthChecks`/`checkPluginRegistration` (doctor), `backupSettings`, `updatePluginRegistry`. This is essentially the agent-connector adapter SPI minus context-mode-specific naming.
 2. **The single-source-of-truth `ADAPTER_REGISTRY`** (`registry.ts`) — `{id, sessionDirSegments, envVars, load(lazy)}` per platform, with **load-bearing order** (forks before parents) and a matrix test asserting every `src/adapters/<id>/` dir has an entry. This solved context-mode's "added platform #16, forgot to register it in 4 places → silent data leak (#473)." Generalize directly.
 3. **Runtime platform detection** (`detect.ts`) — env-var tier → config-dir tier → fallback; the `installed_plugins.json` disambiguator (#539: Claude inside VS Code terminal); `EnvVarRole` split (`workspace` vs `identification`) with `detect:false` for consumer-set vars (#542); `foreignIdentificationEnv()` scrubbing when one host spawns a child under another (#561). All of this is generic platform-disambiguation logic.
 4. **Cross-platform spawn/quoting helpers** (`base.ts`/`types.ts`): `buildNodeCommand`/`buildHookRuntimeCommand`/`parseNodeCommand` — fix real Windows bugs (#369 bare-node PATH failure, #372 MSYS path rewriting, #548 doubled-path when plugin root contains spaces, #738 Bun runtime swap). These are pure infrastructure; keep them.
 5. **`BaseAdapter`** shared impl (`getSessionDir`, `getConfigDir`, `getMemoryDir`, `backupSettings`) with override points — the inheritance shape (home-rooted default + project-scoped overrides) is exactly right.
-6. **Storage-root override pattern** (`resolveContextModeDataRoot`, #649): a single env var (`CONTEXT_MODE_DATA_DIR`) relocates framework-owned state **but never platform-native config** (settings.json/config.toml stay where the host's own tooling expects them). Generalize as `AGENTCONNECT_DATA_DIR`. **Critical telemetry insight**: this same key is the cross-agent shared-DB mechanism — telemetry storage should key by data-root, not code location.
+6. **Storage-root override pattern** (`resolveContextModeDataRoot`, #649): a single env var (`CONTEXT_MODE_DATA_DIR`) relocates framework-owned state **but never platform-native config** (settings.json/config.toml stay where the host's own tooling expects them). Generalize as `AGENT_CONNECTOR_DATA_DIR`. **Critical telemetry insight**: this same key is the cross-agent shared-DB mechanism — telemetry storage should key by data-root, not code location.
 7. **Three-paradigm taxonomy** (`json-stdio` / `ts-plugin` / `mcp-only`) and `PlatformCapabilities` flags — directly reusable.
 8. **Doctor/health-check pattern** — `getHealthChecks?()` thunks rendered by a generic doctor with no per-adapter wiring; `existsSync` probes instead of regex on hook commands (avoids #548 class). Keep.
 
 ### 4.2 Couplings that MUST be removed to generalize
 
-1. **context-mode is the only payload.** Adapters hardcode `"context-mode"` as plugin id, `"context-mode/sessions"` storage segment, `context-mode hook <platform> <name>` CLI dispatch, `enabledPlugins["context-mode@context-mode"]`. **Generalize**: the *served package identity* (id, hook entrypoint command, plugin manifest name) becomes a **parameter** supplied by the dev's `agentconnect.config`, not a constant.
+1. **context-mode is the only payload.** Adapters hardcode `"context-mode"` as plugin id, `"context-mode/sessions"` storage segment, `context-mode hook <platform> <name>` CLI dispatch, `enabledPlugins["context-mode@context-mode"]`. **Generalize**: the *served package identity* (id, hook entrypoint command, plugin manifest name) becomes a **parameter** supplied by the dev's `agent-connector.config`, not a constant.
 2. **One hook script set baked in.** context-mode ships its own hook `.mjs` scripts. The framework must instead **register the developer's handlers** and synthesize the entrypoint (json-stdio binary or ts-plugin module) per platform.
 3. **Session/memory/instruction-file semantics are context-mode domain logic.** `getMemoryDir`, `getInstructionFiles` (CLAUDE.md/AGENTS.md/GEMINI.md), auto-memory scanning, FTS5 content store, `session_resume` snapshots, `bytes_avoided` accounting — **all context-mode application logic, not framework concern.** Strip from the adapter SPI; keep only config/hook registration + the *generic* storage-dir resolution.
-4. **Single global SQLite schema** (`session_events`, `tool_calls`, content.db) is context-mode's analytics, not the framework's. agentconnect defines its **own minimal telemetry schema** (Section 6). The 4-bytes/token heuristic context-mode uses is fine as a *fallback* but is **not** the framework default (Section 6 upgrades to a real tokenizer).
+4. **Single global SQLite schema** (`session_events`, `tool_calls`, content.db) is context-mode's analytics, not the framework's. agent-connector defines its **own minimal telemetry schema** (Section 6). The 4-bytes/token heuristic context-mode uses is fine as a *fallback* but is **not** the framework default (Section 6 upgrades to a real tokenizer).
 5. **In-process plugin special-cases** (`IN_PROCESS_PLUGIN_PLATFORMS = {opencode, kilo}`, jsRuntime injection) are wired ad-hoc. Generalize into the `ts-plugin` paradigm with a declared runtime, rather than a hardcoded set.
 6. **Pi bridge / OMP / openclaw bespoke logic** lives inside context-mode adapters. Keep these as opt-in "extended adapters" but don't let their idiosyncrasies leak into the core SPI.
 
@@ -109,10 +109,10 @@ The `context_mode_adapter_architecture` field came back null in the research JSO
 
 ### 5.1 Developer-facing declaration (write once)
 
-A single config module — `agentconnect.config.ts` (TS for type-safety + programmatic handlers; JSON/YAML accepted for static-only servers):
+A single config module — `agent-connector.config.ts` (TS for type-safety + programmatic handlers; JSON/YAML accepted for static-only servers):
 
 ```ts
-import { defineConnector } from "agentconnect";
+import { defineConnector } from "agent-connector";
 
 export default defineConnector({
   // ── Identity (replaces context-mode's hardcoded "context-mode") ──
@@ -152,7 +152,7 @@ export default defineConnector({
 
   // ── Telemetry: ON by default; opt-out granular ──
   telemetry: {
-    enabled: true,                  // AGENTCONNECT_TELEMETRY=0 to kill globally
+    enabled: true,                  // AGENT_CONNECTOR_TELEMETRY=0 to kill globally
     modelFamilyHint: "auto",        // auto | openai | anthropic | generic
     measureToolDefs: true,          // fixed per-turn tool-schema overhead
     calibration: { anthropicCountTokens: false }, // opt-in network enricher
@@ -176,25 +176,25 @@ Key properties: **one server block, one hook map, one telemetry block.** Univers
 ### 5.2 CLI / commands
 
 ```
-agentconnect detect            # list installed platforms + scope + capabilities (json-stdio/ts-plugin/mcp-only, hooks?, transports)
-agentconnect install [--scope user|project] [--targets a,b] [--dry-run]
+agent-connector detect            # list installed platforms + scope + capabilities (json-stdio/ts-plugin/mcp-only, hooks?, transports)
+agent-connector install [--scope user|project] [--targets a,b] [--dry-run]
                                   # for each target: render server config into native file (mcpServers/servers/mcp/TOML/YAML),
                                   # synthesize hook entrypoint (binary for json-stdio, plugin module for ts-plugin),
                                   # back up settings first, set exec perms, register, report changes
-agentconnect sync              # re-render after config edit / framework upgrade; idempotent; heals stale paths (cf. context-mode cache-heal)
-agentconnect uninstall [--targets ...]
+agent-connector sync              # re-render after config edit / framework upgrade; idempotent; heals stale paths (cf. context-mode cache-heal)
+agent-connector uninstall [--targets ...]
                                   # inverse: remove server entries + hook registrations from shared host configs
                                   # (uses adapter.unconfigureHooks — context-mode learned uninstall must be explicit, else host keeps loading)
-agentconnect doctor            # per-platform health checks: config present? hook entrypoint exists? exec bit? plugin registered? transport supported?
-agentconnect telemetry report [--by tool|session|project] [--since 7d] [--json]
-agentconnect telemetry export --format csv|json [--out file]
+agent-connector doctor            # per-platform health checks: config present? hook entrypoint exists? exec bit? plugin registered? transport supported?
+agent-connector telemetry report [--by tool|session|project] [--since 7d] [--json]
+agent-connector telemetry export --format csv|json [--out file]
 ```
 
 Install algorithm (per detected target): `backupSettings()` → `renderServerConfig(serverDef, extra)` → `writeNative()` → if hooks & paradigm≠mcp-only: `synthesizeHookEntrypoint()` + `generateHookConfig()` + `writeHooks()` + `setHookPermissions()` → `updatePluginRegistry()` (where applicable) → return change list. Everything idempotent and reversible; `--dry-run` prints the diff without writing.
 
 ### 5.3 Concrete render examples (same input → N dialects)
 
-For the `stdio` server above, agentconnect emits:
+For the `stdio` server above, agent-connector emits:
 - **Claude Code** `~/.claude.json`/`.mcp.json`: `{"mcpServers":{"acme-db":{"type":"stdio","command":"npx","args":["-y","@acme/db-mcp"],"env":{"ACME_DB_DSN":"${ACME_DB_DSN}"}}}}`
 - **VS Code Copilot** `.vscode/mcp.json`: `{"servers":{"acme-db":{"type":"stdio","command":"npx","args":[...]}},"inputs":[...]}` (root key `servers`)
 - **Codex** `~/.codex/config.toml`: `[mcp_servers.acme-db]\ncommand="npx"\nargs=["-y","@acme/db-mcp"]\nenv={ACME_DB_DSN="..."}`
@@ -229,7 +229,7 @@ Per record: `tool_name`, `input_tokens`, `output_tokens`, `session_id`, `project
 
 ### 6.3 Storage (local-first)
 
-Local SQLite at `${AGENTCONNECT_DATA_DIR:-<platform-dir>}/agentconnect/telemetry.db`. **Storage keyed by data-root, not code location** (the cross-agent shared-DB mechanism). **Aggregate counts only — never raw args/results/content.** Minimal schema:
+Local SQLite at `${AGENT_CONNECTOR_DATA_DIR:-<platform-dir>}/agent-connector/telemetry.db`. **Storage keyed by data-root, not code location** (the cross-agent shared-DB mechanism). **Aggregate counts only — never raw args/results/content.** Minimal schema:
 
 ```sql
 -- one row per tool call (aggregate counts, no content)
@@ -248,7 +248,7 @@ tool_rollup(server_id, tool_name, session_id, project_dir,
 
 ### 6.4 Surfacing
 
-`agentconnect telemetry report` →
+`agent-connector telemetry report` →
 - **Ranked per-tool breakdown** (which of MY tools cost the most context),
 - **Total context footprint** of the server over a period,
 - **Tool-definition overhead** (separate line, paid every turn),
@@ -263,7 +263,7 @@ Plus `--json` and `telemetry export --format csv|json`.
 - **Local-first**; zero network egress unless dev explicitly opts into an enricher/upload.
 - The Anthropic `count_tokens` calibration ships content off-box → **opt-in, documented, sampled, ZDR-respecting**.
 - Per-call estimation runs **in-process** with the local tokenizer (default path never crosses the server boundary).
-- **Granular kill switches**: `AGENTCONNECT_TELEMETRY=0` (global), plus per-layer opt-out (measurement / calibration / upload) via env + config — consistent with OMC kill-switch conventions (`DISABLE_*`).
+- **Granular kill switches**: `AGENT_CONNECTOR_TELEMETRY=0` (global), plus per-layer opt-out (measurement / calibration / upload) via env + config — consistent with OMC kill-switch conventions (`DISABLE_*`).
 - Aggregation keys (session id, project path) are themselves identifying → support hashing/anonymizing before any optional upload.
 - Dashboards state explicitly: numbers are **estimates from the server's own I/O**, not the host's billed usage.
 
@@ -295,7 +295,7 @@ Plus `--json` and `telemetry export --format csv|json`.
 **Guiding principle**: ship the *spine* (adapter SPI + registry + detection + render/install + telemetry core) against the **highest-leverage, best-documented, structurally diverse** platforms first, proving the abstraction handles real divergence before scaling to 15.
 
 ### Phase 0 — Core spine (no platforms yet)
-- Lift & de-couple from context-mode: `HookAdapter` SPI, `ADAPTER_REGISTRY` shape, `detect.ts`, spawn/quoting helpers, `BaseAdapter`, storage-root override (`AGENTCONNECT_DATA_DIR`), paradigm taxonomy, capability flags, doctor harness. Strip context-mode identity/domain logic.
+- Lift & de-couple from context-mode: `HookAdapter` SPI, `ADAPTER_REGISTRY` shape, `detect.ts`, spawn/quoting helpers, `BaseAdapter`, storage-root override (`AGENT_CONNECTOR_DATA_DIR`), paradigm taxonomy, capability flags, doctor harness. Strip context-mode identity/domain logic.
 - `defineConnector` config schema + universal `${env:...}` interpolation + render pipeline interface.
 - CLI skeleton: `detect`, `install --dry-run`, `uninstall`, `doctor`.
 

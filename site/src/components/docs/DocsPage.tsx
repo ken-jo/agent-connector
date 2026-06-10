@@ -39,7 +39,7 @@ export function DocsPage() {
   // deep-link to that H3 inside the now-isolated section page.
   React.useEffect(() => {
     if (unknownSection) {
-      document.title = "Section not found — AgentConnect docs";
+      document.title = "Section not found — agent-connector docs";
       setMetaDescription(DEFAULT_DESCRIPTION);
       window.scrollTo({ top: 0 });
       return;
@@ -47,8 +47,8 @@ export function DocsPage() {
 
     const label = sectionLabel[activeSection];
     document.title = label
-      ? `${label} — AgentConnect docs`
-      : "Docs — AgentConnect";
+      ? `${label} — agent-connector docs`
+      : "Docs — agent-connector";
     setMetaDescription(
       sectionDescription[activeSection] || DEFAULT_DESCRIPTION,
     );

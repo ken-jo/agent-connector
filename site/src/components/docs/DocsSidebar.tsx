@@ -10,7 +10,7 @@ interface DocsSidebarProps {
   className?: string;
 }
 
-const STORAGE_KEY = "agentconnect.docs.collapsed-groups";
+const STORAGE_KEY = "agent-connector.docs.collapsed-groups";
 
 /** Read the persisted set of collapsed group titles (best-effort). */
 function readCollapsed(): Set<string> {

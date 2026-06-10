@@ -12,7 +12,7 @@
  * Cache layout (per docs/research/usage-readers.json + design §3d):
  *   ~/.config/tokscale/trae-cache/sessions/usage-*.json   (cached API artifacts)
  *   ~/.config/tokscale/trae-cache/manifest.json           (sync bookkeeping — ignored here)
- * paths.ts resolves the cache dir (env override AGENTCONNECT_TOKSCALE_DIR
+ * paths.ts resolves the cache dir (env override AGENT_CONNECTOR_TOKSCALE_DIR
  * first, the tokscale ~/.config/tokscale default second). We walk for the
  * `usage-*.json` artifacts directly rather than reading the manifest: the
  * artifacts are self-describing and a manifest mismatch must never drop real data.

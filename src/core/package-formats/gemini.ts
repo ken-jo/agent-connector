@@ -87,7 +87,7 @@ function buildManifest(
       connector.version && connector.version !== "0.0.0"
         ? connector.version
         : "0.0.1",
-    description: `${connector.displayName} — connector emitted by agentconnect`,
+    description: `${connector.displayName} — connector emitted by agent-connector`,
   };
 
   const mcp = buildMcpEntry(connector, homeBin, spec.platformId);
@@ -118,7 +118,7 @@ function emitGeminiFamily(
   // ── context file (GEMINI.md | QWEN.md) ────────────────────────────────────
   emit(
     join(pluginDir, spec.contextFile),
-    `# ${connector.displayName}\n\nConnector context emitted by agentconnect.\n`,
+    `# ${connector.displayName}\n\nConnector context emitted by agent-connector.\n`,
   );
 
   // ── commands/<name>.{toml|md} ─────────────────────────────────────────────

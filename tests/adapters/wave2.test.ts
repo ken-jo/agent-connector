@@ -24,7 +24,7 @@
  *     platform-native deny (exit 2 or a stdout decision per platform).
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir,
- * with HOME + KIMI_CODE_HOME + AGENTCONNECT_DATA_DIR redirected there so any
+ * with HOME + KIMI_CODE_HOME + AGENT_CONNECTOR_DATA_DIR redirected there so any
  * user-scope path (resolved from homedir()/$KIMI_CODE_HOME) lands in the sandbox.
  * All mutated env is restored in afterEach so the suite never leaks state.
  */
@@ -50,7 +50,7 @@ import crushAdapter from "../../src/adapters/crush/index.js";
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
+const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -125,7 +125,7 @@ function buildCtx(
     scope,
     projectDir,
     homeBinPath: HOME_BIN,
-    dataRoot: join(projectDir, ".agentconnect"),
+    dataRoot: join(projectDir, ".agent-connector"),
     dryRun: false,
   };
 }
@@ -139,14 +139,14 @@ let savedEnvVar: string | undefined;
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedKimiHome = process.env.KIMI_CODE_HOME;
-  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
+  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
   restore("KIMI_CODE_HOME", savedKimiHome);
-  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
+  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
 });
 
@@ -166,7 +166,7 @@ function freshProject(prefix = "ac-wave2-"): string {
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.KIMI_CODE_HOME = join(dir, ".kimi");
-  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
 }

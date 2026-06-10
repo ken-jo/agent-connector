@@ -14,7 +14,7 @@
  * (`kilo-cli` here vs `kilo` there) so their rows never merge.
  *
  * DB path: ~/.local/share/kilo/kilo.db (XDG_DATA_HOME and the
- * AGENTCONNECT_KILO_CLI_DIR override are honored via paths.ts hostRoots).
+ * AGENT_CONNECTOR_KILO_CLI_DIR override are honored via paths.ts hostRoots).
  *
  * SQL (port of the Rust `query`):
  *   SELECT m.id, m.session_id, m.data

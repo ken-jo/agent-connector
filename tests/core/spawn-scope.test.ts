@@ -22,7 +22,7 @@ import {
 } from "../../src/core/spawn.js";
 import type { InstallScope } from "../../src/core/types.js";
 
-const HOME_BIN = "/home/u/.agentconnect/bin/agentconnect";
+const HOME_BIN = "/home/u/.agent-connector/bin/agent-connector";
 
 // ─────────────────────────────────────────────────────────────────────────
 // buildServeWrapperCommand — embedding --scope

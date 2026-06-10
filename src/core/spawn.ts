@@ -144,7 +144,7 @@ export function isUsageEventCommand(
  * for this connector?" — read by the Gemini / Antigravity adapters at install
  * time to decide whether to ALSO write the AfterModel / PostInvocation usage hook.
  * Enabled when the connector opts in via telemetry.hostNativeUsage OR when the
- * install-time env switch AGENTCONNECT_HOST_NATIVE=1 forces it on. Off by
+ * install-time env switch AGENT_CONNECTOR_HOST_NATIVE=1 forces it on. Off by
  * default (privacy: host-native capture is never installed silently).
  */
 export function isHostNativeUsageEnabled(
@@ -152,7 +152,7 @@ export function isHostNativeUsageEnabled(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   if (telemetry.enabled !== true) return false;
-  if (env.AGENTCONNECT_HOST_NATIVE === "1") return true;
+  if (env.AGENT_CONNECTOR_HOST_NATIVE === "1") return true;
   return telemetry.hostNativeUsage === true;
 }
 
@@ -226,7 +226,7 @@ export interface SpawnResolution {
   file: string;
   /**
    * Whether spawn() MUST use `shell: true`. On native Windows a `.cmd`/`.bat`
-   * shim (npx.cmd, pnpm.cmd, the agentconnect.cmd launcher) cannot be run by
+   * shim (npx.cmd, pnpm.cmd, the agent-connector.cmd launcher) cannot be run by
    * raw CreateProcess — Node throws EINVAL since the 2024 security fix unless a
    * shell is used. `.exe` resolves directly with no shell.
    */

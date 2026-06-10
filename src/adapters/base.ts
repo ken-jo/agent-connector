@@ -397,7 +397,7 @@ export abstract class BaseAdapter implements Adapter {
             check: `${this.name}: config present`,
             status: "warn",
             message: `not found: ${cfg}`,
-            fix: `agentconnect install --targets ${this.id}`,
+            fix: `agent-connector install --targets ${this.id}`,
           },
     );
     for (const hc of this.getHealthChecks?.(ctx) ?? []) {

@@ -2,7 +2,7 @@ import * as React from "react";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const STORAGE_KEY = "agentconnect.theme";
+const STORAGE_KEY = "agent-connector.theme";
 type Theme = "light" | "dark";
 
 function getInitialTheme(): Theme {

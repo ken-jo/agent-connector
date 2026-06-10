@@ -1,6 +1,6 @@
-# AgentConnect — Architecture
+# agent-connector — Architecture
 
-> Write your MCP server + hooks **once**. AgentConnect detects every AI-agent
+> Write your MCP server + hooks **once**. agent-connector detects every AI-agent
 > platform on the machine, renders the right config in each one's native dialect,
 > installs/syncs/uninstalls them, and gives you **default, platform-independent
 > per-tool token telemetry** — the metric MCP developers actually want.
@@ -23,13 +23,13 @@ hand-author and maintain N dialects, N hook adapters, and N install flows, then
 chase each platform's quirks (Cursor silently fails on a wrong root key; VS Code
 uses `servers` not `mcpServers`; Codex uses TOML `[mcp_servers.x]`; OpenCode wants
 an exported TS plugin function, not a hook table). context-mode paid this cost in
-full for a single server. AgentConnect generalizes that work into a reusable
+full for a single server. agent-connector generalizes that work into a reusable
 framework.
 
 Second, **no host reports per-tool token usage back to an MCP server** (the MCP
 spec has no `usage` on `CallToolResult`). So "how much context does installing my
 server actually cost, everywhere?" — the question MCP devs care most about — is
-unanswerable today. AgentConnect answers it by measuring the server's own
+unanswerable today. agent-connector answers it by measuring the server's own
 bytes and tokenizing them locally, identically across all hosts.
 
 ## 2. Two pillars
@@ -50,8 +50,8 @@ critical review. Three rules:
 The framework installs **one** runtime in the home root:
 
 ```
-~/.agentconnect/                 (override: AGENTCONNECT_DATA_DIR)
-  bin/agentconnect               single binary — CLI + universal hook entrypoint + telemetry runtime
+~/.agent-connector/                 (override: AGENT_CONNECTOR_DATA_DIR)
+  bin/agent-connector               single binary — CLI + universal hook entrypoint + telemetry runtime
   connectors/<id>/connector.json    each registered connector's resolved definition
   telemetry.db (or telemetry.ndjson) shared store, rows keyed by project — see R3
   backups/                          timestamped settings backups before each mutation
@@ -59,10 +59,10 @@ The framework installs **one** runtime in the home root:
 ```
 
 Every platform config we write is a **thin pointer back to this one binary**:
-- a hook command is `agentconnect hook <platform> <event> --connector <id>`
+- a hook command is `agent-connector hook <platform> <event> --connector <id>`
   (mirrors context-mode's proven `context-mode hook <platform> <name>` dispatch);
 - an MCP server entry runs the connector's server, optionally wrapped by
-  `agentconnect serve --connector <id> -- <real server cmd>` so telemetry is
+  `agent-connector serve --connector <id> -- <real server cmd>` so telemetry is
   captured with zero work from the dev.
 
 Because the pointers reference one stable home path, **updating that single binary
@@ -72,10 +72,10 @@ updates behavior in every platform at once** — exactly the requested ergonomic
 > A forced/silent auto-update of a single binary means one bad release breaks
 > *every project × every platform* simultaneously (maximum blast radius, lost
 > reproducibility) — the `npx pkg@latest` failure mode. So: pointers reference a
-> **stable** path (`~/.agentconnect/bin/agentconnect`), never a versioned
+> **stable** path (`~/.agent-connector/bin/agent-connector`), never a versioned
 > cache dir (this also sidesteps the whole class of bug that forces context-mode's
 > `cache-heal` SessionStart hook). Updates are **explicit/managed**
-> (`agentconnect upgrade`, channel = stable|latest), with an optional
+> (`agent-connector upgrade`, channel = stable|latest), with an optional
 > **per-project version pin** override. One place to update — without global
 > instant breakage.
 
@@ -87,10 +87,10 @@ Cursor, VS Code Copilot, etc. require config files at platform-mandated location
 > store live in home as the single source of truth**; the framework still writes
 > the **minimal native pointer config wherever each platform mandates it**. Those
 > pointers exec the one home binary — which is *how* "single-binary update"
-> actually propagates to hosts that never read `~/.agentconnect`.
+> actually propagates to hosts that never read `~/.agent-connector`.
 
 Native config files (settings.json, config.toml, mcp.json) are **never** relocated
-by `AGENTCONNECT_DATA_DIR` — only framework-owned state is. (Generalized from
+by `AGENT_CONNECTOR_DATA_DIR` — only framework-owned state is. (Generalized from
 context-mode's `resolveContextModeDataRoot` / issue #649.)
 
 ### R3 — Per-project data, keyed by project identity, retained under home
@@ -172,7 +172,7 @@ the default).
 ## 6. Telemetry architecture
 
 - **Measure the server's own bytes** — the only data identical across hosts.
-  Intercept every `tools/call` at the server boundary (via `agentconnect serve`
+  Intercept every `tools/call` at the server boundary (via `agent-connector serve`
   proxy or in-proc middleware). input = `params.arguments`; output =
   `result.content[]` + `structuredContent`. Also tokenize `tools/list` schemas once
   → the fixed "cost of merely defining my tools" per-turn overhead.
@@ -195,19 +195,19 @@ the default).
   `TelemetryStore` interface (SQLite/WAL is a drop-in upgrade). Rows keyed by
   `connectorId, toolName, scope(call|tool_defs|model_turn|hook), surfaceKind(server|hook|command|skill|subagent), hostPlatform, sessionId,
   projectKey, projectDir, inputTokens, outputTokens, confidenceSource, isError, ts`.
-- **Surface** — `agentconnect telemetry report [--by tool|session|project]
+- **Surface** — `agent-connector telemetry report [--by tool|session|project]
   [--since 7d] [--json]` → ranked per-tool footprint, tool-def overhead line,
   input/output split, calls, tokens/call avg, per-session/project rollups, with a
   visible confidence label; plus `telemetry export --format csv|json`.
 - **Privacy / opt-out** — local-first, zero egress by default; granular kill
-  switches `AGENTCONNECT_TELEMETRY=0` (global) + per-layer (measure / calibrate /
+  switches `AGENT_CONNECTOR_TELEMETRY=0` (global) + per-layer (measure / calibrate /
   upload); hashable aggregation keys; dashboards state numbers are estimates from
   the server's own I/O, not host-billed usage.
 
 ## 7. Public API (write once)
 
 ```ts
-import { defineConnector } from "agentconnect";
+import { defineConnector } from "agent-connector";
 
 export default defineConnector({
   id: "acme-db",
@@ -244,18 +244,18 @@ export default defineConnector({
 ## 8. CLI
 
 ```
-agentconnect detect                       # installed platforms + scope + capabilities + paradigm
-agentconnect install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]
-agentconnect uninstall [--targets ...] [--purge]   # full inverse — removes server + hook registrations; --purge also drops the connector's home state record (+ the shared launcher when none remain)
-agentconnect upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
-agentconnect doctor [--probe]             # per-platform health checks; --probe = live MCP handshake (initialize → ping → tools/list)
-agentconnect status                       # light install-state per host (always exits 0)
-agentconnect package [--format <fmt>|all]      # 9 host bundle formats; mcp-server-json|mcpb = OFFICIAL MCP standard artifacts (opt-in by name)
-agentconnect telemetry report|export [...]
-agentconnect usage report|export|leaderboard [...]   # host-native usage from agent CLI logs (read-only)
-agentconnect leaderboard [--since] [--scope] [--connector]   # 🔌 mcp-self + 🖥️ host-scan-logs + 🛰️ host-native-live (never summed)
-agentconnect hook <platform> <event> --connector <id>   # universal hook entrypoint (internal)
-agentconnect serve --connector <id> -- <server cmd...>   # telemetry-wrapping MCP proxy (internal)
+agent-connector detect                       # installed platforms + scope + capabilities + paradigm
+agent-connector install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]
+agent-connector uninstall [--targets ...] [--purge]   # full inverse — removes server + hook registrations; --purge also drops the connector's home state record (+ the shared launcher when none remain)
+agent-connector upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
+agent-connector doctor [--probe]             # per-platform health checks; --probe = live MCP handshake (initialize → ping → tools/list)
+agent-connector status                       # light install-state per host (always exits 0)
+agent-connector package [--format <fmt>|all]      # 9 host bundle formats; mcp-server-json|mcpb = OFFICIAL MCP standard artifacts (opt-in by name)
+agent-connector telemetry report|export [...]
+agent-connector usage report|export|leaderboard [...]   # host-native usage from agent CLI logs (read-only)
+agent-connector leaderboard [--since] [--scope] [--connector]   # 🔌 mcp-self + 🖥️ host-scan-logs + 🛰️ host-native-live (never summed)
+agent-connector hook <platform> <event> --connector <id>   # universal hook entrypoint (internal)
+agent-connector serve --connector <id> -- <server cmd...>   # telemetry-wrapping MCP proxy (internal)
 ```
 
 > **Canonical CLI reference:** the docs site `/docs/cli` and `llms-full.txt` §3

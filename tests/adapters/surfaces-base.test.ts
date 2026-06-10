@@ -26,8 +26,8 @@ function buildCtx(connector: ResolvedConnector): InstallContext {
     connector,
     scope: "project",
     projectDir,
-    homeBinPath: "/fake/.agentconnect/bin/agentconnect",
-    dataRoot: join(projectDir, ".agentconnect"),
+    homeBinPath: "/fake/.agent-connector/bin/agent-connector",
+    dataRoot: join(projectDir, ".agent-connector"),
     dryRun: false,
   };
 }

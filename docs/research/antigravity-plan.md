@@ -1,6 +1,6 @@
 I have a complete picture. The detection cascade derives from the registry and delegates to each adapter's `detectInstalled()`, so adding a platform is just a registry entry plus the adapter file. Now I'll produce the decisive plan.
 
-# Plan: Full Antigravity (IDE + CLI) Support for agentconnect
+# Plan: Full Antigravity (IDE + CLI) Support for agent-connector
 
 ## TL;DR decisions
 - **Upgrade the existing `antigravity` adapter** from `mcp-only` → `json-stdio` with full content surfaces (hooks + commands/workflows + skills + subagents). The "mcp-only / no hooks" framing is stale as of Antigravity 2.0.
@@ -56,7 +56,7 @@ Both `antigravity` (IDE) and `antigravity-cli` get the **same** capability profi
   - Map normalized events → Antigravity events (1:1 for the four supported; everything else warn-skips). camelCase stdout payload; `parseEvent` reads camelCase stdin.
 - **Commands:** `supportsCommands: true` — write Workflows `.md` under the workflows dir (markdown body; no TOML, unlike gemini-cli).
 - **Skills:** `supportsSkills: true` — uniform `SKILL.md` writer (reuse `renderSkill`/`writeContentFile`, same as gemini-cli/pi).
-- **Subagents:** **`supportsSubagents: false` for v1.** Declarative subagents only exist *inside a plugin bundle*; agentconnect does not currently emit plugin bundles, and there is no standalone subagent dir. Inherit BaseAdapter skip/warn. Revisit if/when a plugin-bundle writer is added.
+- **Subagents:** **`supportsSubagents: false` for v1.** Declarative subagents only exist *inside a plugin bundle*; agent-connector does not currently emit plugin bundles, and there is no standalone subagent dir. Inherit BaseAdapter skip/warn. Revisit if/when a plugin-bundle writer is added.
 
 This is a real upgrade: the adapter moves from the Warp-style mcp-only template to the gemini-cli-style json-stdio + content-surface template.
 
@@ -78,7 +78,7 @@ They **share** project scope (`<proj>/.agents/…`) and all rendering formats, s
 ## 4. gemini-cli disposition — KEEP AS-IS (confirmed)
 
 No code change. Enterprise + API-key users keep Gemini CLI past 2026-06-18; the Apache-2.0 repo persists. Caveats to **document only**:
-- Gemini CLI and both Antigravity adapters share `~/.gemini/`. `~/.gemini/GEMINI.md` is read/written by both (gemini-cli issue #16058 conflict) — agentconnect doesn't write GEMINI.md, so no direct collision, but note it.
+- Gemini CLI and both Antigravity adapters share `~/.gemini/`. `~/.gemini/GEMINI.md` is read/written by both (gemini-cli issue #16058 conflict) — agent-connector doesn't write GEMINI.md, so no direct collision, but note it.
 - gemini-cli writes MCP into `~/.gemini/settings.json` under `mcpServers`; the Antigravity adapters write into `~/.gemini/config/mcp_config.json` (+ tool-specific dirs). **Different files** → no clobber. Keep them separate; do not let the Antigravity adapter touch `settings.json`.
 - A user with all three installed will get three separate registrations under one `~/.gemini` tree; that is correct and intended.
 
@@ -90,7 +90,7 @@ No code change. Enterprise + API-key users keep Gemini CLI past 2026-06-18; the 
 1. **`src/core/types.ts`** — add `"antigravity-cli"` to the `PlatformId` union (near `antigravity`). Update the `mcp-only` paradigm comment (line ~62) to drop `antigravity` from the mcp-only list.
 2. **`src/adapters/registry.ts`** — add an `antigravity-cli` factory entry. **Order:** place `antigravity-cli` *before* `antigravity` and both after `gemini-cli` (registry order drives runtime-host detection; the more-specific CLI marker must be checked before the IDE/parent).
 3. **`src/usage/registry.ts`** — add an `antigravity-cli` reader entry in the synced/cloud (U4) group (`format: "synced-cache"`, `kind: "synced"`) OR `kind: "local"` if reading the native `~/.gemini/antigravity-cli/` store directly (see task C).
-4. **`src/usage/paths.ts`** — add a `case "antigravity-cli":` in `hostRoots` (and fix/extend `antigravity` — see C). Honors the existing `AGENTCONNECT_ANTIGRAVITY_CLI_DIR` env override automatically via the existing `envOverride` machinery.
+4. **`src/usage/paths.ts`** — add a `case "antigravity-cli":` in `hostRoots` (and fix/extend `antigravity` — see C). Honors the existing `AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR` env override automatically via the existing `envOverride` machinery.
 
 ### B. Upgrade `src/adapters/antigravity/index.ts` (IDE)
 5. Rewrite header comment (remove "mcp-only / no hooks"; state 2.0 hooks + surfaces, and that paths are probed because docs are JS-rendered/medium-confidence).
@@ -128,13 +128,13 @@ No code change. Enterprise + API-key users keep Gemini CLI past 2026-06-18; the 
 - **Subagents**: deliberately unsupported v1 (plugin-bundle-only model) — documented, not guessed.
 
 ### Files touched (absolute paths)
-- Edit: `/home/ubuntu/workspace/github/agentconnect/src/core/types.ts`
-- Edit: `/home/ubuntu/workspace/github/agentconnect/src/adapters/registry.ts`
-- Edit: `/home/ubuntu/workspace/github/agentconnect/src/adapters/antigravity/index.ts`
-- Create: `/home/ubuntu/workspace/github/agentconnect/src/adapters/antigravity-cli/index.ts`
-- Edit: `/home/ubuntu/workspace/github/agentconnect/src/usage/registry.ts`
-- Edit: `/home/ubuntu/workspace/github/agentconnect/src/usage/paths.ts`
-- Edit: `/home/ubuntu/workspace/github/agentconnect/src/usage/readers/antigravity.ts`
-- Create: `/home/ubuntu/workspace/github/agentconnect/src/usage/readers/antigravity-cli.ts`
-- Edit tests: `/home/ubuntu/workspace/github/agentconnect/tests/adapters/wave1-render.test.ts`, `/home/ubuntu/workspace/github/agentconnect/tests/adapters/phase2-render.test.ts`, `/home/ubuntu/workspace/github/agentconnect/tests/adapters/surfaces-s1.test.ts`, `/home/ubuntu/workspace/github/agentconnect/tests/usage/u4-readers.test.ts`
-- No change: `/home/ubuntu/workspace/github/agentconnect/src/adapters/gemini-cli/index.ts` (keep as-is; document shared `~/.gemini` caveats only).
+- Edit: `/home/ubuntu/workspace/github/agent-connector/src/core/types.ts`
+- Edit: `/home/ubuntu/workspace/github/agent-connector/src/adapters/registry.ts`
+- Edit: `/home/ubuntu/workspace/github/agent-connector/src/adapters/antigravity/index.ts`
+- Create: `/home/ubuntu/workspace/github/agent-connector/src/adapters/antigravity-cli/index.ts`
+- Edit: `/home/ubuntu/workspace/github/agent-connector/src/usage/registry.ts`
+- Edit: `/home/ubuntu/workspace/github/agent-connector/src/usage/paths.ts`
+- Edit: `/home/ubuntu/workspace/github/agent-connector/src/usage/readers/antigravity.ts`
+- Create: `/home/ubuntu/workspace/github/agent-connector/src/usage/readers/antigravity-cli.ts`
+- Edit tests: `/home/ubuntu/workspace/github/agent-connector/tests/adapters/wave1-render.test.ts`, `/home/ubuntu/workspace/github/agent-connector/tests/adapters/phase2-render.test.ts`, `/home/ubuntu/workspace/github/agent-connector/tests/adapters/surfaces-s1.test.ts`, `/home/ubuntu/workspace/github/agent-connector/tests/usage/u4-readers.test.ts`
+- No change: `/home/ubuntu/workspace/github/agent-connector/src/adapters/gemini-cli/index.ts` (keep as-is; document shared `~/.gemini` caveats only).

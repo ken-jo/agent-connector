@@ -22,7 +22,7 @@ describe("buildNodeCommand + parseNodeCommand round-trip", () => {
 
   it("#548 regression: a scriptPath containing spaces still parses to exactly two tokens", () => {
     const nodePath = "/usr/bin/node";
-    const scriptPath = "/Users/Jane Doe/My Apps/agent connect/cli.js";
+    const scriptPath = "/Users/Jane Doe/My Apps/agent connector/cli.js";
     const cmd = buildNodeCommand(scriptPath, { nodePath });
     expect(cmd).toBe(`"${nodePath}" "${scriptPath}"`);
 
@@ -35,16 +35,16 @@ describe("buildNodeCommand + parseNodeCommand round-trip", () => {
   });
 
   it("normalizes backslashes to forward slashes (Windows/MSYS safety) and still round-trips", () => {
-    const cmd = buildNodeCommand("C:\\Apps\\agent connect\\cli.js", {
+    const cmd = buildNodeCommand("C:\\Apps\\agent connector\\cli.js", {
       nodePath: "C:\\Program Files\\nodejs\\node.exe",
     });
     expect(cmd).toBe(
-      `"C:/Program Files/nodejs/node.exe" "C:/Apps/agent connect/cli.js"`,
+      `"C:/Program Files/nodejs/node.exe" "C:/Apps/agent connector/cli.js"`,
     );
     const parsed = parseNodeCommand(cmd);
     expect(parsed).toEqual({
       nodePath: "C:/Program Files/nodejs/node.exe",
-      scriptPath: "C:/Apps/agent connect/cli.js",
+      scriptPath: "C:/Apps/agent connector/cli.js",
     });
   });
 
@@ -92,25 +92,25 @@ describe("quoteArg", () => {
 describe("buildHomeBinHookCommand", () => {
   it("formats `\"<homeBin>\" hook <platform> <event> --connector <id>`", () => {
     const cmd = buildHomeBinHookCommand(
-      "/home/u/.agentconnect/bin/agentconnect",
+      "/home/u/.agent-connector/bin/agent-connector",
       "claude-code",
       "PreToolUse",
       "acme-db",
     );
     expect(cmd).toBe(
-      `"/home/u/.agentconnect/bin/agentconnect" hook claude-code PreToolUse --connector acme-db`,
+      `"/home/u/.agent-connector/bin/agent-connector" hook claude-code PreToolUse --connector acme-db`,
     );
   });
 
   it("quotes (and forward-slashes) the home binary path", () => {
     const cmd = buildHomeBinHookCommand(
-      "C:\\Users\\Jane\\.agentconnect\\bin\\agentconnect.cmd",
+      "C:\\Users\\Jane\\.agent-connector\\bin\\agent-connector.cmd",
       "cursor",
       "PostToolUse",
       "my-conn",
     );
     expect(cmd).toBe(
-      `"C:/Users/Jane/.agentconnect/bin/agentconnect.cmd" hook cursor PostToolUse --connector my-conn`,
+      `"C:/Users/Jane/.agent-connector/bin/agent-connector.cmd" hook cursor PostToolUse --connector my-conn`,
     );
   });
 });
@@ -118,12 +118,12 @@ describe("buildHomeBinHookCommand", () => {
 describe("buildServeWrapperCommand", () => {
   it("returns command + args with the '--' separator before the real command", () => {
     const { command, args } = buildServeWrapperCommand(
-      "/home/u/.agentconnect/bin/agentconnect",
+      "/home/u/.agent-connector/bin/agent-connector",
       "acme-db",
       "npx",
       ["-y", "@acme/db-mcp"],
     );
-    expect(command).toBe("/home/u/.agentconnect/bin/agentconnect");
+    expect(command).toBe("/home/u/.agent-connector/bin/agent-connector");
     expect(args).toEqual([
       "serve",
       "--connector",

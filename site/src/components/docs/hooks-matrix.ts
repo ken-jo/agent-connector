@@ -224,7 +224,7 @@ export const platforms: PlatformHookEntry[] = [
     paradigm: "json-stdio",
     hasHooks: true,
     configPath:
-      "~/.copilot/hooks/agentconnect.json ({version:1,hooks:{<Event>:[{matcher,hooks[]}]}})",
+      "~/.copilot/hooks/agent-connector.json ({version:1,hooks:{<Event>:[{matcher,hooks[]}]}})",
     capabilities: {
       canModifyArgs: true,
       canModifyOutput: false,
@@ -241,7 +241,7 @@ export const platforms: PlatformHookEntry[] = [
       Notification: "Notification",
     },
     notes:
-      "Full Claude-compatible lifecycle: all 8 events map 1:1 PascalCase (type CopilotHookEvent = HookEventName; no rename table). User/global only (no project scope). Hook file ~/.copilot/hooks/agentconnect.json; MCP in ~/.copilot/mcp-config.json (stdio written as type 'local' + tools:['*']). Claude-shaped nested { matcher, hooks:[{type,command}] }. Reply (stdout exit 0): hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse); additionalContext }. canModifyOutput false.",
+      "Full Claude-compatible lifecycle: all 8 events map 1:1 PascalCase (type CopilotHookEvent = HookEventName; no rename table). User/global only (no project scope). Hook file ~/.copilot/hooks/agent-connector.json; MCP in ~/.copilot/mcp-config.json (stdio written as type 'local' + tools:['*']). Claude-shaped nested { matcher, hooks:[{type,command}] }. Reply (stdout exit 0): hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse); additionalContext }. canModifyOutput false.",
   },
   {
     platform: "gemini-cli",

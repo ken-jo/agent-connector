@@ -168,7 +168,7 @@ export async function probeStdioServer(
     const res = await request(1, "initialize", {
       protocolVersion,
       capabilities: {},
-      clientInfo: { name: "agentconnect-probe", version: "1" },
+      clientInfo: { name: "agent-connector-probe", version: "1" },
     });
     if (isObject(res.error)) {
       results.push(

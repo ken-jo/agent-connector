@@ -33,9 +33,9 @@ export function print(line: string): void {
  * The brand active for THIS invocation. main() sets it from
  * {@link MainOptions.programName} before dispatch, so error messages printed by
  * command modules via {@link fail} read as the embedding tool (e.g. `acme-db:`)
- * instead of always `agentconnect:`.
+ * instead of always `agent-connector:`.
  */
-let activeProgramName = "agentconnect";
+let activeProgramName = "agent-connector";
 
 /** Print an error to stderr (branded) and return a non-zero exit code (default 2). */
 export function fail(message: string, code = 2): number {
@@ -44,7 +44,7 @@ export function fail(message: string, code = 2): number {
 }
 
 /**
- * Resolve agentconnect's own package version at runtime. Works from both the
+ * Resolve agent-connector's own package version at runtime. Works from both the
  * bundled dist layout (dist/*.js → ../package.json) and the src layout under
  * tsx/vitest (src/cli/ → ../../package.json); the name check guards against
  * accidentally reading some other package.json on the walk.
@@ -54,7 +54,7 @@ export function resolveOwnVersion(): string {
   for (const rel of ["../package.json", "../../package.json", "../../../package.json"]) {
     try {
       const pkg = req(rel) as { name?: string; version?: string };
-      if (pkg.name === "agentconnect" && typeof pkg.version === "string") {
+      if (pkg.name === "agent-connector" && typeof pkg.version === "string") {
         return pkg.version;
       }
     } catch {
@@ -170,13 +170,13 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
 };
 
 /** Default program name; an embedding SDK CLI overrides it via {@link MainOptions}. */
-export const DEFAULT_PROGRAM_NAME = "agentconnect";
+export const DEFAULT_PROGRAM_NAME = "agent-connector";
 
 /**
  * One-line usage signature per command — the single central copy behind
  * `<command> --help` and the friendly bad-flag error. Command modules use
  * node:util parseArgs (strict), which THROWS on an unknown flag; without the
- * dispatcher-level handling in {@link main}, `agentconnect install --help`
+ * dispatcher-level handling in {@link main}, `agent-connector install --help`
  * would die with a raw ERR_PARSE_ARGS stack trace — the very invocation the
  * root help tells users to run.
  */
@@ -207,7 +207,7 @@ const COMMAND_USAGE: Record<string, string> = {
 
 /**
  * Build the top-level usage string for a given program name. The brand replaces
- * "agentconnect" in the title, the `usage:` line, and the per-command help
+ * "agent-connector" in the title, the `usage:` line, and the per-command help
  * footer so an embedded CLI (e.g. `acme-db`) reads as its own tool.
  */
 function buildUsage(programName: string): string {

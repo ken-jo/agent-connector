@@ -1,5 +1,5 @@
 /**
- * adapters/registry — single source of truth for the platforms agentconnect
+ * adapters/registry — single source of truth for the platforms agent-connector
  * targets. Generalized from context-mode's `ADAPTER_REGISTRY` pattern, adapted
  * to our `Adapter` / `AdapterFactory` contract (adapters/spi.ts).
  *

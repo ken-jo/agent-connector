@@ -50,7 +50,7 @@ describe("<command> --help", () => {
     const code = await main([cmd, "--help"]);
     out.restore();
     expect(code).toBe(0);
-    expect(out.text()).toContain("usage: agentconnect");
+    expect(out.text()).toContain("usage: agent-connector");
   });
 
   it("brands the per-command usage for an embedded CLI", async () => {
@@ -69,7 +69,7 @@ describe("unknown flag → friendly error", () => {
     errCap.restore();
     expect(code).toBe(2);
     const text = errCap.text();
-    expect(text).toContain("usage: agentconnect install");
-    expect(text).toContain("agentconnect:"); // branded fail(), not a stack trace
+    expect(text).toContain("usage: agent-connector install");
+    expect(text).toContain("agent-connector:"); // branded fail(), not a stack trace
   });
 });

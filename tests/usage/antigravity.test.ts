@@ -38,9 +38,9 @@ const SAVED_ENV = [
   "XDG_DATA_HOME",
   "APPDATA",
   "LOCALAPPDATA",
-  "AGENTCONNECT_TOKSCALE_DIR",
-  "AGENTCONNECT_ANTIGRAVITY_DIR",
-  "AGENTCONNECT_ANTIGRAVITY_CLI_DIR",
+  "AGENT_CONNECTOR_TOKSCALE_DIR",
+  "AGENT_CONNECTOR_ANTIGRAVITY_DIR",
+  "AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR",
 ] as const;
 
 let tmpHome: string;
@@ -68,13 +68,13 @@ beforeEach(() => {
   process.env.USERPROFILE = tmpHome; // homedir() on Windows
   // Point the tokscale cache dir at an EMPTY temp dir so the synced cache
   // contributes nothing unless a test writes into it.
-  process.env.AGENTCONNECT_TOKSCALE_DIR = tokscaleDir;
+  process.env.AGENT_CONNECTOR_TOKSCALE_DIR = tokscaleDir;
   delete process.env.XDG_CONFIG_HOME;
   delete process.env.XDG_DATA_HOME;
   delete process.env.APPDATA;
   delete process.env.LOCALAPPDATA;
-  delete process.env.AGENTCONNECT_ANTIGRAVITY_DIR;
-  delete process.env.AGENTCONNECT_ANTIGRAVITY_CLI_DIR;
+  delete process.env.AGENT_CONNECTOR_ANTIGRAVITY_DIR;
+  delete process.env.AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR;
 });
 
 afterEach(() => {

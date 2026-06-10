@@ -1,5 +1,5 @@
 /**
- * adapters/zed — Zed editor platform adapter for agentconnect.
+ * adapters/zed — Zed editor platform adapter for agent-connector.
  *
  * Zed is an **mcp-only** host: it is an IDE, not a CLI with a hook pipeline, so
  * there is NO lifecycle hook system. MCP ("context servers") is the only

@@ -13,7 +13,7 @@
  *     loadRegisteredConnector throws "not registered") AND, when it was the only
  *     connector, the home-bin launcher is removed too.
  *
- * Isolation contract (mirrors install-roundtrip): HOME + AGENTCONNECT_DATA_DIR
+ * Isolation contract (mirrors install-roundtrip): HOME + AGENT_CONNECTOR_DATA_DIR
  * are throwaway temp dirs, restored verbatim in afterEach; both trees removed.
  */
 
@@ -37,8 +37,8 @@ const DIST_INDEX = join(__dirname, "..", "..", "dist", "index.js");
 const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
-  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
-  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
+  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
+  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
 };
 
 const CONNECTOR_ID = "acme-db";
@@ -77,8 +77,8 @@ beforeEach(() => {
 
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
-  process.env.AGENTCONNECT_DATA_DIR = tmpData;
-  delete process.env.AGENTCONNECT_TELEMETRY;
+  process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+  delete process.env.AGENT_CONNECTOR_TELEMETRY;
 
   fixtureModulePath = writeFixtureModule(tmpData, CONNECTOR_ID);
 });

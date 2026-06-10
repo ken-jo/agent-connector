@@ -1,17 +1,17 @@
 /**
  * cli/sdk — the EMBEDDED SDK entry point for a developer-branded CLI.
  *
- * A developer adds agentconnect as a dependency, writes their connector
+ * A developer adds agent-connector as a dependency, writes their connector
  * config, and ships their OWN bin. `createConnectorCli` returns a runner that
- * exposes EVERY agentconnect subcommand under the developer's brand, fully
+ * exposes EVERY agent-connector subcommand under the developer's brand, fully
  * delegated and AUTO-SCOPED to the developer's connector:
  *
  *   #!/usr/bin/env node
  *   import { fileURLToPath } from "node:url";
- *   import { createConnectorCli } from "agentconnect/cli";
+ *   import { createConnectorCli } from "agent-connector/cli";
  *   createConnectorCli({
  *     name: "acme-db",
- *     connector: fileURLToPath(new URL("./agentconnect.config.mjs", import.meta.url)),
+ *     connector: fileURLToPath(new URL("./agent-connector.config.mjs", import.meta.url)),
  *   }).run();
  *   // fileURLToPath, NOT URL.pathname — .pathname yields "/C:/…" on Windows.
  *

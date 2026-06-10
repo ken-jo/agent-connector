@@ -10,9 +10,9 @@
  * Isolation contract (mirrors tests/core/paths.test.ts):
  *   • HOME / USERPROFILE → a fresh os.tmpdir mkdtemp dir (adapters resolve native
  *     config paths off homedir()).
- *   • AGENTCONNECT_DATA_DIR → a separate fresh temp dir (framework state:
+ *   • AGENT_CONNECTOR_DATA_DIR → a separate fresh temp dir (framework state:
  *     home-bin, connector registry).
- *   • AGENTCONNECT_TELEMETRY is cleared so default wrapping behavior is used.
+ *   • AGENT_CONNECTOR_TELEMETRY is cleared so default wrapping behavior is used.
  *   • Every env var is restored verbatim in afterEach; both temp trees removed.
  */
 
@@ -44,8 +44,8 @@ const DIST_INDEX = join(__dirname, "..", "..", "dist", "index.js");
 const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
-  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
-  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
+  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
+  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
 };
 
 const CONNECTOR_ID = "acme-db";
@@ -129,8 +129,8 @@ beforeEach(() => {
 
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
-  process.env.AGENTCONNECT_DATA_DIR = tmpData;
-  delete process.env.AGENTCONNECT_TELEMETRY;
+  process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+  delete process.env.AGENT_CONNECTOR_TELEMETRY;
 
   fixtureModulePath = writeFixtureModule(tmpData);
 });

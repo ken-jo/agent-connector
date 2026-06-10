@@ -1,5 +1,5 @@
 /**
- * adapters/kimi — Kimi CLI (Moonshot) platform adapter for agentconnect.
+ * adapters/kimi — Kimi CLI (Moonshot) platform adapter for agent-connector.
  *
  * Kimi CLI is a json-stdio host: the runner pipes a JSON payload to a command on
  * stdin and reads an exit code (and optional reason) back. Two native config
@@ -126,7 +126,7 @@ interface KimiHttpServer {
 }
 
 /**
- * Kimi CLI hook events agentconnect can register. Only PreToolUse carries a
+ * Kimi CLI hook events agent-connector can register. Only PreToolUse carries a
  * meaningful (deny) decision; it is the single event we wire. The matcher below
  * is charset-clean (Rust-regex safe: no look-around) so Kimi's matcher accepts
  * it. Copied in spirit from the Codex/context-mode matchers.
@@ -371,7 +371,7 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     const kept = hooks.filter((h) => !this.isOurHook(ctx, h));
     const removed = hooks.length - kept.length;
     if (removed === 0) {
-      return [{ platform: this.id, action: "skip", path, detail: "no agentconnect hooks present" }];
+      return [{ platform: this.id, action: "skip", path, detail: "no agent-connector hooks present" }];
     }
 
     if (kept.length > 0) cfg.hooks = kept;

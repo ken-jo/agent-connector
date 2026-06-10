@@ -56,15 +56,15 @@ describe("mcp-server-json — stdio npm server", () => {
     expect(j.packages).toHaveLength(1);
     const pkg = j.packages[0];
     expect(pkg.registryType).toBe("npm");
-    expect(pkg.identifier).toBe("@acme/acme-db-mcp"); // the dev's REAL pkg, NOT agentconnect serve
+    expect(pkg.identifier).toBe("@acme/acme-db-mcp"); // the dev's REAL pkg, NOT agent-connector serve
     expect(pkg.registryBaseUrl).toBe("https://registry.npmjs.org");
     expect(pkg.version).toBe("1.2.0");
     expect(pkg.transport).toEqual({ type: "stdio" });
-    // never wraps with agentconnect serve: npm packages declare an identifier,
+    // never wraps with agent-connector serve: npm packages declare an identifier,
     // not a launch command, and nothing references our wrapper/home-bin.
     expect(pkg.command).toBeUndefined();
     expect(pkg.args).toBeUndefined();
-    expect(JSON.stringify(j)).not.toContain("agentconnect");
+    expect(JSON.stringify(j)).not.toContain("agent-connector");
   });
 
   it("marks the bearer token env var as secret + required", () => {

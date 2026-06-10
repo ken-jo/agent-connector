@@ -1,5 +1,5 @@
 /**
- * adapters/goose — Block's Goose platform adapter for agentconnect.
+ * adapters/goose — Block's Goose platform adapter for agent-connector.
  *
  * Goose is a json-stdio host, but its two config surfaces use DIFFERENT formats:
  *

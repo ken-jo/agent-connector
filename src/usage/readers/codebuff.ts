@@ -63,7 +63,7 @@ const CHANNELS = ["manicode", "manicode-dev", "manicode-staging"] as const;
 //
 // codebuff is not in paths.ts hostRoots(), so we resolve its channel roots
 // here, mirroring the paths.ts convention exactly: an explicit non-empty
-// AGENTCONNECT_CODEBUFF_DIR override wins (treated as the projects dir),
+// AGENT_CONNECTOR_CODEBUFF_DIR override wins (treated as the projects dir),
 // otherwise the OS config dir per channel. Read-only; never created.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ function envOverride(name: string): string | undefined {
  */
 function codebuffProjectRoots(): string[] {
   const out: string[] = [];
-  const override = envOverride("AGENTCONNECT_CODEBUFF_DIR");
+  const override = envOverride("AGENT_CONNECTOR_CODEBUFF_DIR");
   if (override !== undefined) out.push(override);
   const config = xdgConfigHome();
   for (const channel of CHANNELS) {

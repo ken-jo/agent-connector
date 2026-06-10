@@ -1,5 +1,5 @@
 /**
- * adapters/droid — Droid (Factory AI) platform adapter for agentconnect.
+ * adapters/droid — Droid (Factory AI) platform adapter for agent-connector.
  *
  * Droid is a **json-stdio** host with TWO native config surfaces that live in
  * DIFFERENT files (so getServerConfigPath ≠ getHookConfigPath):

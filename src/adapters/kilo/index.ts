@@ -4,7 +4,7 @@
  * Kilo Code (`kilocode.kilo-code`) is a Roo/Cline-fork VS Code extension, but as
  * of vsix 7.3.28 it DELEGATES MCP to the shared kilo backend — the SAME backend
  * the Kilo CLI (adapter id "kilo-cli") drives. It is an **mcp-only** host from
- * agentconnect's perspective: it exposes no lifecycle hook system, so MCP
+ * agent-connector's perspective: it exposes no lifecycle hook system, so MCP
  * server registration is the only thing we install and hooks are reported
  * unavailable.
  *

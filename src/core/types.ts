@@ -1,5 +1,5 @@
 /**
- * core/types — the shared contract surface for agentconnect.
+ * core/types — the shared contract surface for agent-connector.
  *
  * Everything in this file is type-only (no runtime), so it is safe to import
  * from anywhere without creating module cycles. It is the single source of
@@ -20,7 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Stable identifiers for every host platform agentconnect can target.
+ * Stable identifiers for every host platform agent-connector can target.
  *
  * NOTE on usage-only platforms: `"synthetic"` is a TELEMETRY-ONLY id
  * (Octofriend / synthetic.new). It has a usage reader (usage/readers/synthetic)
@@ -131,7 +131,7 @@ export interface ServerDef {
   enabled?: boolean;
 
   /**
-   * Wrap the server with `agentconnect serve` so per-tool telemetry is
+   * Wrap the server with `agent-connector serve` so per-tool telemetry is
    * captured transparently. Default: true for stdio servers when telemetry is
    * enabled; false for remote servers (cannot intercept) and when explicitly off.
    */
@@ -366,7 +366,7 @@ export interface SubagentDef {
 // ─────────────────────────────────────────────────────────────────────────
 
 export interface TelemetryConfig {
-  /** On by default. Global kill switch also via AGENTCONNECT_TELEMETRY=0. */
+  /** On by default. Global kill switch also via AGENT_CONNECTOR_TELEMETRY=0. */
   enabled?: boolean;
   /** Tokenizer family selection. "auto" infers from client/host. */
   modelFamilyHint?: "auto" | "openai" | "anthropic" | "generic";
@@ -380,7 +380,7 @@ export interface TelemetryConfig {
    * that reads the host's `usageMetadata` and records a DISTINCT `model_turn`
    * telemetry row (confidence `host-native`). Whole-conversation, never summed with
    * the per-MCP `call` rows. May also be forced on at install via the env switch
-   * AGENTCONNECT_HOST_NATIVE=1. Aggregate counts only; no raw content stored.
+   * AGENT_CONNECTOR_HOST_NATIVE=1. Aggregate counts only; no raw content stored.
    */
   hostNativeUsage?: boolean;
   /** Storage backend. NDJSON (default) needs no native deps; sqlite is an upgrade. */
@@ -413,7 +413,7 @@ export interface PlatformOverride {
  * Distribution metadata for the OFFICIAL MCP standard artifacts `package` can
  * emit — the registry `server.json` and the MCPB `.mcpb` bundle. These describe
  * the developer's REAL upstream MCP server (what a registry installer / Claude
- * Desktop runs directly), NOT agentconnect's telemetry `serve` wrapper, so
+ * Desktop runs directly), NOT agent-connector's telemetry `serve` wrapper, so
  * they need inputs the cross-platform install does not: the namespace the dev
  * proved ownership of, their published package name, and bundle author info.
  *
@@ -425,7 +425,7 @@ export interface PublishConfig {
   /**
    * Reverse-DNS namespace the developer OWNS, e.g. "io.github.acme" or
    * "com.acme". server.json `name` is rendered as `${registryNamespace}/${id}`.
-   * agentconnect never mints a namespace on the dev's behalf — the registry
+   * agent-connector never mints a namespace on the dev's behalf — the registry
    * requires proven ownership (the `mcp-publisher login` step the dev runs).
    */
   registryNamespace?: string;

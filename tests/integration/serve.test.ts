@@ -15,7 +15,7 @@
  * forwarded bytes out — all guarded by try/finally so the real streams are
  * always restored even on failure.
  *
- * Isolation: HOME / AGENTCONNECT_DATA_DIR point at temp dirs and are restored
+ * Isolation: HOME / AGENT_CONNECTOR_DATA_DIR point at temp dirs and are restored
  * in afterEach; the store is a pure in-memory stub so nothing touches disk.
  */
 
@@ -42,8 +42,8 @@ const CONNECTOR_ID = "telemetry-conn";
 const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
-  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
-  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
+  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
+  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
 };
 
 let tmpHome: string;
@@ -85,8 +85,8 @@ beforeEach(() => {
   tmpData = mkdtempSync(join(tmpdir(), "ac-serve-data-"));
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
-  process.env.AGENTCONNECT_DATA_DIR = tmpData;
-  delete process.env.AGENTCONNECT_TELEMETRY;
+  process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+  delete process.env.AGENT_CONNECTOR_TELEMETRY;
 });
 
 afterEach(() => {
@@ -202,8 +202,8 @@ describe("runServeProxy (full proxy wiring over swapped process streams)", () =>
     }
   });
 
-  it("AGENTCONNECT_TELEMETRY=0 proxies transparently but records nothing", async () => {
-    process.env.AGENTCONNECT_TELEMETRY = "0";
+  it("AGENT_CONNECTOR_TELEMETRY=0 proxies transparently but records nothing", async () => {
+    process.env.AGENT_CONNECTOR_TELEMETRY = "0";
     const store = new ArrayStore();
     const fakeStdin = new PassThrough();
     const fakeStdout = new PassThrough();

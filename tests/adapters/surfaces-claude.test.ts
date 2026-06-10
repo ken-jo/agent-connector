@@ -14,7 +14,7 @@
  *   • uninstall (files/dirs removed; re-read from disk confirms gone)
  *
  * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test; config
- * lands under <tempDir>/.claude only. HOME + AGENTCONNECT_DATA_DIR point at
+ * lands under <tempDir>/.claude only. HOME + AGENT_CONNECTOR_DATA_DIR point at
  * temp and are restored in afterEach.
  */
 
@@ -31,7 +31,7 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 
 import claudeAdapter from "../../src/adapters/claude-code/index.js";
 
-const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
+const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-surfaces";
 
 /** A connector declaring a command + a skill (with a resource) + a subagent. */
@@ -92,12 +92,12 @@ let savedDataDir: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
+  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
+  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -109,7 +109,7 @@ function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-surfaces-"));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   return dir;
 }
 

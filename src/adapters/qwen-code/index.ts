@@ -1,5 +1,5 @@
 /**
- * adapters/qwen-code — Qwen Code (Qwen CLI) platform adapter for agentconnect.
+ * adapters/qwen-code — Qwen Code (Qwen CLI) platform adapter for agent-connector.
  *
  * Qwen Code is a Gemini-CLI-derived host, but — unlike Gemini CLI — its hook
  * WIRE PROTOCOL is Claude-compatible (verified against context-mode's proven

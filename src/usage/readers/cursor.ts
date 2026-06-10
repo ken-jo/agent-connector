@@ -13,7 +13,7 @@
  *   ~/.config/tokscale/cursor-cache/usage.csv            (active account)
  *   ~/.config/tokscale/cursor-cache/usage.<account>.csv  (secondary accounts)
  *   ~/.config/tokscale/cursor-cache/archive/*.csv        (rotated exports)
- * paths.ts resolves the cache dir (env override AGENTCONNECT_TOKSCALE_DIR
+ * paths.ts resolves the cache dir (env override AGENT_CONNECTOR_TOKSCALE_DIR
  * first, the tokscale ~/.config/tokscale default second).
  *
  * CSV formats (column maps mirror cursor.rs exactly):

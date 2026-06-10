@@ -245,11 +245,11 @@ function parseOpenclawTranscript(path: string): UsageRecord[] {
  * `openclaw` case (the framework's hostRoots table only covers the simpler
  * single-root platforms), so the agent dirs are resolved here directly, mirroring
  * tokscale scanner.rs: the current `~/.openclaw/agents` plus the legacy rebrand
- * dirs. An AGENTCONNECT_OPENCLAW_DIR override (non-empty) is honored first.
+ * dirs. An AGENT_CONNECTOR_OPENCLAW_DIR override (non-empty) is honored first.
  */
 function openclawRoots(): string[] {
   const out: string[] = [];
-  const override = process.env.AGENTCONNECT_OPENCLAW_DIR;
+  const override = process.env.AGENT_CONNECTOR_OPENCLAW_DIR;
   if (override != null && override.trim() !== "") {
     const expanded = expandHome(override.trim());
     out.push(isAbsolute(expanded) ? expanded : resolve(expanded));

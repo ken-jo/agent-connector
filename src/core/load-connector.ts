@@ -2,7 +2,7 @@
  * core/load-connector — discover, load, and register connector definitions.
  *
  * Responsibilities:
- *   1. Locate the developer's `agentconnect.config.{mjs,js,json}` by walking
+ *   1. Locate the developer's `agent-connector.config.{mjs,js,json}` by walking
  *      upward from a start directory (the project root convention).
  *   2. Load a config from a path into a LIVE ResolvedConnector (with handlers).
  *   3. Register a connector by persisting SERIALIZABLE metadata (no functions)
@@ -33,9 +33,9 @@ import { connectorDir, connectorsDir, ensureDir } from "./paths.js";
 
 /** Candidate config filenames, in resolution-precedence order. */
 const CONFIG_FILENAMES = [
-  "agentconnect.config.mjs",
-  "agentconnect.config.js",
-  "agentconnect.config.json",
+  "agent-connector.config.mjs",
+  "agent-connector.config.js",
+  "agent-connector.config.json",
 ] as const;
 
 /**

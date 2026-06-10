@@ -1,5 +1,5 @@
 /**
- * adapters/trae — Trae (ByteDance) platform adapter for agentconnect.
+ * adapters/trae — Trae (ByteDance) platform adapter for agent-connector.
  *
  * Trae is an **mcp-only** host for our purposes: it exposes MCP servers as its
  * extensibility mechanism but has no lifecycle hook system we can register

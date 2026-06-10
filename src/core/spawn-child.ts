@@ -24,7 +24,7 @@ function winQuoteArg(s: string): string {
  * Cross-platform child spawn that fixes native-Windows package-runner launches.
  * Direct spawn on macOS/Linux. On win32 it routes through
  * {@link resolveSpawnCommand}; an `.exe` runs directly, while a `.cmd`/`.bat`
- * (npx.cmd, the agentconnect.cmd launcher) is launched via a SINGLE quoted
+ * (npx.cmd, the agent-connector.cmd launcher) is launched via a SINGLE quoted
  * command line with `shell: true` — a string rather than an args array, which
  * Node requires for a batch file AND which avoids the DEP0190 deprecation that
  * `shell: true` + an args array triggers on Node ≥ 24.

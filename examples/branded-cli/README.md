@@ -1,41 +1,41 @@
-# branded-cli example — ship your own CLI on top of AgentConnect
+# branded-cli example — ship your own CLI on top of agent-connector
 
 This is a realistic developer package, `acme-db-tools`, that depends on
-`agentconnect` and ships its **own** branded CLI, `acme-db`. The consumer
-never installs `agentconnect` globally and never types `--connector` — every
+`agent-connector` and ships its **own** branded CLI, `acme-db`. The consumer
+never installs `agent-connector` globally and never types `--connector` — every
 subcommand is auto-scoped to the connector this package ships.
 
 ## How it works
 
 Four files:
 
-- `agentconnect.config.mjs` — the connector: a stdio MCP server (wrapped for
+- `agent-connector.config.mjs` — the connector: a stdio MCP server (wrapped for
   per-tool token telemetry), a `PreToolUse` guard hook, and an `/acme-schema`
   command. Declared once via `defineConnector`.
 - `acme-db-mcp-server.mjs` — a minimal stub stdio MCP server (initialize / ping /
   tools/list) standing in for Acme's real server, referenced by the config via
   an absolute `import.meta.url`-derived path.
 - `bin.mjs` — the `acme-db` bin. It calls `createConnectorCli({ name, connector })`
-  from `agentconnect/cli` and runs it.
+  from `agent-connector/cli` and runs it.
 - `package.json` — `bin: { "acme-db": "./bin.mjs" }` + a dependency on
-  `agentconnect`.
+  `agent-connector`.
 
 ```js
 // bin.mjs (essence)
 import { fileURLToPath } from "node:url";
-import { createConnectorCli } from "agentconnect/cli";
+import { createConnectorCli } from "agent-connector/cli";
 
 createConnectorCli({
   name: "acme-db",
-  connector: fileURLToPath(new URL("./agentconnect.config.mjs", import.meta.url)),
+  connector: fileURLToPath(new URL("./agent-connector.config.mjs", import.meta.url)),
 }).run();
 ```
 
 ## Using the branded CLI
 
 > **Prerequisite.** From a repo clone, run `npm install && npm run build` at the
-> repo root first; the example resolves agentconnect via the
-> `"agentconnect": "file:../.."` dependency.
+> repo root first; the example resolves agent-connector via the
+> `"agent-connector": "file:../.."` dependency.
 
 After `npm install` in this directory (which links the `acme-db` bin):
 
@@ -55,7 +55,7 @@ acme-db telemetry leaderboard      # "which acme-db tool costs the most"
 # Package the connector as an installable plugin/extension bundle.
 acme-db package --format claude-plugin
 
-# Every agentconnect subcommand is available, branded as `acme-db`:
+# Every agent-connector subcommand is available, branded as `acme-db`:
 acme-db --help
 ```
 

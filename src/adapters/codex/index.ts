@@ -1,5 +1,5 @@
 /**
- * adapters/codex — Codex CLI platform adapter for agentconnect.
+ * adapters/codex — Codex CLI platform adapter for agent-connector.
  *
  * Codex CLI hook paradigm is "json-stdio": the host pipes a JSON payload to a
  * command on stdin and reads JSON/exit-code back — the same wire protocol as
@@ -94,7 +94,7 @@ interface CodexMcpEntry {
 }
 
 /**
- * Codex hook events agentconnect registers, in the canonical → native order.
+ * Codex hook events agent-connector registers, in the canonical → native order.
  * Codex uses the same PascalCase event names as Claude Code; the home-binary
  * hook command receives the lowercased event token.
  */
@@ -348,7 +348,7 @@ export class CodexAdapter extends BaseAdapter {
 
     if (mutated) this.writeJson(path, file, ctx.dryRun);
     if (changes.length === 0) {
-      return [{ platform: this.id, action: "skip", path, detail: "no agentconnect hooks present" }];
+      return [{ platform: this.id, action: "skip", path, detail: "no agent-connector hooks present" }];
     }
     return changes;
   }

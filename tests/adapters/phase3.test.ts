@@ -42,7 +42,7 @@
  * is already registered when node:child_process is resolved by the module runner.
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, and
- * HOME + AGENTCONNECT_DATA_DIR are redirected there and restored in afterEach so
+ * HOME + AGENT_CONNECTOR_DATA_DIR are redirected there and restored in afterEach so
  * nothing escapes the sandbox.
  */
 
@@ -99,7 +99,7 @@ afterEach(() => {
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
+const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -147,7 +147,7 @@ let savedEnvVar: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
+  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
   execFileSyncMock.mockClear();
   execFileSyncImpl = () => "";
@@ -155,7 +155,7 @@ beforeEach(() => {
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
+  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
 });
 
@@ -169,7 +169,7 @@ function freshProject(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
 }
@@ -271,14 +271,14 @@ describe("kilo-cli adapter (ts-plugin) render", () => {
     expect(pluginPath).not.toBe(kiloCliAdapter.getServerConfigPath(ctx));
     expect(existsSync(pluginPath)).toBe(true);
 
-    // The module is self-contained: it imports NOTHING from agentconnect (the
-    // only allowed import is node:child_process). The string "agentconnect"
+    // The module is self-contained: it imports NOTHING from agent-connector (the
+    // only allowed import is node:child_process). The string "agent-connector"
     // may appear in the AUTO-GENERATED header comment — what must be absent is an
     // actual import/require of the package. It shells out to the home bin's
     // universal `hook kilo-cli` entrypoint.
     const src = readFileSync(pluginPath, "utf8");
-    expect(src).not.toMatch(/from\s+["'][^"']*agentconnect/);
-    expect(src).not.toMatch(/require\(\s*["'][^"']*agentconnect/);
+    expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
+    expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
     expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
     expect(src).toContain('"hook", "kilo-cli"');
     expect(src).toContain(HOME_BIN);
@@ -499,7 +499,7 @@ describe("opencode adapter (ts-plugin) render", () => {
     expect(pluginPath).toBe(opencodeAdapter.getHookConfigPath(ctx));
     expect(existsSync(pluginPath)).toBe(true);
 
-    // The generated module is the self-contained bridge (no agentconnect import).
+    // The generated module is the self-contained bridge (no agent-connector import).
     const src = readFileSync(pluginPath, "utf8");
     expect(src).toContain("execFileSync");
     expect(src).toContain('"hook"');

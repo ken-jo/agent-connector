@@ -12,7 +12,7 @@
  *
  * The command / skill / subagent markdown is rendered through the SAME shared
  * claude-code renderers the live adapter writes with, so an installed plugin and
- * an `agentconnect install` produce byte-identical content files. Hooks use
+ * an `agent-connector install` produce byte-identical content files. Hooks use
  * the universal home-bin command (telemetry-routed) and the MCP entry is
  * serve-wrapped with `--host <platform>` so telemetry carries through.
  */
@@ -97,7 +97,7 @@ function buildManifest(
   const manifest: Record<string, unknown> = {};
   if (spec.schemaUrl) manifest.$schema = spec.schemaUrl;
   manifest.name = connector.id;
-  manifest.description = `${connector.displayName} — connector emitted by agentconnect`;
+  manifest.description = `${connector.displayName} — connector emitted by agent-connector`;
 
   const hasRealVersion = connector.version && connector.version !== "0.0.0";
   if (hasRealVersion) {
@@ -109,7 +109,7 @@ function buildManifest(
   // Attribute the bundle to the connector developer when they declared an
   // author (publish.author); the framework name is only the fallback.
   if (spec.alwaysAuthor) {
-    manifest.author = { name: connector.publish?.author?.name ?? "agentconnect" };
+    manifest.author = { name: connector.publish?.author?.name ?? "agent-connector" };
   }
   return manifest;
 }
@@ -119,16 +119,16 @@ function buildMarketplace(connector: ResolvedConnector): Record<string, unknown>
   // Both the claude/codex object-owner catalog and the droid git-repo catalog
   // use the same minimal { name, owner, plugins:[{name,source,description}] }
   // shape — droid reads source as a path relative to the marketplace repo root.
-  // The catalog NAME stays "agentconnect" (the printed install instructions
-  // `<id>@agentconnect` key on it); the OWNER is the developer when known.
+  // The catalog NAME stays "agent-connector" (the printed install instructions
+  // `<id>@agent-connector` key on it); the OWNER is the developer when known.
   return {
-    name: "agentconnect",
-    owner: { name: connector.publish?.author?.name ?? "agentconnect" },
+    name: "agent-connector",
+    owner: { name: connector.publish?.author?.name ?? "agent-connector" },
     plugins: [
       {
         name: connector.id,
         source: `./${connector.id}`,
-        description: `${connector.displayName} — connector emitted by agentconnect`,
+        description: `${connector.displayName} — connector emitted by agent-connector`,
       },
     ],
   };

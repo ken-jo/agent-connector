@@ -3,7 +3,7 @@
  *
  * Unlike the host plugin/marketplace bundles, server.json is a DISCOVERY +
  * PUBLISH artifact: it describes the developer's REAL upstream MCP server (what
- * a registry installer runs DIRECTLY), so it must NOT carry agentconnect's
+ * a registry installer runs DIRECTLY), so it must NOT carry agent-connector's
  * `serve` telemetry wrapper. It is emitted from the connector's `publish`
  * metadata (the namespace the dev proved ownership of + their published package)
  * and conforms to the pinned 2025-12-11 schema:
@@ -13,7 +13,7 @@
  *   • remote → remotes[]  { type:"streamable-http"|"sse", url, headers }
  *   • token env vars are marked isSecret.
  *
- * agentconnect EMITS a conformant server.json; the dev runs the publish-time
+ * agent-connector EMITS a conformant server.json; the dev runs the publish-time
  * ownership proof + upload themselves with the official `mcp-publisher` CLI.
  */
 
@@ -71,7 +71,7 @@ function buildServerJson(
     throw new Error(
       'package --format mcp-server-json needs publish.registryNamespace — a reverse-DNS ' +
         'namespace you OWN (e.g. "io.github.<your-handle>" or "com.<your-domain>"). ' +
-        "agentconnect never publishes under a namespace it owns; set it in your connector config.",
+        "agent-connector never publishes under a namespace it owns; set it in your connector config.",
     );
   }
   const name = `${publish.registryNamespace}/${connector.id}`;
@@ -121,7 +121,7 @@ function buildServerJson(
       throw new Error(
         "package --format mcp-server-json needs publish.packageName — your REAL published npm " +
           'package that runs the MCP server (e.g. "@acme/acme-db-mcp"). The registry runs that ' +
-          "package directly, not agentconnect's serve wrapper.",
+          "package directly, not agent-connector's serve wrapper.",
       );
     }
     const pkg: Record<string, unknown> = {

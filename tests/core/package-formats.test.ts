@@ -15,7 +15,7 @@
  *     not errors, and returns a drop note.
  *
  * Isolation mirrors tests/core/package.test.ts: a fresh mkdtemp outDir per test;
- * HOME + AGENTCONNECT_DATA_DIR redirected to temp and restored in afterEach.
+ * HOME + AGENT_CONNECTOR_DATA_DIR redirected to temp and restored in afterEach.
  */
 
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
@@ -35,7 +35,7 @@ import {
 import { readTomlString } from "../../src/core/toml.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
+const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-connector";
 
 /** A connector declaring every surface: server + hooks + command + skill + subagent. */
@@ -108,17 +108,17 @@ let connector: ResolvedConnector;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
+  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   outDir = mkdtempSync(join(tmpdir(), "ac-fmt-"));
   process.env.HOME = outDir;
   process.env.USERPROFILE = outDir;
-  process.env.AGENTCONNECT_DATA_DIR = join(outDir, ".agentconnect");
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(outDir, ".agent-connector");
   connector = buildConnector();
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
+  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
 });
 
 function restore(key: string, value: string | undefined): void {

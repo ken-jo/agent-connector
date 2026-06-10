@@ -22,7 +22,7 @@
  * claude-code renderers the live adapters write with (where the target uses
  * markdown), hooks via buildHomeBinHookCommand, and MCP via buildServeWrapperCommand
  * with `--host <platform>` — so telemetry-wrap + the universal home-bin pointer
- * carry through every bundle exactly as an `agentconnect install` would.
+ * carry through every bundle exactly as an `agent-connector install` would.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -127,7 +127,7 @@ export interface PackageOptions {
   /** Output format. Defaults to "claude-plugin". */
   format?: PackageFormat;
   /**
-   * Absolute path to agentconnect's stable home-bin that hooks + the MCP
+   * Absolute path to agent-connector's stable home-bin that hooks + the MCP
    * serve-wrapper point at. Defaults to {@link defaultHomeBinPath}.
    */
   homeBinPath?: string;
@@ -178,9 +178,9 @@ export function packageConnector(
   const result = emitter(connector, ctx);
   if (HOME_BIN_EMBED_FORMATS.has(format)) {
     const note =
-      `bundle embeds this machine's agentconnect launcher path (${ctx.homeBinPath}) — ` +
-      "valid for LOCAL install; for a shared marketplace, consumers need agentconnect " +
-      "at the same home path (run `agentconnect upgrade` there) or re-run `package` per machine";
+      `bundle embeds this machine's agent-connector launcher path (${ctx.homeBinPath}) — ` +
+      "valid for LOCAL install; for a shared marketplace, consumers need agent-connector " +
+      "at the same home path (run `agent-connector upgrade` there) or re-run `package` per machine";
     result.notes = [...(result.notes ?? []), note];
   }
   return result;

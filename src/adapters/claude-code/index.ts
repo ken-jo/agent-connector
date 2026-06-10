@@ -1,5 +1,5 @@
 /**
- * adapters/claude-code — Claude Code platform adapter for agentconnect.
+ * adapters/claude-code — Claude Code platform adapter for agent-connector.
  *
  * Generalized from context-mode's proven 15-platform Claude adapter: the served
  * identity is now `ctx.connector` (not a hardcoded "context-mode"), and every

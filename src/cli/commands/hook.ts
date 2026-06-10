@@ -1,7 +1,7 @@
 /**
  * cli/commands/hook — the universal json-stdio hook entrypoint.
  *
- *   agentconnect hook <platform> <event> --connector <id>
+ *   agent-connector hook <platform> <event> --connector <id>
  *
  * This is the single command every host's hook config points at (via the stable
  * home binary). It reads the ENTIRE host payload from stdin, dispatches through
@@ -50,7 +50,7 @@ export async function run(argv: string[]): Promise<number> {
   const platformId = positionals[0];
   const event = positionals[1];
   if (!platformId || !event) {
-    return fail("usage: agentconnect hook <platform> <event> --connector <id>");
+    return fail("usage: agent-connector hook <platform> <event> --connector <id>");
   }
   if (!HOOK_EVENTS.has(event)) {
     return fail(`unknown hook event "${event}"`);

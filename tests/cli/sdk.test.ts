@@ -74,7 +74,7 @@ cli.run(process.argv.slice(2)).then((code) => { process.exitCode = code; });
 beforeEach(() => {
   tmpHome = mkdtempSync(join(tmpdir(), "ac-sdk-home-"));
   tmpData = mkdtempSync(join(tmpdir(), "ac-sdk-data-"));
-  connectorPath = join(tmpData, "agentconnect.config.mjs");
+  connectorPath = join(tmpData, "agent-connector.config.mjs");
   otherConnectorPath = join(tmpData, "other.config.mjs");
   driverPath = join(tmpData, "driver.mjs");
   writeFileSync(connectorPath, connectorModule("acme-dev"), "utf8");
@@ -103,10 +103,10 @@ function runDriver(args: string[]): RunResult {
   const env: NodeJS.ProcessEnv = { ...process.env };
   env.HOME = tmpHome;
   env.USERPROFILE = tmpHome;
-  env.AGENTCONNECT_DATA_DIR = tmpData;
+  env.AGENT_CONNECTOR_DATA_DIR = tmpData;
   env.XDG_DATA_HOME = join(tmpHome, ".local", "share");
   env.XDG_CONFIG_HOME = join(tmpHome, ".config");
-  delete env.AGENTCONNECT_TELEMETRY;
+  delete env.AGENT_CONNECTOR_TELEMETRY;
   try {
     const stdout = execFileSync(TSX_BIN, [driverPath, ...args], {
       env,
@@ -202,7 +202,7 @@ describe("createConnectorCli auto-scopes to the developer connector", () => {
     expect(stdout).toContain("acme — write your MCP server");
     expect(stdout).toContain("usage: acme <command>");
     // The default brand must NOT leak into the branded usage text.
-    expect(stdout).not.toContain("agentconnect <command>");
+    expect(stdout).not.toContain("agent-connector <command>");
   });
 
   it("a bare `telemetry` shows its help and does NOT mis-inject a filter (no unknown-sub error)", () => {

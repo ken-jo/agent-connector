@@ -1,6 +1,6 @@
 /**
  * core/mcp-standard — pinned literals + guards for the official MCP standards
- * agentconnect EMITS (registry server.json, MCPB bundle) or SPEAKS (the
+ * agent-connector EMITS (registry server.json, MCPB bundle) or SPEAKS (the
  * connection-lifecycle wire used by `doctor --probe`).
  *
  * Each pinned constant is the CURRENT released value verified 2026-06-05 against

@@ -2,7 +2,7 @@
  * tests/examples/branded-cli-smoke — the "full, runnable package" guarantee.
  *
  * The docs audit found examples/branded-cli failing at import time (its
- * agentconnect dependency 404'd) while the README called it runnable. This
+ * agent-connector dependency 404'd) while the README called it runnable. This
  * smoke test EXECUTES the example the way a reader would — `node bin.mjs` —
  * against the repo build, in a sandboxed HOME so no real host config is
  * touched. It requires the workspaces install link (npm install at the root)
@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const BIN = join(__dirname, "..", "..", "examples", "branded-cli", "bin.mjs");
-const LINK = join(__dirname, "..", "..", "node_modules", "agentconnect");
+const LINK = join(__dirname, "..", "..", "node_modules", "agent-connector");
 const DIST = join(__dirname, "..", "..", "dist", "cli", "sdk.js");
 
 let sandbox: string;
@@ -39,13 +39,13 @@ function runExample(args: string[]): { code: number; stdout: string; stderr: str
       ...process.env,
       HOME: sandbox,
       USERPROFILE: sandbox,
-      AGENTCONNECT_DATA_DIR: join(sandbox, ".agentconnect"),
+      AGENT_CONNECTOR_DATA_DIR: join(sandbox, ".agent-connector"),
     },
   });
   return { code: res.status ?? 1, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 }
 
-// The example resolves `agentconnect` via the workspaces link + built dist —
+// The example resolves `agent-connector` via the workspaces link + built dist —
 // skip (don't fail) when running in a tree that hasn't installed/built yet.
 const ready = existsSync(LINK) && existsSync(DIST);
 const maybeDescribe = ready ? describe : describe.skip;
@@ -55,7 +55,7 @@ maybeDescribe("examples/branded-cli is actually runnable", () => {
     const { code, stdout } = runExample(["--help"]);
     expect(code).toBe(0);
     expect(stdout).toContain("acme-db — write your MCP server");
-    expect(stdout).not.toContain("agentconnect —");
+    expect(stdout).not.toContain("agent-connector —");
   });
 
   it("`acme-db install --dry-run` auto-scopes to the shipped connector and plans cleanly", () => {

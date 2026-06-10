@@ -22,7 +22,7 @@
  *     project scope yields a single "warn"
  *
  * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test. HOME,
- * AGENTCONNECT_DATA_DIR, and CODEX_HOME point at temp and are restored in
+ * AGENT_CONNECTOR_DATA_DIR, and CODEX_HOME point at temp and are restored in
  * afterEach so the codex user-scope path resolves under the temp HOME.
  */
 
@@ -44,7 +44,7 @@ import cursorAdapter from "../../src/adapters/cursor/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
 import codexAdapter from "../../src/adapters/codex/index.js";
 
-const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
+const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-surfaces";
 
 const COMMAND = {
@@ -114,13 +114,13 @@ let savedCodexHome: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
+  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedCodexHome = process.env.CODEX_HOME;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
+  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore("CODEX_HOME", savedCodexHome);
 });
 
@@ -133,7 +133,7 @@ function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-surfaces-s1-"));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   // Unset CODEX_HOME so codex user scope resolves under the temp HOME (~/.codex).
   delete process.env.CODEX_HOME;
   return dir;

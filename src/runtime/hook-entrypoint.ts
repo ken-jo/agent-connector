@@ -100,7 +100,7 @@ function normalizeResponse(value: HookResponse | void): HookResponse {
  * Resolve the host platform to stamp on a hook telemetry row. Mirrors the serve
  * `--host` plumbing: the install-target platform id is baked into the hook
  * command (`hook <platformId> <event> …`) so `opts.platformId` is authoritative,
- * but an explicit env override (AGENTCONNECT_HOST) wins when it names a known
+ * but an explicit env override (AGENT_CONNECTOR_HOST) wins when it names a known
  * platform. Falls back to the event's adapter-stamped hostPlatform, then
  * "unknown" — never throws.
  */
@@ -108,7 +108,7 @@ function resolveHookHostPlatform(
   platformId: string,
   evt: NormalizedEvent,
 ): PlatformId {
-  const override = process.env.AGENTCONNECT_HOST;
+  const override = process.env.AGENT_CONNECTOR_HOST;
   if (
     override !== undefined &&
     REGISTERED_PLATFORM_IDS.has(override as PlatformId)
@@ -138,7 +138,7 @@ function resolveHookHostPlatform(
  *
  * MUST be fail-open (the hook runtime is fail-open by contract): any error here
  * is swallowed so a measurement bug can NEVER break a host's hook. Honors the
- * AGENTCONNECT_TELEMETRY=0 kill switch (skips entirely; the store's append is
+ * AGENT_CONNECTOR_TELEMETRY=0 kill switch (skips entirely; the store's append is
  * already a no-op under it, but we also skip the tokenize work).
  */
 function recordHookTelemetry(
@@ -147,7 +147,7 @@ function recordHookTelemetry(
   evt: NormalizedEvent,
   response: HookResponse,
 ): void {
-  if (process.env.AGENTCONNECT_TELEMETRY === "0") return;
+  if (process.env.AGENT_CONNECTOR_TELEMETRY === "0") return;
   try {
     const family = inferModelFamily("", connector.telemetry.modelFamilyHint);
     const measurement = measureHook(evt, response, family, getTokenizer());

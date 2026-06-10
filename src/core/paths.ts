@@ -3,7 +3,7 @@
  *
  * Operating model (docs/ARCHITECTURE.md §3):
  *   • One home data-root holds the single binary + shared telemetry + state.
- *     Override with AGENTCONNECT_DATA_DIR (the cross-agent shared-DB key).
+ *     Override with AGENT_CONNECTOR_DATA_DIR (the cross-agent shared-DB key).
  *     This relocates FRAMEWORK state only — never platform-native config files.
  *   • The home binary lives at a STABLE path so every host's pointer config
  *     keeps working across updates (no versioned cache dir → no cache-heal bug).
@@ -22,11 +22,11 @@ import {
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
-/** Framework data-root: AGENTCONNECT_DATA_DIR || ~/.agentconnect. */
+/** Framework data-root: AGENT_CONNECTOR_DATA_DIR || ~/.agent-connector. */
 export function dataRoot(): string {
-  const override = process.env.AGENTCONNECT_DATA_DIR;
+  const override = process.env.AGENT_CONNECTOR_DATA_DIR;
   if (override && override.trim() !== "") return resolve(override);
-  return join(homedir(), ".agentconnect");
+  return join(homedir(), ".agent-connector");
 }
 
 export function connectorsDir(): string {
@@ -49,7 +49,7 @@ export function telemetryPath(store: "ndjson" | "sqlite" = "ndjson"): string {
 
 /** Stable, OS-correct path to the single home binary pointer. */
 export function homeBinPath(): string {
-  const name = process.platform === "win32" ? "agentconnect.cmd" : "agentconnect";
+  const name = process.platform === "win32" ? "agent-connector.cmd" : "agent-connector";
   return join(dataRoot(), "bin", name);
 }
 
