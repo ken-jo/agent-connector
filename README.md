@@ -3,6 +3,8 @@
 > **Write your MCP server + hooks once. Ship them to every AI-agent platform —
 > and finally see how many tokens your tools actually cost.**
 
+[![npm](https://img.shields.io/npm/v/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/agent-connector)
+[![license](https://img.shields.io/npm/l/agent-connector?color=22c55e)](LICENSE)
 ![platforms](https://img.shields.io/badge/platforms-29-2563eb)
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
@@ -82,12 +84,6 @@ static code/web audit missed. See the reports under
 [`docs/research/`](docs/research/).
 
 ## Quick start
-
-> **Not yet on npm.** Until 0.1.0 is published, clone this repo, run
-> `npm install && npm run build`, then use `npm link` (or an
-> `"agent-connector": "file:../path/to/agent-connector"` dependency) wherever the
-> docs say `npm install agent-connector`; replace `npx agent-connector ...` with
-> `node <repo>/dist/cli.js ...`.
 
 agent-connector is an **SDK you depend on**, not a global tool. Add it to the
 package that holds your connector, declare the connector once, then **either**

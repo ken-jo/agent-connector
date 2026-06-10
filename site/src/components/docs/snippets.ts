@@ -5,11 +5,7 @@
  * tool. Add it to your connector package, then either ship a branded CLI or run
  * it with npx.
  */
-export const installSnippet = `# NOT YET ON NPM — until 0.1.0 is published: clone the repo, run
-# \`npm install && npm run build\`, then \`npm link\` (or depend on it with
-# "agent-connector": "file:../path/to/agent-connector"); replace
-# \`npx agent-connector ...\` with \`node <repo>/dist/cli.js ...\`.
-npm install agent-connector`;
+export const installSnippet = `npm install agent-connector`;
 
 /**
  * Ship a branded CLI: createConnectorCli wraps EVERY agent-connector subcommand
@@ -36,11 +32,7 @@ export const globalInstallSnippet = `# optional — to try the CLI directly, out
 npm i -g agent-connector
 agent-connector --help`;
 
-export const quickStartSnippet = `# NOT YET ON NPM — until 0.1.0 is published: clone the repo, run
-# \`npm install && npm run build\`, then \`npm link\` (or a file: dependency);
-# replace \`npx agent-connector ...\` with \`node <repo>/dist/cli.js ...\`.
-
-# 1. add agent-connector as a dependency of your connector package
+export const quickStartSnippet = `# 1. add agent-connector as a dependency of your connector package
 npm install agent-connector
 
 # 2. write agent-connector.config.mjs (defineConnector — see below)
