@@ -44,7 +44,7 @@ export function Audiences() {
           </p>
           <div className="mt-auto pt-5">
             <Link
-              to="/docs/quick-start"
+              to="/docs/dev"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
             >
               Start the developer track
@@ -82,7 +82,7 @@ export function Audiences() {
           </div>
           <div className="mt-auto pt-5">
             <Link
-              to="/docs/usage"
+              to="/docs/user"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
             >
               See your agent-CLI usage

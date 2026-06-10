@@ -13,21 +13,25 @@ import {
   DocsSearchDialog,
   useDocsSearch,
 } from "./DocsSearch";
+import type { TrackId } from "./docs-data";
 
 const CONTENT_ID = "docs-content";
 
 /**
- * Docs chrome around a single section page. `activeId` is the section id of the
- * page currently routed (from /docs/:section) — it drives the sidebar highlight,
- * breadcrumb, and prev/next pager. The right-hand "On this page" rail keeps its
- * own DOM-derived scroll-spy for the in-page H3 anchors.
+ * Docs chrome around a single section page. `activeId` is the section id of
+ * the page currently routed (from /docs/<track>/:section) and `track` is the
+ * audience track that owns it — together they drive the sidebar highlight,
+ * breadcrumb, and prev/next pager. The right-hand "On this page" rail keeps
+ * its own DOM-derived scroll-spy for the in-page H3 anchors.
  */
 export function DocsLayout({
   children,
   activeId,
+  track,
 }: {
   children: React.ReactNode;
   activeId: string;
+  track: TrackId;
 }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const { open: searchOpen, setOpen: setSearchOpen } = useDocsSearch();
@@ -77,7 +81,7 @@ export function DocsLayout({
             onClick={() => setSearchOpen(true)}
             className="mb-6 w-full justify-start"
           />
-          <DocsSidebar activeId={activeId} />
+          <DocsSidebar activeId={activeId} track={track} />
         </aside>
 
         {/* Center content */}
@@ -87,9 +91,9 @@ export function DocsLayout({
             tabIndex={-1}
             className="mx-auto max-w-3xl scroll-mt-24 outline-none"
           >
-            <DocsHeader activeId={activeId} />
+            <DocsHeader activeId={activeId} track={track} />
             {children}
-            <DocsPager activeId={activeId} />
+            <DocsPager activeId={activeId} track={track} />
           </div>
         </main>
 
@@ -136,6 +140,7 @@ export function DocsLayout({
             </div>
             <DocsSidebar
               activeId={activeId}
+              track={track}
               onNavigate={() => setMobileOpen(false)}
             />
           </div>

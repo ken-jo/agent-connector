@@ -79,10 +79,10 @@ export function Nav() {
             Docs
           </Link>
           <Link
-            to="/docs/usage"
+            to="/docs/user"
             className={cn(
               "rounded-md px-3 py-2 text-sm transition-colors hover:text-foreground",
-              pathname === "/docs/usage"
+              pathname.startsWith("/docs/user")
                 ? "font-medium text-foreground"
                 : "text-muted-foreground",
             )}

@@ -4,39 +4,31 @@ import { DocsLayout } from "./DocsLayout";
 import { sectionRegistry } from "./DocsContent";
 import {
   sectionLabel,
-  sectionIds,
   sectionDescription,
-  sectionOrder,
+  trackOrder,
+  trackSectionIds,
+  type TrackId,
 } from "./docs-data";
 import { SectionNotFound } from "./SectionNotFound";
+import { DEFAULT_DESCRIPTION, setMetaDescription } from "./meta";
 
-const DEFAULT_DESCRIPTION =
-  "One declarative defineConnector deploys MCP servers, hooks, commands, skills & subagents across 29 AI-agent platforms — with default, platform-independent per-tool token telemetry.";
-
-/** Set (or update) the document's <meta name="description"> content. */
-function setMetaDescription(content: string) {
-  let el = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-  if (!el) {
-    el = document.createElement("meta");
-    el.setAttribute("name", "description");
-    document.head.appendChild(el);
-  }
-  el.setAttribute("content", content);
-}
-
-export function DocsPage() {
+/**
+ * One docs page within a track: /docs/<track>/:section. With no :section
+ * param (/docs/user, /docs/dev) it renders the track's first section — the
+ * track home — so the page is never blank.
+ */
+export function DocsPage({ track }: { track: TrackId }) {
   const { section } = useParams<{ section?: string }>();
 
-  // A :section param that doesn't match any known section id is a 404-in-docs.
-  const unknownSection = section != null && !sectionIds.has(section);
+  // A :section param outside this track's id set is a 404-in-docs.
+  const unknownSection = section != null && !trackSectionIds[track].has(section);
 
-  // No param (/docs) lands on the first section so the page is never blank.
-  const activeSection = section ?? sectionOrder[0];
+  const activeSection = section ?? trackOrder[track][0];
 
   // Title + <meta description> + scroll handling. Each section is its own page
   // now, so on a section change we scroll to the top — unless the URL carries a
-  // within-section #hash (e.g. /docs/hooks#claude-vs-kilo), in which case we
-  // deep-link to that H3 inside the now-isolated section page.
+  // within-section #hash (e.g. /docs/dev/hooks#claude-vs-kilo), in which case
+  // we deep-link to that H3 inside the now-isolated section page.
   React.useEffect(() => {
     if (unknownSection) {
       document.title = "Section not found — agent-connector docs";
@@ -67,13 +59,13 @@ export function DocsPage() {
   }, [activeSection, unknownSection]);
 
   if (unknownSection) {
-    return <SectionNotFound section={section!} />;
+    return <SectionNotFound section={section!} track={track} />;
   }
 
   const Section = sectionRegistry[activeSection];
 
   return (
-    <DocsLayout activeId={activeSection}>
+    <DocsLayout activeId={activeSection} track={track}>
       <div className="space-y-14">{Section ? <Section /> : null}</div>
     </DocsLayout>
   );

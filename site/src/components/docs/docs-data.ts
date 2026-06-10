@@ -1,10 +1,14 @@
 /**
  * docs-data — data-driven nav structure + field tables for the SDK docs.
  * Content is grounded in llms-full.txt and src/core/types.ts. Do not invent API.
+ *
+ * The docs fork into two audience TRACKS at the route level: /docs/dev (MCP
+ * developer) and /docs/user (agent-CLI user). Each track owns its own sidebar
+ * nav, pager order, and home page; /docs itself is the persona chooser.
  */
 
 /* ------------------------------------------------------------------ */
-/* Sidebar navigation                                                  */
+/* Sidebar navigation — two audience tracks                            */
 /* ------------------------------------------------------------------ */
 
 export interface NavItem {
@@ -16,106 +20,199 @@ export interface NavItem {
 export interface NavGroup {
   title: string;
   items: NavItem[];
-  /**
-   * Optional audience tag, rendered as a small badge in the sidebar group
-   * header — the two tracks share one nav tree but are explicitly labeled.
-   */
-  audience?: "mcp-dev" | "cli-user";
 }
 
-export const navGroups: NavGroup[] = [
-  {
-    title: "Getting Started",
-    items: [
-      { id: "introduction", label: "Introduction" },
-      { id: "installation", label: "Installation" },
-      { id: "quick-start", label: "Quick start" },
-      { id: "embed-cli", label: "Embed it / branded CLI" },
-    ],
-  },
-  {
-    title: "Track token usage (agent-CLI users)",
-    audience: "cli-user",
-    items: [
-      { id: "usage", label: "See your agent-CLI usage" },
-    ],
-  },
-  {
-    title: "Core API",
-    items: [
-      { id: "define-connector", label: "defineConnector" },
-      { id: "server", label: "Server" },
-      { id: "hooks", label: "Hooks" },
-      { id: "surfaces", label: "Commands, Skills & Subagents" },
-    ],
-  },
-  {
-    title: "Packaging",
-    items: [
-      { id: "packaging", label: "Packaging & marketplaces" },
-    ],
-  },
-  {
-    title: "Telemetry (MCP developers)",
-    audience: "mcp-dev",
-    items: [
-      { id: "telemetry-overview", label: "Overview" },
-      { id: "telemetry-surfaces", label: "The 5-surface model" },
-      { id: "leaderboards", label: "Leaderboards" },
-      { id: "privacy", label: "Privacy & opt-out" },
-    ],
-  },
-  {
-    title: "Reference",
-    items: [
-      { id: "cli", label: "CLI" },
-      { id: "platforms", label: "Platforms" },
-    ],
-  },
-  {
-    title: "Guides",
-    items: [
-      { id: "hooks-guide", label: "Hooks: cross-platform guide" },
-      { id: "add-a-platform", label: "Add a platform" },
-      { id: "operating-model", label: "Operating model" },
-      { id: "troubleshooting", label: "Troubleshooting" },
-    ],
-  },
-];
-
-/** Flat ordered list of every section id (for scroll-spy + prev/next). */
-export const sectionOrder: string[] = navGroups.flatMap((g) =>
-  g.items.map((i) => i.id),
-);
-
-export const sectionLabel: Record<string, string> = Object.fromEntries(
-  navGroups.flatMap((g) => g.items.map((i) => [i.id, i.label] as const)),
-);
-
-/** Set of every valid section id — used to detect unknown :section params. */
-export const sectionIds: ReadonlySet<string> = new Set(sectionOrder);
-
 /**
- * Per-section prev/next overrides for the pager, where raw sectionOrder would
- * route a reader into the other audience's track. `usage` (the agent-CLI
- * track's single page) exits forward to the CLI reference — where every usage
- * flag lives — instead of interleaving into the MCP-developer Core API.
+ * The two audience tracks. NOTE: "user" and "dev" are RESERVED section ids —
+ * the static /docs/user and /docs/dev track routes shadow /docs/:legacySection,
+ * so a section may never be named either. Section ids are NEVER renamed
+ * (legacy /docs/<id> URLs redirect 1:1 into their track), and section ids +
+ * heading anchor ids must stay globally unique across BOTH tracks (they key
+ * the search haystack and the cmdk value).
  */
-export const pagerOverrides: Record<
-  string,
-  { prev?: string; next?: string }
-> = {
-  usage: { prev: "quick-start", next: "cli" },
+export type TrackId = "user" | "dev";
+
+export interface TrackDef {
+  id: TrackId;
+  /** Human label ("MCP developer" / "Agent-CLI user"). */
+  label: string;
+  /** Emoji glyph used wherever the track is named. */
+  glyph: string;
+  /** Route prefix for every section in this track. */
+  basePath: string;
+  groups: NavGroup[];
+}
+
+export const tracks: Record<TrackId, TrackDef> = {
+  dev: {
+    id: "dev",
+    label: "MCP developer",
+    glyph: "🔌",
+    basePath: "/docs/dev",
+    groups: [
+      {
+        title: "Getting Started",
+        items: [
+          { id: "introduction", label: "Introduction" },
+          { id: "installation", label: "Installation" },
+          { id: "quick-start", label: "Quick start" },
+          { id: "embed-cli", label: "Embed it / branded CLI" },
+        ],
+      },
+      {
+        title: "Core API",
+        items: [
+          { id: "define-connector", label: "defineConnector" },
+          { id: "server", label: "Server" },
+          { id: "hooks", label: "Hooks" },
+          { id: "surfaces", label: "Commands, Skills & Subagents" },
+        ],
+      },
+      {
+        title: "Packaging",
+        items: [
+          { id: "packaging", label: "Packaging & marketplaces" },
+        ],
+      },
+      {
+        title: "Telemetry",
+        items: [
+          { id: "telemetry-overview", label: "Overview" },
+          { id: "telemetry-surfaces", label: "The 5-surface model" },
+          { id: "leaderboards", label: "Leaderboards" },
+          { id: "privacy", label: "Privacy & opt-out" },
+        ],
+      },
+      {
+        title: "Reference",
+        items: [
+          { id: "cli", label: "CLI" },
+          { id: "platforms", label: "Platforms" },
+        ],
+      },
+      {
+        title: "Guides",
+        items: [
+          { id: "hooks-guide", label: "Hooks: cross-platform guide" },
+          { id: "add-a-platform", label: "Add a platform" },
+          { id: "operating-model", label: "Operating model" },
+          { id: "troubleshooting", label: "Troubleshooting" },
+        ],
+      },
+    ],
+  },
+  user: {
+    id: "user",
+    label: "Agent-CLI user",
+    glyph: "🖥️",
+    basePath: "/docs/user",
+    groups: [
+      {
+        title: "Track your agent-CLI usage",
+        items: [
+          { id: "overview", label: "Overview & quick start" },
+          { id: "usage", label: "Reports & leaderboards" },
+          { id: "coverage-confidence", label: "Coverage & confidence" },
+        ],
+      },
+    ],
+  },
 };
 
-/** Per-section <meta name="description"> copy (for /docs/:section deep links). */
+/** Canonical track iteration order (dev first — matches the chooser cards). */
+export const trackIds: TrackId[] = ["dev", "user"];
+
+/** Flat ordered section ids per track (the pager's linear reading order). */
+export const trackOrder: Record<TrackId, string[]> = {
+  dev: tracks.dev.groups.flatMap((g) => g.items.map((i) => i.id)),
+  user: tracks.user.groups.flatMap((g) => g.items.map((i) => i.id)),
+};
+
+/** Valid section ids per track — detects unknown :section params per route. */
+export const trackSectionIds: Record<TrackId, ReadonlySet<string>> = {
+  dev: new Set(trackOrder.dev),
+  user: new Set(trackOrder.user),
+};
+
+/** Which track owns a section id (ids are globally unique across tracks). */
+export const trackOfSection: Record<string, TrackId> = Object.fromEntries(
+  trackIds.flatMap((t) => trackOrder[t].map((id) => [id, t] as const)),
+);
+
+/** Canonical route of a section: /docs/<track>/<id>. */
+export function sectionPath(id: string): string {
+  return `/docs/${trackOfSection[id]}/${id}`;
+}
+
+export const sectionLabel: Record<string, string> = Object.fromEntries(
+  trackIds.flatMap((t) =>
+    tracks[t].groups.flatMap((g) =>
+      g.items.map((i) => [i.id, i.label] as const),
+    ),
+  ),
+);
+
+/* ------------------------------------------------------------------ */
+/* Legacy /docs/:section redirects                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Every pre-track /docs/<section> URL is live on the public internet — each
+ * one client-redirects (Navigate replace) into its track. Consumed by
+ * LegacyDocsRedirect, which appends the URL #hash so in-page deep links
+ * (e.g. /docs/hooks#claude-vs-kilo) keep working.
+ */
+export const legacyRedirects: Record<string, string> = {
+  introduction: "/docs/dev/introduction",
+  installation: "/docs/dev/installation",
+  "quick-start": "/docs/dev/quick-start",
+  "embed-cli": "/docs/dev/embed-cli",
+  usage: "/docs/user/usage",
+  "define-connector": "/docs/dev/define-connector",
+  server: "/docs/dev/server",
+  hooks: "/docs/dev/hooks",
+  surfaces: "/docs/dev/surfaces",
+  packaging: "/docs/dev/packaging",
+  "telemetry-overview": "/docs/dev/telemetry-overview",
+  "telemetry-surfaces": "/docs/dev/telemetry-surfaces",
+  leaderboards: "/docs/dev/leaderboards",
+  privacy: "/docs/dev/privacy",
+  cli: "/docs/dev/cli",
+  platforms: "/docs/dev/platforms",
+  "hooks-guide": "/docs/dev/hooks-guide",
+  "add-a-platform": "/docs/dev/add-a-platform",
+  "operating-model": "/docs/dev/operating-model",
+  troubleshooting: "/docs/dev/troubleshooting",
+};
+
+/**
+ * Hash-aware overrides, keyed by "<id>#<hash>" and checked BEFORE
+ * legacyRedirects — for the two anchors whose CONTENT moved to a different
+ * page than the rest of their old section.
+ */
+export const legacyHashRedirects: Record<string, string> = {
+  // The quick-start Track B block now lives on the user-track overview page
+  // (which keeps the qs-user anchor id, so the appended hash still scrolls).
+  "quick-start#qs-user": "/docs/user/overview",
+  // "Coverage & confidence" is its own page now — page top IS the content.
+  "usage#usage-confidence": "/docs/user/coverage-confidence",
+  // The introduction's two-audience persona cards became the /docs chooser —
+  // the old anchor's content lives there, not on the dev-track introduction.
+  "introduction#two-audiences": "/docs",
+};
+
+/** Per-section <meta name="description"> copy (for /docs/<track>/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "agent-connector serves two audiences. MCP developers write their server + hooks once with defineConnector and deploy it natively across 29 AI-agent platforms with default local-first per-tool telemetry for their own wrapped server. Agent-CLI users author nothing — they run `agent-connector usage` to read their agent CLIs' own logs and see per-CLI / per-model token totals.",
+    "The MCP-developer track. Write your MCP server + hooks once with defineConnector and deploy natively across 29 AI-agent platforms with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
   installation:
     "Install agent-connector as a dependency of your connector package (npm install @ken-jo/agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
-    "The Quick start forks by audience. MCP developers: depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector to deploy their MCP everywhere — then verify with doctor, heal with upgrade, and reverse with uninstall. Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup to see the token usage of the agent CLIs they already use.",
+    "MCP developers: depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector to deploy their MCP everywhere — then verify with doctor, heal with upgrade, and reverse with uninstall.",
+  overview:
+    "Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup — no defineConnector, no config file, no install — to see the token usage of the agent CLIs you already use, aggregated by CLI, model, project, session, or day.",
+  "coverage-confidence":
+    "Local usage readers report host-logged exact counts; a few are host-estimated (labeled in the CONFIDENCE column, e.g. Kiro char/4). Five synced platforms (cursor, antigravity, antigravity-cli, trae, warp) are reported as skipped — requires sync — unless a local cache already exists.",
   "embed-cli":
     "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
   "define-connector":

@@ -1,22 +1,30 @@
+import { Link } from "react-router-dom";
 import { ChevronRight, Pencil } from "lucide-react";
-import { navGroups, sectionLabel } from "./docs-data";
+import { sectionLabel, tracks, type TrackId } from "./docs-data";
 
 const GITHUB_REPO = "https://github.com/ken-jo/agent-connector";
 const EDIT_PATH = "site/src/components/docs/DocsContent.tsx";
 const EDIT_URL = `${GITHUB_REPO}/edit/main/${EDIT_PATH}`;
 
-/** Group title that owns a section id (the breadcrumb's first crumb). */
-function groupOf(id: string): string | undefined {
-  return navGroups.find((g) => g.items.some((i) => i.id === id))?.title;
+/** Group title that owns a section id within a track (the breadcrumb crumb). */
+function groupOf(track: TrackId, id: string): string | undefined {
+  return tracks[track].groups.find((g) => g.items.some((i) => i.id === id))
+    ?.title;
 }
 
 /**
- * Docs content header: a breadcrumb (group → page), an "Edit this page on
- * GitHub" link, and a subtle version / last-updated line. `activeId` is the
- * section currently in view (from scroll-spy) so the crumb tracks scrolling.
+ * Docs content header: a breadcrumb (Docs → track → group → page), an "Edit
+ * this page on GitHub" link, and a subtle version / last-updated line.
+ * `activeId` is the section currently routed; `track` is its audience track.
  */
-export function DocsHeader({ activeId }: { activeId: string }) {
-  const group = groupOf(activeId);
+export function DocsHeader({
+  activeId,
+  track,
+}: {
+  activeId: string;
+  track: TrackId;
+}) {
+  const group = groupOf(track, activeId);
   const page = sectionLabel[activeId];
 
   return (
@@ -24,7 +32,13 @@ export function DocsHeader({ activeId }: { activeId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Breadcrumb" className="min-w-0">
           <ol className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <li className="font-mono text-xs uppercase tracking-wide">Docs</li>
+            <li className="font-mono text-xs uppercase tracking-wide">
+              <Link to="/docs" className="transition-colors hover:text-foreground">
+                Docs
+              </Link>
+            </li>
+            <ChevronRight className="size-3.5 shrink-0 opacity-60" />
+            <li className="truncate">{tracks[track].label}</li>
             {group ? (
               <>
                 <ChevronRight className="size-3.5 shrink-0 opacity-60" />

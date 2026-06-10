@@ -3,7 +3,7 @@ import { Command } from "cmdk";
 import { useNavigate } from "react-router-dom";
 import { FileText, Hash, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { navGroups } from "./docs-data";
+import { trackIds, tracks } from "./docs-data";
 import { searchIndex, searchHaystack, type SearchEntry } from "./search-index";
 
 /* ------------------------------------------------------------------ */
@@ -91,12 +91,22 @@ export function DocsSearchButton({
 /* Command palette dialog                                              */
 /* ------------------------------------------------------------------ */
 
-/** Group order matches the sidebar so results read in a familiar order. */
-const groupOrder = navGroups.map((g) => g.title);
+/**
+ * Result-group headings carry the track label so every result row has visible
+ * track context, e.g. "MCP developer · Core API". Order matches the chooser
+ * (dev first) then each track's sidebar.
+ */
+const groupOrder = trackIds.flatMap((t) =>
+  tracks[t].groups.map((g) => `${tracks[t].label} · ${g.title}`),
+);
 
-/** Map a section id → its sidebar group title (for result grouping). */
+/** Map a section id → its "track · group" heading (for result grouping). */
 const groupTitleOf: Record<string, string> = Object.fromEntries(
-  navGroups.flatMap((g) => g.items.map((i) => [i.id, g.title] as const)),
+  trackIds.flatMap((t) =>
+    tracks[t].groups.flatMap((g) =>
+      g.items.map((i) => [i.id, `${tracks[t].label} · ${g.title}`] as const),
+    ),
+  ),
 );
 
 /**
@@ -133,14 +143,15 @@ export function DocsSearchDialog({
   const go = React.useCallback(
     (entry: SearchEntry) => {
       onOpenChange(false);
-      // Navigate to the owning section's own page. Section results land on the
-      // page; heading results add the H3 anchor as a #hash so the page deep-links
-      // to that sub-heading. We also imperatively scroll in case we're already on
-      // that page (no nav event fires for an identical route).
+      // Navigate to the owning section's own page inside its track. Section
+      // results land on the page; heading results add the H3 anchor as a #hash
+      // so the page deep-links to that sub-heading. We also imperatively scroll
+      // in case we're already on that page (no nav event fires for an identical
+      // route).
       const isHeading = entry.kind === "heading";
       const path = isHeading
-        ? `/docs/${entry.sectionId}#${entry.id}`
-        : `/docs/${entry.sectionId}`;
+        ? `/docs/${entry.track}/${entry.sectionId}#${entry.id}`
+        : `/docs/${entry.track}/${entry.sectionId}`;
       navigate(path);
       window.requestAnimationFrame(() => {
         const target = isHeading

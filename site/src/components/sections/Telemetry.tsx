@@ -143,7 +143,7 @@ export function Telemetry() {
               logs — whole-conversation token totals per CLI / model, never
               per-tool.{" "}
               <Link
-                to="/docs/usage"
+                to="/docs/user/usage"
                 className="underline underline-offset-4 transition-colors hover:text-foreground"
               >
                 See your agent-CLI usage →

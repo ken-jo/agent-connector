@@ -80,7 +80,7 @@ export function Hero() {
           <p className="animate-fade-up mt-2 text-xs text-muted-foreground">
             Not building anything?{" "}
             <Link
-              to="/docs/usage"
+              to="/docs/user"
               className="underline underline-offset-4 transition-colors hover:text-foreground"
             >
               See your agent CLIs&apos; token usage →

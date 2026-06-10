@@ -60,80 +60,31 @@ export function Introduction() {
   return (
     <DocSection id="introduction" eyebrow="Getting Started" title="Introduction">
       <Lead>
-        agent-connector serves <strong>two distinct audiences</strong>. If you{" "}
-        <strong>build</strong> an MCP integration, agent-connector deploys it
-        everywhere and measures your own server&apos;s per-tool tokens. If you
-        just <strong>use</strong> agent CLIs, agent-connector reads their logs to
-        show you per-CLI / per-model token totals. Pick your track below — they
-        do not overlap.
+        The <strong>MCP-developer track</strong>. You write your MCP server +
+        hooks (and optionally commands, skills, subagents){" "}
+        <strong>once</strong> with <C>defineConnector(&#123;...&#125;)</C>, then
+        deploy across every detected agent platform — shipping a branded CLI or
+        running <C>npx @ken-jo/agent-connector</C>. You get per-MCP and per-tool
+        token counts for <strong>your own wrapped server</strong>.
       </Lead>
 
-      <H3 id="two-audiences">Two audiences, two tracks</H3>
-      <div className="not-prose my-6 grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card/40 p-5 shadow-sm">
-          <div className="mb-2 flex items-center gap-2">
-            <span aria-hidden className="text-lg">
-              🔌
-            </span>
-            <span className="text-base font-semibold text-foreground">
-              MCP developer
-            </span>
-          </div>
-          <p className="text-sm leading-relaxed text-foreground/90">
-            You write your MCP server + hooks (and optionally commands, skills,
-            subagents) <strong>once</strong> with{" "}
-            <C>defineConnector(&#123;...&#125;)</C>, then deploy across every
-            detected agent platform — shipping a branded CLI or running{" "}
-            <C>npx @ken-jo/agent-connector</C>. You get per-MCP and per-tool
-            token counts for <strong>your own wrapped server</strong>.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Your track:{" "}
-            <Link className="underline hover:text-foreground" to="/docs/quick-start">
-              Quick start
-            </Link>
-            ,{" "}
-            <Link className="underline hover:text-foreground" to="/docs/define-connector">
-              defineConnector
-            </Link>
-            , and{" "}
-            <Link className="underline hover:text-foreground" to="/docs/telemetry-overview">
-              Telemetry
-            </Link>
-            .
-          </p>
-        </div>
-        <div className="rounded-xl border border-border bg-card/40 p-5 shadow-sm">
-          <div className="mb-2 flex items-center gap-2">
-            <span aria-hidden className="text-lg">
-              🖥️
-            </span>
-            <span className="text-base font-semibold text-foreground">
-              Agent-CLI user
-            </span>
-          </div>
-          <p className="text-sm leading-relaxed text-foreground/90">
-            You already run Claude Code / Codex / Cursor and have{" "}
-            <strong>not</strong> authored a connector. With zero setup you run{" "}
-            <C>agent-connector usage</C> to scan each agent CLI&apos;s own session
-            logs and see how many tokens they&apos;re burning, ranked by
-            CLI / model / project / session / day.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Your track:{" "}
-            <Link className="underline hover:text-foreground" to="/docs/usage">
-              See your agent-CLI usage
-            </Link>{" "}
-            (one connector-free command — no <C>defineConnector</C>, no install).
-          </p>
-        </div>
-      </div>
+      <P>
+        Just <strong>use</strong> agent CLIs and have <strong>not</strong>{" "}
+        authored a connector?{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user">
+          See the agent-CLI user track →
+        </Link>{" "}
+        (one connector-free command — no <C>defineConnector</C>, no install).
+      </P>
 
       <Callout title="The one accuracy-critical line between the tracks" tone="warn">
-        The connector-free <C>usage</C> path reports{" "}
-        <strong>whole-conversation totals</strong> per agent CLI / model /
-        project / session / day — it does <strong>not</strong> and cannot
-        itemize cost by individual MCP server or tool, because agent CLIs
+        The connector-free{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage">
+          <C>usage</C>
+        </Link>{" "}
+        path reports <strong>whole-conversation totals</strong> per agent CLI /
+        model / project / session / day — it does <strong>not</strong> and
+        cannot itemize cost by individual MCP server or tool, because agent CLIs
         don&apos;t log per-tool token attribution.{" "}
         <strong>Per-MCP and per-tool numbers</strong> come only from the
         serve-proxy telemetry that an MCP developer&apos;s own connector
@@ -142,7 +93,7 @@ export function Introduction() {
         the MCPs you use cost&quot; (only available as host totals, not per-MCP).
       </Callout>
 
-      <H3 id="two-pillars">Two pillars (MCP-developer track)</H3>
+      <H3 id="two-pillars">Two pillars</H3>
       <List>
         <LI>
           <strong>Single-API multi-platform deployment.</strong> One declarative
@@ -190,7 +141,7 @@ export function Installation() {
       <P>
         Then expose every subcommand under your own brand with{" "}
         <C>createConnectorCli</C> from the <C>agent-connector/cli</C> export — the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/embed-cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/embed-cli">
           branded-CLI flow
         </Link>
         . Each command is auto-scoped to your connector, so your users never type{" "}
@@ -226,47 +177,25 @@ export function QuickStart() {
   return (
     <DocSection id="quick-start" eyebrow="Getting Started" title="Quick start">
       <Lead>
-        The Quick start <strong>forks by audience</strong>. Track B — the{" "}
-        <strong>agent-CLI user</strong> who just wants to see the token usage of
-        the CLIs they already use — comes first: it is a few lines and needs no
-        connector. Track A is the <strong>MCP developer</strong> deploying their
-        own MCP everywhere; everything after it is theirs.
-      </Lead>
-
-      <H3 id="qs-user">
-        🖥️ Track B — Agent-CLI user: see the usage of the CLIs I use
-      </H3>
-      <P>
-        No <C>defineConnector</C>, no config file, no install. If you simply want
-        to know how many tokens your agent CLIs are burning, run one command and
-        agent-connector reads their own session logs read-only:
-      </P>
-      <CodeBlock code={S.usageQuickStartSnippet} language="bash" filename="terminal" />
-      <Callout title="What this can and cannot show" tone="warn">
-        <C>usage</C> reports <strong>whole-conversation totals</strong> grouped
-        by platform / model / project / session / day — it does{" "}
-        <strong>not</strong> itemize cost per MCP server or per tool, because
-        agent CLIs don&apos;t log per-tool token attribution. Per-MCP and
-        per-tool token costs require an MCP to run through agent-connector&apos;s
-        serve proxy, which is the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/quick-start#qs-developer">
-          MCP-developer track
-        </Link>{" "}
-        below. Full details on the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/usage">
-          usage page
-        </Link>
-        . That&apos;s the entire agent-CLI track — everything below is Track A.
-      </Callout>
-
-      <H3 id="qs-developer">
-        🔌 Track A — MCP developer: deploy MY MCP everywhere
-      </H3>
-      <P>
-        Three steps: depend on agent-connector, declare your connector with{" "}
+        The <strong>MCP developer</strong> deploying their own MCP everywhere —
+        three steps: depend on agent-connector, declare your connector with{" "}
         <C>defineConnector</C>, then <strong>either</strong> ship a branded CLI{" "}
         <strong>or</strong> run <C>npx @ken-jo/agent-connector</C> from the
-        project. Add the dependency and create an{" "}
+        project.
+      </Lead>
+
+      <Callout title="Just want to see the usage of the CLIs you already use?" tone="note">
+        No <C>defineConnector</C>, no config file, no install. If you simply want
+        to know how many tokens your agent CLIs are burning, that is the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user">
+          agent-CLI user track
+        </Link>{" "}
+        — one connector-free command that reads their own session logs
+        read-only.
+      </Callout>
+
+      <P>
+        Add the dependency and create an{" "}
         <C>agent-connector.config.&#123;mjs,js,json&#125;</C> at your project root
         (found by walking up from the project dir, or pass{" "}
         <C>--connector &lt;path&gt;</C>):
@@ -274,7 +203,7 @@ export function QuickStart() {
       <CodeBlock code={S.quickStartSnippet} language="bash" filename="terminal" />
       <P>
         The config below is the canonical example — see{" "}
-        <Link className="underline hover:text-foreground" to="/docs/define-connector">
+        <Link className="underline hover:text-foreground" to="/docs/dev/define-connector">
           defineConnector
         </Link>{" "}
         for the full field reference. Every command is idempotent, reversible,
@@ -291,7 +220,7 @@ export function QuickStart() {
         Ship a <strong>branded CLI</strong> so your users run{" "}
         <C>&lt;your-tool&gt; install</C> / <C>&lt;your-tool&gt; leaderboard</C>{" "}
         (auto-scoped to your connector — see{" "}
-        <Link className="underline hover:text-foreground" to="/docs/embed-cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/embed-cli">
           Embed it / branded CLI
         </Link>
         ), or just run <C>npx @ken-jo/agent-connector …</C> from the project. Either way,
@@ -374,7 +303,7 @@ export function EmbedCli() {
         one <C>~/.agent-connector</C> runtime that <C>&lt;your-tool&gt; install</C>{" "}
         wires every host&apos;s native config back to. Two packages that each ship
         their own brand share that infrastructure — see the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/operating-model">
+        <Link className="underline hover:text-foreground" to="/docs/dev/operating-model">
           operating model
         </Link>
         .
@@ -518,7 +447,7 @@ export function HooksSection() {
         This page is the API reference. For the full canonical-event × platform{" "}
         <strong>mapping matrix</strong>, per-platform tabs, and the Claude Code ↔
         Kilo CLI comparison, see the dedicated{" "}
-        <Link className="underline hover:text-foreground" to="/docs/hooks-guide">
+        <Link className="underline hover:text-foreground" to="/docs/dev/hooks-guide">
           Hooks: cross-platform guide
         </Link>
         .
@@ -734,14 +663,14 @@ export function SurfacesSection() {
 }
 
 /* ================================================================== */
-/* Track token usage (agent-CLI users — Audience B)                    */
+/* Track your agent-CLI usage (the user track — Audience B)            */
 /* ================================================================== */
 
-export function Usage() {
+export function UserOverview() {
   return (
     <DocSection
-      id="usage"
-      eyebrow="Track token usage (agent-CLI users)"
+      id="overview"
+      eyebrow="Track your agent-CLI usage"
       title="See your agent-CLI usage"
     >
       <Lead>
@@ -760,12 +689,50 @@ export function Usage() {
         prompts or results.
       </Callout>
 
+      {/* The qs-user anchor id is load-bearing: the legacy
+          /docs/quick-start#qs-user deep link redirects here and scrolls to it. */}
+      <H3 id="qs-user">Run it — zero setup</H3>
+      <P>
+        No <C>defineConnector</C>, no config file, no install. If you simply want
+        to know how many tokens your agent CLIs are burning, run one command and
+        agent-connector reads their own session logs read-only:
+      </P>
+      <CodeBlock code={S.usageQuickStartSnippet} language="bash" filename="terminal" />
+      <Callout title="What this can and cannot show" tone="warn">
+        <C>usage</C> reports <strong>whole-conversation totals</strong> grouped
+        by platform / model / project / session / day — it does{" "}
+        <strong>not</strong> itemize cost per MCP server or per tool, because
+        agent CLIs don&apos;t log per-tool token attribution. Per-MCP and
+        per-tool token costs require an MCP to run through agent-connector&apos;s
+        serve proxy, which is the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/quick-start">
+          MCP-developer track
+        </Link>
+        . Full details on the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage">
+          usage page
+        </Link>
+        .
+      </Callout>
+    </DocSection>
+  );
+}
+
+export function Usage() {
+  return (
+    <DocSection
+      id="usage"
+      eyebrow="Track your agent-CLI usage"
+      title="Usage reports & leaderboards"
+    >
+      <Lead>
+        <C>agent-connector usage</C> scans each agent CLI&apos;s own native
+        session logs/DBs <strong>read-only</strong> and shows token usage
+        aggregated by agent CLI, model, project, session, or day — as a report,
+        a leaderboard, or an export.
+      </Lead>
+
       <H3 id="usage-run">Run it</H3>
-      <CodeBlock
-        code={S.usageQuickStartSnippet}
-        language="bash"
-        filename="terminal"
-      />
       <P>
         Group with <C>--by platform|project|session|model|day</C>, scope a
         window with <C>--since 7d</C>, restrict to one host with{" "}
@@ -790,15 +757,37 @@ export function Usage() {
         whole-conversation totals. This is a current capability boundary of host
         logs. <strong>Per-MCP and per-tool token costs require the MCP to run
         through agent-connector&apos;s serve proxy</strong>, which is the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/telemetry-overview">
+        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-overview">
           MCP-developer telemetry track
         </Link>{" "}
         — and even then only for a server <em>your own</em> connector declares
         and wraps, not for an arbitrary MCP you didn&apos;t author.
       </Callout>
 
-      <H3 id="usage-confidence">Coverage &amp; confidence</H3>
       <P>
+        See the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/cli">
+          CLI reference
+        </Link>{" "}
+        for every <C>usage</C> flag. <C>usage</C> is the only token view that
+        works with no setup — the unified{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/leaderboards">
+          leaderboard
+        </Link>
+        &apos;s other two boards need a connector or the opt-in usage hook.
+      </P>
+    </DocSection>
+  );
+}
+
+export function CoverageConfidence() {
+  return (
+    <DocSection
+      id="coverage-confidence"
+      eyebrow="Track your agent-CLI usage"
+      title="Coverage & confidence"
+    >
+      <Lead>
         Local readers (claude-code, codex, gemini-cli, and others) report
         host-logged <strong>exact</strong> counts; a few readers are{" "}
         <strong>host-estimated</strong> (labeled in the CONFIDENCE column, e.g.
@@ -806,7 +795,7 @@ export function Usage() {
         (<C>requires sync — no local cache found</C>) unless a tokscale-style
         local cache already exists, because agent-connector does not populate
         that cache:
-      </P>
+      </Lead>
       <List>
         {syncedPlatforms.map((p) => (
           <LI key={p}>
@@ -816,19 +805,14 @@ export function Usage() {
       </List>
       <P>
         See the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/troubleshooting#requires-sync">
+        <Link className="underline hover:text-foreground" to="/docs/dev/troubleshooting#requires-sync">
           troubleshooting notes
         </Link>{" "}
         for what the skip line means (informational, not an error), and the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/cli">
           CLI reference
         </Link>{" "}
-        for every <C>usage</C> flag. <C>usage</C> is the only token view that
-        works with no setup — the unified{" "}
-        <Link className="underline hover:text-foreground" to="/docs/leaderboards">
-          leaderboard
-        </Link>
-        &apos;s other two boards need a connector or the opt-in usage hook.
+        for every <C>usage</C> flag.
       </P>
     </DocSection>
   );
@@ -854,7 +838,13 @@ export function TelemetryOverview() {
         Input = <C>params.arguments</C>, output = <C>result.content[]</C> +{" "}
         <C>structuredContent</C>. With <C>measureToolDefs</C> (default on) it
         also tokenizes the <C>tools/list</C> schemas once → the fixed
-        &quot;cost of merely defining my tools&quot; per-turn overhead.
+        &quot;cost of merely defining my tools&quot; per-turn overhead. This
+        measures the server <strong>your connector declares and wraps</strong>;
+        to see per-CLI token totals without authoring a connector, use the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage">
+          connector-free usage track
+        </Link>{" "}
+        instead.
       </P>
       <CodeBlock code={S.serveSnippet} language="bash" filename="wrapped MCP entry" />
 
@@ -1099,7 +1089,7 @@ export function TelemetrySurfaces() {
         an estimate is never read as exact — see{" "}
         <Link
           className="underline hover:text-foreground"
-          to="/docs/telemetry-overview#confidence-sources"
+          to="/docs/dev/telemetry-overview#confidence-sources"
         >
           the confidence sources table
         </Link>
@@ -1164,7 +1154,7 @@ export function Leaderboards() {
       <Callout title="Agent-CLI users: use `usage`, not this unified board" tone="note">
         Only the 🖥️ Host/User board works with <strong>no setup</strong>. If you
         haven&apos;t authored a connector, the connector-free{" "}
-        <Link className="underline hover:text-foreground" to="/docs/usage">
+        <Link className="underline hover:text-foreground" to="/docs/user/usage">
           <C>agent-connector usage</C>
         </Link>{" "}
         command is your primary entry point — it draws from the same
@@ -1241,7 +1231,7 @@ export function Leaderboards() {
         As a connector developer you usually want only <strong>your</strong>{" "}
         connector&apos;s usage. Pass <C>--connector &lt;id&gt;</C> to filter the{" "}
         🔌 MCP/Plugin section — and that is exactly what a{" "}
-        <Link className="underline hover:text-foreground" to="/docs/embed-cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/embed-cli">
           branded CLI
         </Link>{" "}
         injects for you: <C>&lt;your-tool&gt; leaderboard</C> ≈{" "}
@@ -1259,7 +1249,7 @@ export function Leaderboards() {
         For the developer/connector axis there is also{" "}
         <C>agent-connector telemetry leaderboard --by mcp|tool|surface</C>: the{" "}
         <C>--by surface</C> variant ranks across the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/telemetry-surfaces">
+        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-surfaces">
           five developer surfaces
         </Link>{" "}
         (server + hook runtime rows plus the static command/skill/subagent
@@ -1670,7 +1660,7 @@ export function Troubleshooting() {
         <strong>&quot;hooks unavailable here&quot;</strong> for them; this is
         expected, not an error. Declared hooks are simply skipped (with a
         warning) on those targets. See{" "}
-        <Link className="underline hover:text-foreground" to="/docs/hooks#paradigms">
+        <Link className="underline hover:text-foreground" to="/docs/dev/hooks#paradigms">
           the three paradigms
         </Link>
         .
@@ -1771,9 +1761,10 @@ export function Troubleshooting() {
 /**
  * Each leaf section id → the component that renders ONLY that section's
  * content. DocsPage looks the active :section param up here and renders the
- * single matching node, so /docs/:section is its own page (not the whole doc).
- * HooksGuideSection / PackagingGuideSection are already standalone components —
- * registered here by their own section id (hooks-guide / packaging).
+ * single matching node, so /docs/<track>/:section is its own page (not the
+ * whole doc). HooksGuideSection / PackagingGuideSection are already standalone
+ * components — registered here by their own section id (hooks-guide /
+ * packaging).
  */
 export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   introduction: Introduction,
@@ -1786,7 +1777,9 @@ export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   "hooks-guide": HooksGuideSection,
   surfaces: SurfacesSection,
   packaging: PackagingGuideSection,
+  overview: UserOverview,
   usage: Usage,
+  "coverage-confidence": CoverageConfidence,
   "telemetry-overview": TelemetryOverview,
   "telemetry-surfaces": TelemetrySurfaces,
   leaderboards: Leaderboards,

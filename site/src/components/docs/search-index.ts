@@ -1,19 +1,30 @@
 /**
- * Static docs search index, built once at module load from the data-driven nav
- * structure. Two tiers of results:
- *  - "section" entries: the top-level docs sections (sidebar pages).
+ * Static docs search index, built once at module load from the data-driven
+ * track/nav structure. One palette spans BOTH audience tracks. Two tiers of
+ * results:
+ *  - "section" entries: the per-track docs sections (sidebar pages).
  *  - "heading" entries: the H3 sub-headings inside each section (anchor ids),
  *    so ⌘K can jump straight to e.g. "Confidence sources" or "ServerDef".
  *
  * Every entry resolves to a docs anchor id; selecting it navigates to
- * /docs#<id> and the browser/scroll handles the rest. Headings here mirror the
+ * /docs/<track>/<sectionId> (+ #<id> for headings). Headings here mirror the
  * `id="..."` anchors authored in DocsContent.tsx — keep them in sync.
+ *
+ * INVARIANT: section ids AND heading anchor ids must stay GLOBALLY unique
+ * across BOTH tracks — each entry's id is the cmdk item `value` and the
+ * `searchHaystack` key, so a collision would shadow a result.
  */
 
-import { navGroups, sectionLabel, sectionDescription } from "./docs-data";
+import {
+  sectionDescription,
+  sectionLabel,
+  trackIds,
+  tracks,
+  type TrackId,
+} from "./docs-data";
 
 export interface SearchEntry {
-  /** Anchor id to navigate to (/docs#<id>). */
+  /** Anchor id to navigate to (globally unique across both tracks). */
   id: string;
   /** Display title for the result row. */
   title: string;
@@ -21,6 +32,8 @@ export interface SearchEntry {
   sectionId: string;
   /** Human label of the owning section. */
   sectionLabel: string;
+  /** The audience track that owns the section (drives the result path). */
+  track: TrackId;
   /** "section" = a sidebar page; "heading" = an H3 anchor within a page. */
   kind: "section" | "heading";
   /** Short blurb (sections only) to enrich the result + improve matching. */
@@ -35,18 +48,15 @@ export interface SearchEntry {
  */
 const sectionHeadings: Record<string, { id: string; title: string }[]> = {
   introduction: [
-    { id: "two-audiences", title: "Two audiences, two tracks" },
     { id: "two-pillars", title: "Two pillars" },
   ],
   installation: [
     { id: "optional-global", title: "Optional: use the CLI directly" },
     { id: "from-source", title: "From source" },
   ],
-  "quick-start": [
-    {
-      id: "qs-user",
-      title: "🖥️ Track B — Agent-CLI user: see the usage of the CLIs I use",
-    },
+  "quick-start": [],
+  overview: [
+    { id: "qs-user", title: "Run it — zero setup" },
   ],
   "embed-cli": [
     { id: "embed-package", title: "Depend on it + add a bin" },
@@ -56,8 +66,8 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
   ],
   usage: [
     { id: "usage-run", title: "Run it" },
-    { id: "usage-confidence", title: "Coverage & confidence" },
   ],
+  "coverage-confidence": [],
   "define-connector": [
     { id: "connector-config", title: "ConnectorConfig" },
     { id: "validation-rules", title: "Top-level validation rules" },
@@ -132,28 +142,37 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
   ],
 };
 
-/** Flat, ordered search index: each section followed by its headings. */
-export const searchIndex: SearchEntry[] = navGroups.flatMap((group) =>
-  group.items.flatMap((item) => {
-    const label = sectionLabel[item.id] ?? item.label;
-    const section: SearchEntry = {
-      id: item.id,
-      title: item.label,
-      sectionId: item.id,
-      sectionLabel: label,
-      kind: "section",
-      description: sectionDescription[item.id],
-      keywords: group.title,
-    };
-    const headings = (sectionHeadings[item.id] ?? []).map<SearchEntry>((h) => ({
-      id: h.id,
-      title: h.title,
-      sectionId: item.id,
-      sectionLabel: label,
-      kind: "heading",
-    }));
-    return [section, ...headings];
-  }),
+/**
+ * Flat, ordered search index: dev track first, then user (matching the
+ * chooser card order); each section followed by its headings.
+ */
+export const searchIndex: SearchEntry[] = trackIds.flatMap((t) =>
+  tracks[t].groups.flatMap((group) =>
+    group.items.flatMap((item) => {
+      const label = sectionLabel[item.id] ?? item.label;
+      const section: SearchEntry = {
+        id: item.id,
+        title: item.label,
+        sectionId: item.id,
+        sectionLabel: label,
+        track: t,
+        kind: "section",
+        description: sectionDescription[item.id],
+        keywords: `${tracks[t].label} ${group.title}`,
+      };
+      const headings = (sectionHeadings[item.id] ?? []).map<SearchEntry>(
+        (h) => ({
+          id: h.id,
+          title: h.title,
+          sectionId: item.id,
+          sectionLabel: label,
+          track: t,
+          kind: "heading",
+        }),
+      );
+      return [section, ...headings];
+    }),
+  ),
 );
 
 /** Precomputed lowercase haystack per entry id (title + section + blurb). */

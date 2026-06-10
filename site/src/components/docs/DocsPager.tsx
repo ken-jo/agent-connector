@@ -1,27 +1,31 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { sectionOrder, sectionLabel, navGroups, pagerOverrides } from "./docs-data";
+import { sectionLabel, trackOrder, tracks, type TrackId } from "./docs-data";
 
 /** Group title that owns a given section id (for the pager sub-label). */
-function groupOf(id: string): string | undefined {
-  return navGroups.find((g) => g.items.some((i) => i.id === id))?.title;
+function groupOf(track: TrackId, id: string): string | undefined {
+  return tracks[track].groups.find((g) => g.items.some((i) => i.id === id))
+    ?.title;
 }
 
 /**
- * Prev / next page footer pager, driven by sectionOrder + sectionLabel, with
- * per-section pagerOverrides so a track-terminal page (e.g. the agent-CLI
- * `usage` page) doesn't interleave into the other audience's reading order.
+ * Prev / next page footer pager. Each track's reading order is strictly
+ * linear (trackOrder), so a track-terminal page simply has no next — the
+ * cross-track links live in the page content, never in the pager.
  */
-export function DocsPager({ activeId }: { activeId: string }) {
-  const idx = sectionOrder.indexOf(activeId);
+export function DocsPager({
+  activeId,
+  track,
+}: {
+  activeId: string;
+  track: TrackId;
+}) {
+  const order = trackOrder[track];
+  const idx = order.indexOf(activeId);
   if (idx === -1) return null;
 
-  const override = pagerOverrides[activeId];
-  const prevId =
-    override?.prev ?? (idx > 0 ? sectionOrder[idx - 1] : undefined);
-  const nextId =
-    override?.next ??
-    (idx < sectionOrder.length - 1 ? sectionOrder[idx + 1] : undefined);
+  const prevId = idx > 0 ? order[idx - 1] : undefined;
+  const nextId = idx < order.length - 1 ? order[idx + 1] : undefined;
 
   if (!prevId && !nextId) return null;
 
@@ -32,7 +36,7 @@ export function DocsPager({ activeId }: { activeId: string }) {
     >
       {prevId ? (
         <Link
-          to={`/docs/${prevId}`}
+          to={`/docs/${track}/${prevId}`}
           className="group flex flex-col rounded-xl border border-border bg-card/40 p-4 transition-colors hover:border-foreground/30 hover:bg-card/70"
         >
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -40,7 +44,7 @@ export function DocsPager({ activeId }: { activeId: string }) {
             Previous
           </span>
           <span className="mt-1 text-[0.7rem] uppercase tracking-wide text-muted-foreground/70">
-            {groupOf(prevId)}
+            {groupOf(track, prevId)}
           </span>
           <span className="mt-0.5 font-medium text-foreground">
             {sectionLabel[prevId]}
@@ -51,7 +55,7 @@ export function DocsPager({ activeId }: { activeId: string }) {
       )}
       {nextId ? (
         <Link
-          to={`/docs/${nextId}`}
+          to={`/docs/${track}/${nextId}`}
           className="group flex flex-col rounded-xl border border-border bg-card/40 p-4 text-right transition-colors hover:border-foreground/30 hover:bg-card/70 sm:items-end"
         >
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -59,7 +63,7 @@ export function DocsPager({ activeId }: { activeId: string }) {
             <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
           </span>
           <span className="mt-1 text-[0.7rem] uppercase tracking-wide text-muted-foreground/70">
-            {groupOf(nextId)}
+            {groupOf(track, nextId)}
           </span>
           <span className="mt-0.5 font-medium text-foreground">
             {sectionLabel[nextId]}

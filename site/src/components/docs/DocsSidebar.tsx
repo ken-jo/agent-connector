@@ -1,21 +1,27 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight } from "lucide-react";
+import { ArrowLeftRight, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { navGroups } from "./docs-data";
+import { tracks, type TrackId } from "./docs-data";
 
 interface DocsSidebarProps {
   activeId: string;
+  track: TrackId;
   onNavigate?: () => void;
   className?: string;
 }
 
-const STORAGE_KEY = "agent-connector.docs.collapsed-groups";
+/**
+ * Collapse state is persisted per track — group titles like "Getting Started"
+ * could otherwise collide across the two tracks' sidebars.
+ */
+const storageKey = (track: TrackId) =>
+  `agent-connector.docs.collapsed-groups.${track}`;
 
 /** Read the persisted set of collapsed group titles (best-effort). */
-function readCollapsed(): Set<string> {
+function readCollapsed(track: TrackId): Set<string> {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey(track));
     if (!raw) return new Set();
     const arr = JSON.parse(raw);
     return Array.isArray(arr) ? new Set(arr.filter((x) => typeof x === "string")) : new Set();
@@ -26,11 +32,13 @@ function readCollapsed(): Set<string> {
 
 export function DocsSidebar({
   activeId,
+  track,
   onNavigate,
   className,
 }: DocsSidebarProps) {
+  const navGroups = tracks[track].groups;
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() =>
-    typeof window === "undefined" ? new Set() : readCollapsed(),
+    typeof window === "undefined" ? new Set() : readCollapsed(track),
   );
 
   // The group that owns the currently-active section — it is force-open so the
@@ -38,24 +46,45 @@ export function DocsSidebar({
   const activeGroupTitle = React.useMemo(() => {
     const g = navGroups.find((grp) => grp.items.some((i) => i.id === activeId));
     return g?.title;
-  }, [activeId]);
+  }, [navGroups, activeId]);
 
-  const toggle = React.useCallback((title: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(title)) next.delete(title);
-      else next.add(title);
-      try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
+  const toggle = React.useCallback(
+    (title: string) => {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        if (next.has(title)) next.delete(title);
+        else next.add(title);
+        try {
+          window.localStorage.setItem(
+            storageKey(track),
+            JSON.stringify([...next]),
+          );
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+    },
+    [track],
+  );
 
   return (
     <nav aria-label="Docs sections" className={cn("text-sm", className)}>
+      {/* Track header — which audience this sidebar belongs to + the way out. */}
+      <div className="mb-5 px-3">
+        <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-foreground">
+          <span aria-hidden>{tracks[track].glyph}</span> {tracks[track].label}{" "}
+          track
+        </p>
+        <Link
+          to="/docs"
+          onClick={onNavigate}
+          className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeftRight className="size-3" />
+          Switch track →
+        </Link>
+      </div>
       <ul className="space-y-5">
         {navGroups.map((group) => {
           // Open when not explicitly collapsed, OR when it owns the active item.
@@ -78,18 +107,6 @@ export function DocsSidebar({
                   )}
                 />
                 {group.title}
-                {group.audience ? (
-                  <span
-                    className={cn(
-                      "ml-auto shrink-0 rounded-full border px-1.5 py-px font-mono text-[0.58rem] font-medium normal-case tracking-normal",
-                      group.audience === "cli-user"
-                        ? "border-emerald-500/40 text-emerald-500"
-                        : "border-blue-500/40 text-blue-400",
-                    )}
-                  >
-                    {group.audience === "cli-user" ? "🖥️ user" : "🔌 dev"}
-                  </span>
-                ) : null}
               </button>
               {isOpen ? (
                 <ul
@@ -101,7 +118,7 @@ export function DocsSidebar({
                     return (
                       <li key={item.id}>
                         <Link
-                          to={`/docs/${item.id}`}
+                          to={`/docs/${track}/${item.id}`}
                           onClick={onNavigate}
                           aria-current={active ? "page" : undefined}
                           className={cn(

@@ -351,7 +351,7 @@ everywhere.
 
 > `hook` and `serve` also exist — internal entrypoints the written host configs
 > point at; you never run them by hand. Full flag-level reference: the
-> [docs site `/docs/cli`](https://github.com/ken-jo/agent-connector) · `llms-full.txt` §3 (canonical, drift-guarded by tests).
+> [docs site `/docs/dev/cli`](https://github.com/ken-jo/agent-connector) · `llms-full.txt` §3 (canonical, drift-guarded by tests).
 
 > A **branded CLI** auto-injects `--connector` for you: `<your-tool>
 > leaderboard` ≈ `agent-connector leaderboard --connector <id>`, and
