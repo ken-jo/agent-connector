@@ -14,7 +14,7 @@
  * `modulePath`; the runtime re-imports that module to recover the live handlers.
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -107,7 +107,18 @@ function isResolvedConnector(value: unknown): value is ResolvedConnector {
 export async function loadConnectorFromPath(
   path: string,
 ): Promise<{ connector: ResolvedConnector; modulePath: string }> {
-  const modulePath = isAbsolute(path) ? path : resolve(path);
+  let modulePath = isAbsolute(path) ? path : resolve(path);
+  // Canonicalize before building the file:// URL for dynamic import. On Windows a
+  // short (8.3) temp path like C:\Users\RUNNER~1\...\x.mjs round-trips the "~" as
+  // %7E and fails to load; realpathSync.native expands it to the real long path.
+  // It also resolves symlinked temp roots (e.g. macOS /var -> /private/var).
+  // If the file does not exist yet, fall through with the resolve()'d path so the
+  // subsequent read/import throws the real not-found error.
+  try {
+    modulePath = realpathSync.native(modulePath);
+  } catch {
+    /* keep the resolve()'d path */
+  }
 
   if (modulePath.endsWith(".json")) {
     const text = readFileSync(modulePath, "utf8");
