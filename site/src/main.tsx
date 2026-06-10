@@ -6,7 +6,10 @@ import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
+    {/* basename = Vite's base (import.meta.env.BASE_URL): "/" on a custom domain,
+        "/agent-connector/" on a GitHub Pages project site — keeps client routes
+        and <Link>s correct under whichever path the app is served from. */}
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <App />
     </BrowserRouter>
   </StrictMode>,

@@ -1,0 +1,61 @@
+name: Deploy site
+
+# Build site/ (Vite SPA) and publish it to GitHub Pages.
+# Until the custom domain (agent-connector.ai) is wired up, this serves at
+# https://ken-jo.github.io/agent-connector/ — hence VITE_BASE=/agent-connector/.
+# To switch to the apex domain later: drop VITE_BASE (base -> "/") and add a
+# site/public/CNAME with the domain (+ DNS). main.tsx reads the base for the
+# router basename, so routing follows automatically.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/deploy-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One concurrent Pages deployment; don't cancel an in-flight publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - name: Build
+        run: npm run build
+        env:
+          VITE_BASE: /agent-connector/
+      - name: SPA fallback (deep-link refresh on Pages serves 404.html)
+        run: cp dist/index.html dist/404.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
