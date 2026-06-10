@@ -11,6 +11,8 @@
  * once tsup hoisted this code into a shared chunk).
  */
 
+import { createRequire } from "node:module";
+
 import type {
   ChangeRecord,
   InstallResult,
@@ -27,10 +29,39 @@ export function print(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-/** Print an error to stderr and return a non-zero exit code (default 2). */
+/**
+ * The brand active for THIS invocation. main() sets it from
+ * {@link MainOptions.programName} before dispatch, so error messages printed by
+ * command modules via {@link fail} read as the embedding tool (e.g. `acme-db:`)
+ * instead of always `agentconnect:`.
+ */
+let activeProgramName = "agentconnect";
+
+/** Print an error to stderr (branded) and return a non-zero exit code (default 2). */
 export function fail(message: string, code = 2): number {
-  process.stderr.write(`agentconnect: ${message}\n`);
+  process.stderr.write(`${activeProgramName}: ${message}\n`);
   return code;
+}
+
+/**
+ * Resolve agentconnect's own package version at runtime. Works from both the
+ * bundled dist layout (dist/*.js → ../package.json) and the src layout under
+ * tsx/vitest (src/cli/ → ../../package.json); the name check guards against
+ * accidentally reading some other package.json on the walk.
+ */
+export function resolveOwnVersion(): string {
+  const req = createRequire(import.meta.url);
+  for (const rel of ["../package.json", "../../package.json", "../../../package.json"]) {
+    try {
+      const pkg = req(rel) as { name?: string; version?: string };
+      if (pkg.name === "agentconnect" && typeof pkg.version === "string") {
+        return pkg.version;
+      }
+    } catch {
+      /* keep walking */
+    }
+  }
+  return "0.0.0";
 }
 
 /** Parse a --scope value the CLI accepts (user|project) into an InstallScope. */
@@ -180,6 +211,7 @@ export interface MainOptions {
 
 export async function main(argv: string[], opts: MainOptions = {}): Promise<number> {
   const programName = opts.programName ?? DEFAULT_PROGRAM_NAME;
+  activeProgramName = programName; // brand every fail() in this invocation
   const usage = buildUsage(programName);
   const command = argv[0];
 
@@ -188,7 +220,7 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
     return command == null ? 1 : 0;
   }
   if (command === "--version" || command === "-v") {
-    print(programName);
+    print(`${programName} ${resolveOwnVersion()}`);
     return 0;
   }
 

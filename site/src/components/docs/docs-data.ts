@@ -85,13 +85,13 @@ export const sectionIds: ReadonlySet<string> = new Set(sectionOrder);
 /** Per-section <meta name="description"> copy (for /docs/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "Write your MCP server + hooks once with defineConnector; agentconnect renders it natively across 28 AI-agent platforms with default local-first token telemetry.",
+    "Write your MCP server + hooks once with defineConnector; AgentConnect renders it natively across 29 AI-agent platforms with default local-first token telemetry.",
   installation:
     "Install agentconnect as a dependency of your connector package (npm install agentconnect), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
     "Depend on agentconnect, write defineConnector, then ship a branded CLI or run npx agentconnect — install / sync / uninstall are idempotent, reversible, and --dry-run-able.",
   "embed-cli":
-    "Embed agentconnect as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
+    "Embed AgentConnect as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
   "define-connector":
     "defineConnector(config): the write-once surface. Validates eagerly, throws ConnectorConfigError, and returns a fully-defaulted ResolvedConnector.",
   server:
@@ -114,7 +114,7 @@ export const sectionDescription: Record<string, string> = {
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agentconnect CLI reference: detect, install, sync, uninstall, doctor, update, telemetry, usage, and leaderboard.",
   platforms:
-    "The 28 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
+    "The 29 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
   "add-a-platform":
     "Adding a platform is one registry entry plus one adapter — the framework's core design guarantee.",
   "operating-model":
@@ -766,7 +766,7 @@ export const cliCommands: CliCommand[] = [
     signature:
       "agentconnect status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
     summary:
-      "A light, glanceable install-state summary: one line per detected host showing which connectors are present (server / hooks). There is no MCP standard for local install state, so this is agentconnect infra — it reuses detect + a read-only config-present check, adds no adapter methods, and ALWAYS exits 0 (descriptive, never a gate — that contrast with doctor is why it exists).",
+      "A light, glanceable install-state summary: one line per detected host showing which connectors are present (server / hooks). There is no MCP standard for local install state, so this is AgentConnect infra — it reuses detect + a read-only config-present check, adds no adapter methods, and ALWAYS exits 0 (descriptive, never a gate — that contrast with doctor is why it exists).",
   },
   {
     name: "package",
@@ -865,7 +865,7 @@ export const sharedFlags: { flag: string; desc: string }[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (28, by paradigm — llms-full §6)                           */
+/* Platforms (29, by paradigm — llms-full §6)                           */
 /* ------------------------------------------------------------------ */
 
 export interface PlatformEntry {
@@ -942,6 +942,11 @@ export const tsPluginPlatforms: PlatformEntry[] = [
     name: "OpenCode",
     id: "opencode",
     target: "generated exported plugin module importing your handler",
+  },
+  {
+    name: "Kilo CLI",
+    id: "kilo-cli",
+    target: "generated @kilocode/plugin module registered in kilo.jsonc's plugin array",
   },
   { name: "OMP", id: "omp", target: "generated plugin module" },
   { name: "OpenClaw", id: "openclaw", target: "generated plugin module" },

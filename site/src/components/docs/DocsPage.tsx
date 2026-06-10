@@ -11,7 +11,7 @@ import {
 import { SectionNotFound } from "./SectionNotFound";
 
 const DEFAULT_DESCRIPTION =
-  "One declarative defineConnector deploys MCP servers, hooks, commands, skills & subagents across 28 AI-agent platforms — with default, platform-independent per-tool token telemetry.";
+  "One declarative defineConnector deploys MCP servers, hooks, commands, skills & subagents across 29 AI-agent platforms — with default, platform-independent per-tool token telemetry.";
 
 /** Set (or update) the document's <meta name="description"> content. */
 function setMetaDescription(content: string) {
@@ -39,7 +39,7 @@ export function DocsPage() {
   // deep-link to that H3 inside the now-isolated section page.
   React.useEffect(() => {
     if (unknownSection) {
-      document.title = "Section not found — agentconnect docs";
+      document.title = "Section not found — AgentConnect docs";
       setMetaDescription(DEFAULT_DESCRIPTION);
       window.scrollTo({ top: 0 });
       return;
@@ -47,8 +47,8 @@ export function DocsPage() {
 
     const label = sectionLabel[activeSection];
     document.title = label
-      ? `${label} — agentconnect docs`
-      : "Docs — agentconnect";
+      ? `${label} — AgentConnect docs`
+      : "Docs — AgentConnect";
     setMetaDescription(
       sectionDescription[activeSection] || DEFAULT_DESCRIPTION,
     );

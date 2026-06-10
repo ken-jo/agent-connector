@@ -61,7 +61,7 @@ export const paradigms: Paradigm[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (28)                                                      */
+/* Platforms (29)                                                      */
 /* ------------------------------------------------------------------ */
 
 export interface Platform {
@@ -98,6 +98,7 @@ export const platforms: Platform[] = [
   { name: "Mux", paradigm: "mcp-only" },
   // ts-plugin
   { name: "OpenCode", paradigm: "ts-plugin" },
+  { name: "Kilo CLI", paradigm: "ts-plugin" },
   { name: "OMP", paradigm: "ts-plugin" },
   { name: "OpenClaw", paradigm: "ts-plugin" },
   // skills-only
@@ -125,7 +126,7 @@ export interface Pillar {
 export const pillars: Pillar[] = [
   {
     eyebrow: "Pillar 01",
-    title: "One API → 28 platforms",
+    title: "One API → 29 platforms",
     summary:
       "Declare your server + hooks once with defineConnector. The CLI detects every installed host and renders the right native config in each.",
     points: [
@@ -148,7 +149,7 @@ export const pillars: Pillar[] = [
     eyebrow: "Pillar 02",
     title: "Token telemetry, by default",
     summary:
-      "No host reports per-tool usage back to an MCP server. agentconnect measures your server's own bytes and tokenizes them locally — the metric MCP devs actually want.",
+      "No host reports per-tool usage back to an MCP server. AgentConnect measures your server's own bytes and tokenizes them locally — the metric MCP devs actually want.",
     points: [
       {
         label: "Two leaderboards",

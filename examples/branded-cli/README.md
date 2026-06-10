@@ -1,4 +1,4 @@
-# branded-cli example — ship your own CLI on top of agentconnect
+# branded-cli example — ship your own CLI on top of AgentConnect
 
 This is a realistic developer package, `acme-db-tools`, that depends on
 `agentconnect` and ships its **own** branded CLI, `acme-db`. The consumer

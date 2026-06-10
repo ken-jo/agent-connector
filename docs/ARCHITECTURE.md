@@ -1,6 +1,6 @@
-# agentconnect — Architecture
+# AgentConnect — Architecture
 
-> Write your MCP server + hooks **once**. agentconnect detects every AI-agent
+> Write your MCP server + hooks **once**. AgentConnect detects every AI-agent
 > platform on the machine, renders the right config in each one's native dialect,
 > installs/syncs/uninstalls them, and gives you **default, platform-independent
 > per-tool token telemetry** — the metric MCP developers actually want.
@@ -23,13 +23,13 @@ hand-author and maintain N dialects, N hook adapters, and N install flows, then
 chase each platform's quirks (Cursor silently fails on a wrong root key; VS Code
 uses `servers` not `mcpServers`; Codex uses TOML `[mcp_servers.x]`; OpenCode wants
 an exported TS plugin function, not a hook table). context-mode paid this cost in
-full for a single server. agentconnect generalizes that work into a reusable
+full for a single server. AgentConnect generalizes that work into a reusable
 framework.
 
 Second, **no host reports per-tool token usage back to an MCP server** (the MCP
 spec has no `usage` on `CallToolResult`). So "how much context does installing my
 server actually cost, everywhere?" — the question MCP devs care most about — is
-unanswerable today. agentconnect answers it by measuring the server's own
+unanswerable today. AgentConnect answers it by measuring the server's own
 bytes and tokenizing them locally, identically across all hosts.
 
 ## 2. Two pillars

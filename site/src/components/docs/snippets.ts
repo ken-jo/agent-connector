@@ -1,7 +1,7 @@
 /** Code snippets used across the docs. Mirrors llms-full.txt examples. */
 
 /**
- * The primary install: agentconnect is an SDK you depend on, not a global
+ * The primary install: AgentConnect is an SDK you depend on, not a global
  * tool. Add it to your connector package, then either ship a branded CLI or run
  * it with npx.
  */
@@ -90,7 +90,7 @@ export default defineConnector({
   targets: "auto",
 });`;
 
-/* ---- Embed it: ship a branded CLI on top of agentconnect ---- */
+/* ---- Embed it: ship a branded CLI on top of AgentConnect ---- */
 
 /**
  * The consumer package: agentconnect is a DEPENDENCY (not -g), and the

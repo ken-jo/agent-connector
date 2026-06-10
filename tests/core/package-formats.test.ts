@@ -176,7 +176,7 @@ describe("packageConnector — codex-plugin", () => {
     const res = packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN });
     expect(res.marketplacePath).toBe(join(outDir, ".codex-plugin", "marketplace.json"));
     const mkt = readJson(res.marketplacePath!);
-    expect(mkt.owner).toEqual({ name: "agentconnect" });
+    expect(mkt.owner).toEqual({ name: "Acme Inc" }); // publish.author attributes the catalog to the dev
 
     const hooks = readJson(join(res.pluginDir, "hooks", "hooks.json")).hooks as Record<
       string,
@@ -201,7 +201,7 @@ describe("packageConnector — factory-plugin", () => {
     const m = readJson(join(res.pluginDir, ".factory-plugin", "plugin.json"));
     expect(m.name).toBe(CONNECTOR_ID);
     expect(m.version).toBe("0.0.1"); // factory requires a version → default supplied
-    expect(m.author).toEqual({ name: "agentconnect" });
+    expect(m.author).toEqual({ name: "Acme Inc" }); // publish.author, not the framework
 
     // Subagents go under droids/, NOT agents/.
     expect(existsSync(join(res.pluginDir, "droids", "reviewer.md"))).toBe(true);
@@ -362,7 +362,7 @@ describe("packageConnector — cursor-plugin", () => {
 
     expect(res.marketplacePath).toBe(join(outDir, ".cursor-plugin", "marketplace.json"));
     const mkt = readJson(res.marketplacePath!);
-    expect(mkt.owner).toEqual({ name: "agentconnect" });
+    expect(mkt.owner).toEqual({ name: "Acme Inc" }); // publish.author attributes the catalog to the dev
     const plugins = mkt.plugins as Array<Record<string, unknown>>;
     expect(plugins[0]?.source).toBe(`./${CONNECTOR_ID}`);
   });

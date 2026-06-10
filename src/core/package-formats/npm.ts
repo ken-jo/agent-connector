@@ -54,7 +54,7 @@ function buildPackageJson(connector: ResolvedConnector): Record<string, unknown>
     : `opencode-${connector.id}`;
   const version =
     connector.version && connector.version !== "0.0.0" ? connector.version : "0.0.1";
-  return {
+  const pkg: Record<string, unknown> = {
     name: pkgName,
     version,
     description: `${connector.displayName} — connector emitted by agentconnect`,
@@ -65,8 +65,14 @@ function buildPackageJson(connector: ResolvedConnector): Record<string, unknown>
     // pi reads skills/prompts/themes/extensions from the package.json "pi" key.
     pi: { extensions: ["./index.js"], skills: ["./skills"] },
     engines: { node: ">=18.17", opencode: ">=1.0.0" },
-    license: "MIT",
+    // NOTE: no hardcoded license — this is the DEVELOPER'S publishable package
+    // and agentconnect has no authority to license it. The emitter returns a
+    // note telling the dev to set license (and author) before `npm publish`.
   };
+  if (connector.publish?.author?.name) {
+    pkg.author = connector.publish.author.name;
+  }
+  return pkg;
 }
 
 /** Compose the self-contained ESM plugin bridge (default-export plugin fn). */
@@ -196,7 +202,22 @@ export const emitNpmPlugin: FormatEmitter = (
   emit(
     join(pluginDir, "README.md"),
     `# ${connector.displayName}\n\nOpenCode / Kilo / Pi plugin package emitted by agentconnect.\n\n` +
-      "Install with `opencode plugin install <pkg>` / `kilo plugin <pkg>` / `pi install <pkg>`.\n",
+      "Install with `opencode plugin install <pkg>` / `kilo plugin <pkg>` / `pi install <pkg>`.\n\n" +
+      "## Prerequisite\n\n" +
+      "Hooks shell out to the `agentconnect` CLI resolved from the consumer's PATH —\n" +
+      "the consumer machine needs `npm i -g agentconnect` (hooks silently no-op,\n" +
+      "fail-open, without it).\n\n" +
+      "## Before you publish\n\n" +
+      "The emitted package.json carries **no `license` and no `author`** unless your\n" +
+      "connector declared `publish.author` — set them to YOUR terms before `npm publish`.\n",
+  );
+
+  // The published bridge resolves the CLI by bare name on the consumer's PATH.
+  notes.push(
+    "npm-plugin: hooks require `npm i -g agentconnect` on the consumer machine (bridge resolves the CLI by name on PATH; silently fail-open without it)",
+  );
+  notes.push(
+    "npm-plugin: set license/author in the emitted package.json before `npm publish` — agentconnect does not license your plugin for you",
   );
 
   // Surface the inherent limits of the npm-plugin contract.

@@ -56,7 +56,7 @@ export function Platforms() {
         eyebrow="Coverage"
         title={
           <>
-            28 platforms, grouped by{" "}
+            29 platforms, grouped by{" "}
             <span className="text-gradient">hook paradigm</span>
           </>
         }

@@ -106,7 +106,11 @@ function buildManifest(
     // factory requires a semver version; supply a sane default when unpinned.
     manifest.version = "0.0.1";
   }
-  if (spec.alwaysAuthor) manifest.author = { name: "agentconnect" };
+  // Attribute the bundle to the connector developer when they declared an
+  // author (publish.author); the framework name is only the fallback.
+  if (spec.alwaysAuthor) {
+    manifest.author = { name: connector.publish?.author?.name ?? "agentconnect" };
+  }
   return manifest;
 }
 
@@ -115,9 +119,11 @@ function buildMarketplace(connector: ResolvedConnector): Record<string, unknown>
   // Both the claude/codex object-owner catalog and the droid git-repo catalog
   // use the same minimal { name, owner, plugins:[{name,source,description}] }
   // shape — droid reads source as a path relative to the marketplace repo root.
+  // The catalog NAME stays "agentconnect" (the printed install instructions
+  // `<id>@agentconnect` key on it); the OWNER is the developer when known.
   return {
     name: "agentconnect",
-    owner: { name: "agentconnect" },
+    owner: { name: connector.publish?.author?.name ?? "agentconnect" },
     plugins: [
       {
         name: connector.id,

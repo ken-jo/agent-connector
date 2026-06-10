@@ -60,7 +60,7 @@ export function Introduction() {
   return (
     <DocSection id="introduction" eyebrow="Getting Started" title="Introduction">
       <Lead>
-        agentconnect lets you write your MCP server + hooks (and slash
+        AgentConnect lets you write your MCP server + hooks (and slash
         commands, Agent Skills, and subagents) <strong>once</strong> with{" "}
         <C>defineConnector(&#123;...&#125;)</C>. The CLI detects every installed
         AI-agent host, renders the right config in each one&apos;s native
@@ -88,7 +88,7 @@ export function Introduction() {
         It generalizes context-mode&apos;s proven adapter layer into a reusable
         framework: where context-mode hardcoded the served identity, here the
         identity is a parameter you supply via <C>defineConnector</C>. It targets{" "}
-        <strong>28 platforms</strong> grouped into three hook paradigms, and is
+        <strong>29 platforms</strong> grouped into three hook paradigms, and is
         Windows-first (no symlinks, no POSIX-only assumptions).
       </P>
     </DocSection>
@@ -99,7 +99,7 @@ export function Installation() {
   return (
     <DocSection id="installation" eyebrow="Getting Started" title="Installation">
       <Lead>
-        agentconnect is an <strong>SDK you depend on</strong>, not a global
+        AgentConnect is an <strong>SDK you depend on</strong>, not a global
         tool. Add it to your connector package, then either ship a{" "}
         <strong>branded CLI</strong> your users drive directly, or run it with{" "}
         <C>npx</C> from the project. Your consumers never need a separate global
@@ -195,7 +195,7 @@ export function EmbedCli() {
       title="Embed it / ship a branded CLI"
     >
       <Lead>
-        agentconnect is an <strong>SDK a connector developer depends on</strong>
+        AgentConnect is an <strong>SDK a connector developer depends on</strong>
         . With <C>createConnectorCli(&#123; name, connector &#125;)</C> you expose{" "}
         <strong>every</strong> agentconnect subcommand under your own brand —
         fully delegated and <strong>auto-scoped</strong> to the connector your
@@ -220,7 +220,7 @@ export function EmbedCli() {
       <P>
         Import <C>createConnectorCli</C> from the <C>agentconnect/cli</C>{" "}
         export, point it at your shipped config, and <C>.run()</C> it. That is the
-        whole bin — every command behavior still lives in agentconnect; this is
+        whole bin — every command behavior still lives in AgentConnect; this is
         pure brand + auto-scope.
       </P>
       <CodeBlock code={S.brandedBinSnippet} language="ts" filename="bin.mjs" />
@@ -702,7 +702,7 @@ export function TelemetryOverview() {
         <C>host-reported</C> (real numbers) vs <C>host-estimated</C> (e.g. Kiro
         char/4, Crush cost-only). It never writes host config and never collides
         with the serve-proxy store. Some hosts (cursor / antigravity / trae /
-        warp) need an external sync agentconnect does not perform → those rows
+        warp) need an external sync AgentConnect does not perform → those rows
         are &quot;requires sync, skipped&quot; unless a local cache already
         exists.
       </P>
@@ -935,7 +935,7 @@ export function Leaderboards() {
   return (
     <DocSection id="leaderboards" eyebrow="Telemetry" title="Leaderboards">
       <Lead>
-        agentconnect prints <strong>three origin-labeled leaderboards that
+        AgentConnect prints <strong>three origin-labeled leaderboards that
         measure different things and are NEVER summed.</strong>
       </Lead>
       <DocsTable>
@@ -1254,7 +1254,7 @@ export function PlatformsSection() {
     <DocSection id="platforms" eyebrow="Reference" title="Platforms">
       <Lead>
         <C>PlatformId</C> is a closed union with one adapter registry entry per
-        platform — <strong>28</strong> hosts, grouped by hook paradigm (the
+        platform — <strong>29</strong> hosts, grouped by hook paradigm (the
         deepest cross-platform divergence).
       </Lead>
       <PlatformTable
@@ -1443,7 +1443,7 @@ export function Troubleshooting() {
       <H3 id="requires-sync">&quot;requires sync, skipped&quot; usage rows</H3>
       <P>
         The host-usage layer reads each CLI&apos;s own logs read-only. Some hosts
-        keep their usage data behind an external sync agentconnect does not
+        keep their usage data behind an external sync AgentConnect does not
         perform, so <C>agentconnect usage report</C> prints those platforms as{" "}
         <strong>&quot;requires sync, skipped&quot;</strong> unless a local cache
         already exists:

@@ -63,9 +63,11 @@ function buildManifest(
 
 /** Build .cursor-plugin/marketplace.json (owner object carries name; email optional). */
 function buildMarketplace(connector: ResolvedConnector): Record<string, unknown> {
+  // Catalog NAME stays "agentconnect" (install instructions key on it); the
+  // OWNER is the connector developer when publish.author is declared.
   return {
     name: "agentconnect",
-    owner: { name: "agentconnect" },
+    owner: { name: connector.publish?.author?.name ?? "agentconnect" },
     plugins: [
       {
         name: connector.id,

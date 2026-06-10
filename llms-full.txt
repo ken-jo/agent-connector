@@ -1,4 +1,4 @@
-# agentconnect — Full LLM Reference
+# AgentConnect — Full LLM Reference
 
 > Write your MCP server + hooks (and slash commands / Agent Skills / subagents)
 > ONCE with `defineConnector({...})`; the CLI detects every installed AI-agent host,
@@ -545,7 +545,7 @@ CLI's native logs/DBs (JSONL / JSON / SQLite via pure-WASM `sql.js` / synced-cac
 artifacts) to report per-platform/project/session/model/day usage. Confidence is
 `host-reported` (real numbers) vs `host-estimated` (e.g. Kiro char/4, Crush cost-only).
 It never writes host config and never collides with the serve-proxy store. Some hosts
-(cursor / antigravity / trae / warp) need an external sync agentconnect does not
+(cursor / antigravity / trae / warp) need an external sync AgentConnect does not
 perform → those rows are "requires sync, skipped" unless a local cache already exists.
 
 **Two leaderboards, never summed.** Per-MCP server bytes (telemetry / 🔌) measure your
@@ -560,7 +560,7 @@ Reported numbers are estimates from the server's own I/O, not host-billed usage.
 
 ---
 
-## 6. Supported platforms (28, by hook paradigm)
+## 6. Supported platforms (29, by hook paradigm)
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
@@ -602,11 +602,12 @@ Detection surfaces "hooks unavailable here."
 | Mux | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 
-### `ts-plugin` — framework-generated bridge module (3)
+### `ts-plugin` — framework-generated bridge module (4)
 
 | Platform | id | Mechanism |
 |---|---|---|
 | OpenCode | `opencode` | generated exported plugin module importing your handler |
+| Kilo CLI | `kilo-cli` | generated `@kilocode/plugin` module registered in kilo.jsonc's `plugin` array |
 | OMP | `omp` | generated plugin module |
 | OpenClaw | `openclaw` | generated plugin module |
 

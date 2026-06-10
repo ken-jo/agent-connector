@@ -699,7 +699,7 @@ export function HooksGuideSection() {
         every platform names the lifecycle events differently, supports a
         different subset of them, and signals a deny/decision in its own shape.
         You write <strong>one handler per canonical event</strong>;
-        agentconnect renders it into each host&apos;s native hook. This page
+        AgentConnect renders it into each host&apos;s native hook. This page
         is the precise, visible map.
       </Lead>
 

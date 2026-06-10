@@ -3,9 +3,9 @@ name: agentconnect
 description: Write an MCP server, lifecycle hooks, slash commands, Agent Skills, or subagents ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and ~25 more) in each host's native config dialect. Also gives default, platform-independent, local-first per-tool token telemetry and two leaderboards (per-MCP server bytes vs host CLI usage). Use this when a developer wants one integration to reach many agent hosts, or wants to know which of their MCP tools cost the most context.
 ---
 
-# agentconnect
+# AgentConnect
 
-agentconnect is middleware that solves two problems every MCP/agent-tooling dev
+AgentConnect is middleware that solves two problems every MCP/agent-tooling dev
 hits: (1) each agent host re-invents MCP registration + lifecycle hooks with
 incompatible config files, root keys, formats (JSON/JSONC/TOML/YAML/exported TS),
 and event names; (2) no host reports per-tool token usage back to an MCP server.

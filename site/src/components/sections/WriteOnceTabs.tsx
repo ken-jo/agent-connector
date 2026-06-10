@@ -10,7 +10,7 @@ export function WriteOnceTabs() {
       <SectionHeading
         eyebrow="Write once → N dialects"
         title="The same server, every native format"
-        description="Declare it once. agentconnect renders the right root key, fields and file layout for each host — mcpServers vs servers, JSON vs TOML, scalar vs array command."
+        description="Declare it once. AgentConnect renders the right root key, fields and file layout for each host — mcpServers vs servers, JSON vs TOML, scalar vs array command."
       />
 
       <div className="mx-auto mt-12 max-w-3xl">

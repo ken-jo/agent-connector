@@ -142,6 +142,24 @@ export interface PackageOptions {
  * Returns the absolute file list, the plugin root dir, an optional marketplace
  * path, and optional drop notes (for lossy formats like kimi-plugin).
  */
+/**
+ * Host-bundle formats whose hooks/MCP entries embed the ABSOLUTE home-bin path
+ * of the machine that ran `package`. They install fine locally, but on another
+ * machine/user the baked path points at nothing — so every emit carries a note.
+ * (npm-plugin resolves the CLI by name on PATH; mcp-server-json/mcpb describe
+ * the dev's real upstream server — none of those embed a local path.)
+ */
+const HOME_BIN_EMBED_FORMATS: ReadonlySet<PackageFormat> = new Set([
+  "claude-plugin",
+  "codex-plugin",
+  "factory-plugin",
+  "gemini-extension",
+  "qwen-extension",
+  "agy-plugin",
+  "cursor-plugin",
+  "kimi-plugin",
+]);
+
 export function packageConnector(
   connector: ResolvedConnector,
   opts: PackageOptions,
@@ -157,7 +175,15 @@ export function packageConnector(
     homeBinPath: opts.homeBinPath ?? defaultHomeBinPath(),
     dryRun: opts.dryRun ?? false,
   };
-  return emitter(connector, ctx);
+  const result = emitter(connector, ctx);
+  if (HOME_BIN_EMBED_FORMATS.has(format)) {
+    const note =
+      `bundle embeds this machine's agentconnect launcher path (${ctx.homeBinPath}) — ` +
+      "valid for LOCAL install; for a shared marketplace, consumers need agentconnect " +
+      "at the same home path (run `agentconnect upgrade` there) or re-run `package` per machine";
+    result.notes = [...(result.notes ?? []), note];
+  }
+  return result;
 }
 
 /** One entry in a multi-format ({@link packageConnectorAll}) emit. */

@@ -7,11 +7,13 @@
  * delegated and AUTO-SCOPED to the developer's connector:
  *
  *   #!/usr/bin/env node
+ *   import { fileURLToPath } from "node:url";
  *   import { createConnectorCli } from "agentconnect/cli";
  *   createConnectorCli({
  *     name: "acme-db",
- *     connector: new URL("./agentconnect.config.mjs", import.meta.url).pathname,
+ *     connector: fileURLToPath(new URL("./agentconnect.config.mjs", import.meta.url)),
  *   }).run();
+ *   // fileURLToPath, NOT URL.pathname — .pathname yields "/C:/…" on Windows.
  *
  * Then a consumer runs `acme-db install`, `acme-db leaderboard`, `acme-db
  * telemetry`, `acme-db doctor`, etc. — and each one targets the developer's

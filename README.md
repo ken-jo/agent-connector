@@ -1,4 +1,4 @@
-# agentconnect
+# AgentConnect
 
 > **Write your MCP server + hooks once. Ship them to every AI-agent platform —
 > and finally see how many tokens your tools actually cost.**
@@ -9,7 +9,7 @@
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-832%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-950%20passing-22c55e)
 
 Every agent host — Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp,
 … — re-invents the same two integration surfaces (**MCP registration** and
@@ -18,13 +18,13 @@ JSONC / TOML / YAML / exported functions), transports, scopes, and event names.
 Supporting them today means hand-authoring and maintaining *N* dialects and *N*
 install flows, then chasing each platform's quirks.
 
-agentconnect is the middleware that does it for you:
+AgentConnect is the middleware that does it for you:
 
 1. **One API, every platform.** Declare your server + hooks once with
    `defineConnector({...})`; the CLI detects every installed host and renders the
    right native config in each — install, uninstall, upgrade, doctor.
 2. **Token telemetry, by default.** No host reports per-tool usage back to an MCP
-   server. agentconnect measures your server's *own* bytes (args in, results
+   server. AgentConnect measures your server's *own* bytes (args in, results
    out, tool schemas) and tokenizes them locally — so you get a
    platform-independent answer to *"which of my tools cost the most context?"*,
    with **aggregate counts only, stored locally, zero egress by default.**
@@ -83,7 +83,7 @@ static code/web audit missed. See the reports under
 
 ## Quick start
 
-agentconnect is an **SDK you depend on**, not a global tool. Add it to the
+AgentConnect is an **SDK you depend on**, not a global tool. Add it to the
 package that holds your connector, declare the connector once, then **either**
 ship a branded CLI your users drive directly **or** run it with `npx`. No
 separate global install is required.
@@ -266,7 +266,7 @@ everywhere.
 
 ## Publish to the MCP ecosystem
 
-Where the MCP standard already covers your server's functionality, agentconnect
+Where the MCP standard already covers your server's functionality, AgentConnect
 **emits the standard exactly** so your already-standard work is portable — you
 write the server, we carry the distribution:
 
@@ -310,7 +310,7 @@ defineConnector({
 > tool linkage, the bidirectional `ui/*` + `sampling` traffic) and **any
 > reverse-DNS extension** negotiated at `initialize`. A connector whose server
 > already speaks these deploys across every host and keeps its telemetry today,
-> no agentconnect change required. (Authoring such a UI is the dev's own MCP
+> no AgentConnect change required. (Authoring such a UI is the dev's own MCP
 > server's job; we deploy + wrap it. `doctor --probe` offers the latest released
 > protocol revision and accepts whatever a server negotiates.)
 

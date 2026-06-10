@@ -1,4 +1,4 @@
-# agentconnect
+# AgentConnect
 
 > Write your MCP server + hooks (and commands / skills / subagents) ONCE; install them across every detected AI-agent CLI in its native config dialect — and get default, platform-independent, local-first per-tool token telemetry.
 
@@ -60,11 +60,11 @@ Validation: throws `ConnectorConfigError` on bad id, non-function handler, missi
 - `leaderboard` — unified: 🔌 per-MCP · 🖥️ host/user · 🛰️ live host-native turns (never summed).
 - `hook`, `serve`, `usage-event` — internal entrypoints hosts point at.
 
-## Supported platforms by paradigm (28)
+## Supported platforms by paradigm (29)
 
 - `json-stdio` (full hook dispatch): claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, antigravity, antigravity-cli.
 - `mcp-only` (MCP registration only): warp, kilo, droid, roo-code, trae, zed, amp, codebuff, mux, pi.
-- `ts-plugin` (generated bridge module): opencode, omp, openclaw.
+- `ts-plugin` (generated bridge module): opencode, kilo-cli, omp, openclaw.
 
 ## Telemetry / leaderboards
 

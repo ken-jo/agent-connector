@@ -50,12 +50,14 @@ describe("main(argv, { programName }) branding", () => {
     expect(text).not.toContain("agentconnect");
   });
 
-  it("brands --version", async () => {
+  it("brands --version and prints the real package version", async () => {
     const cap = captureStdout();
     const code = await main(["--version"], { programName: "acme-db" });
     cap.restore();
     expect(code).toBe(0);
-    expect(cap.text().trim()).toBe("acme-db");
+    // brand + concrete semver — never just the name, never 0.0.0 fallback.
+    expect(cap.text().trim()).toMatch(/^acme-db \d+\.\d+\.\d+$/);
+    expect(cap.text()).not.toContain("0.0.0");
   });
 
   it("brands the unknown-command error on stderr", async () => {
@@ -64,6 +66,16 @@ describe("main(argv, { programName }) branding", () => {
     cap.restore();
     expect(code).toBe(2);
     expect(cap.text()).toContain('acme-db: unknown command "nope-not-real"');
+    expect(cap.text()).not.toContain("agentconnect:");
+  });
+
+  it("brands fail() errors from command modules (not always agentconnect:)", async () => {
+    const cap = captureStderr();
+    // upgrade validates --channel via the shared fail() helper.
+    const code = await main(["upgrade", "--channel", "bogus"], { programName: "acme-db" });
+    cap.restore();
+    expect(code).toBe(2);
+    expect(cap.text()).toContain("acme-db: invalid --channel");
     expect(cap.text()).not.toContain("agentconnect:");
   });
 
