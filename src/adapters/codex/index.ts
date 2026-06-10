@@ -369,6 +369,13 @@ export class CodexAdapter extends BaseAdapter {
       {
         name: `${this.name}: mcp_servers.${id} registered`,
         check: () => {
+          // Only assert what the connector declares (same rule as the
+          // content-surface checks below): a server-less connector — e.g. a
+          // catalog-only bundle of agents/skills/commands — never writes an
+          // [mcp_servers.<id>] table, so its absence is healthy.
+          if (!ctx.connector.server) {
+            return { status: "OK", detail: "no MCP server declared" };
+          }
           const cfg = this.readToml(path);
           const bucket = cfg["mcp_servers"];
           const present =

@@ -399,6 +399,9 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       {
         name: `${this.name}: mcpServers.${connectorId} registered`,
         check: () => {
+          if (!ctx.connector.server) {
+            return { status: "OK", detail: "no MCP server declared" };
+          }
           const cfg = this.readJson<Record<string, Record<string, unknown>>>(serverPath);
           const bucket = cfg?.[MCP_ROOT_KEY];
           const present =

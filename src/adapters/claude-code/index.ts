@@ -562,10 +562,17 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const checks: HealthCheck[] = [
       {
         name: `${this.name}: settings.json present`,
-        check: () =>
-          existsSync(settingsPath)
+        check: () => {
+          // Same "only assert what the connector declares" rule as the
+          // content-surface checks below: a hookless connector never writes
+          // hooks into settings.json, so its absence is healthy, not a failure.
+          if (hookEvents.length === 0) {
+            return { status: "OK", detail: "no hooks declared" };
+          }
+          return existsSync(settingsPath)
             ? { status: "OK", detail: settingsPath }
-            : { status: "FAIL", detail: `not found: ${settingsPath}` },
+            : { status: "FAIL", detail: `not found: ${settingsPath}` };
+        },
       },
       {
         name: `${this.name}: hook command registered`,

@@ -456,6 +456,9 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
       {
         name: `${this.name}: server entry registered`,
         check: () => {
+          if (!ctx.connector.server) {
+            return { status: "OK", detail: "no MCP server declared" };
+          }
           const cfg = this.readJson<{ [k: string]: Record<string, unknown> }>(mcpPath);
           const bucket = cfg?.[MCP_ROOT_KEY];
           if (!cfg || !bucket) {

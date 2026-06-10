@@ -298,6 +298,12 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
       {
         name: `${this.name}: context server entry registered`,
         check: () => {
+          // Only assert what the connector declares: a server-less connector —
+          // e.g. a catalog-only bundle of agents/skills/commands — never writes
+          // a context_servers entry, so its absence is healthy.
+          if (!ctx.connector.server) {
+            return { status: "OK", detail: "no MCP server declared" };
+          }
           const cfg = this.readJson<{ [k: string]: Record<string, unknown> }>(settingsPath);
           const bucket = cfg?.[MCP_ROOT_KEY];
           if (!cfg || !bucket) {

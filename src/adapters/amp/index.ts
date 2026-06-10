@@ -285,6 +285,11 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
       {
         name: `${this.name}: server entry registered`,
         check: () => {
+          // Only assert what the connector declares: a server-less connector
+          // never writes a server entry, so its absence is healthy.
+          if (!ctx.connector.server) {
+            return { status: "OK", detail: "no MCP server declared" };
+          }
           const cfg = this.readJson<{ [k: string]: Record<string, unknown> }>(settingsPath);
           const bucket = cfg?.[MCP_ROOT_KEY];
           if (!cfg || !bucket) {

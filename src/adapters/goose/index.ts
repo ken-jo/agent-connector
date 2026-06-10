@@ -493,6 +493,7 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
       {
         name: `${this.name}: ${MCP_ROOT_KEY}.${id} registered`,
         check: () => {
+          if (!ctx.connector.server) return { status: "OK", detail: "no MCP server declared" };
           const cfg = readYaml<Record<string, unknown>>(serverPath);
           const bucket = cfg?.[MCP_ROOT_KEY];
           const present =

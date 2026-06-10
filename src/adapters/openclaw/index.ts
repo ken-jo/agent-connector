@@ -1078,6 +1078,12 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
         // `module` field, which openclaw config validate rejects.)
         name: `${this.name}: dual registration (plugins.entries+load.paths + mcp.servers.${id})`,
         check: () => {
+          // Only assert what the connector declares: a catalog-only connector
+          // (no MCP server, no hooks) never writes either half of the dual
+          // registration, so absence — even of the config file — is healthy.
+          if (!hasServer && !hasHooks) {
+            return { status: "OK", detail: "no MCP server or hooks declared" };
+          }
           const cfg = this.readJson<Record<string, unknown>>(configPath);
           if (!cfg) return { status: "FAIL", detail: `cannot read ${configPath}` };
 

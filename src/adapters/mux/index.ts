@@ -267,6 +267,11 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
       {
         name: `${this.name}: server entry registered`,
         check: () => {
+          // Only assert what the connector declares: a server-less connector
+          // never writes an mcpServers entry, so its absence is healthy.
+          if (!ctx.connector.server) {
+            return { status: "OK", detail: "no MCP server declared" };
+          }
           const cfg = this.readJson<{ [k: string]: Record<string, unknown> }>(
             mcpPath,
           );
