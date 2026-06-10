@@ -8,7 +8,7 @@
  *
  *   #!/usr/bin/env node
  *   import { fileURLToPath } from "node:url";
- *   import { createConnectorCli } from "agent-connector/cli";
+ *   import { createConnectorCli } from "@ken-jo/agent-connector/cli";
  *   createConnectorCli({
  *     name: "acme-db",
  *     connector: fileURLToPath(new URL("./agent-connector.config.mjs", import.meta.url)),

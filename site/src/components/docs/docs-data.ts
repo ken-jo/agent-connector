@@ -87,9 +87,9 @@ export const sectionDescription: Record<string, string> = {
   introduction:
     "Write your MCP server + hooks once with defineConnector; agent-connector renders it natively across 29 AI-agent platforms with default local-first token telemetry.",
   installation:
-    "Install agent-connector as a dependency of your connector package (npm install agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
+    "Install agent-connector as a dependency of your connector package (npm install @ken-jo/agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
-    "Depend on agent-connector, write defineConnector, then ship a branded CLI or run npx agent-connector — install / sync / uninstall are idempotent, reversible, and --dry-run-able.",
+    "Depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector — install / sync / uninstall are idempotent, reversible, and --dry-run-able.",
   "embed-cli":
     "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
   "define-connector":
@@ -764,7 +764,7 @@ export const cliCommands: CliCommand[] = [
     name: "upgrade",
     signature: "agent-connector upgrade [--channel stable|latest] [same flags as install]",
     summary:
-      "The single “bring everything current” verb (aliases: update, sync). Re-renders the connector into every target host idempotently (byte-identical entries report skip — this is also the self-heal path: run upgrade to repair a drifted install), then refreshes the stable home-bin pointer and prints managed update guidance (the exact npm i -g agent-connector@<dist>). With no resolvable connector it does the tool-only refresh from anywhere. Never silently auto-updates. Same diff output + exit semantics as install for the re-render; exit 1 if the pointer refresh fails.",
+      "The single “bring everything current” verb (aliases: update, sync). Re-renders the connector into every target host idempotently (byte-identical entries report skip — this is also the self-heal path: run upgrade to repair a drifted install), then refreshes the stable home-bin pointer and prints managed update guidance (the exact npm i -g @ken-jo/agent-connector@<dist>). With no resolvable connector it does the tool-only refresh from anywhere. Never silently auto-updates. Same diff output + exit semantics as install for the re-render; exit 1 if the pointer refresh fails.",
   },
   {
     name: "uninstall",

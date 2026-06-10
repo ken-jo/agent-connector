@@ -3,7 +3,7 @@
  *
  * Write your MCP server + hooks once:
  *
- *   import { defineConnector } from "agent-connector";
+ *   import { defineConnector } from "@ken-jo/agent-connector";
  *   export default defineConnector({ id: "acme-db", server: {...}, hooks: {...} });
  *
  * Then `agent-connector install` deploys it across every detected platform and

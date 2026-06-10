@@ -55,7 +55,7 @@ Operating model (home-dir-centric, single binary, per-project data):
 ## 2. The public API — `defineConnector(config: ConnectorConfig): ResolvedConnector`
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 export default defineConnector({ /* ConnectorConfig */ });
 ```
 
@@ -333,7 +333,7 @@ interface ResolvedConnector {
 ### 2.8 Full example (server + hooks + commands + skills)
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "acme-db",
@@ -411,7 +411,7 @@ The single "bring everything current" verb (back-compat aliases: `update`, `sync
 Step 1: idempotent re-render of the connector into every target host (byte-identical
 entries report `skip` — also the self-heal path for a drifted install). Step 2:
 refreshes the stable home-bin pointer and prints managed-update guidance (the exact
-`npm i -g agent-connector@<dist>` when the install looks npm-managed: `latest` for
+`npm i -g @ken-jo/agent-connector@<dist>` when the install looks npm-managed: `latest` for
 stable, `next` for latest). With no resolvable connector it still does step 2
 (tool-only refresh from anywhere). **Never silently auto-updates** (architecture R1).
 Same diff output and exit semantics as install for the re-render; exit 1 if the
@@ -691,13 +691,13 @@ core, fat per-adapter tail.
 
 ```bash
 # agent-connector is an SDK you depend on — no global install required
-npm install agent-connector          # inside the package that holds your connector
+npm install @ken-jo/agent-connector          # inside the package that holds your connector
 cd my-mcp-project                 # contains agent-connector.config.mjs (see examples/acme-db)
-npx agent-connector detect
-npx agent-connector install --dry-run
-npx agent-connector install
-npx agent-connector doctor
-npx agent-connector telemetry report
+npx @ken-jo/agent-connector detect
+npx @ken-jo/agent-connector install --dry-run
+npx @ken-jo/agent-connector install
+npx @ken-jo/agent-connector doctor
+npx @ken-jo/agent-connector telemetry report
 
 # from source:
 npm install

@@ -28,7 +28,7 @@ existing server command/URL and wraps lifecycle hooks; it does not implement too
 Create `agent-connector.config.mjs` (or `.js` / `.json`) at the project root:
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "acme-db",                 // required, kebab-case ^[a-z0-9][a-z0-9-]*$
@@ -88,7 +88,7 @@ descriptions (>1024 chars), or unsafe skill `resources` paths.
 ## CLI workflow
 
 ```bash
-npm install agent-connector   # a dependency of your connector package — or run everything via npx agent-connector
+npm install @ken-jo/agent-connector   # a dependency of your connector package — or run everything via npx @ken-jo/agent-connector
 cd my-mcp-project
 
 agent-connector detect                      # which hosts are installed + scope + capabilities + paradigm

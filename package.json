@@ -1,5 +1,5 @@
 {
-  "name": "agent-connector",
+  "name": "@ken-jo/agent-connector",
   "version": "0.1.0",
   "type": "module",
   "description": "Write your MCP server + hooks once; agent-connector installs and adapts them across every AI-agent platform (Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp, …) and gives you default, platform-independent per-tool token telemetry.",

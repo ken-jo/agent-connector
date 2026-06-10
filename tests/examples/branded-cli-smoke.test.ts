@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const BIN = join(__dirname, "..", "..", "examples", "branded-cli", "bin.mjs");
-const LINK = join(__dirname, "..", "..", "node_modules", "agent-connector");
+const LINK = join(__dirname, "..", "..", "node_modules", "@ken-jo", "agent-connector");
 const DIST = join(__dirname, "..", "..", "dist", "cli", "sdk.js");
 
 let sandbox: string;

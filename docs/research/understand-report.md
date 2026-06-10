@@ -112,7 +112,7 @@ The `context_mode_adapter_architecture` field came back null in the research JSO
 A single config module — `agent-connector.config.ts` (TS for type-safety + programmatic handlers; JSON/YAML accepted for static-only servers):
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   // ── Identity (replaces context-mode's hardcoded "context-mode") ──

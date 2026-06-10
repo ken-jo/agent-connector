@@ -23,7 +23,7 @@ Four files:
 ```js
 // bin.mjs (essence)
 import { fileURLToPath } from "node:url";
-import { createConnectorCli } from "agent-connector/cli";
+import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 createConnectorCli({
   name: "acme-db",
@@ -35,7 +35,7 @@ createConnectorCli({
 
 > **Prerequisite.** From a repo clone, run `npm install && npm run build` at the
 > repo root first; the example resolves agent-connector via the
-> `"agent-connector": "file:../.."` dependency.
+> `"@ken-jo/agent-connector": "../.."` dependency.
 
 After `npm install` in this directory (which links the `acme-db` bin):
 

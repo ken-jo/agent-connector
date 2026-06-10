@@ -13,7 +13,7 @@
 
 import { fileURLToPath } from "node:url";
 
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 
 // Resolve the bundled stub server to an ABSOLUTE path: host CLIs spawn MCP
 // servers from their own CWD, so a relative "./..." path would not resolve.

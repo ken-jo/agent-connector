@@ -133,7 +133,7 @@ export function Installation() {
       <H3 id="optional-global">Optional: use the CLI directly</H3>
       <P>
         You do <strong>not</strong> need a global install for the SDK flow above
-        — <C>npx agent-connector …</C> runs it straight from your project. A
+        — <C>npx @ken-jo/agent-connector …</C> runs it straight from your project. A
         global install is a convenience only, for trying the CLI by hand outside
         any connector package:
       </P>
@@ -151,7 +151,7 @@ export function QuickStart() {
       <Lead>
         Three steps: depend on agent-connector, declare your connector with{" "}
         <C>defineConnector</C>, then <strong>either</strong> ship a branded CLI{" "}
-        <strong>or</strong> run <C>npx agent-connector</C> from the project.
+        <strong>or</strong> run <C>npx @ken-jo/agent-connector</C> from the project.
       </Lead>
       <P>
         Add the dependency and create an{" "}
@@ -180,7 +180,7 @@ export function QuickStart() {
         <Link className="underline hover:text-foreground" to="/docs/embed-cli">
           Embed it / branded CLI
         </Link>
-        ), or just run <C>npx agent-connector …</C> from the project. Either way,
+        ), or just run <C>npx @ken-jo/agent-connector …</C> from the project. Either way,
         no separate global install is required.
       </Callout>
     </DocSection>

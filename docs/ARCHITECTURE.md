@@ -207,7 +207,7 @@ the default).
 ## 7. Public API (write once)
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "acme-db",

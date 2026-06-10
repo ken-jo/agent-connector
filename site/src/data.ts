@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 
 export const REPO_URL = "https://github.com/ken-jo/agent-connector";
-export const INSTALL_CMD = "npm install agent-connector";
+export const INSTALL_CMD = "npm install @ken-jo/agent-connector";
 
 /* ------------------------------------------------------------------ */
 /* Hook paradigms                                                      */
@@ -236,7 +236,7 @@ export interface DialectSnippet {
   code: string;
 }
 
-const defineConnectorSource = `import { defineConnector } from "agent-connector";
+const defineConnectorSource = `import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "acme-db",

@@ -13,6 +13,6 @@
     "acme-db-mcp-server.mjs"
   ],
   "dependencies": {
-    "agent-connector": "file:../.."
+    "@ken-jo/agent-connector": "../.."
   }
 }

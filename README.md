@@ -3,8 +3,8 @@
 > **Write your MCP server + hooks once. Ship them to every AI-agent platform —
 > and finally see how many tokens your tools actually cost.**
 
-[![npm](https://img.shields.io/npm/v/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/agent-connector)
-[![license](https://img.shields.io/npm/l/agent-connector?color=22c55e)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
+[![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
 ![platforms](https://img.shields.io/badge/platforms-29-2563eb)
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
@@ -92,7 +92,7 @@ separate global install is required.
 
 ```bash
 # 1. add agent-connector as a DEPENDENCY of your connector package
-npm install agent-connector
+npm install @ken-jo/agent-connector
 
 # 2. write agent-connector.config.mjs (defineConnector — see "Define once" below)
 
@@ -104,12 +104,12 @@ acme-db leaderboard        # acme-db's token footprint vs the boards
 acme-db package            # OR emit a marketplace-installable plugin (below)
 
 # 3b. …or just run it from the project with npx — still no global install:
-npx agent-connector detect
-npx agent-connector install
+npx @ken-jo/agent-connector detect
+npx @ken-jo/agent-connector install
 ```
 
-> **Optional convenience.** A global `npm i -g agent-connector` is **not**
-> required for the flow above — `npx agent-connector …` runs it straight from
+> **Optional convenience.** A global `npm i -g @ken-jo/agent-connector` is **not**
+> required for the flow above — `npx @ken-jo/agent-connector …` runs it straight from
 > your project. Install it globally only if you want to poke at the CLI by hand
 > outside any connector package.
 
@@ -128,7 +128,7 @@ users never install agent-connector globally or type `--connector`. See
   "name": "acme-db-tools",
   "type": "module",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "agent-connector": "^0.1.0" }
+  "dependencies": { "@ken-jo/agent-connector": "0.1.0" }
 }
 ```
 
@@ -136,7 +136,7 @@ users never install agent-connector globally or type `--connector`. See
 #!/usr/bin/env node
 // bin.mjs — every agent-connector subcommand, branded as `acme-db`
 import { fileURLToPath } from "node:url";
-import { createConnectorCli } from "agent-connector/cli";
+import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 // run() resolves to the exit code and never calls process.exit
 process.exitCode = await createConnectorCli({
@@ -197,7 +197,7 @@ Same one definition, your choice of distribution:
 ## Define once
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "acme-db",

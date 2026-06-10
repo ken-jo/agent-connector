@@ -9,7 +9,7 @@
 // Write it ONCE here; agent-connector renders it into each host's native dialect
 // (Claude Code mcpServers JSON, Codex TOML [mcp_servers.*], Cursor mcp.json + hooks.json, …).
 
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "acme-db",

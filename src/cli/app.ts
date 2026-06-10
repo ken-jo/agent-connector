@@ -54,7 +54,7 @@ export function resolveOwnVersion(): string {
   for (const rel of ["../package.json", "../../package.json", "../../../package.json"]) {
     try {
       const pkg = req(rel) as { name?: string; version?: string };
-      if (pkg.name === "agent-connector" && typeof pkg.version === "string") {
+      if (pkg.name === "@ken-jo/agent-connector" && typeof pkg.version === "string") {
         return pkg.version;
       }
     } catch {

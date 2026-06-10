@@ -663,7 +663,7 @@ function ClaudeVsKilo() {
 /* The composed Hooks developer-guide section                          */
 /* ------------------------------------------------------------------ */
 
-const SINGLE_WRAPPER_SNIPPET = `import { defineConnector } from "agent-connector";
+const SINGLE_WRAPPER_SNIPPET = `import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "my-connector",

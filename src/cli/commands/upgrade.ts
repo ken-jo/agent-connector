@@ -87,13 +87,13 @@ export async function run(argv: string[]): Promise<number> {
   const dist = ch === "stable" ? "latest" : "next";
   if (looksNpmManaged()) {
     print(`To update the ${ch} channel, run:`);
-    print(`  npm i -g agent-connector@${dist}`);
+    print(`  npm i -g @ken-jo/agent-connector@${dist}`);
   } else {
     print(
       `This install does not look npm-managed. Update it the way you installed it,`,
     );
     print(`then re-run \`agent-connector upgrade\` to refresh the home pointer.`);
-    print(`(npm installs would use: npm i -g agent-connector@${dist})`);
+    print(`(npm installs would use: npm i -g @ken-jo/agent-connector@${dist})`);
   }
 
   // Refresh the stable home-bin pointer so hosts keep execing a working CLI.

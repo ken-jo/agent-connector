@@ -205,7 +205,7 @@ export const emitNpmPlugin: FormatEmitter = (
       "Install with `opencode plugin install <pkg>` / `kilo plugin <pkg>` / `pi install <pkg>`.\n\n" +
       "## Prerequisite\n\n" +
       "Hooks shell out to the `agent-connector` CLI resolved from the consumer's PATH —\n" +
-      "the consumer machine needs `npm i -g agent-connector` (hooks silently no-op,\n" +
+      "the consumer machine needs `npm i -g @ken-jo/agent-connector` (hooks silently no-op,\n" +
       "fail-open, without it).\n\n" +
       "## Before you publish\n\n" +
       "The emitted package.json carries **no `license` and no `author`** unless your\n" +
@@ -214,7 +214,7 @@ export const emitNpmPlugin: FormatEmitter = (
 
   // The published bridge resolves the CLI by bare name on the consumer's PATH.
   notes.push(
-    "npm-plugin: hooks require `npm i -g agent-connector` on the consumer machine (bridge resolves the CLI by name on PATH; silently fail-open without it)",
+    "npm-plugin: hooks require `npm i -g @ken-jo/agent-connector` on the consumer machine (bridge resolves the CLI by name on PATH; silently fail-open without it)",
   );
   notes.push(
     "npm-plugin: set license/author in the emitted package.json before `npm publish` — agent-connector does not license your plugin for you",

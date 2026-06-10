@@ -5,7 +5,7 @@
  * tool. Add it to your connector package, then either ship a branded CLI or run
  * it with npx.
  */
-export const installSnippet = `npm install agent-connector`;
+export const installSnippet = `npm install @ken-jo/agent-connector`;
 
 /**
  * Ship a branded CLI: createConnectorCli wraps EVERY agent-connector subcommand
@@ -15,7 +15,7 @@ export const installSnippet = `npm install agent-connector`;
 export const brandedCliSnippet = `#!/usr/bin/env node
 // bin.mjs — your tool's bin, e.g. "acme-db"
 import { fileURLToPath } from "node:url";
-import { createConnectorCli } from "agent-connector/cli";
+import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 createConnectorCli({
   name: "acme-db",
@@ -29,11 +29,11 @@ createConnectorCli({
  * outside of any connector package. Not required for the SDK/branded-CLI flow.
  */
 export const globalInstallSnippet = `# optional — to try the CLI directly, outside a connector package
-npm i -g agent-connector
+npm i -g @ken-jo/agent-connector
 agent-connector --help`;
 
 export const quickStartSnippet = `# 1. add agent-connector as a dependency of your connector package
-npm install agent-connector
+npm install @ken-jo/agent-connector
 
 # 2. write agent-connector.config.mjs (defineConnector — see below)
 
@@ -45,8 +45,8 @@ acme-db leaderboard       # acme-db's token footprint vs the boards
 acme-db telemetry report --by tool   # which of acme-db's tools cost the most tokens
 
 # 3b. …or just run it from the project with npx — no global install:
-npx agent-connector detect
-npx agent-connector install`;
+npx @ken-jo/agent-connector detect
+npx @ken-jo/agent-connector install`;
 
 export const fromSourceSnippet = `npm install
 npm run typecheck
@@ -54,7 +54,7 @@ npm test
 npm run build
 npm run dev -- detect             # run the CLI from source via tsx`;
 
-export const defineConnectorSnippet = `import { defineConnector } from "agent-connector";
+export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   id: "acme-db",
@@ -106,7 +106,7 @@ export const brandedPackageJsonSnippet = `{
   },
   "files": ["bin.mjs", "agent-connector.config.mjs"],
   "dependencies": {
-    "agent-connector": "^0.1.0"
+    "@ken-jo/agent-connector": "0.1.0"
   }
 }`;
 
@@ -118,7 +118,7 @@ export const brandedPackageJsonSnippet = `{
 export const brandedBinSnippet = `#!/usr/bin/env node
 // bin.mjs
 import { fileURLToPath } from "node:url";
-import { createConnectorCli } from "agent-connector/cli";
+import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 const connector = fileURLToPath(
   new URL("./agent-connector.config.mjs", import.meta.url),
