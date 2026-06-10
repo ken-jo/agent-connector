@@ -42,7 +42,8 @@
     "./cli": {
       "types": "./dist/cli/sdk.d.ts",
       "import": "./dist/cli/sdk.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
