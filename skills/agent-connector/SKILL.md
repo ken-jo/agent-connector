@@ -1,24 +1,46 @@
 ---
 name: agent-connector
-description: Write an MCP server, lifecycle hooks, slash commands, Agent Skills, or subagents ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 29 platforms in all) in each host's native config dialect. Also gives default, platform-independent, local-first per-tool token telemetry and three origin-labeled leaderboards (per-MCP server bytes · host CLI usage · host-native turns — never summed). Use this when a developer wants one integration to reach many agent hosts, or wants to know which of their MCP tools cost the most context.
+description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks, slash commands, Agent Skills, or subagents ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 29 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
 ---
 
 # agent-connector
 
-agent-connector is middleware that solves two problems every MCP/agent-tooling dev
-hits: (1) each agent host re-invents MCP registration + lifecycle hooks with
-incompatible config files, root keys, formats (JSON/JSONC/TOML/YAML/exported TS),
-and event names; (2) no host reports per-tool token usage back to an MCP server.
-Write the integration once; the CLI renders it into each installed host's native
-dialect and measures your server's own token footprint locally.
+agent-connector serves two distinct audiences and the work forks between them:
+
+- **(A) MCP developer** — writes an integration once with `defineConnector()` and
+  deploys their MCP server + lifecycle hooks (+ commands / skills / subagents) across
+  every detected agent CLI. It solves two dev problems: (1) each agent host re-invents
+  MCP registration + lifecycle hooks with incompatible config files, root keys, formats
+  (JSON/JSONC/TOML/YAML/exported TS), and event names; (2) no host reports per-tool
+  token usage back to an MCP server. Write the integration once; the CLI renders it into
+  each installed host's native dialect and measures the developer's OWN wrapped stdio
+  server's per-tool token footprint locally.
+- **(B) Agent-CLI user** — has NOT authored a connector and just runs an agent CLI
+  (Claude Code, Codex, Cursor, …). Their entire supported surface is one connector-free
+  command, `agent-connector usage`, which reads each agent CLI's own session logs
+  read-only to show per-CLI / per-model token totals. No `defineConnector`, no install,
+  no config file.
+
+The one accuracy-critical line between them: if you BUILD an MCP integration,
+agent-connector deploys it everywhere and measures your own server's per-tool tokens.
+If you just USE agent CLIs, agent-connector reads their logs to show you per-CLI /
+per-model token totals — whole-conversation only, never itemized per MCP or per tool.
 
 ## When to reach for it
 
-- A dev wants to ship ONE MCP server (and/or hooks / slash commands / Agent Skills /
-  subagents) across many agent CLIs without hand-authoring N config dialects.
-- A dev asks "which of my tools cost the most context?" → per-tool token telemetry.
-- A dev wants to compare token spend across the agent CLIs on their machine →
-  `usage` + `leaderboard`.
+- **(A) MCP developer** wants to ship ONE MCP server (and/or hooks / slash commands /
+  Agent Skills / subagents) across many agent CLIs without hand-authoring N config
+  dialects → `defineConnector` + `install`.
+- **(A) MCP developer** asks "which of MY OWN server's tools cost the most context?" →
+  `telemetry report --by tool` / `telemetry leaderboard --by mcp|tool`. Requires a
+  declared connector with a wrapped stdio server (per-tool counts exist only for the
+  server your connector declares and wraps; remote http/sse/ws servers are not wrapped).
+- **(B) Agent-CLI user (no connector needed)** wants to compare token spend across the
+  agent CLIs on their machine → `usage` (alone). This reports WHOLE-CONVERSATION totals
+  per CLI / model / project / session / day — it does NOT and cannot itemize cost per
+  individual MCP server or per tool, because agent CLIs do not log per-tool token
+  attribution. For per-MCP/per-tool numbers, that MCP must be deployed and wrapped via a
+  connector (the developer track above).
 
 Do NOT use it to author a brand-new MCP server protocol — it deploys + measures an
 existing server command/URL and wraps lifecycle hooks; it does not implement tools.
@@ -107,22 +129,49 @@ Canonical flag-level reference: `llms-full.txt` §3 / the docs site `/docs/cli`.
 
 ## Telemetry, leaderboards, usage
 
-Telemetry is ON by default: stdio servers are wrapped with `agent-connector serve`
-so every `tools/call` is measured (args in, results out, plus the one-time
-`tools/list` schema cost) and tokenized locally. Every record carries a confidence
-tag (`tokenizer-exact | tokenizer-calibrated | tokenizer-approx | heuristic | host-native`).
+There are two completely separate token-measurement axes, split by audience. They
+measure DIFFERENT things and are NEVER summed.
+
+**Axis 1 — `telemetry` / 🔌 (MCP-developer track, the developer's OWN wrapped server).**
+Telemetry is ON by default: stdio servers are wrapped with `agent-connector serve` so
+every `tools/call` is measured (args in, results out, plus the one-time `tools/list`
+schema cost) and tokenized locally. This is the ONLY source of per-MCP and per-tool
+numbers, and it exists only for a server a registered connector declares and wraps —
+`serve` loads the connector by id and every record requires a connector id, so an
+arbitrary third-party MCP the user didn't author produces nothing here. Wrapping is
+stdio-only; remote (http/sse/ws) servers are registered but never wrapped. Every record
+carries a confidence tag (`tokenizer-exact | tokenizer-calibrated | tokenizer-approx |
+heuristic | host-native`).
 
 ```bash
 agent-connector telemetry report --by tool --since 7d   # ranked per-tool footprint (also session|project)
 agent-connector telemetry export --format csv --out tel.csv
-agent-connector telemetry leaderboard --by mcp          # which MCP server costs most (also --by tool | --by surface)
-agent-connector usage report --by platform --since 7d   # host-native usage parsed read-only from CLI logs
-agent-connector leaderboard                             # 🔌 per-MCP + 🖥️ host + 🛰️ live host-native turns
+agent-connector telemetry leaderboard --by mcp          # which of YOUR servers costs most (also --by tool | --by surface)
 ```
 
-The MCP/telemetry numbers (server's own bytes) and the host/usage numbers
-(whole-conversation usage from CLI logs) measure DIFFERENT things and are NEVER
-summed.
+**Axis 2 — `usage` / 🖥️ (agent-CLI-user track, host-log scan, NO connector needed).**
+Reads each agent CLI's OWN session logs/DBs read-only and aggregates WHOLE-CONVERSATION
+totals. It groups ONLY by `platform | project | session | model | day` — there is NO
+per-MCP or per-tool dimension, because agent CLIs do not log per-tool token attribution.
+Use this for "which agent CLI / model is burning the most tokens?"; never read it as
+"which MCP/tool costs the most." Local readers report host-logged counts; a few are
+host-estimated (shown in the CONFIDENCE column); 5 "synced" platforms (cursor,
+antigravity, antigravity-cli, trae, warp) are skipped as "requires sync" unless a local
+cache already exists.
+
+```bash
+agent-connector usage report --by platform --since 7d   # whole-conversation totals from CLI logs (also project|session|model|day)
+agent-connector usage leaderboard --by platform         # which CLI/host spent the most (also --by model)
+agent-connector usage export --format csv --out usage.csv
+```
+
+The unified `agent-connector leaderboard` shows three origin-labeled boards with
+DIFFERENT prerequisites — never summed: 🔌 per-MCP (needs a connector + serve traffic),
+🛰️ live host-native turns (needs the opt-in usage hook, installed only by the Gemini CLI
+and Antigravity adapters, and a connector at runtime), and 🖥️ host usage (the only board
+that works with no setup — same whole-conversation, per-CLI/per-model scan as `usage`).
+For a plain agent-CLI user with no connector, 🔌 and 🛰️ are empty; `usage` is the
+primary end-user entry point precisely because only its data source is connector-free.
 
 ## Operating model
 

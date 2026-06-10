@@ -1,7 +1,10 @@
 # agent-connector
 
-> **Write your MCP server + hooks once. Ship them to every AI-agent platform —
-> and finally see how many tokens your tools actually cost.**
+> **If you BUILD an MCP integration:** write your server + hooks once with
+> `defineConnector()`, deploy it to every detected AI-agent platform, and measure
+> your own server's per-tool tokens.
+> **If you just USE agent CLIs:** run `agent-connector usage` to read their logs
+> and see per-CLI / per-model token totals — no connector, config, or install.
 
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
@@ -11,7 +14,26 @@
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-951%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-974%20passing-22c55e)
+
+## Who this is for
+
+agent-connector serves **two distinct audiences** — pick your track:
+
+- **I build an MCP integration** (MCP developer) → you write your server + hooks
+  once and deploy them everywhere, then measure **your own server's** per-tool
+  tokens. Start at [**Quick start → MCP developer**](#mcp-developer).
+- **I just use agent CLIs and want to see token usage** (agent-CLI user) → you
+  already run Claude Code / Codex / Cursor and haven't authored a connector; you
+  just want per-CLI / per-model token totals. Run
+  [**`agent-connector usage`**](#agent-cli-end-user) — no connector, config, or
+  install required.
+
+> The dividing line: the connector-free `usage` path reports **whole-conversation
+> totals** per agent CLI / model / project / session / day. It does **not** itemize
+> cost by individual MCP server or tool — agent CLIs don't log per-tool token
+> attribution. Per-MCP and per-tool numbers come only from the serve-proxy
+> telemetry that an MCP developer's own connector produces (the developer track).
 
 Every agent host — Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp,
 … — re-invents the same two integration surfaces (**MCP registration** and
@@ -28,8 +50,12 @@ agent-connector is the middleware that does it for you:
 2. **Token telemetry, by default.** No host reports per-tool usage back to an MCP
    server. agent-connector measures your server's *own* bytes (args in, results
    out, tool schemas) and tokenizes them locally — so you get a
-   platform-independent answer to *"which of my tools cost the most context?"*,
-   with **aggregate counts only, stored locally, zero egress by default.**
+   platform-independent answer to *"which of **your server's own tools** (the MCP
+   your connector declares and wraps) cost the most context?"*, with **aggregate
+   counts only, stored locally, zero egress by default.** Per-tool telemetry is
+   automatic for **stdio** servers only; remote (`http`/`sse`/`ws`) servers are
+   registered but **not wrapped** (the proxy cannot intercept remote transports),
+   so they yield no per-tool telemetry.
 
 > Status: **29 platforms, all 3 hook paradigms** (exceeds the
 > [tokscale](https://github.com/junhoyeo/tokscale) token-leaderboard coverage).
@@ -76,7 +102,7 @@ an isolated environment for every adapter and inspected on disk:
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **951 tests passing** · `tsc` clean · build green.
+- **974 tests passing** · `tsc` clean · build green.
 
 Coverage was confirmed by **installing the real, not-yet-present agent CLIs into
 isolated homes and observing their actual config** — which caught defects a
@@ -84,6 +110,15 @@ static code/web audit missed. See the reports under
 [`docs/research/`](docs/research/).
 
 ## Quick start
+
+The Quick start forks by audience. Build an integration? Start with **MCP
+developer**. Just want to see your agent CLIs' token usage? Skip straight to
+**Agent-CLI end user** — it needs no connector at all.
+
+### MCP developer
+
+> **Audience A** — you write an MCP server + hooks once and deploy them across
+> every detected host, measuring **your own server's** per-tool tokens.
 
 agent-connector is an **SDK you depend on**, not a global tool. Add it to the
 package that holds your connector, declare the connector once, then **either**
@@ -98,8 +133,8 @@ npm install @ken-jo/agent-connector
 
 # 3a. ship a branded CLI so YOUR users drive it (auto-scoped — no --connector):
 acme-db detect             # which platforms are installed here?
-acme-db install --dry-run  # preview every change, everywhere
-acme-db install            # deploy across all detected hosts
+acme-db install --dry-run  # preview every change across the detected hosts
+acme-db install            # deploy across the hosts detected on this machine
 acme-db leaderboard        # acme-db's token footprint vs the boards
 acme-db package            # OR emit a marketplace-installable plugin (below)
 
@@ -108,10 +143,49 @@ npx @ken-jo/agent-connector detect
 npx @ken-jo/agent-connector install
 ```
 
+> `install` targets only the hosts actually **detected** on this machine (or an
+> explicit `--targets` / `connector.targets` list), intersected with the
+> 29-adapter registry — there is no "install to all 29 unconditionally" path.
+
 > **Optional convenience.** A global `npm i -g @ken-jo/agent-connector` is **not**
 > required for the flow above — `npx @ken-jo/agent-connector …` runs it straight from
 > your project. Install it globally only if you want to poke at the CLI by hand
 > outside any connector package.
+
+### Agent-CLI end user
+
+> **Audience B** — you already run agent CLIs (Claude Code / Codex / Cursor / …)
+> and have **not** authored a connector. You just want to know how many tokens
+> your agent CLIs are burning.
+
+**No connector, no config file, no install.** Run it straight from `npx`; it
+reads your local agent-CLI session logs **read-only** and never writes any host
+config:
+
+```bash
+# how many tokens are my agent CLIs burning, grouped by CLI/model/project/session/day?
+npx @ken-jo/agent-connector usage report --by platform   # or model|project|session|day
+
+# which agent CLI burned the most tokens?
+npx @ken-jo/agent-connector usage leaderboard --by platform   # or --by model
+
+# export the raw aggregate rows (counts only — never your prompts or results)
+npx @ken-jo/agent-connector usage export --format csv --out usage.csv
+```
+
+> **What `usage` does — and doesn't — show.** It reports **whole-conversation
+> totals** per agent CLI / model / project / session / day. It does **not** break
+> down cost by individual MCP server or by tool — agent CLIs don't log per-tool
+> token attribution, so the connector-free path can only see session totals.
+> To get **per-MCP / per-tool** numbers for an MCP, that MCP must be deployed and
+> wrapped via a connector (the MCP-developer track and its `telemetry` command).
+
+> **Coverage caveats.** Local readers (claude-code, codex, gemini-cli, …) report
+> host-logged exact counts; a few readers are host-estimated (labeled in the
+> `CONFIDENCE` column). Five "synced" platforms — **cursor, antigravity,
+> antigravity-cli, trae, warp** — are reported as skipped (`requires sync — no
+> local cache found`) unless a local cache already exists, since agent-connector
+> does not populate that cache.
 
 ### Embed it / ship a branded CLI
 
@@ -151,11 +225,11 @@ After a consumer installs **your** package (`npm install acme-db-tools`), the
 `acme-db` bin is on their PATH and every command is scoped to your connector:
 
 ```bash
-acme-db install              # deploy the acme-db connector everywhere (no --connector)
+acme-db install              # deploy acme-db across the detected hosts (no --connector)
 acme-db upgrade              # bring everything current (alias: sync, update)
-acme-db doctor               # health-check every platform for acme-db
+acme-db doctor               # health-check every detected platform for acme-db
 acme-db leaderboard          # the 🔌 MCP/plugin section, scoped to acme-db
-acme-db telemetry report --by tool   # acme-db's per-tool token footprint
+acme-db telemetry report --by tool   # per-tool tokens for acme-db's own wrapped server
 acme-db --help               # every agent-connector subcommand, branded
 ```
 
@@ -183,7 +257,7 @@ Same one definition, your choice of distribution:
   `qwen-extension` · `agy-plugin` (Antigravity CLI/IDE) · `cursor-plugin` ·
   `kimi-plugin` · `npm-plugin` (OpenCode / Kilo CLI / Pi). Hooks + MCP keep the
   telemetry serve-wrapper, so a marketplace-installed connector still reports
-  per-tool tokens.
+  per-tool tokens (for its stdio server).
 
   ```bash
   # emit all 9 host formats (mcp-server-json + mcpb are opt-in by name — they need publish{})
@@ -193,6 +267,11 @@ Same one definition, your choice of distribution:
   #                    /plugin install <connector-id>@agent-connector
   # e.g. Gemini CLI:   gemini extensions install ./dist-plugin/gemini-extension/<id>
   ```
+
+  > **Embedded-path caveat.** 8 of the 9 host bundles bake in the absolute
+  > home-bin launcher path of the machine that ran `package`, so they're valid
+  > for a **local install on that same machine/home**. For shared distribution use
+  > `npm-plugin` or the 2 MCP standard artifacts, or re-run `package` per machine.
 
 ## Define once
 
@@ -258,10 +337,10 @@ everywhere.
 | `doctor [--probe]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real server. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
 | `package [--format <fmt>\|all]` | Emit a host bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
-| `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | Token footprint (scope to your connector with `--connector`). |
-| `telemetry export [--format csv\|json] [--connector <id>]` | Raw aggregate records. |
-| `usage report\|export\|leaderboard` | Host-native token usage parsed read-only from each agent CLI's own logs; never summed with telemetry. |
-| `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards; `--connector` filters the 🔌 MCP/plugin section to one connector. |
+| `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | **MCP-developer track.** Per-tool token footprint of **your connector's own wrapped server** (scope with `--connector`). Stdio servers only. |
+| `telemetry export [--format csv\|json] [--connector <id>]` | Raw aggregate records for your wrapped server. |
+| `usage report\|export\|leaderboard [--by platform\|model\|project\|session\|day]` | **Agent-CLI-user track (no connector needed).** Host-native token usage parsed read-only from each agent CLI's own logs — **whole-conversation totals per platform / model / project / session / day. Does NOT break down by individual MCP or tool** (agent CLIs don't log per-tool attribution). Never summed with `telemetry`. |
+| `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards with **different prerequisites** (counts are never summed across them): 🔌 MCP/plugin needs a connector + serve traffic; 🛰️ host-native turns need the opt-in usage hook (Gemini CLI / Antigravity only); 🖥️ host/user works with **no setup**. `--connector` filters the 🔌 board to one connector. |
 
 > `hook` and `serve` also exist — internal entrypoints the written host configs
 > point at; you never run them by hand. Full flag-level reference: the

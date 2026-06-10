@@ -54,6 +54,51 @@ npm test
 npm run build
 npm run dev -- detect             # run the CLI from source via tsx`;
 
+/* ---- Agent-CLI user track: connector-free token usage (Audience B) ---- */
+
+/**
+ * The end-user entry point. NO defineConnector, NO config file, NO install.
+ * `agent-connector usage` reads each agent CLI's OWN session logs read-only and
+ * reports WHOLE-CONVERSATION totals — grouped by platform | model | project |
+ * session | day. It never itemizes per-MCP or per-tool cost (agent CLIs don't
+ * log per-tool token attribution) and never writes any host config.
+ */
+export const usageQuickStartSnippet = `# no install, no config, no defineConnector — just run it with npx:
+npx @ken-jo/agent-connector usage report
+
+# which agent CLI burned the most tokens? (ranks hosts)
+npx @ken-jo/agent-connector usage leaderboard --by platform
+
+# rank by model instead, scoped to the last 7 days:
+npx @ken-jo/agent-connector usage leaderboard --by model --since 7d
+
+# scope a report to a window / one platform; group however you like:
+npx @ken-jo/agent-connector usage report --by day --since 7d
+npx @ken-jo/agent-connector usage report --by model --platform claude-code
+
+# export the raw aggregate rows (counts only — never prompts or results):
+npx @ken-jo/agent-connector usage export --format csv --out usage.csv`;
+
+/**
+ * The shape of `usage report` output: whole-conversation totals per group, with
+ * a CONFIDENCE column distinguishing host-logged exact counts from host-estimated
+ * ones, and explicit skip notes for the 5 'synced' platforms that need a local
+ * cache agent-connector does not populate. There is NO per-MCP / per-tool column.
+ */
+export const usageReportSnippet = `$ agent-connector usage report --by platform --since 7d
+
+PLATFORM       IN       OUT      CACHE_R   CACHE_W   REASON      TOTAL     SESS      CONF
+----------------------------------------------------------------------------------------------
+claude-code    4.10M    0.62M    8.40M     1.10M     0.31M       14.53M    132       host-reported
+codex          1.22M    0.18M    0.00      0.00      0.04M       1.44M     41        host-reported
+gemini-cli     0.88M    0.21M    0.00      0.00      0.00        1.09M     27        host-reported
+kiro           0.34M    0.09M    0.00      0.00      0.00        0.43M     12        host-estimated
+----------------------------------------------------------------------------------------------
+skipped: cursor, antigravity, antigravity-cli, trae, warp (requires sync — no local cache found)
+
+# totals are WHOLE-CONVERSATION per agent CLI — NOT per-MCP or per-tool.
+# agent CLIs don't log per-tool token attribution, so usage cannot itemize it.`;
+
 export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({

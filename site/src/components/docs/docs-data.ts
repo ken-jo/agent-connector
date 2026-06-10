@@ -44,7 +44,13 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: "Telemetry",
+    title: "Track token usage (agent-CLI users)",
+    items: [
+      { id: "usage", label: "See your agent-CLI usage" },
+    ],
+  },
+  {
+    title: "Telemetry (MCP developers)",
     items: [
       { id: "telemetry-overview", label: "Overview" },
       { id: "telemetry-surfaces", label: "The 5-surface model" },
@@ -85,11 +91,11 @@ export const sectionIds: ReadonlySet<string> = new Set(sectionOrder);
 /** Per-section <meta name="description"> copy (for /docs/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "Write your MCP server + hooks once with defineConnector; agent-connector renders it natively across 29 AI-agent platforms with default local-first token telemetry.",
+    "agent-connector serves two audiences. MCP developers write their server + hooks once with defineConnector and deploy it natively across 29 AI-agent platforms with default local-first per-tool telemetry for their own wrapped server. Agent-CLI users author nothing — they run `agent-connector usage` to read their agent CLIs' own logs and see per-CLI / per-model token totals.",
   installation:
     "Install agent-connector as a dependency of your connector package (npm install @ken-jo/agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
-    "Depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector — install / sync / uninstall are idempotent, reversible, and --dry-run-able.",
+    "The Quick start forks by audience. MCP developers: depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector to deploy their MCP everywhere. Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup to see the token usage of the agent CLIs they already use.",
   "embed-cli":
     "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
   "define-connector":
@@ -104,12 +110,14 @@ export const sectionDescription: Record<string, string> = {
     "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform.",
   packaging:
     "Two ways to ship: direct install, or a packaged bundle. agent-connector package emits any of 9 marketplace/extension formats — each with its own manifest + install command — and every bundle keeps the telemetry serve-wrapper + home-bin hooks so a marketplace-installed connector still reports per-tool tokens.",
+  usage:
+    "Agent-CLI users (no connector): `agent-connector usage` reads each agent CLI's own session logs read-only and reports whole-conversation token totals grouped by platform, model, project, session, or day. It does NOT itemize cost per MCP server or per tool — agent CLIs don't log per-tool token attribution. Per-MCP/per-tool numbers require the MCP-developer serve-proxy telemetry track.",
   "telemetry-overview":
-    "Default per-MCP token telemetry: the serve proxy tokenizes input/output locally with documented confidence sources. Aggregate counts only.",
+    "MCP-developer track. Per-MCP / per-tool token telemetry for the server YOUR connector declares and wraps: the serve proxy tokenizes input/output locally (stdio servers only — remote transports are registered but never wrapped). Aggregate counts only. To see per-CLI totals without a connector, use the connector-free `usage` command instead.",
   "telemetry-surfaces":
-    "The two axes (host/user vs developer/surface) and the five developer surfaces — server, hooks (runtime) and commands, skills, subagents (static footprints) — with the EventScope/SurfaceKind model and the per-surface leaderboard.",
+    "MCP-developer track. The two axes (host/user vs developer/surface) and the five developer surfaces — server, hooks (runtime) and commands, skills, subagents (static footprints) — measuring the connector's own declared+wrapped server, with the EventScope/SurfaceKind model and the per-surface leaderboard.",
   leaderboards:
-    "Three origin-labeled leaderboards (MCP/plugin, host/user, host-native turns) that measure different things and are never summed.",
+    "Three origin-labeled boards that measure different things and are never summed, each with its own prerequisite: 🔌 MCP/plugin needs an MCP-developer connector + serve traffic (your own wrapped server), 🛰️ host-native turns needs the opt-in usage hook (Gemini/Antigravity only), 🖥️ host/user works with no setup. Agent-CLI users should use `usage` as the connector-free entry point.",
   privacy:
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
@@ -677,7 +685,7 @@ export const confidenceSources: { source: string; meaning: string }[] = [
   {
     source: "tokenizer-exact",
     meaning:
-      "Local gpt-tokenizer match for the host's family (o200k_base / cl100k_base).",
+      "Local gpt-tokenizer match for the host's family (o200k_base).",
   },
   {
     source: "tokenizer-approx",
@@ -1058,6 +1066,10 @@ export const telemetryEmptyRows: { reason: string; fix: string }[] = [
   {
     reason: "Host-native turns not calibrated / not opted in",
     fix: "model_turn rows only exist when host-native usage is enabled (hostNativeUsage / AGENT_CONNECTOR_HOST_NATIVE=1) on a supporting host.",
+  },
+  {
+    reason: "The MCP isn't declared + wrapped by YOUR connector",
+    fix: "Per-MCP / per-tool telemetry exists only for a server your own connector declares and serve-wraps — serve loads a registered connector and stamps every row with its id. An already-installed third-party MCP you didn't author produces no per-tool rows here; that is a capability boundary, not a bug. For an MCP you didn't author, the connector-free `usage` command shows per-CLI / per-model totals (not per-MCP).",
   },
 ];
 
