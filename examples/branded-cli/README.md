@@ -7,11 +7,14 @@ subcommand is auto-scoped to the connector this package ships.
 
 ## How it works
 
-Three files:
+Four files:
 
 - `agentconnect.config.mjs` — the connector: a stdio MCP server (wrapped for
   per-tool token telemetry), a `PreToolUse` guard hook, and an `/acme-schema`
   command. Declared once via `defineConnector`.
+- `acme-db-mcp-server.mjs` — a minimal stub stdio MCP server (initialize / ping /
+  tools/list) standing in for Acme's real server, referenced by the config via
+  an absolute `import.meta.url`-derived path.
 - `bin.mjs` — the `acme-db` bin. It calls `createConnectorCli({ name, connector })`
   from `agentconnect/cli` and runs it.
 - `package.json` — `bin: { "acme-db": "./bin.mjs" }` + a dependency on
@@ -30,7 +33,11 @@ createConnectorCli({
 
 ## Using the branded CLI
 
-After `npm install` (which links the `acme-db` bin):
+> **Prerequisite.** From a repo clone, run `npm install && npm run build` at the
+> repo root first; the example resolves agentconnect via the
+> `"agentconnect": "file:../.."` dependency.
+
+After `npm install` in this directory (which links the `acme-db` bin):
 
 ```bash
 # Deploy the acme-db connector across every detected agent platform.

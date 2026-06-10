@@ -50,12 +50,16 @@
   "engines": {
     "node": ">=18.17"
   },
+  "workspaces": [
+    "examples/*"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsx src/cli/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm run build"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",

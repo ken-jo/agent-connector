@@ -9,7 +9,7 @@
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-950%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-951%20passing-22c55e)
 
 Every agent host — Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp,
 … — re-invents the same two integration surfaces (**MCP registration** and
@@ -34,8 +34,8 @@ AgentConnect is the middleware that does it for you:
 >
 > | Paradigm | Platforms |
 > |---|---|
-> | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Antigravity · Antigravity CLI |
-> | `mcp-only` (MCP registration only) | Warp · Kilo · Droid (Factory) · Roo Code · Trae · Zed · Amp · Codebuff · Mux · Pi |
+> | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Droid (Factory) · Antigravity · Antigravity CLI |
+> | `mcp-only` (MCP registration only) | Warp · Kilo · Roo Code · Trae · Zed · Amp · Codebuff · Mux · Pi |
 > | `ts-plugin` (generated bridge module) | OpenCode · Kilo CLI · OMP · OpenClaw |
 >
 > …plus the telemetry core. Adding a platform = **one registry entry + one
@@ -74,7 +74,7 @@ an isolated environment for every adapter and inspected on disk:
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **832 tests passing** · `tsc` clean · build green.
+- **951 tests passing** · `tsc` clean · build green.
 
 Coverage was confirmed by **installing the real, not-yet-present agent CLIs into
 isolated homes and observing their actual config** — which caught defects a
@@ -82,6 +82,12 @@ static code/web audit missed. See the reports under
 [`docs/research/`](docs/research/).
 
 ## Quick start
+
+> **Not yet on npm.** Until 0.1.0 is published, clone this repo, run
+> `npm install && npm run build`, then use `npm link` (or an
+> `"agentconnect": "file:../path/to/agentconnect"` dependency) wherever the
+> docs say `npm install agentconnect`; replace `npx agentconnect ...` with
+> `node <repo>/dist/cli.js ...`.
 
 AgentConnect is an **SDK you depend on**, not a global tool. Add it to the
 package that holds your connector, declare the connector once, then **either**
@@ -98,7 +104,7 @@ npm install agentconnect
 acme-db detect             # which platforms are installed here?
 acme-db install --dry-run  # preview every change, everywhere
 acme-db install            # deploy across all detected hosts
-acme-db leaderboard        # which of acme-db's tools cost the most tokens
+acme-db leaderboard        # acme-db's token footprint vs the boards
 acme-db package            # OR emit a marketplace-installable plugin (below)
 
 # 3b. …or just run it from the project with npx — still no global install:
@@ -136,7 +142,8 @@ users never install agentconnect globally or type `--connector`. See
 import { fileURLToPath } from "node:url";
 import { createConnectorCli } from "agentconnect/cli";
 
-createConnectorCli({
+// run() resolves to the exit code and never calls process.exit
+process.exitCode = await createConnectorCli({
   name: "acme-db",
   connector: fileURLToPath(
     new URL("./agentconnect.config.mjs", import.meta.url),
@@ -183,7 +190,8 @@ Same one definition, your choice of distribution:
   per-tool tokens.
 
   ```bash
-  agentconnect package --format all  --out ./dist-plugin   # emit every format
+  # emit all 9 host formats (mcp-server-json + mcpb are opt-in by name — they need publish{})
+  agentconnect package --format all  --out ./dist-plugin
   agentconnect package --format gemini-extension --out ./ext   # or one
   # e.g. Claude Code:  /plugin marketplace add ./dist-plugin/claude-plugin
   #                    /plugin install <connector-id>@agentconnect
@@ -250,13 +258,18 @@ everywhere.
 | `detect` | List installed platforms, scopes, capabilities, hook paradigm. |
 | `install [--scope user\|project] [--targets …] [--dry-run]` | Render + write MCP + hooks across targets. |
 | `uninstall [--targets …]` | Full inverse — removes everything we wrote. |
-| `upgrade [--channel stable\|latest]` | One verb (alias: `update`, `sync`) — re-render host config + heal stale pointers + managed update of the single home binary. |
+| `upgrade [--channel stable\|latest]` | One verb (alias: `update`, `sync`) — re-render host config + heal stale pointers + refresh the home-binary pointer, printing managed-update guidance (never a silent self-update). |
 | `doctor [--probe]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real server. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
 | `package [--format <fmt>\|all]` | Emit a host bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
 | `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | Token footprint (scope to your connector with `--connector`). |
 | `telemetry export [--format csv\|json] [--connector <id>]` | Raw aggregate records. |
+| `usage report\|export\|leaderboard` | Host-native token usage parsed read-only from each agent CLI's own logs; never summed with telemetry. |
 | `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards; `--connector` filters the 🔌 MCP/plugin section to one connector. |
+
+> `hook` and `serve` also exist — internal entrypoints the written host configs
+> point at; you never run them by hand. Full flag-level reference: the
+> [docs site `/docs/cli`](https://github.com/ken-jo/agentconnect) · `llms-full.txt` §3 (canonical, drift-guarded by tests).
 
 > A **branded CLI** auto-injects `--connector` for you: `<your-tool>
 > leaderboard` ≈ `agentconnect leaderboard --connector <id>`, and

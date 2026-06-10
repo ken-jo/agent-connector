@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Workspaces install also links examples/* against the root package, so
+      # the branded-cli smoke test exercises the example exactly as a reader
+      # would run it.
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      # Full suite — includes the docs/platform drift guard (registry vs
+      # README/llms/site data) and the examples smoke test, so doc rot and a
+      # broken example FAIL CI instead of shipping.
+      - run: npm test
+
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+        working-directory: site
+      - run: npx tsc -b
+        working-directory: site
+      - run: npm run build
+        working-directory: site
+
+  windows-smoke:
+    # Native-Windows is a hard project constraint (no symlink installs, .cmd
+    # launcher, PATHEXT spawn). The full suite is Windows-green; run it on
+    # windows-latest so regressions surface in CI, not on user machines.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test

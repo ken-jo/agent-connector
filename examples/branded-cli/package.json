@@ -9,9 +9,10 @@
   },
   "files": [
     "bin.mjs",
-    "agentconnect.config.mjs"
+    "agentconnect.config.mjs",
+    "acme-db-mcp-server.mjs"
   ],
   "dependencies": {
-    "agentconnect": "^0.1.0"
+    "agentconnect": "file:../.."
   }
 }

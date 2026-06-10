@@ -5,7 +5,11 @@
  * tool. Add it to your connector package, then either ship a branded CLI or run
  * it with npx.
  */
-export const installSnippet = `npm install agentconnect`;
+export const installSnippet = `# NOT YET ON NPM — until 0.1.0 is published: clone the repo, run
+# \`npm install && npm run build\`, then \`npm link\` (or depend on it with
+# "agentconnect": "file:../path/to/agentconnect"); replace
+# \`npx agentconnect ...\` with \`node <repo>/dist/cli.js ...\`.
+npm install agentconnect`;
 
 /**
  * Ship a branded CLI: createConnectorCli wraps EVERY agentconnect subcommand
@@ -32,7 +36,11 @@ export const globalInstallSnippet = `# optional — to try the CLI directly, out
 npm i -g agentconnect
 agentconnect --help`;
 
-export const quickStartSnippet = `# 1. add agentconnect as a dependency of your connector package
+export const quickStartSnippet = `# NOT YET ON NPM — until 0.1.0 is published: clone the repo, run
+# \`npm install && npm run build\`, then \`npm link\` (or a file: dependency);
+# replace \`npx agentconnect ...\` with \`node <repo>/dist/cli.js ...\`.
+
+# 1. add agentconnect as a dependency of your connector package
 npm install agentconnect
 
 # 2. write agentconnect.config.mjs (defineConnector — see below)
@@ -41,7 +49,8 @@ npm install agentconnect
 acme-db detect            # list installed hosts + paradigms
 acme-db install --dry-run # preview the diff
 acme-db install           # write native configs everywhere
-acme-db leaderboard       # which of acme-db's tools cost the most tokens
+acme-db leaderboard       # acme-db's token footprint vs the boards
+acme-db telemetry report --by tool   # which of acme-db's tools cost the most tokens
 
 # 3b. …or just run it from the project with npx — no global install:
 npx agentconnect detect
@@ -188,12 +197,16 @@ export const serverDefSnippet = `interface ServerDef {
 /* Per-dialect outputs of `agentconnect install` for the server above. */
 
 export const claudeCodeOutput = `// ~/.claude.json
+// wrapForTelemetry (default for stdio) wraps the real command behind the
+// home-bin serve proxy; \${env:VAR} is translated to Claude's native \${VAR}.
 {
   "mcpServers": {
     "acme-db": {
-      "command": "npx",
-      "args": ["-y", "@acme/db-mcp"],
-      "env": { "ACME_DB_DSN": "\${env:ACME_DB_DSN}" }
+      "type": "stdio",
+      "command": "/home/you/.agentconnect/bin/agentconnect",
+      "args": ["serve", "--connector", "acme-db", "--scope", "user",
+               "--host", "claude-code", "--", "npx", "-y", "@acme/db-mcp"],
+      "env": { "ACME_DB_DSN": "\${ACME_DB_DSN}" }
     }
   }
 }
@@ -201,11 +214,14 @@ export const claudeCodeOutput = `// ~/.claude.json
 
 export const codexOutput = `# ~/.codex/config.toml
 [mcp_servers.acme-db]
-command = "npx"
-args = ["-y", "@acme/db-mcp"]
+command = "/home/you/.agentconnect/bin/agentconnect"
+args = ["serve", "--connector", "acme-db", "--scope", "user",
+        "--host", "codex", "--", "npx", "-y", "@acme/db-mcp"]
 
 [mcp_servers.acme-db.env]
-ACME_DB_DSN = "\${env:ACME_DB_DSN}"
+# \${env:...} is resolved to a literal at install — TOML cannot interpolate;
+# set the env var before \`install\` (unset → baked as "").
+ACME_DB_DSN = "postgres://acme:…"
 
 # + hooks registered in ~/.codex/hooks.json`;
 
@@ -213,8 +229,9 @@ export const cursorOutput = `// ~/.cursor/mcp.json
 {
   "mcpServers": {
     "acme-db": {
-      "command": "npx",
-      "args": ["-y", "@acme/db-mcp"],
+      "command": "/home/you/.agentconnect/bin/agentconnect",
+      "args": ["serve", "--connector", "acme-db", "--scope", "user",
+               "--host", "cursor", "--", "npx", "-y", "@acme/db-mcp"],
       "env": { "ACME_DB_DSN": "\${env:ACME_DB_DSN}" }
     }
   }
@@ -225,8 +242,9 @@ export const vscodeOutput = `// .vscode/mcp.json
 {
   "servers": {
     "acme-db": {
-      "command": "npx",
-      "args": ["-y", "@acme/db-mcp"],
+      "command": "/home/you/.agentconnect/bin/agentconnect",
+      "args": ["serve", "--connector", "acme-db", "--scope", "user",
+               "--host", "vscode-copilot", "--", "npx", "-y", "@acme/db-mcp"],
       "env": { "ACME_DB_DSN": "\${env:ACME_DB_DSN}" }
     }
   }

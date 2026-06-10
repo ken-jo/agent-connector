@@ -26,14 +26,17 @@ Declare once with `defineConnector({...})`; the CLI detects installed hosts, ren
 ## Quick start
 
 ```bash
-npm i -g agentconnect
-cd my-mcp-project            # contains agentconnect.config.mjs
-agentconnect detect       # which hosts are installed here?
-agentconnect install --dry-run   # preview every change, everywhere
-agentconnect install             # deploy across detected hosts
-agentconnect doctor              # per-platform health checks
-agentconnect telemetry report    # per-tool token footprint
+# agentconnect is an SDK you depend on — no global install required
+npm install agentconnect             # inside the package that holds your connector
+cd my-mcp-project                    # contains agentconnect.config.mjs
+npx agentconnect detect              # which hosts are installed here?
+npx agentconnect install --dry-run   # preview every change, everywhere
+npx agentconnect install             # deploy across detected hosts
+npx agentconnect doctor              # per-platform health checks
+npx agentconnect telemetry report    # per-tool token footprint
 ```
+
+Or ship a branded CLI: `createConnectorCli({ name, connector })` from `agentconnect/cli` exposes every subcommand under your own bin, auto-scoped to your connector (`acme-db install` ≈ `agentconnect install --connector ./agentconnect.config.mjs`; explicit `--connector`/`--connector-id` always overrides).
 
 ## Key API: defineConnector fields
 
@@ -44,6 +47,7 @@ agentconnect telemetry report    # per-tool token footprint
 - `telemetry?: TelemetryConfig` — `enabled` (default true), `modelFamilyHint`, `measureToolDefs`, `hostNativeUsage`, `store`, `calibration`.
 - `platforms?` — per-platform overrides / escape hatch (`extra`, disable a surface, force scope).
 - `targets?` — `"auto"` (default, all detected) or an explicit `PlatformId[]`.
+- `publish?` — distribution metadata for the official MCP artifacts (`package --format mcp-server-json|mcpb`): `registryNamespace` (reverse-DNS namespace YOU own; server.json name = `<namespace>/<id>`), `packageName` (your REAL published package), `registryBaseUrl?`, `author { name, email?, url? }`. Optional; the relevant format raises a clear error only when its required field is missing.
 
 Validation: throws `ConnectorConfigError` on bad id, non-function handler, missing required field, duplicate surface name, skill description >1024 chars, or unsafe `resources` path.
 
@@ -51,26 +55,32 @@ Validation: throws `ConnectorConfigError` on bad id, non-function handler, missi
 
 - `detect` — list installed platforms, scope, capabilities, hook paradigm.
 - `install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]`
-- `sync` — idempotent re-render; heals the stable home pointer.
-- `uninstall [--connector-id <id>] [--targets …] [--dry-run]`
-- `doctor [--targets …] [--json]` — health checks; non-zero exit on FAIL.
-- `update [--channel stable|latest]` — managed update + pointer refresh (never silent).
-- `telemetry report|export|leaderboard` — per-MCP token telemetry.
+- `uninstall [--connector-id <id>] [--targets …] [--purge] [--dry-run]` — full inverse; `--purge` also removes registered framework state + the home binary when no connectors remain.
+- `upgrade [--channel stable|latest]` — ONE "bring everything current" verb (aliases: `sync`, `update`): idempotent re-render (identical entries report skip), heals the stable home pointer, prints managed-update guidance (never silent).
+- `doctor [--targets …] [--probe] [--json]` — per-platform health checks; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real stdio server; non-zero exit on FAIL.
+- `status [--json]` — light install-state summary (which connectors are present on which hosts); always exits 0.
+- `package [--format <fmt>|all] [--out <dir>]` — emit a marketplace/extension bundle (9 host formats: claude-plugin (default) · codex-plugin · factory-plugin · gemini-extension · qwen-extension · agy-plugin · cursor-plugin · kimi-plugin · npm-plugin) or an official MCP standard artifact by explicit name: `mcp-server-json` (MCP Registry server.json) · `mcpb` (MCPB manifest) — both require the connector's `publish` block and are excluded from `all`.
+- `telemetry report|export|leaderboard` — per-MCP token telemetry (`leaderboard --by mcp|tool|surface`).
 - `usage report|export|leaderboard` — host-native usage parsed read-only from CLI logs.
 - `leaderboard` — unified: 🔌 per-MCP · 🖥️ host/user · 🛰️ live host-native turns (never summed).
 - `hook`, `serve`, `usage-event` — internal entrypoints hosts point at.
 
 ## Supported platforms by paradigm (29)
 
-- `json-stdio` (full hook dispatch): claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, antigravity, antigravity-cli.
-- `mcp-only` (MCP registration only): warp, kilo, droid, roo-code, trae, zed, amp, codebuff, mux, pi.
-- `ts-plugin` (generated bridge module): opencode, kilo-cli, omp, openclaw.
+- `json-stdio` (full hook dispatch, 16): claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, droid, antigravity, antigravity-cli.
+- `mcp-only` (MCP registration only, 9): warp, kilo, roo-code, trae, zed, amp, codebuff, mux, pi.
+- `ts-plugin` (generated bridge module, 4): opencode, kilo-cli, omp, openclaw.
 
 ## Telemetry / leaderboards
 
-- Default tokenizer: `gpt-tokenizer` (pure-JS); `o200k_base` for OpenAI/Codex, documented approximation for Anthropic; falls back to `chars/4` heuristic. Every row tagged `tokenizer-exact | tokenizer-approx | heuristic | host-native`.
-- Two distinct leaderboards: per-MCP server bytes (telemetry) vs host CLI usage (usage). They measure different things and are never summed.
+- Default tokenizer: `gpt-tokenizer` (pure-JS); `o200k_base` for OpenAI/Codex, documented approximation for Anthropic; falls back to `chars/4` heuristic. Every row tagged `tokenizer-exact | tokenizer-calibrated | tokenizer-approx | heuristic | host-native`.
+- Two axes, never summed: the developer/surface axis (🔌 per-MCP serve-proxy rows — scopes call|tool_defs|hook — plus static command/skill/subagent context footprints; `telemetry leaderboard --by mcp|tool|surface`) vs the user/host axis (🖥️ host CLI-log scans + 🛰️ live host-native model_turn rows).
 - Privacy: aggregate counts only; zero egress by default. Opt out: `AGENTCONNECT_TELEMETRY=0` or `telemetry: { enabled: false }`.
+- Env switches: `AGENTCONNECT_DATA_DIR` (relocate data-root) · `AGENTCONNECT_TELEMETRY=0` (kill switch) · `AGENTCONNECT_HOST_NATIVE=1` (force host-native turn capture) · `AGENTCONNECT_CALIBRATE=anthropic` + `ANTHROPIC_API_KEY` (BOTH required to enable the opt-in count_tokens calibration sampler).
+
+## Extensibility
+
+- Adding a platform = one lazily-loaded registry entry (`src/adapters/registry.ts`) + one adapter class; `platforms.<id>.extra` is the per-platform escape hatch (thin universal core, fat per-adapter tail).
 
 ## Links
 

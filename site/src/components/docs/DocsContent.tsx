@@ -171,7 +171,7 @@ export function QuickStart() {
       <CodeBlock
         code={S.defineConnectorSnippet}
         language="ts"
-        filename="agentconnect.config.ts"
+        filename="agentconnect.config.mjs"
       />
       <Callout title="Two ways to drive it">
         Ship a <strong>branded CLI</strong> so your users run{" "}
@@ -240,8 +240,9 @@ export function EmbedCli() {
       <P>
         A branded subcommand is just the matching agentconnect command with
         your connector pre-injected — argument transformation only, no duplicated
-        logic. Config-path commands (<C>install</C>, <C>upgrade</C>, <C>doctor</C>,{" "}
-        <C>uninstall</C>, <C>package</C>) get your config <strong>path</strong>;{" "}
+        logic. Config-path commands (<C>install</C>, <C>upgrade</C> [+ <C>sync</C>/
+        <C>update</C> aliases], <C>doctor</C>, <C>status</C>, <C>uninstall</C>,{" "}
+        <C>package</C>) get your config <strong>path</strong>;{" "}
         <C>leaderboard</C> / <C>telemetry</C> get your connector{" "}
         <strong>id</strong> as a filter; <C>serve</C> / <C>hook</C> get the id for
         the runtime.
@@ -323,7 +324,7 @@ export function DefineConnector() {
       <CodeBlock
         code={S.platformOverrideSnippet}
         language="ts"
-        filename="agentconnect.config.ts"
+        filename="agentconnect.config.mjs"
       />
     </DocSection>
   );
@@ -343,9 +344,11 @@ export function ServerSection() {
       <H3 id="transports">Transports &amp; dialects</H3>
       <P>
         The <strong>root key and field names differ per host</strong> (constant
-        per adapter): <C>mcpServers</C> (Claude Code, Cursor, Copilot CLI, Amp,
-        Codebuff, Crush, Antigravity, …), <C>servers</C> (VS Code Copilot),{" "}
-        <C>mcp_servers</C> (Codex TOML), <C>mcp</C> (Warp). Field renames like{" "}
+        per adapter): <C>mcpServers</C> (Claude Code, Cursor, Copilot CLI,
+        Codebuff, Warp, Antigravity, …), <C>servers</C> (VS Code Copilot),{" "}
+        <C>mcp_servers</C> (Codex TOML), <C>mcp</C> (Crush, OpenCode, Kilo), a
+        flat dotted <C>amp.mcpServers</C> (Amp), <C>context_servers</C> (Zed).
+        Field renames like{" "}
         <C>cwd</C>↔<C>working_directory</C> and <C>env</C>↔<C>environment</C> are
         handled per adapter. An adapter that cannot honor a requested transport{" "}
         <strong>downgrades-or-skips and reports it — it never throws</strong>.
@@ -476,7 +479,7 @@ export function HooksSection() {
       <CodeBlock
         code={S.hookHandlerSnippet}
         language="ts"
-        filename="agentconnect.config.ts"
+        filename="agentconnect.config.mjs"
       />
 
       <H3 id="paradigms">Three paradigms</H3>
@@ -548,7 +551,7 @@ export function SurfacesSection() {
       <CodeBlock
         code={S.commandSnippet}
         language="ts"
-        filename="agentconnect.config.ts"
+        filename="agentconnect.config.mjs"
       />
 
       <H3 id="surface-validation">Validation rules</H3>
@@ -643,7 +646,7 @@ export function TelemetryOverview() {
       <CodeBlock
         code={S.telemetrySnippet}
         language="ts"
-        filename="agentconnect.config.ts"
+        filename="agentconnect.config.mjs"
       />
 
       <H3 id="tokenizer">Tokenizer</H3>
@@ -686,7 +689,7 @@ export function TelemetryOverview() {
         rollups behind a <C>TelemetryStore</C> interface (<C>store: &quot;sqlite&quot;</C>{" "}
         is a drop-in upgrade). Rows are keyed roughly by{" "}
         <C>
-          connectorId, toolName, scope (call|tool_defs|model_turn), hostPlatform,
+          connectorId, toolName, scope (call|tool_defs|model_turn|hook), hostPlatform,
           sessionId, projectKey, projectDir, inputTokens, outputTokens,
           confidenceSource, isError, ts
         </C>
@@ -701,8 +704,9 @@ export function TelemetryOverview() {
         per-platform/project/session/model/day usage. Confidence is{" "}
         <C>host-reported</C> (real numbers) vs <C>host-estimated</C> (e.g. Kiro
         char/4, Crush cost-only). It never writes host config and never collides
-        with the serve-proxy store. Some hosts (cursor / antigravity / trae /
-        warp) need an external sync AgentConnect does not perform → those rows
+        with the serve-proxy store. Some hosts (cursor / antigravity /
+        antigravity-cli / trae / warp) need an external sync AgentConnect does
+        not perform → those rows
         are &quot;requires sync, skipped&quot; unless a local cache already
         exists.
       </P>
@@ -1103,7 +1107,7 @@ export function CliSection() {
         <C>agentconnect &lt;command&gt; [flags]</C>. Run{" "}
         <C>agentconnect &lt;command&gt; --help</C> for command-specific flags.{" "}
         <C>--help</C>/<C>-h</C>/<C>help</C> print usage; <C>--version</C>/
-        <C>-v</C> prints the package name.
+        <C>-v</C> prints the program name and version.
       </Lead>
 
       <H3 id="shared-flags">Shared flags</H3>
@@ -1257,21 +1261,23 @@ export function PlatformsSection() {
         platform — <strong>29</strong> hosts, grouped by hook paradigm (the
         deepest cross-platform divergence).
       </Lead>
+      {/* counts derive from the entry lists (which the drift-guard test pins
+          to the adapter registry) so they can never rot independently again. */}
       <PlatformTable
         title="json-stdio"
-        count={15}
+        count={jsonStdioPlatforms.length}
         blurb="Full hook dispatch. One universal hook entrypoint binary handles all of them."
         entries={jsonStdioPlatforms}
       />
       <PlatformTable
         title="mcp-only"
-        count={10}
+        count={mcpOnlyPlatforms.length}
         blurb="MCP registration only, no hook layer. Detection surfaces “hooks unavailable here.”"
         entries={mcpOnlyPlatforms}
       />
       <PlatformTable
         title="ts-plugin"
-        count={3}
+        count={tsPluginPlatforms.length}
         blurb="Framework-generated bridge module exporting lifecycle functions that import your handler."
         entries={tsPluginPlatforms}
       />
@@ -1416,8 +1422,8 @@ export function Troubleshooting() {
 
       <H3 id="hooks-unavailable">&quot;hooks unavailable here&quot;</H3>
       <P>
-        The <strong>10 mcp-only hosts</strong> (Warp, Kilo, Droid, Roo Code,
-        Trae, Zed, Amp, Codebuff, Mux, Pi) have no hook layer — only the MCP
+        The <strong>9 mcp-only hosts</strong> (Warp, Kilo, Roo Code, Trae,
+        Zed, Amp, Codebuff, Mux, Pi) have no hook layer — only the MCP
         server is installed. Detection and <C>doctor</C> surface{" "}
         <strong>&quot;hooks unavailable here&quot;</strong> for them; this is
         expected, not an error. Declared hooks are simply skipped (with a

@@ -1,6 +1,6 @@
 ---
 name: agentconnect
-description: Write an MCP server, lifecycle hooks, slash commands, Agent Skills, or subagents ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and ~25 more) in each host's native config dialect. Also gives default, platform-independent, local-first per-tool token telemetry and two leaderboards (per-MCP server bytes vs host CLI usage). Use this when a developer wants one integration to reach many agent hosts, or wants to know which of their MCP tools cost the most context.
+description: Write an MCP server, lifecycle hooks, slash commands, Agent Skills, or subagents ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 29 platforms in all) in each host's native config dialect. Also gives default, platform-independent, local-first per-tool token telemetry and three origin-labeled leaderboards (per-MCP server bytes · host CLI usage · host-native turns — never summed). Use this when a developer wants one integration to reach many agent hosts, or wants to know which of their MCP tools cost the most context.
 ---
 
 # AgentConnect
@@ -88,7 +88,7 @@ descriptions (>1024 chars), or unsafe skill `resources` paths.
 ## CLI workflow
 
 ```bash
-npm i -g agentconnect
+npm install agentconnect   # a dependency of your connector package — or run everything via npx agentconnect
 cd my-mcp-project
 
 agentconnect detect                      # which hosts are installed + scope + capabilities + paradigm
@@ -96,25 +96,26 @@ agentconnect install --dry-run           # preview every change, everywhere (not
 agentconnect install                     # deploy across detected hosts
 agentconnect install --scope project --targets claude-code,codex   # narrow it
 agentconnect doctor                      # per-platform health checks (non-zero exit on FAIL)
-agentconnect sync                        # idempotent re-render after edits/upgrade; heals stale pointers
+agentconnect upgrade                     # ONE verb: re-render + heal stale pointers + managed-update guidance (aliases: sync, update)
 agentconnect uninstall                   # full inverse — removes everything we wrote
 ```
 
 `--scope` is `user` (default) or `project`. `--targets` is a comma-separated
-PlatformId list. `--dry-run` works on install/sync/uninstall. `--connector <path>`
+PlatformId list. `--dry-run` works on install/upgrade/uninstall. `--connector <path>`
 points at a config explicitly; otherwise it's found by walking up from the project.
+Canonical flag-level reference: `llms-full.txt` §3 / the docs site `/docs/cli`.
 
 ## Telemetry, leaderboards, usage
 
 Telemetry is ON by default: stdio servers are wrapped with `agentconnect serve`
 so every `tools/call` is measured (args in, results out, plus the one-time
 `tools/list` schema cost) and tokenized locally. Every record carries a confidence
-tag (`tokenizer-exact | tokenizer-approx | heuristic | host-native`).
+tag (`tokenizer-exact | tokenizer-calibrated | tokenizer-approx | heuristic | host-native`).
 
 ```bash
 agentconnect telemetry report --by tool --since 7d   # ranked per-tool footprint (also session|project)
 agentconnect telemetry export --format csv --out tel.csv
-agentconnect telemetry leaderboard --by mcp          # which MCP server costs most (or --by tool)
+agentconnect telemetry leaderboard --by mcp          # which MCP server costs most (also --by tool | --by surface)
 agentconnect usage report --by platform --since 7d   # host-native usage parsed read-only from CLI logs
 agentconnect leaderboard                             # 🔌 per-MCP + 🖥️ host + 🛰️ live host-native turns
 ```
@@ -127,7 +128,7 @@ summed.
 
 - **Home-dir single binary.** Runtime installs once under `~/.agentconnect`
   (override `AGENTCONNECT_DATA_DIR`). Every host config we write is a thin
-  pointer to that one stable binary, so one managed `agentconnect update`
+  pointer to that one stable binary, so one managed `agentconnect upgrade`
   propagates everywhere — never silent auto-update.
 - **Per-project data.** Telemetry/state is keyed by project identity (git remote or
   normalized path), stored under the home data-root — survives `git clean`, shared

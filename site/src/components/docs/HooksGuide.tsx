@@ -741,7 +741,7 @@ export function HooksGuideSection() {
       <CodeBlock
         code={SINGLE_WRAPPER_SNIPPET}
         language="ts"
-        filename="agentconnect.config.ts"
+        filename="agentconnect.config.mjs"
       />
       <div className="not-prose my-6 flex items-center justify-center gap-3 text-muted-foreground">
         <span className="h-px flex-1 bg-border" />

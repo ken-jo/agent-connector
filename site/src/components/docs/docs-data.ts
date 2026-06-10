@@ -112,7 +112,7 @@ export const sectionDescription: Record<string, string> = {
     "Three origin-labeled leaderboards (MCP/plugin, host/user, host-native turns) that measure different things and are never summed.",
   privacy:
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
-  cli: "The agentconnect CLI reference: detect, install, sync, uninstall, doctor, update, telemetry, usage, and leaderboard.",
+  cli: "The agentconnect CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
   platforms:
     "The 29 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
   "add-a-platform":
@@ -199,6 +199,12 @@ export const connectorConfigFields: FieldRow[] = [
     default: '"auto"',
     notes: '"auto" = all detected; or an explicit allow-list.',
   },
+  {
+    name: "publish",
+    type: "PublishConfig",
+    notes:
+      'Distribution metadata for the official MCP standard artifacts (package --format mcp-server-json | mcpb): { registryNamespace? (reverse-DNS namespace you own, e.g. "io.github.acme"; server.json name = <namespace>/<id>), packageName? (your REAL published package, e.g. "@acme/db-mcp"), registryBaseUrl? (default https://registry.npmjs.org), author? ({ name, email?, url? } — MCPB requires author.name) }. Describes your real upstream server, NOT the serve wrapper; optional — each format errors only when its required field is missing.',
+  },
 ];
 
 /**
@@ -278,6 +284,12 @@ export const resolvedConnectorFields: FieldRow[] = [
     type: '"auto" | PlatformId[]',
     required: true,
     notes: 'Resolved to "auto" when not supplied.',
+  },
+  {
+    name: "publish",
+    type: "PublishConfig",
+    notes:
+      "Passed through verbatim when supplied (omitted otherwise) — distribution metadata consumed by package --format mcp-server-json | mcpb.",
   },
 ];
 
@@ -407,21 +419,21 @@ export const paradigmRows: {
   {
     id: "json-stdio",
     label: "json-stdio",
-    count: 15,
+    count: 16,
     description:
       "Host pipes JSON to a command on stdin and reads JSON / exit-code back. One universal entrypoint (agentconnect hook <platform> <event> --connector <id>) reads the payload, normalizes it, runs your handler, and formats the reply.",
   },
   {
     id: "ts-plugin",
     label: "ts-plugin",
-    count: 3,
+    count: 4,
     description:
       "Host loads a framework-generated JS/TS module exporting lifecycle functions that import your handler — the native shape these hosts expect.",
   },
   {
     id: "mcp-only",
     label: "mcp-only",
-    count: 10,
+    count: 9,
     description:
       "No hook layer; only the MCP server is installed and hooks are reported unavailable for that host.",
   },
@@ -568,7 +580,7 @@ export const surfaceSupportRows: {
     platform: "vscode-copilot (+ jetbrains)",
     command: ".github/prompts/<n>.prompt.md",
     skill: ".github/skills/<n>/SKILL.md",
-    subagent: ".github/agents/<n>.agent.md",
+    subagent: ".github/agents/<n>.agent.md (vscode only — jetbrains skips+warns)",
   },
   {
     platform: "copilot-cli",
@@ -598,12 +610,19 @@ export const surfaceSupportRows: {
     platform: "kilo",
     command: ".kilocode/commands/<n>.md",
     skill: "—",
-    subagent: ".kilo/agents/<n>.md",
+    subagent: ".kilocode/agents/<n>.md",
   },
   {
     platform: "pi",
     command: "—",
     skill: ".pi/skills/<n>/SKILL.md",
+    subagent: "—",
+  },
+  {
+    platform: "antigravity (+ antigravity-cli)",
+    command:
+      ".agent/workflows/<n>.md (project; user → ~/.gemini/antigravity/global_workflows/<n>.md)",
+    skill: ".agents/skills/<n>/SKILL.md",
     subagent: "—",
   },
   { platform: "all others", command: "—", skill: "—", subagent: "—" },
@@ -750,9 +769,9 @@ export const cliCommands: CliCommand[] = [
   {
     name: "uninstall",
     signature:
-      "agentconnect uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run]",
+      "agentconnect uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run] [--purge]",
     summary:
-      "Full inverse — removes the connector's MCP + hook registrations and content files from every resolved target, using registered metadata so it works even when the source module is gone. The id comes from --connector-id, else inferred from the local config.",
+      "Full inverse — removes the connector's MCP + hook registrations and content files from every resolved target, using registered metadata so it works even when the source module is gone. The id comes from --connector-id, else inferred from the local config. With --purge it also removes the connector's ~/.agentconnect state record and, when no connectors remain, the shared home-bin launcher; without it the record lingers so the connector can be re-synced without re-registering.",
   },
   {
     name: "doctor",
@@ -833,9 +852,9 @@ export const cliCommands: CliCommand[] = [
   {
     name: "leaderboard",
     signature:
-      "agentconnect leaderboard [--since <window>] [--scope <slice>] [--json]",
+      "agentconnect leaderboard [--since <window>] [--scope <slice>] [--connector <id>] [--json]",
     summary:
-      "Prints THREE origin-labeled leaderboards that measure DIFFERENT things and are NEVER summed: 🔌 MCP/Plugin (mcp-self), 🖥️ Host/User (host-scan-logs), 🛰️ Host-native turns (host-native-live). --scope slices only the MCP section; --json emits { mcp, host, hostSkipped, hostNativeTurns }.",
+      "Prints THREE origin-labeled leaderboards that measure DIFFERENT things and are NEVER summed: 🔌 MCP/Plugin (mcp-self), 🖥️ Host/User (host-scan-logs), 🛰️ Host-native turns (host-native-live). --scope slices only the MCP section; --connector <id> restricts the MCP and host-native sections to one connector (the host-scan section is connector-agnostic); --json emits { mcp, host, hostSkipped, hostNativeTurns }.",
   },
 ];
 
@@ -846,8 +865,8 @@ export const internalEntrypoints: { signature: string; desc: string }[] = [
   },
   {
     signature:
-      "agentconnect serve --connector <id> [--scope user|project] -- <command> [args…]",
-    desc: "Telemetry-wrapping MCP stdio proxy. Splits argv at the first literal --; the real server invocation on the right is passed through verbatim. Tolerant flag parsing (strict:false).",
+      "agentconnect serve --connector <id> [--scope user|project] [--host <platformId>] -- <command> [args…]",
+    desc: "Telemetry-wrapping MCP stdio proxy. Splits argv at the first literal --; the real server invocation on the right is passed through verbatim. Tolerant flag parsing (strict:false). --host bakes the install-target platform id in so telemetry rows stamp hostPlatform correctly under headless spawns.",
   },
   {
     signature: "agentconnect usage-event <platform> --connector <id>",
@@ -905,9 +924,14 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
   { name: "Qwen CLI", id: "qwen-code", target: ".qwen/ → mcpServers" },
   { name: "Kiro", id: "kiro", target: "mcpServers" },
   { name: "Kimi CLI", id: "kimi", target: "mcpServers" },
-  { name: "Crush", id: "crush", target: "config → mcpServers" },
+  { name: "Crush", id: "crush", target: "crush.json → mcp (root key, not mcpServers)" },
   { name: "Goose", id: "goose", target: "host config" },
   { name: "Hermes", id: "hermes", target: "host config" },
+  {
+    name: "Droid (Factory)",
+    id: "droid",
+    target: "~/.factory/mcp.json → mcpServers (hooks in ~/.factory/hooks.json)",
+  },
   {
     name: "Antigravity (IDE)",
     id: "antigravity",
@@ -921,13 +945,16 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
 ];
 
 export const mcpOnlyPlatforms: PlatformEntry[] = [
-  { name: "Warp", id: "warp", target: ".warp → mcp" },
+  {
+    name: "Warp",
+    id: "warp",
+    target: "~/.warp/.mcp.json → mcpServers (cwd keyed as working_directory)",
+  },
   { name: "Kilo", id: "kilo", target: ".kilocode mcp config" },
-  { name: "Droid (Factory)", id: "droid", target: "mcp.json → mcpServers" },
   { name: "Roo Code", id: "roo-code", target: "mcp config" },
   { name: "Trae", id: "trae", target: "mcp config" },
   { name: "Zed", id: "zed", target: "host config" },
-  { name: "Amp", id: "amp", target: "mcpServers" },
+  { name: "Amp", id: "amp", target: 'settings.json → "amp.mcpServers" (flat dotted key)' },
   { name: "Codebuff", id: "codebuff", target: "mcp.json → mcpServers" },
   { name: "Mux", id: "mux", target: "mcp config" },
   {
@@ -1009,6 +1036,7 @@ export const configErrorRows: { message: string; cause: string }[] = [
 export const syncedPlatforms: string[] = [
   "cursor",
   "antigravity",
+  "antigravity-cli",
   "trae",
   "warp",
 ];
@@ -1038,7 +1066,8 @@ export const telemetryEmptyRows: { reason: string; fix: string }[] = [
 /* ------------------------------------------------------------------ */
 
 /**
- * The 9 PackageFormat values, in ALL_FORMATS order (also the order
+ * The 11 PackageFormat values (9 host formats + 2 opt-in standard artifacts),
+ * in ALL_FORMATS order (also the order
  * `--format all` emits). Each row is read directly from
  * src/core/package-formats/*.ts: the --format value, the target platform(s) it
  * serves, the manifest file(s) it emits, and the user install command.

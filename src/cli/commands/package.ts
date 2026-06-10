@@ -109,6 +109,16 @@ function installInstructions(
       return [
         `npm publish ${join(outDir, id)}  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)`,
       ];
+    case "mcp-server-json":
+      return [
+        `mcp-publisher login <github|dns|http>   (prove ownership of your namespace once)`,
+        `cd ${outDir} && mcp-publisher publish   (uploads server.json to the official MCP Registry)`,
+      ];
+    case "mcpb":
+      return [
+        `vendor your built server under ${join(outDir, "server")}/ (see the emitted README)`,
+        `npx @anthropic-ai/mcpb pack ${outDir}   (then optionally: mcpb sign)`,
+      ];
     default:
       return [];
   }
@@ -171,7 +181,16 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const format: PackageFormat = formatArg;
-  const result = packageConnector(connector, { outDir, format, dryRun });
+  let result: PackageResult;
+  try {
+    result = packageConnector(connector, { outDir, format, dryRun });
+  } catch (err) {
+    // Emitter validation errors (e.g. mcp-server-json without
+    // publish.registryNamespace) are actionable one-liners — print them as a
+    // normal CLI error, never a stack trace.
+    const message = err instanceof Error ? err.message : String(err);
+    return fail(message);
+  }
 
   print(`package "${connector.id}" → ${format}${mode}`);
   print(`  outDir: ${outDir}`);

@@ -4,7 +4,7 @@
 > ONCE with `defineConnector({...})`; the CLI detects every installed AI-agent host,
 > renders the right config in each one's native dialect, installs/syncs/uninstalls
 > them, and gives you default, platform-independent, local-first per-tool token
-> telemetry — plus a read-only host-usage layer and two non-summed leaderboards.
+> telemetry — plus a read-only host-usage layer and three non-summed leaderboards.
 
 This is the exhaustive, code-grounded reference. It is the territory; `llms.txt` is
 the map. Everything below reflects what the code actually supports
@@ -40,7 +40,7 @@ Operating model (home-dir-centric, single binary, per-project data):
   (a hook command is `agentconnect hook <platform> <event> --connector <id>`; a
   wrapped MCP entry runs `agentconnect serve --connector <id> -- <real cmd>`).
   Updating that single binary updates behavior in every host. Updates are explicit
-  (`agentconnect update`), never silent auto-update — so one bad release can't
+  (`agentconnect upgrade`), never silent auto-update — so one bad release can't
   break every project at once.
 - **Native config stays native.** `AGENTCONNECT_DATA_DIR` relocates only
   framework-owned state; a host's own settings files (`.cursor/mcp.json`,
@@ -79,6 +79,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch. |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
+| `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
 
 **Top-level validation rules** (`define-connector.ts`):
 - `config` must be an object; `id` must match the kebab-case regex.
@@ -262,13 +263,14 @@ that don't support a surface skip with a warning):
 | claude-code | `.claude/commands/<n>.md` (md+fm) | `.claude/skills/<n>/SKILL.md` | `.claude/agents/<n>.md` (md+fm) |
 | gemini-cli | `.gemini/commands/<n>.toml` | `.gemini/skills/<n>/SKILL.md` | `.gemini/agents/<n>.md` (md+fm) |
 | qwen-code | `.qwen/commands/<n>.toml` | — | `.qwen/agents/<n>.md` (md+fm) |
-| vscode-copilot (+ jetbrains alias) | `.github/prompts/<n>.prompt.md` | `.github/skills/<n>/SKILL.md` | `.github/agents/<n>.agent.md` |
+| vscode-copilot (+ jetbrains alias) | `.github/prompts/<n>.prompt.md` | `.github/skills/<n>/SKILL.md` | `.github/agents/<n>.agent.md` (vscode only — jetbrains skips+warns) |
 | copilot-cli | — | `.github/skills/<n>/SKILL.md` | `~/.copilot/agents/<n>.agent.md` |
 | cursor | `.cursor/commands/<n>.md` (body-only, no fm) | `.cursor/skills/<n>/SKILL.md` | `.cursor/agents/<n>.md` (md+fm) |
 | codex | `~/.codex/prompts/<n>.md` (user-only) | `.codex/skills/<n>/SKILL.md` | `.codex/agents/<n>.toml` (TOML) |
 | opencode | `.opencode/commands/<n>.md` (md+fm) | `.opencode/skills/<n>/SKILL.md` | `.opencode/agent/<n>.md` (singular dir) |
-| kilo | `.kilocode/commands/<n>.md` (md+fm) | — | `.kilo/agents/<n>.md` (md+fm) |
+| kilo | `.kilocode/commands/<n>.md` (md+fm) | — | `.kilocode/agents/<n>.md` (md+fm) |
 | pi | — | `.pi/skills/<n>/SKILL.md` | — |
+| antigravity (+ antigravity-cli) | `.agent/workflows/<n>.md` (project; user → `~/.gemini/antigravity/global_workflows/<n>.md`) | `.agents/skills/<n>/SKILL.md` | — |
 | all others | — | — | — |
 
 `md+fm` = YAML frontmatter + markdown body. Skills are uniformly folder-per-skill
@@ -324,6 +326,7 @@ interface ResolvedConnector {
   subagents: SubagentDef[];           // normalized; [] when none
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
+  publish?: PublishConfig;            // registry/MCPB metadata, passed through verbatim
 }
 ```
 
@@ -379,8 +382,8 @@ export default defineConnector({
 ## 3. CLI reference
 
 `agentconnect <command> [flags]`. Run `agentconnect <command> --help` for
-command-specific flags. `--help`/`-h`/`help` print usage; `--version`/`-v` prints the
-package name.
+command-specific flags. `--help`/`-h`/`help` print usage; `--version`/`-v` prints
+`<name> <version>`.
 
 Shared flags: `--scope user|project` (default `user`); `--targets a,b,c`
 (comma-separated `PlatformId` list); `--connector <path>` (explicit config);
@@ -402,34 +405,56 @@ plugin registry where applicable. Prints a readable diff (one line per `ChangeRe
 `+` create, `~` update, `-` remove, `=` skip, `!` warn) plus warnings and a summary
 tally. Idempotent and reversible. **Exit code 1 if any change is a `warn`**, else 0.
 
-### sync
-`agentconnect sync [same flags as install]`
-Idempotent re-render after editing a connector or upgrading the framework:
-byte-identical entries report `skip`, and the stable home-bin pointer is healed. Same
-diff output and exit semantics as install.
+### upgrade
+`agentconnect upgrade [--channel stable|latest] [same flags as install]`
+The single "bring everything current" verb (back-compat aliases: `update`, `sync`).
+Step 1: idempotent re-render of the connector into every target host (byte-identical
+entries report `skip` — also the self-heal path for a drifted install). Step 2:
+refreshes the stable home-bin pointer and prints managed-update guidance (the exact
+`npm i -g agentconnect@<dist>` when the install looks npm-managed: `latest` for
+stable, `next` for latest). With no resolvable connector it still does step 2
+(tool-only refresh from anywhere). **Never silently auto-updates** (architecture R1).
+Same diff output and exit semantics as install for the re-render; exit 1 if the
+pointer refresh fails.
 
 ### uninstall
-`agentconnect uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run]`
+`agentconnect uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--purge] [--dry-run]`
 Full inverse — removes the connector's MCP + hook registrations and content files from
 every resolved target, using registered metadata so it works even when the source
 module is gone. The connector id comes from `--connector-id`, else inferred from the
-local config. Same diff output and exit semantics.
+local config. Same diff output and exit semantics. `--purge` additionally removes the
+connector's registered framework state (`connectors/<id>/` under the data-root) and,
+when no connectors remain, the shared home-bin launcher.
 
 ### doctor
-`agentconnect doctor [--targets …] [--connector <path>] [--scope …] [--project <dir>] [--json]`
+`agentconnect doctor [--targets …] [--connector <path>] [--scope …] [--project <dir>] [--json] [--probe]`
 For each detected host (or `--targets`), loads its adapter, builds an `InstallContext`,
 and runs the adapter's doctor checks; prints `[pass] / [warn] / [FAIL]` with any
 suggested fix. Connector context comes from the local config, else every connector
-registered under the data-root, else a minimal id-only placeholder. **Non-zero exit if
-any check FAILs** (warns alone do not fail).
+registered under the data-root, else a minimal id-only placeholder. With `--probe` it
+also spawns the connector's REAL stdio server and runs a live MCP handshake
+(initialize → ping → tools/list); probe FAILs fold into the exit code. **Non-zero exit
+if any check FAILs** (warns alone do not fail).
 
-### update
-`agentconnect update [--channel stable|latest]`
-Prints managed-update guidance (the exact `npm i -g agentconnect@<dist>` when the
-install looks npm-managed: `latest` dist for stable channel, `next` for latest) and
-refreshes the stable home-bin pointer so hosts keep execing a working CLI. **Never
-silently auto-updates** (architecture R1) — that would give one bad release maximum
-blast radius. Exit 1 only if the pointer refresh fails.
+### status
+`agentconnect status [--connector <path>] [--scope user|project] [--project <dir>] [--json]`
+Light, glanceable install-state summary: one line per detected host showing which
+connectors are present (server ✓ / hooks ✓) via a read-only config-presence check.
+**Always exits 0** — it describes, never gates (that contrast with doctor is why it
+exists).
+
+### package
+`agentconnect package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]`
+Emit a marketplace/extension-installable bundle into `--out` (default
+`<cwd>/dist-plugin`), printing the emitted file tree + per-format install
+instructions. Host formats (default `claude-plugin`; `--format all` emits all 9):
+claude-plugin · codex-plugin · factory-plugin · gemini-extension · qwen-extension ·
+agy-plugin · cursor-plugin · kimi-plugin · npm-plugin. Two OFFICIAL MCP standard
+artifacts are emitted only by explicit name (they require the connector's `publish`
+block and are excluded from `all`): `mcp-server-json` (an MCP Registry server.json,
+schema 2025-12-11, describing your REAL upstream server — not the serve wrapper) and
+`mcpb` (an MCPB manifest, manifest_version 0.3). Bundled hooks + MCP keep the
+home-bin pointer and the telemetry serve-wrapper.
 
 ### telemetry
 `agentconnect telemetry <report|export|leaderboard> [flags]` — per-MCP token
@@ -439,8 +464,10 @@ arguments/results).
   → ranked footprint table; `--json` emits the rows.
 - `export --format csv|json (default json) --out <file> --since … --connector <id>`
   → raw aggregate records (stdout, or to `--out`).
-- `leaderboard --by mcp|tool (default mcp) --since … --connector <id> --scope <slice> [--json]`
-  → ranks per-connector ("which MCP server costs the most") or per-tool.
+- `leaderboard --by mcp|tool|surface (default mcp) --since … --connector <id> --scope <slice> [--json]`
+  → ranks per-connector ("which MCP server costs the most"), per-tool, or per
+  developer-axis surface (`--by surface` folds the STATIC command/skill/subagent
+  context footprints in beside the runtime server + hook rows).
 
 ### usage
 `agentconnect usage <report|export|leaderboard> [flags]` — host-native token usage
@@ -453,7 +480,7 @@ parsed **read-only** from each agent CLI's own session logs/DBs (the complement 
   → the host/user leaderboard ("which CLI/host spent the most").
 
 ### leaderboard (unified)
-`agentconnect leaderboard [--since <window>] [--scope <slice>] [--json]`
+`agentconnect leaderboard [--since <window>] [--scope <slice>] [--connector <id>] [--json]`
 Prints THREE origin-labeled leaderboards that measure DIFFERENT things and are
 **NEVER summed**:
 - 🔌 **MCP / Plugin** (origin `mcp-self`) — serve-proxy telemetry (per-MCP `call` +
@@ -461,16 +488,20 @@ Prints THREE origin-labeled leaderboards that measure DIFFERENT things and are
 - 🖥️ **Host / User** (origin `host-scan-logs`) — host usage from scanning CLI logs.
 - 🛰️ **Host-native turns (live, exact)** (origin `host-native-live`) — the opt-in
   AfterModel / PostInvocation usage hook (scope `model_turn`, confidence host-native).
-`--scope` slices only the MCP section; `--json` emits `{ mcp, host, hostSkipped, hostNativeTurns }`.
+`--scope` slices only the MCP section; `--connector` restricts the 🔌 MCP and 🛰️
+host-native sections to one connector (the 🖥️ host-scan section is
+connector-agnostic); `--json` emits `{ mcp, host, hostSkipped, hostNativeTurns }`.
 
 ### Internal entrypoints (hosts point at these; omitted/hidden from top-level help)
 - `agentconnect hook <platform> <event> --connector <id>` — universal `json-stdio`
   hook entrypoint. Reads the whole host payload from stdin, dispatches `runHook`,
   writes stdout/stderr, exits with the adapter's exit code. Fail-open (never rejects).
-- `agentconnect serve --connector <id> [--scope user|project] -- <command> [args…]`
+- `agentconnect serve --connector <id> [--scope user|project] [--host <platformId>] -- <command> [args…]`
   — telemetry-wrapping MCP stdio proxy. Splits argv at the first literal `--`; the
-  real server invocation on the right is passed through verbatim. Tolerant flag
-  parsing (`strict:false`) so a future/older wrapper flag can't wedge a tool call.
+  real server invocation on the right is passed through verbatim. `--host` bakes the
+  install-target platform id into the wrapper so telemetry rows carry the correct
+  hostPlatform under headless spawns. Tolerant flag parsing (`strict:false`) so a
+  future/older wrapper flag can't wedge a tool call.
 - `agentconnect usage-event <platform> --connector <id>` — HIDDEN opt-in
   host-native turn-usage hook (installed by Gemini / Antigravity adapters when
   host-native usage is enabled). Reads stdin, records a distinct `model_turn` row,
@@ -520,23 +551,26 @@ The `agentconnect serve` proxy (or in-proc middleware) intercepts every
 fixed "cost of merely defining my tools" per-turn overhead.
 
 **Tokenizer.** Default `gpt-tokenizer` (pure-JS, no native build → Windows/single-
-binary safe): `o200k_base` for OpenAI/Codex-family, `cl100k_base` for older, and
-`o200k_base` as a **documented approximation** for Anthropic-family (no offline Claude
-tokenizer ships). Family is auto-selected from `initialize.clientInfo` or
-`modelFamilyHint`. Fallback is a `chars/4` heuristic (with content-type multipliers;
-never tokenizing base64) — explicitly **labeled** so it's never mistaken for exact.
+binary safe): `o200k_base` for OpenAI/Codex-family (labeled `tokenizer-exact`), and
+the same `o200k_base` as a **documented approximation** for every other family
+(labeled `tokenizer-approx`; no offline Claude tokenizer ships). Family is
+auto-selected from `initialize.clientInfo` or `modelFamilyHint`. Fallback is a
+`chars/4` heuristic (with content-type multipliers; never tokenizing base64) —
+explicitly **labeled** so it's never mistaken for exact.
 
-**Confidence sources** (every row carries one): `tokenizer-exact` |
-`tokenizer-approx` | `heuristic` | `host-native`. Opt-in enrichers (never the hot
-path): an Anthropic `count_tokens` calibration sampler (sends content off-box →
-opt-in only; can surface a `tokenizer-calibrated` confidence) and host-native usage
-where it exists (e.g. Gemini `usageMetadata.totalTokenCount` via the opt-in
-AfterModel hook).
+**Confidence sources** (every row carries one, ranked heuristic < tokenizer-approx <
+tokenizer-calibrated < tokenizer-exact < host-native): `tokenizer-exact` |
+`tokenizer-calibrated` | `tokenizer-approx` | `heuristic` | `host-native`. Opt-in
+enrichers (never the hot path): an Anthropic `count_tokens` calibration sampler
+(sends content off-box → opt-in only; can surface a `tokenizer-calibrated`
+confidence) and host-native usage where it exists (e.g. Gemini
+`usageMetadata.totalTokenCount` via the opt-in AfterModel hook).
 
 **Store.** Local, under the data-root, **aggregate counts only — never raw
 args/results**. MVP is an append-atomic NDJSON event log + derived rollups behind a
 `TelemetryStore` interface (`store: "sqlite"` is a drop-in upgrade). Rows keyed by
-roughly `connectorId, toolName, scope (call|tool_defs|model_turn), hostPlatform,
+roughly `connectorId, toolName, scope (call | tool_defs | model_turn | hook),
+surfaceKind (server | hook | command | skill | subagent), hostPlatform,
 sessionId, projectKey, projectDir, inputTokens, outputTokens, confidenceSource,
 isError, ts`.
 
@@ -548,7 +582,15 @@ It never writes host config and never collides with the serve-proxy store. Some 
 (cursor / antigravity / trae / warp) need an external sync AgentConnect does not
 perform → those rows are "requires sync, skipped" unless a local cache already exists.
 
-**Two leaderboards, never summed.** Per-MCP server bytes (telemetry / 🔌) measure your
+**Two axes, five surfaces.** The developer/surface axis measures what the CONNECTOR
+costs across all five surfaces: `server` (runtime serve-proxy rows, scopes `call` +
+`tool_defs`) and `hooks` (one runtime row per hook dispatch through the home-bin
+entrypoint, scope `hook`, fail-open) are measured live; `commands`, `skills`,
+`subagents` are computed on demand as STATIC context footprints (never stored as
+rows). The user/host axis measures whole-conversation usage (host-scan log readers +
+the opt-in live `model_turn` hook).
+
+**Three leaderboards, never summed.** Per-MCP server bytes (telemetry / 🔌) measure your
 server's own I/O; host/user usage (usage / 🖥️) measures whole-conversation usage from
 CLI logs; live host-native turns (🛰️) are whole-conversation usage from a real-time
 hook. Different things — totals are never added across origins.
@@ -558,6 +600,17 @@ switch `AGENTCONNECT_TELEMETRY=0` (or `telemetry: { enabled: false }`); per-laye
 opt-in for measure / calibrate / host-native (`AGENTCONNECT_HOST_NATIVE=1`).
 Reported numbers are estimates from the server's own I/O, not host-billed usage.
 
+**Env switches.** `AGENTCONNECT_DATA_DIR` (relocate the framework data-root) ·
+`AGENTCONNECT_TELEMETRY=0` (global telemetry kill switch) ·
+`AGENTCONNECT_HOST_NATIVE=1` (force host-native turn capture on at install) ·
+`AGENTCONNECT_CALIBRATE=anthropic` **+** `ANTHROPIC_API_KEY` (BOTH required to enable
+the opt-in count_tokens calibration sampler; either missing → disabled — the
+`calibration` config field alone does not enable it) ·
+`AGENTCONNECT_LOG=silent|error|warn|info|debug` (stderr log level, default info) ·
+`AGENTCONNECT_PLATFORM=<id>` (override install-time host detection) ·
+`AGENTCONNECT_HOST=<id>` (override runtime host detection in the hook entrypoint) ·
+`AGENTCONNECT_SESSION=<id>` (session id for the serve proxy when the host provides none).
+
 ---
 
 ## 6. Supported platforms (29, by hook paradigm)
@@ -565,7 +618,7 @@ Reported numbers are estimates from the server's own I/O, not host-billed usage.
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
-### `json-stdio` — full hook dispatch (15)
+### `json-stdio` — full hook dispatch (16)
 One universal hook entrypoint binary handles all of them.
 
 | Platform | id | MCP native target (root key / file) |
@@ -583,17 +636,17 @@ One universal hook entrypoint binary handles all of them.
 | Crush | `crush` | config → `mcpServers` |
 | Goose | `goose` | host config |
 | Hermes | `hermes` | host config |
+| Droid (Factory) | `droid` | `~/.factory/mcp.json` → `mcpServers` (hooks in separate `~/.factory/hooks.json`) |
 | Antigravity (IDE) | `antigravity` | `~/.gemini/antigravity/mcp_config.json` → `mcpServers` (hooks.json) |
 | Antigravity CLI (`agy`) | `antigravity-cli` | shares `~/.gemini/antigravity/` |
 
-### `mcp-only` — MCP registration only, no hook layer (10)
+### `mcp-only` — MCP registration only, no hook layer (9)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
 |---|---|---|
 | Warp | `warp` | `.warp` → `mcp` |
 | Kilo | `kilo` | `.kilocode` mcp config |
-| Droid (Factory) | `droid` | `mcp.json` → `mcpServers` |
 | Roo Code | `roo-code` | mcp config |
 | Trae | `trae` | mcp config |
 | Zed | `zed` | host config |
@@ -637,12 +690,14 @@ core, fat per-adapter tail.
 ## 8. Quick start & development
 
 ```bash
-npm i -g agentconnect
+# agentconnect is an SDK you depend on — no global install required
+npm install agentconnect          # inside the package that holds your connector
 cd my-mcp-project                 # contains agentconnect.config.mjs (see examples/acme-db)
-agentconnect detect
-agentconnect install --dry-run
-agentconnect install
-agentconnect telemetry report
+npx agentconnect detect
+npx agentconnect install --dry-run
+npx agentconnect install
+npx agentconnect doctor
+npx agentconnect telemetry report
 
 # from source:
 npm install
@@ -651,6 +706,11 @@ npm test
 npm run build
 npm run dev -- detect             # run the CLI from source via tsx
 ```
+
+Or ship a branded CLI: `createConnectorCli({ name, connector })` from
+`agentconnect/cli` exposes every subcommand under your own bin, auto-scoped to your
+connector (see `examples/branded-cli`); explicit `--connector`/`--connector-id`
+always overrides.
 
 Engines: Node `>=18.17`, ESM only. Runtime deps are pure-JS / WASM (`gpt-tokenizer`,
 `sql.js`, `fzstd`, `@iarna/toml`, `yaml`) — no native build. License: MIT © KenJo.

@@ -132,13 +132,16 @@ Distilled from the union of platform behaviors (report §3).
   raw }`; normalized response `{ decision: allow|deny|modify|context|ask, reason?,
   updatedInput?, additionalContext?, updatedOutput? }`.
 - **Hook I/O paradigm taxonomy** (the deepest divergence — exactly three):
-  - **`json-stdio`** — Claude Code, Codex, Cursor, VS Code/JetBrains Copilot,
-    Copilot CLI, Gemini. One universal hook entrypoint binary reads host JSON,
-    the adapter normalizes it, the dev's handler runs, the adapter formats the reply.
-  - **`ts-plugin`** — OpenCode, Kilo(future), Hermes(python), OpenClaw. Framework
+  - **`json-stdio`** (16) — Claude Code, Codex, Cursor, VS Code Copilot,
+    JetBrains Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose,
+    Hermes, Droid (Factory), Antigravity, Antigravity CLI. One universal hook
+    entrypoint binary reads host JSON, the adapter normalizes it, the dev's
+    handler runs, the adapter formats the reply.
+  - **`ts-plugin`** (4) — OpenCode, Kilo CLI, OMP, OpenClaw. Framework
     *generates* an exported plugin module importing the dev's handler.
-  - **`mcp-only`** — Warp, zed, antigravity, Kilo-today, Pi. No hook layer; install
-    only the MCP server; detection surfaces "hooks unavailable here."
+  - **`mcp-only`** (9) — Warp, Kilo, Roo Code, Trae, Zed, Amp, Codebuff, Mux,
+    Pi. No hook layer; install only the MCP server; detection surfaces "hooks
+    unavailable here."
 - **`PlatformCapabilities`** flags (`preToolUse`, `postToolUse`, `preCompact`,
   `sessionStart`, `canModifyArgs`, `canModifyOutput`, `canInjectSessionContext`) —
   the single-API layer queries these and degrades gracefully.
@@ -174,14 +177,15 @@ the default).
   `result.content[]` + `structuredContent`. Also tokenize `tools/list` schemas once
   → the fixed "cost of merely defining my tools" per-turn overhead.
 - **Default = real tokenizer** — `gpt-tokenizer` (pure-JS, no native build →
-  Windows/single-binary safe), `o200k_base` for OpenAI/Codex-family,
-  `cl100k_base` for older, `o200k_base` as documented approximation for
-  Anthropic-family (no offline Claude tokenizer ships). Family auto-selected from
-  `initialize.clientInfo` or `modelFamilyHint`.
+  Windows/single-binary safe): `o200k_base` for OpenAI/Codex-family (labeled
+  `tokenizer-exact`), and the same `o200k_base` as a documented approximation
+  for every other family (labeled `tokenizer-approx`; no offline Claude
+  tokenizer ships). Family auto-selected from `initialize.clientInfo` or
+  `modelFamilyHint`.
 - **Fallback = heuristic** — `chars/4` with content-type multipliers; **labeled
   `heuristic`** so it's never mistaken for exact. Non-text blocks: per-modality
   formulas, never tokenize base64.
-- **Confidence tag** on every record: `tokenizer-exact | tokenizer-approx |
+- **Confidence tag** on every record: `tokenizer-exact | tokenizer-calibrated | tokenizer-approx |
   heuristic | host-native`.
 - **Opt-in enrichers** (never the hot path): Anthropic `count_tokens` as a
   rate-limited calibration sampler (sends content off-box → opt-in only); host-native
@@ -189,7 +193,7 @@ the default).
 - **Store** — local, at data-root, **aggregate counts only — never raw
   args/results**. MVP = append-atomic NDJSON event log + derived rollups behind a
   `TelemetryStore` interface (SQLite/WAL is a drop-in upgrade). Rows keyed by
-  `connectorId, toolName, scope(call|tool_defs), hostPlatform, sessionId,
+  `connectorId, toolName, scope(call|tool_defs|model_turn|hook), surfaceKind(server|hook|command|skill|subagent), hostPlatform, sessionId,
   projectKey, projectDir, inputTokens, outputTokens, confidenceSource, isError, ts`.
 - **Surface** — `agentconnect telemetry report [--by tool|session|project]
   [--since 7d] [--json]` → ranked per-tool footprint, tool-def overhead line,
@@ -242,15 +246,21 @@ export default defineConnector({
 ```
 agentconnect detect                       # installed platforms + scope + capabilities + paradigm
 agentconnect install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]
-agentconnect uninstall [--targets ...]    # full inverse — removes server + hook registrations
+agentconnect uninstall [--targets ...] [--purge]   # full inverse — removes server + hook registrations; --purge also drops the connector's home state record (+ the shared launcher when none remain)
 agentconnect upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
-agentconnect doctor [--probe]             # per-platform health checks; --probe = live MCP handshake
+agentconnect doctor [--probe]             # per-platform health checks; --probe = live MCP handshake (initialize → ping → tools/list)
 agentconnect status                       # light install-state per host (always exits 0)
-agentconnect package --format mcp-server-json|mcpb   # OFFICIAL MCP standard artifacts (registry server.json / MCPB bundle)
+agentconnect package [--format <fmt>|all]      # 9 host bundle formats; mcp-server-json|mcpb = OFFICIAL MCP standard artifacts (opt-in by name)
+agentconnect telemetry report|export [...]
+agentconnect usage report|export|leaderboard [...]   # host-native usage from agent CLI logs (read-only)
+agentconnect leaderboard [--since] [--scope] [--connector]   # 🔌 mcp-self + 🖥️ host-scan-logs + 🛰️ host-native-live (never summed)
 agentconnect hook <platform> <event> --connector <id>   # universal hook entrypoint (internal)
 agentconnect serve --connector <id> -- <server cmd...>   # telemetry-wrapping MCP proxy (internal)
-agentconnect telemetry report|export [...]
 ```
+
+> **Canonical CLI reference:** the docs site `/docs/cli` and `llms-full.txt` §3
+> (kept current; drift-guarded by tests). This block is design context — when
+> they disagree, the canonical reference wins.
 
 Install per target: `backupSettings()` → render server config into native file →
 if hooks & paradigm≠mcp-only: synthesize entrypoint + write hook config + set exec
@@ -285,6 +295,9 @@ src/
     interpolate.ts         ${env:VAR} / ${env:VAR:-default}
     paths.ts               home data-root, project key/identity, per-OS dirs
     spawn.ts               Windows-safe build/parseNodeCommand, runtime resolution
+    spawn-child.ts         Windows-safe child_process.spawn wrapper
+    mcp-standard.ts        pinned official-MCP literals + guards (server.json / MCPB / wire)
+    package-formats/       per-host marketplace bundle renderers (claude-family, gemini, …)
     logger.ts
   adapters/
     spi.ts                 Adapter interface (generalized HookAdapter + MCP render)
@@ -295,7 +308,9 @@ src/
   telemetry/
     types.ts  tokenizer.ts  measure.ts  store.ts  report.ts  proxy.ts
   runtime/
-    index.ts  hook-entrypoint.ts  serve.ts
+    index.ts  hook-entrypoint.ts  serve.ts  probe.ts
   cli/
-    index.ts  commands/{detect,install,sync,uninstall,doctor,update,telemetry}.ts
+    index.ts  app.ts  sdk.ts   (sdk.ts = createConnectorCli for branded CLIs)
+    commands/{detect,install,uninstall,upgrade,package,doctor,status,telemetry,
+              usage,leaderboard,hook,serve,usage-event}.ts
 ```

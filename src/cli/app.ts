@@ -173,6 +173,39 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
 export const DEFAULT_PROGRAM_NAME = "agentconnect";
 
 /**
+ * One-line usage signature per command — the single central copy behind
+ * `<command> --help` and the friendly bad-flag error. Command modules use
+ * node:util parseArgs (strict), which THROWS on an unknown flag; without the
+ * dispatcher-level handling in {@link main}, `agentconnect install --help`
+ * would die with a raw ERR_PARSE_ARGS stack trace — the very invocation the
+ * root help tells users to run.
+ */
+const COMMAND_USAGE: Record<string, string> = {
+  detect: "detect [--json] [--project <dir>]",
+  install:
+    "install [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run]",
+  uninstall:
+    "uninstall [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge]",
+  upgrade:
+    "upgrade [--channel stable|latest] [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run]",
+  sync: "sync — alias of upgrade (see `upgrade --help`)",
+  update: "update — alias of upgrade (see `upgrade --help`)",
+  package:
+    "package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]",
+  doctor:
+    "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--json]",
+  status: "status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
+  telemetry:
+    "telemetry report|export|leaderboard [--by <dim>] [--since <dur>] [--connector <id>] [--scope <slice>] [--format csv|json] [--out <file>] [--json]",
+  usage:
+    "usage report|export|leaderboard [--by <dim>] [--since <dur>] [--platform <id>] [--format csv|json] [--out <file>] [--json]",
+  leaderboard: "leaderboard [--since <dur>] [--connector <id>] [--scope <slice>] [--json]",
+  hook: "hook <platform> <event> --connector <id>   (internal — host hook configs point here)",
+  serve:
+    "serve --connector <id> [--scope user|project] [--host <platformId>] -- <command> [args...]   (internal — host MCP entries point here)",
+};
+
+/**
  * Build the top-level usage string for a given program name. The brand replaces
  * "agentconnect" in the title, the `usage:` line, and the per-command help
  * footer so an embedded CLI (e.g. `acme-db`) reads as its own tool.
@@ -187,7 +220,7 @@ commands:
   install      Deploy a connector across its target platforms.
   uninstall    Remove a connector's MCP + hook registrations.
   upgrade      Bring everything current: re-render host config + heal the home pointer + managed update guidance (alias: update, sync).
-  package      Emit a marketplace-installable Claude Code plugin bundle + marketplace.json.
+  package      Emit a marketplace/extension bundle (9 host formats, or the standard artifacts mcp-server-json | mcpb).
   doctor       Health-check every detected platform; non-zero exit on any failure.
   status       Light install-state summary: which connectors are present on which hosts (always exits 0).
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
@@ -231,6 +264,32 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
     return 2;
   }
 
+  // Per-command help: no command module defines a --help flag (strict parseArgs
+  // would throw on it), so answer it centrally from COMMAND_USAGE.
+  const rest = argv.slice(1);
+  if (rest.includes("--help") || rest.includes("-h")) {
+    const sig = COMMAND_USAGE[command];
+    if (sig) {
+      print(`usage: ${programName} ${sig}`);
+      return 0;
+    }
+  }
+
   const mod = await loader();
-  return mod.run(argv.slice(1));
+  try {
+    return await mod.run(rest);
+  } catch (err) {
+    // Friendly bad-flag errors: strict parseArgs throws ERR_PARSE_ARGS_* for an
+    // unknown/malformed option — print the message + the usage line instead of
+    // letting a raw stack trace reach the user. Everything else still rethrows
+    // (the bin entry reports those as fatal).
+    const code = (err as { code?: string }).code;
+    if (typeof code === "string" && code.startsWith("ERR_PARSE_ARGS")) {
+      const message = err instanceof Error ? err.message : String(err);
+      const sig = COMMAND_USAGE[command];
+      if (sig) process.stderr.write(`usage: ${programName} ${sig}\n`);
+      return fail(message);
+    }
+    throw err;
+  }
 }

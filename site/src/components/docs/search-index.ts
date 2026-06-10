@@ -102,6 +102,11 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "since-syntax", title: "--since syntax" },
     { id: "internal-entrypoints", title: "Internal entrypoints" },
   ],
+  platforms: [
+    { id: "paradigm-json-stdio", title: "json-stdio" },
+    { id: "paradigm-mcp-only", title: "mcp-only" },
+    { id: "paradigm-ts-plugin", title: "ts-plugin" },
+  ],
   "add-a-platform": [],
   "operating-model": [],
   troubleshooting: [

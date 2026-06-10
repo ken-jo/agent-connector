@@ -11,7 +11,15 @@
  * never types `--connector`.
  */
 
+import { fileURLToPath } from "node:url";
+
 import { defineConnector } from "agentconnect";
+
+// Resolve the bundled stub server to an ABSOLUTE path: host CLIs spawn MCP
+// servers from their own CWD, so a relative "./..." path would not resolve.
+const serverPath = fileURLToPath(
+  new URL("./acme-db-mcp-server.mjs", import.meta.url),
+);
 
 export default defineConnector({
   id: "acme-db",
@@ -22,7 +30,7 @@ export default defineConnector({
   server: {
     transport: "stdio",
     command: "node",
-    args: ["./acme-db-mcp-server.mjs"],
+    args: [serverPath],
     env: {
       ACME_DB_URL: "${env:ACME_DB_URL}",
     },

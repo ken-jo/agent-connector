@@ -297,7 +297,7 @@ export const dialectSource: DialectSnippet = {
   id: "source",
   label: "defineConnector",
   language: "ts",
-  filename: "agentconnect.config.ts",
+  filename: "agentconnect.config.mjs",
   code: defineConnectorSource,
 };
 
