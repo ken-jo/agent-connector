@@ -123,8 +123,11 @@ export async function run(argv: string[]): Promise<number> {
   const connectors = await resolveDoctorConnectors(values.connector, projectDir);
   const multi = connectors.length > 1;
 
-  // Target set: explicit --targets (intersected with the registry) or all
-  // detected installed platforms.
+  // Target set: explicit --targets (intersected with the registry), else the
+  // same chain install uses — connector-declared targets ∩ detected platforms
+  // ("auto" = everything detected). Without this, doctor red-flags every
+  // detected host the connector never targeted (found dogfooding context-mode:
+  // targets:[5 ids] installed clean, doctor FAILed the other 9 detected hosts).
   const explicit = parseTargets(values.targets);
   let ids: PlatformId[];
   if (explicit && explicit.length > 0) {
@@ -132,6 +135,11 @@ export async function run(argv: string[]): Promise<number> {
   } else {
     const detected = await detectInstalledPlatforms(projectDir);
     ids = detected.map((p) => p.id);
+    const anyAuto = connectors.some((c) => c.targets === "auto");
+    if (!anyAuto) {
+      const targeted = new Set(connectors.flatMap((c) => c.targets as PlatformId[]));
+      ids = ids.filter((id) => targeted.has(id));
+    }
   }
 
   if (ids.length === 0 && !values.probe) {
@@ -160,6 +168,8 @@ export async function run(argv: string[]): Promise<number> {
     }
     const results: DiagnosticResult[] = [];
     for (const connector of connectors) {
+      // A connector with an explicit target list is only checked on those hosts.
+      if (connector.targets !== "auto" && !connector.targets.includes(id)) continue;
       const ctx = buildContext(connector, id, scope, projectDir);
       let r: DiagnosticResult[];
       try {

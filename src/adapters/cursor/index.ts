@@ -632,10 +632,17 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
       },
       {
         name: `${this.name}: hooks.json present`,
-        check: () =>
-          existsSync(hooksPath)
+        check: () => {
+          // Same "only assert what the connector declares" rule as the
+          // content-surface checks below: a hookless connector never writes
+          // hooks.json, so its absence is healthy, not a failure.
+          if (ctx.connector.hookEvents.length === 0) {
+            return { status: "OK", detail: "no hooks declared" };
+          }
+          return existsSync(hooksPath)
             ? { status: "OK", detail: hooksPath }
-            : { status: "FAIL", detail: `not found: ${hooksPath}` },
+            : { status: "FAIL", detail: `not found: ${hooksPath}` };
+        },
       },
     ];
 
