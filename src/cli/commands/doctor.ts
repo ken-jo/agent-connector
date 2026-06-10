@@ -38,7 +38,7 @@ const STATUS_GLYPH: Record<DiagnosticResult["status"], string> = {
 
 /**
  * Resolve which connector(s) doctor should health-check, in precedence order:
- *   1. An explicit --connector path, or a local agent-connector.config.* file.
+ *   1. An explicit --connector path, or a local agentconnect.config.* file.
  *   2. Every connector registered under the data-root (what is actually
  *      installed). This is the common case — `doctor` from anywhere reports on
  *      the real installs, not a guess from the working directory.
@@ -63,8 +63,8 @@ async function resolveDoctorConnectors(
 
   return [
     {
-      id: "agent-connector",
-      displayName: "agent-connector",
+      id: "agentconnect",
+      displayName: "agentconnect",
       version: "0.0.0",
       hooks: {},
       hookEvents: [],

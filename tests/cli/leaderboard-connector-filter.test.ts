@@ -24,20 +24,20 @@ let tmp: string;
 const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
-  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
+  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
   XDG_DATA_HOME: process.env.XDG_DATA_HOME,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
-  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
+  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
 };
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "ac-lb-filter-"));
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
-  process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
+  process.env.AGENTCONNECT_DATA_DIR = tmp;
   process.env.XDG_DATA_HOME = join(tmp, ".local", "share");
   process.env.XDG_CONFIG_HOME = join(tmp, ".config");
-  delete process.env.AGENT_CONNECTOR_TELEMETRY;
+  delete process.env.AGENTCONNECT_TELEMETRY;
 });
 
 afterEach(() => {

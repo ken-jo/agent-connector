@@ -14,7 +14,7 @@ const ORDER: Record<LogLevel, number> = {
 };
 
 function currentLevel(): LogLevel {
-  const env = (process.env.AGENT_CONNECTOR_LOG ?? "info").toLowerCase();
+  const env = (process.env.AGENTCONNECT_LOG ?? "info").toLowerCase();
   return (env in ORDER ? env : "info") as LogLevel;
 }
 

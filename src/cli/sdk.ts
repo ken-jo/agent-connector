@@ -1,16 +1,16 @@
 /**
  * cli/sdk — the EMBEDDED SDK entry point for a developer-branded CLI.
  *
- * A developer adds agent-connector as a dependency, writes their connector
+ * A developer adds agentconnect as a dependency, writes their connector
  * config, and ships their OWN bin. `createConnectorCli` returns a runner that
- * exposes EVERY agent-connector subcommand under the developer's brand, fully
+ * exposes EVERY agentconnect subcommand under the developer's brand, fully
  * delegated and AUTO-SCOPED to the developer's connector:
  *
  *   #!/usr/bin/env node
- *   import { createConnectorCli } from "agent-connector/cli";
+ *   import { createConnectorCli } from "agentconnect/cli";
  *   createConnectorCli({
  *     name: "acme-db",
- *     connector: new URL("./agent-connector.config.mjs", import.meta.url).pathname,
+ *     connector: new URL("./agentconnect.config.mjs", import.meta.url).pathname,
  *   }).run();
  *
  * Then a consumer runs `acme-db install`, `acme-db leaderboard`, `acme-db

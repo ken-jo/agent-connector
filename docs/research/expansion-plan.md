@@ -1,9 +1,9 @@
 I now have the existing conventions: `PlatformId` enum, `HookParadigm` = json-stdio|ts-plugin|mcp-only, the mcp-only reference (warp uses `working_directory`; kilo uses `mcp` root key + array command), and the ts-plugin reference (opencode synthesizes a bridge module shelling out to the home binary). I have enough to write a precise, codebase-grounded plan.
 
 ```markdown
-# agent-connector — Platform Expansion Plan (9 → 26, tokscale parity)
+# agentconnect — Platform Expansion Plan (9 → 26, tokscale parity)
 
-Grounded in the existing SPI (`src/adapters/spi.ts`), `BaseAdapter` (JSON helpers, TOML/YAML override the JSON helpers entirely), `HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only"`, and the registry (`ADAPTER_REGISTRY`, one entry + lazy `load()` per platform). Reference adapters to mirror: **claude-code** (json-stdio), **cursor/warp/kilo** (mcp-only + Cline-style JSON), **opencode** (ts-plugin synthesized bridge). agent-connector deploys MCP + hooks, so **MCP support is the hard gate for a deploy target**; no-MCP tools are telemetry-only and excluded from this build.
+Grounded in the existing SPI (`src/adapters/spi.ts`), `BaseAdapter` (JSON helpers, TOML/YAML override the JSON helpers entirely), `HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only"`, and the registry (`ADAPTER_REGISTRY`, one entry + lazy `load()` per platform). Reference adapters to mirror: **claude-code** (json-stdio), **cursor/warp/kilo** (mcp-only + Cline-style JSON), **opencode** (ts-plugin synthesized bridge). agentconnect deploys MCP + hooks, so **MCP support is the hard gate for a deploy target**; no-MCP tools are telemetry-only and excluded from this build.
 
 ## 1. Platform Matrix (17 gap platforms)
 
@@ -29,7 +29,7 @@ Grounded in the existing SPI (`src/adapters/spi.ts`), `BaseAdapter` (JSON helper
 | Goose | `goose` | yes | json-stdio (YAML) | `~/.config/goose/config.yaml` (Win `%APPDATA%\Block\goose\config\config.yaml`); root `extensions`; **YAML**; hooks via `.agents/plugins/*/hooks/hooks.json` (JSON) | yes (Open Plugins) | high |
 | Pi | `pi` | **no** | — | — (no native MCP, no mcp.json) | — | high |
 
-\*Amp/Codebuff have a TS-plugin extension model but **no host lifecycle hooks reaching our bridge**; for agent-connector they are effectively mcp-only deploy targets (declare hook capabilities false).
+\*Amp/Codebuff have a TS-plugin extension model but **no host lifecycle hooks reaching our bridge**; for agentconnect they are effectively mcp-only deploy targets (declare hook capabilities false).
 
 ## 2. Build Groups (one-by-one, by paradigm × difficulty)
 
@@ -67,7 +67,7 @@ Real hook dispatch through the universal `<homeBin> hook <id> <event>` entrypoin
 - `hermes` — YAML `~/.hermes/config.yaml`, root `mcp_servers` (snake_case); shell hooks under `hooks` key (matcher/command/timeout, JSON-on-stdin). Single user-scope file. (Python plugins ignored — shell-hook path is sufficient.)
 
 ### Group F — DEFER / EXCLUDE
-- **`pi` — EXCLUDE (no native MCP, no JSON-stdio hooks).** agent-connector deploys an MCP server + hook config; Pi exposes neither a writable mcp.json nor a JSON-stdio hook table — the only integration is copying a bespoke TS extension that itself spawns an MCP bridge child, which is out of scope for a config-deploy framework. **Future telemetry-only target**: Pi's `before_provider_response` exposes `usage`/`tokens`, so a tokscale-style reader could ingest its session DB without agent-connector deploying anything.
+- **`pi` — EXCLUDE (no native MCP, no JSON-stdio hooks).** agentconnect deploys an MCP server + hook config; Pi exposes neither a writable mcp.json nor a JSON-stdio hook table — the only integration is copying a bespoke TS extension that itself spawns an MCP bridge child, which is out of scope for a config-deploy framework. **Future telemetry-only target**: Pi's `before_provider_response` exposes `usage`/`tokens`, so a tokscale-style reader could ingest its session DB without agentconnect deploying anything.
 - **Path-confidence holds (build, don't defer):** `trae` and `kimi` are medium-confidence on *paths only* (root keys/format confirmed) — ship with runtime path-probing + `$KIMI_CODE_HOME`/path-verify, not deferred.
 - **Note on Amp/Codebuff/Kilo-CLI/OpenClaw token telemetry:** none expose a host token-usage hook; telemetry comes from the deployed MCP server's own session logs — consistent with the rest of the fleet and not a blocker for the deploy target.
 

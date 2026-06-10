@@ -29,7 +29,7 @@ export function print(line: string): void {
 
 /** Print an error to stderr and return a non-zero exit code (default 2). */
 export function fail(message: string, code = 2): number {
-  process.stderr.write(`agent-connector: ${message}\n`);
+  process.stderr.write(`agentconnect: ${message}\n`);
   return code;
 }
 
@@ -139,11 +139,11 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
 };
 
 /** Default program name; an embedding SDK CLI overrides it via {@link MainOptions}. */
-export const DEFAULT_PROGRAM_NAME = "agent-connector";
+export const DEFAULT_PROGRAM_NAME = "agentconnect";
 
 /**
  * Build the top-level usage string for a given program name. The brand replaces
- * "agent-connector" in the title, the `usage:` line, and the per-command help
+ * "agentconnect" in the title, the `usage:` line, and the per-command help
  * footer so an embedded CLI (e.g. `acme-db`) reads as its own tool.
  */
 function buildUsage(programName: string): string {

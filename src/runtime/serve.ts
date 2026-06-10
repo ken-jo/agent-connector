@@ -1,5 +1,5 @@
 /**
- * runtime/serve — the `agent-connector serve` telemetry-wrapping entrypoint.
+ * runtime/serve — the `agentconnect serve` telemetry-wrapping entrypoint.
  *
  * When a stdio MCP server opts into transparent telemetry, its host config is
  * rewritten (by the adapter, via core/spawn.buildServeWrapperCommand) to launch
@@ -55,7 +55,7 @@ export interface RunServeOptions {
  * Launch the developer's real MCP server under the telemetry-wrapping proxy.
  *
  * Resolves with the child server's exit code (propagated as this process's exit
- * code by the CLI). The session id comes from AGENT_CONNECTOR_SESSION when the
+ * code by the CLI). The session id comes from AGENTCONNECT_SESSION when the
  * host sets it (empty otherwise); the host platform is detected from runtime env
  * markers; the project identity partitions telemetry by the stable project key.
  */
@@ -68,7 +68,7 @@ export interface RunServeOptions {
  */
 function resolveSessionId(env: NodeJS.ProcessEnv = process.env): string {
   return (
-    env.AGENT_CONNECTOR_SESSION ||
+    env.AGENTCONNECT_SESSION ||
     env.CLAUDE_SESSION_ID ||
     env.CODEX_THREAD_ID ||
     env.CURSOR_TRACE_ID ||

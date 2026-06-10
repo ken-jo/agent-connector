@@ -1,7 +1,7 @@
 /**
  * telemetry/proxy — the telemetry-wrapping MCP stdio proxy.
  *
- * `agent-connector serve <command> <args…>` spawns the developer's REAL MCP
+ * `agentconnect serve <command> <args…>` spawns the developer's REAL MCP
  * server as a child and sits transparently between the host and that server,
  * speaking the MCP stdio wire format: NEWLINE-DELIMITED JSON-RPC (one single-line
  * JSON object per message, terminated by `\n`; stdio has NO Content-Length
@@ -14,7 +14,7 @@
  *     the door and is wrapped so a measurement bug can never break a tool call.
  *   • Telemetry stores AGGREGATE COUNTS ONLY — the parsed `tools/call` arguments
  *     and results are tokenized and discarded; raw content is never persisted.
- *   • AGENT_CONNECTOR_TELEMETRY=0 → still proxy transparently, skip all measure.
+ *   • AGENTCONNECT_TELEMETRY=0 → still proxy transparently, skip all measure.
  *
  * The proxy resolves with the child's exit code and propagates SIGINT/SIGTERM.
  */
@@ -134,9 +134,9 @@ export async function runServeProxy(
   } = opts;
 
   // Global kill switch: still proxy transparently, but skip ALL measurement.
-  const measuringEnabled = process.env.AGENT_CONNECTOR_TELEMETRY !== "0";
+  const measuringEnabled = process.env.AGENTCONNECT_TELEMETRY !== "0";
   // OPT-IN Anthropic count_tokens calibration. Resolved once per session — the
-  // gate (AGENT_CONNECTOR_CALIBRATE + ANTHROPIC_API_KEY) is process-level and
+  // gate (AGENTCONNECT_CALIBRATE + ANTHROPIC_API_KEY) is process-level and
   // does not change mid-session. Off by default; privacy-safe.
   const calibrationEnabled = isCalibrationEnabled();
 

@@ -14,7 +14,7 @@ import type {
  * store tests.
  *
  * Filesystem is isolated to an os.tmpdir mkdtemp dir, and HOME /
- * AGENT_CONNECTOR_DATA_DIR + AGENT_CONNECTOR_TELEMETRY are saved and restored in
+ * AGENTCONNECT_DATA_DIR + AGENTCONNECT_TELEMETRY are saved and restored in
  * afterEach so the real user home and repo tree are never touched. Each store is
  * opened with an explicit { path } so no test depends on the default data-root.
  */
@@ -24,8 +24,8 @@ let storePath: string;
 
 const SAVED = {
   HOME: process.env.HOME,
-  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
-  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
+  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
+  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
 };
 
 beforeEach(() => {
@@ -34,8 +34,8 @@ beforeEach(() => {
   // Point framework state at the temp dir even though tests pass explicit paths.
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
-  process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
-  delete process.env.AGENT_CONNECTOR_TELEMETRY;
+  process.env.AGENTCONNECT_DATA_DIR = tmp;
+  delete process.env.AGENTCONNECT_TELEMETRY;
 });
 
 afterEach(() => {
@@ -319,9 +319,9 @@ describe("rollup", () => {
   });
 });
 
-describe("AGENT_CONNECTOR_TELEMETRY=0 kill switch", () => {
+describe("AGENTCONNECT_TELEMETRY=0 kill switch", () => {
   it("makes append a no-op (no file written, query stays empty)", () => {
-    process.env.AGENT_CONNECTOR_TELEMETRY = "0";
+    process.env.AGENTCONNECT_TELEMETRY = "0";
     const store = openStore({ path: storePath });
     store.append(rec({ id: "blocked" }));
     expect(existsSync(storePath)).toBe(false);
@@ -330,12 +330,12 @@ describe("AGENT_CONNECTOR_TELEMETRY=0 kill switch", () => {
   });
 
   it("re-enables append once the switch is unset", () => {
-    process.env.AGENT_CONNECTOR_TELEMETRY = "0";
+    process.env.AGENTCONNECT_TELEMETRY = "0";
     const store = openStore({ path: storePath });
     store.append(rec({ id: "blocked" }));
     expect(store.query({})).toEqual([]);
 
-    delete process.env.AGENT_CONNECTOR_TELEMETRY;
+    delete process.env.AGENTCONNECT_TELEMETRY;
     store.append(rec({ id: "allowed" }));
     const got = store.query({});
     expect(got.map((r) => r.id)).toEqual(["allowed"]);
@@ -343,7 +343,7 @@ describe("AGENT_CONNECTOR_TELEMETRY=0 kill switch", () => {
   });
 
   it("does not treat other values (e.g. \"1\") as disabled", () => {
-    process.env.AGENT_CONNECTOR_TELEMETRY = "1";
+    process.env.AGENTCONNECT_TELEMETRY = "1";
     const store = openStore({ path: storePath });
     store.append(rec({ id: "kept" }));
     expect(store.query({})).toHaveLength(1);

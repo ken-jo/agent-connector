@@ -2,7 +2,7 @@ I have everything I need. Here is the design and build plan.
 
 ---
 
-# Extending agent-connector: Commands, Skills, Subagents
+# Extending agentconnect: Commands, Skills, Subagents
 
 Declare commands/skills/subagents **once**; each adapter writes the native content file(s) and skips+warns where unsupported, mirroring the existing MCP/hook handling. These three surfaces are **content-only** (markdown/TOML files) — no runtime dispatch, no telemetry wrapping, no home-bin pointer. They are pure file writers, so they reuse `ChangeRecord` and the install orchestration verbatim.
 
@@ -253,4 +253,4 @@ antigravity, zed, kiro, kimi, omp, openclaw, warp, hermes, droid, roo-code, trae
 7. **kilo** and **pi** (partial surfaces).
 8. Leave **Group C** as-is.
 
-**Key files to touch**: `/home/ubuntu/workspace/github/agent-connector/src/core/types.ts`, `/home/ubuntu/workspace/github/agent-connector/src/core/define-connector.ts`, `/home/ubuntu/workspace/github/agent-connector/src/core/load-connector.ts`, new `/home/ubuntu/workspace/github/agent-connector/src/core/toml.ts`, `/home/ubuntu/workspace/github/agent-connector/src/adapters/spi.ts`, `/home/ubuntu/workspace/github/agent-connector/src/adapters/base.ts`, `/home/ubuntu/workspace/github/agent-connector/src/core/installer.ts`, `/home/ubuntu/workspace/github/agent-connector/src/cli/commands/doctor.ts`, then each `src/adapters/<platform>/index.ts`. The `core/yaml.ts` `stringify` and `@iarna/toml` `stringify` already in-repo are reused — no new dependencies.
+**Key files to touch**: `/home/ubuntu/workspace/github/agentconnect/src/core/types.ts`, `/home/ubuntu/workspace/github/agentconnect/src/core/define-connector.ts`, `/home/ubuntu/workspace/github/agentconnect/src/core/load-connector.ts`, new `/home/ubuntu/workspace/github/agentconnect/src/core/toml.ts`, `/home/ubuntu/workspace/github/agentconnect/src/adapters/spi.ts`, `/home/ubuntu/workspace/github/agentconnect/src/adapters/base.ts`, `/home/ubuntu/workspace/github/agentconnect/src/core/installer.ts`, `/home/ubuntu/workspace/github/agentconnect/src/cli/commands/doctor.ts`, then each `src/adapters/<platform>/index.ts`. The `core/yaml.ts` `stringify` and `@iarna/toml` `stringify` already in-repo are reused — no new dependencies.

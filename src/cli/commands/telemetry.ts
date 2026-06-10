@@ -260,7 +260,7 @@ export async function run(argv: string[]): Promise<number> {
     case undefined:
     case "--help":
     case "-h":
-      print("usage: agent-connector telemetry <report|export|leaderboard> [flags]");
+      print("usage: agentconnect telemetry <report|export|leaderboard> [flags]");
       print("  report       --by tool|session|project  --since 7d  --connector <id>  --json");
       print("  export       --format csv|json  --out <file>  --since 7d  --connector <id>");
       print("  leaderboard  --by mcp|tool|surface  --since 7d  --connector <id>  --scope <slice>  --json");

@@ -1,4 +1,4 @@
-# agent-connector
+# agentconnect
 
 > **Write your MCP server + hooks once. Ship them to every AI-agent platform —
 > and finally see how many tokens your tools actually cost.**
@@ -18,13 +18,13 @@ JSONC / TOML / YAML / exported functions), transports, scopes, and event names.
 Supporting them today means hand-authoring and maintaining *N* dialects and *N*
 install flows, then chasing each platform's quirks.
 
-agent-connector is the middleware that does it for you:
+agentconnect is the middleware that does it for you:
 
 1. **One API, every platform.** Declare your server + hooks once with
    `defineConnector({...})`; the CLI detects every installed host and renders the
    right native config in each — install, uninstall, upgrade, doctor.
 2. **Token telemetry, by default.** No host reports per-tool usage back to an MCP
-   server. agent-connector measures your server's *own* bytes (args in, results
+   server. agentconnect measures your server's *own* bytes (args in, results
    out, tool schemas) and tokenizes them locally — so you get a
    platform-independent answer to *"which of my tools cost the most context?"*,
    with **aggregate counts only, stored locally, zero egress by default.**
@@ -83,16 +83,16 @@ static code/web audit missed. See the reports under
 
 ## Quick start
 
-agent-connector is an **SDK you depend on**, not a global tool. Add it to the
+agentconnect is an **SDK you depend on**, not a global tool. Add it to the
 package that holds your connector, declare the connector once, then **either**
 ship a branded CLI your users drive directly **or** run it with `npx`. No
 separate global install is required.
 
 ```bash
-# 1. add agent-connector as a DEPENDENCY of your connector package
-npm install agent-connector
+# 1. add agentconnect as a DEPENDENCY of your connector package
+npm install agentconnect
 
-# 2. write agent-connector.config.mjs (defineConnector — see "Define once" below)
+# 2. write agentconnect.config.mjs (defineConnector — see "Define once" below)
 
 # 3a. ship a branded CLI so YOUR users drive it (auto-scoped — no --connector):
 acme-db detect             # which platforms are installed here?
@@ -102,44 +102,44 @@ acme-db leaderboard        # which of acme-db's tools cost the most tokens
 acme-db package            # OR emit a marketplace-installable plugin (below)
 
 # 3b. …or just run it from the project with npx — still no global install:
-npx agent-connector detect
-npx agent-connector install
+npx agentconnect detect
+npx agentconnect install
 ```
 
-> **Optional convenience.** A global `npm i -g agent-connector` is **not**
-> required for the flow above — `npx agent-connector …` runs it straight from
+> **Optional convenience.** A global `npm i -g agentconnect` is **not**
+> required for the flow above — `npx agentconnect …` runs it straight from
 > your project. Install it globally only if you want to poke at the CLI by hand
 > outside any connector package.
 
 ### Embed it / ship a branded CLI
 
-A connector developer adds agent-connector as a dependency and ships their
+A connector developer adds agentconnect as a dependency and ships their
 **own** bin. `createConnectorCli({ name, connector })` (from the
-`agent-connector/cli` export) exposes **every** agent-connector subcommand under
+`agentconnect/cli` export) exposes **every** agentconnect subcommand under
 your brand, fully delegated and **auto-scoped** to your connector — so your
-users never install agent-connector globally or type `--connector`. See
+users never install agentconnect globally or type `--connector`. See
 [`examples/branded-cli`](examples/branded-cli) for the full, runnable package.
 
 ```jsonc
-// package.json — agent-connector is a dependency (not -g); your package owns the bin
+// package.json — agentconnect is a dependency (not -g); your package owns the bin
 {
   "name": "acme-db-tools",
   "type": "module",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "agent-connector": "^0.1.0" }
+  "dependencies": { "agentconnect": "^0.1.0" }
 }
 ```
 
 ```js
 #!/usr/bin/env node
-// bin.mjs — every agent-connector subcommand, branded as `acme-db`
+// bin.mjs — every agentconnect subcommand, branded as `acme-db`
 import { fileURLToPath } from "node:url";
-import { createConnectorCli } from "agent-connector/cli";
+import { createConnectorCli } from "agentconnect/cli";
 
 createConnectorCli({
   name: "acme-db",
   connector: fileURLToPath(
-    new URL("./agent-connector.config.mjs", import.meta.url),
+    new URL("./agentconnect.config.mjs", import.meta.url),
   ),
 }).run();
 ```
@@ -153,15 +153,15 @@ acme-db upgrade              # bring everything current (alias: sync, update)
 acme-db doctor               # health-check every platform for acme-db
 acme-db leaderboard          # the 🔌 MCP/plugin section, scoped to acme-db
 acme-db telemetry report --by tool   # acme-db's per-tool token footprint
-acme-db --help               # every agent-connector subcommand, branded
+acme-db --help               # every agentconnect subcommand, branded
 ```
 
 **Auto-scoping is pure argument injection over the SAME single home binary.** A
-branded subcommand is the matching agent-connector command with your connector
-pre-injected — `acme-db leaderboard` ≈ `agent-connector leaderboard --connector
-acme-db`, `acme-db install` ≈ `agent-connector install --connector
-./agent-connector.config.mjs`. `serve` and `hook` still route through the one
-`~/.agent-connector` home binary every host config points back to, so branded
+branded subcommand is the matching agentconnect command with your connector
+pre-injected — `acme-db leaderboard` ≈ `agentconnect leaderboard --connector
+acme-db`, `acme-db install` ≈ `agentconnect install --connector
+./agentconnect.config.mjs`. `serve` and `hook` still route through the one
+`~/.agentconnect` home binary every host config points back to, so branded
 tools share that infrastructure. An explicit `--connector` / `--connector-id`
 always overrides the injected default.
 
@@ -171,7 +171,7 @@ Same one definition, your choice of distribution:
 
 - **Direct install** (above) — `install` writes each host's native MCP + plugin/
   extension config in place; no per-platform marketplace submission or review.
-- **Marketplace package** — `agent-connector package` turns the connector into a
+- **Marketplace package** — `agentconnect package` turns the connector into a
   marketplace/extension bundle (manifest + bundled commands, agents, skills,
   hooks, MCP) for **9 host formats** (plus 2 official MCP standard artifacts —
   see *Publish to the MCP ecosystem*) across the ecosystem, from one definition:
@@ -183,17 +183,17 @@ Same one definition, your choice of distribution:
   per-tool tokens.
 
   ```bash
-  agent-connector package --format all  --out ./dist-plugin   # emit every format
-  agent-connector package --format gemini-extension --out ./ext   # or one
+  agentconnect package --format all  --out ./dist-plugin   # emit every format
+  agentconnect package --format gemini-extension --out ./ext   # or one
   # e.g. Claude Code:  /plugin marketplace add ./dist-plugin/claude-plugin
-  #                    /plugin install <connector-id>@agent-connector
+  #                    /plugin install <connector-id>@agentconnect
   # e.g. Gemini CLI:   gemini extensions install ./dist-plugin/gemini-extension/<id>
   ```
 
 ## Define once
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "agentconnect";
 
 export default defineConnector({
   id: "acme-db",
@@ -217,7 +217,7 @@ export default defineConnector({
 });
 ```
 
-`agent-connector install` turns that into, e.g.:
+`agentconnect install` turns that into, e.g.:
 
 | Host | What gets written |
 |---|---|
@@ -231,9 +231,9 @@ everywhere.
 ## How it works (operating model)
 
 - **Home-dir, single binary.** The runtime installs once under
-  `~/.agent-connector` (override `AGENT_CONNECTOR_DATA_DIR`). Every platform
+  `~/.agentconnect` (override `AGENTCONNECT_DATA_DIR`). Every platform
   config we write is a thin pointer back to that one binary — update it in one
-  place. Updates are **explicit/managed** (`agent-connector upgrade`), never silent
+  place. Updates are **explicit/managed** (`agentconnect upgrade`), never silent
   auto-update, so one bad release can't break every project at once.
 - **Per-project data, kept.** Telemetry/state is keyed by a stable project
   identity (git remote or normalized path), partitioned per project, stored under
@@ -259,14 +259,14 @@ everywhere.
 | `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards; `--connector` filters the 🔌 MCP/plugin section to one connector. |
 
 > A **branded CLI** auto-injects `--connector` for you: `<your-tool>
-> leaderboard` ≈ `agent-connector leaderboard --connector <id>`, and
-> `<your-tool> telemetry report` ≈ `agent-connector telemetry report --connector
+> leaderboard` ≈ `agentconnect leaderboard --connector <id>`, and
+> `<your-tool> telemetry report` ≈ `agentconnect telemetry report --connector
 > <id>` — so a connector developer sees **their** connector's token usage by
 > default.
 
 ## Publish to the MCP ecosystem
 
-Where the MCP standard already covers your server's functionality, agent-connector
+Where the MCP standard already covers your server's functionality, agentconnect
 **emits the standard exactly** so your already-standard work is portable — you
 write the server, we carry the distribution:
 
@@ -310,7 +310,7 @@ defineConnector({
 > tool linkage, the bidirectional `ui/*` + `sampling` traffic) and **any
 > reverse-DNS extension** negotiated at `initialize`. A connector whose server
 > already speaks these deploys across every host and keeps its telemetry today,
-> no agent-connector change required. (Authoring such a UI is the dev's own MCP
+> no agentconnect change required. (Authoring such a UI is the dev's own MCP
 > server's job; we deploy + wrap it. `doctor --probe` offers the latest released
 > protocol revision and accepts whatever a server negotiates.)
 
@@ -322,7 +322,7 @@ defineConnector({
   `heuristic`) if the tokenizer can't load. Every record carries a confidence tag.
 - **Aggregate counts only** — raw tool arguments and results are never stored or
   transmitted. Local-first; zero network egress by default.
-- Off switch: `AGENT_CONNECTOR_TELEMETRY=0`, or `telemetry: { enabled: false }`.
+- Off switch: `AGENTCONNECT_TELEMETRY=0`, or `telemetry: { enabled: false }`.
 
 ## Development
 

@@ -25,7 +25,7 @@
  * `dedupKey` is its message_id (absent for un-keyed rows).
  *
  * Storage root: ~/.kimi/sessions, with two overrides honored on top of the fixed
- * paths.ts resolution — the AGENT_CONNECTOR_KIMI_DIR override (via
+ * paths.ts resolution — the AGENTCONNECT_KIMI_DIR override (via
  * firstExistingRoot) and $KIMI_CODE_HOME, which relocates the Kimi home (the
  * config.json lookup is path-relative, so it transparently handles a `.kimi-code`
  * home as well as `.kimi`).
@@ -226,7 +226,7 @@ function parseKimiFile(path: string): UsageRecord[] {
 
 /**
  * Candidate Kimi session roots, most-preferred first. Honors the fixed paths.ts
- * resolution (AGENT_CONNECTOR_KIMI_DIR override → ~/.kimi/sessions) plus
+ * resolution (AGENTCONNECT_KIMI_DIR override → ~/.kimi/sessions) plus
  * $KIMI_CODE_HOME, which relocates the Kimi home directory.
  */
 function kimiSessionRoots(): string[] {

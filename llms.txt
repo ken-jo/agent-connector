@@ -1,4 +1,4 @@
-# agent-connector
+# agentconnect
 
 > Write your MCP server + hooks (and commands / skills / subagents) ONCE; install them across every detected AI-agent CLI in its native config dialect — and get default, platform-independent, local-first per-tool token telemetry.
 
@@ -26,13 +26,13 @@ Declare once with `defineConnector({...})`; the CLI detects installed hosts, ren
 ## Quick start
 
 ```bash
-npm i -g agent-connector
-cd my-mcp-project            # contains agent-connector.config.mjs
-agent-connector detect       # which hosts are installed here?
-agent-connector install --dry-run   # preview every change, everywhere
-agent-connector install             # deploy across detected hosts
-agent-connector doctor              # per-platform health checks
-agent-connector telemetry report    # per-tool token footprint
+npm i -g agentconnect
+cd my-mcp-project            # contains agentconnect.config.mjs
+agentconnect detect       # which hosts are installed here?
+agentconnect install --dry-run   # preview every change, everywhere
+agentconnect install             # deploy across detected hosts
+agentconnect doctor              # per-platform health checks
+agentconnect telemetry report    # per-tool token footprint
 ```
 
 ## Key API: defineConnector fields
@@ -70,12 +70,12 @@ Validation: throws `ConnectorConfigError` on bad id, non-function handler, missi
 
 - Default tokenizer: `gpt-tokenizer` (pure-JS); `o200k_base` for OpenAI/Codex, documented approximation for Anthropic; falls back to `chars/4` heuristic. Every row tagged `tokenizer-exact | tokenizer-approx | heuristic | host-native`.
 - Two distinct leaderboards: per-MCP server bytes (telemetry) vs host CLI usage (usage). They measure different things and are never summed.
-- Privacy: aggregate counts only; zero egress by default. Opt out: `AGENT_CONNECTOR_TELEMETRY=0` or `telemetry: { enabled: false }`.
+- Privacy: aggregate counts only; zero egress by default. Opt out: `AGENTCONNECT_TELEMETRY=0` or `telemetry: { enabled: false }`.
 
 ## Links
 
 - [README](README.md) — overview + quick start.
 - [Architecture](docs/ARCHITECTURE.md) — the authoritative design.
 - [Full LLM reference](llms-full.txt) — exhaustive API + CLI + platform + telemetry reference.
-- [Example connector](examples/acme-db/agent-connector.config.mjs).
-- [Skill](skills/agent-connector/SKILL.md) — agent-facing how-to (deployable via the skills surface).
+- [Example connector](examples/acme-db/agentconnect.config.mjs).
+- [Skill](skills/agentconnect/SKILL.md) — agent-facing how-to (deployable via the skills surface).

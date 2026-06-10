@@ -1,8 +1,8 @@
 /**
- * adapters/crush — Crush (Charm) platform adapter for agent-connector.
+ * adapters/crush — Crush (Charm) platform adapter for agentconnect.
  *
  * Crush is a json-stdio host. A single JSON config file holds BOTH the MCP
- * server registrations and the hook registrations, and agent-connector MERGES
+ * server registrations and the hook registrations, and agentconnect MERGES
  * into it (never replaces it — unrelated keys are preserved verbatim):
  *   - User scope:    ~/.config/crush/crush.json
  *                    (Windows: %LOCALAPPDATA%\crush\crush.json)
@@ -59,7 +59,7 @@ const MCP_ROOT_KEY = "mcp";
 const STDIO_TIMEOUT_SECONDS = 120;
 
 /**
- * Crush hook events agent-connector can register. Crush honors PreToolUse ONLY,
+ * Crush hook events agentconnect can register. Crush honors PreToolUse ONLY,
  * and only its deny decision is meaningful; every other normalized event has no
  * Crush equivalent and is skipped at install time.
  */

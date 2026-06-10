@@ -5,7 +5,7 @@
  * Octofriend client persists usage in a single SQLite database. Per the tokscale
  * scanner (scanner.rs), the db lives at:
  *   ${XDG_DATA_HOME:-~/.local/share}/octofriend/sqlite.db
- * (an AGENT_CONNECTOR_SYNTHETIC_DIR override is honored first — verbatim,
+ * (an AGENTCONNECT_SYNTHETIC_DIR override is honored first — verbatim,
  * non-empty — mirroring the paths.ts env-override contract; `synthetic` is not
  * yet wired into paths.ts hostRoots, so the path is resolved here.)
  *
@@ -84,12 +84,12 @@ function xdgDataHome(): string {
 }
 
 /**
- * Resolve the Octofriend sqlite.db path. Honors AGENT_CONNECTOR_SYNTHETIC_DIR
+ * Resolve the Octofriend sqlite.db path. Honors AGENTCONNECT_SYNTHETIC_DIR
  * first (treated as the octofriend directory: `<dir>/sqlite.db`), else the
  * tokscale default `${XDG_DATA_HOME:-~/.local/share}/octofriend/sqlite.db`.
  */
 function octofriendDbPath(): string {
-  const override = envOverride("AGENT_CONNECTOR_SYNTHETIC_DIR");
+  const override = envOverride("AGENTCONNECT_SYNTHETIC_DIR");
   if (override !== undefined) return join(override, "sqlite.db");
   return join(xdgDataHome(), "octofriend", "sqlite.db");
 }

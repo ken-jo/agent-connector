@@ -13,7 +13,7 @@
  * and we return [].
  *
  * Local cache: ~/.config/tokscale/warp-cache/usage.json (env override
- * AGENT_CONNECTOR_WARP_DIR; resolved by paths.ts). Schema (camelCase JSON):
+ * AGENTCONNECT_WARP_DIR; resolved by paths.ts). Schema (camelCase JSON):
  *   { syncedAt: RFC3339 string,
  *     usage:   { requestsUsed, spendCents },           // account aggregate
  *     workspaces: [ { id, name, requestsUsed, spendCents }, … ] }

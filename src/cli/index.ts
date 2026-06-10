@@ -1,5 +1,5 @@
 /**
- * cli/index — the agent-connector bin entry.
+ * cli/index — the agentconnect bin entry.
  *
  * Intentionally tiny: it imports `main` from ./app.js and runs it
  * UNCONDITIONALLY. All helpers + dispatch live in ./app.ts (no side effects), so
@@ -15,6 +15,6 @@ main(process.argv.slice(2))
   })
   .catch((err: unknown) => {
     const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    process.stderr.write(`agent-connector: fatal: ${message}\n`);
+    process.stderr.write(`agentconnect: fatal: ${message}\n`);
     process.exitCode = 1;
   });

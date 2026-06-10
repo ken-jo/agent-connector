@@ -58,7 +58,7 @@ import antigravityCliAdapter, {
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -152,14 +152,14 @@ let savedEnvVar: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
   process.env[ENV_VAR] = ENV_LITERAL;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
 });
 

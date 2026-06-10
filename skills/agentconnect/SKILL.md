@@ -1,11 +1,11 @@
 ---
-name: agent-connector
+name: agentconnect
 description: Write an MCP server, lifecycle hooks, slash commands, Agent Skills, or subagents ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and ~25 more) in each host's native config dialect. Also gives default, platform-independent, local-first per-tool token telemetry and two leaderboards (per-MCP server bytes vs host CLI usage). Use this when a developer wants one integration to reach many agent hosts, or wants to know which of their MCP tools cost the most context.
 ---
 
-# agent-connector
+# agentconnect
 
-agent-connector is middleware that solves two problems every MCP/agent-tooling dev
+agentconnect is middleware that solves two problems every MCP/agent-tooling dev
 hits: (1) each agent host re-invents MCP registration + lifecycle hooks with
 incompatible config files, root keys, formats (JSON/JSONC/TOML/YAML/exported TS),
 and event names; (2) no host reports per-tool token usage back to an MCP server.
@@ -25,10 +25,10 @@ existing server command/URL and wraps lifecycle hooks; it does not implement too
 
 ## Write once: defineConnector({...})
 
-Create `agent-connector.config.mjs` (or `.js` / `.json`) at the project root:
+Create `agentconnect.config.mjs` (or `.js` / `.json`) at the project root:
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "agentconnect";
 
 export default defineConnector({
   id: "acme-db",                 // required, kebab-case ^[a-z0-9][a-z0-9-]*$
@@ -88,16 +88,16 @@ descriptions (>1024 chars), or unsafe skill `resources` paths.
 ## CLI workflow
 
 ```bash
-npm i -g agent-connector
+npm i -g agentconnect
 cd my-mcp-project
 
-agent-connector detect                      # which hosts are installed + scope + capabilities + paradigm
-agent-connector install --dry-run           # preview every change, everywhere (nothing written)
-agent-connector install                     # deploy across detected hosts
-agent-connector install --scope project --targets claude-code,codex   # narrow it
-agent-connector doctor                      # per-platform health checks (non-zero exit on FAIL)
-agent-connector sync                        # idempotent re-render after edits/upgrade; heals stale pointers
-agent-connector uninstall                   # full inverse — removes everything we wrote
+agentconnect detect                      # which hosts are installed + scope + capabilities + paradigm
+agentconnect install --dry-run           # preview every change, everywhere (nothing written)
+agentconnect install                     # deploy across detected hosts
+agentconnect install --scope project --targets claude-code,codex   # narrow it
+agentconnect doctor                      # per-platform health checks (non-zero exit on FAIL)
+agentconnect sync                        # idempotent re-render after edits/upgrade; heals stale pointers
+agentconnect uninstall                   # full inverse — removes everything we wrote
 ```
 
 `--scope` is `user` (default) or `project`. `--targets` is a comma-separated
@@ -106,17 +106,17 @@ points at a config explicitly; otherwise it's found by walking up from the proje
 
 ## Telemetry, leaderboards, usage
 
-Telemetry is ON by default: stdio servers are wrapped with `agent-connector serve`
+Telemetry is ON by default: stdio servers are wrapped with `agentconnect serve`
 so every `tools/call` is measured (args in, results out, plus the one-time
 `tools/list` schema cost) and tokenized locally. Every record carries a confidence
 tag (`tokenizer-exact | tokenizer-approx | heuristic | host-native`).
 
 ```bash
-agent-connector telemetry report --by tool --since 7d   # ranked per-tool footprint (also session|project)
-agent-connector telemetry export --format csv --out tel.csv
-agent-connector telemetry leaderboard --by mcp          # which MCP server costs most (or --by tool)
-agent-connector usage report --by platform --since 7d   # host-native usage parsed read-only from CLI logs
-agent-connector leaderboard                             # 🔌 per-MCP + 🖥️ host + 🛰️ live host-native turns
+agentconnect telemetry report --by tool --since 7d   # ranked per-tool footprint (also session|project)
+agentconnect telemetry export --format csv --out tel.csv
+agentconnect telemetry leaderboard --by mcp          # which MCP server costs most (or --by tool)
+agentconnect usage report --by platform --since 7d   # host-native usage parsed read-only from CLI logs
+agentconnect leaderboard                             # 🔌 per-MCP + 🖥️ host + 🛰️ live host-native turns
 ```
 
 The MCP/telemetry numbers (server's own bytes) and the host/usage numbers
@@ -125,9 +125,9 @@ summed.
 
 ## Operating model
 
-- **Home-dir single binary.** Runtime installs once under `~/.agent-connector`
-  (override `AGENT_CONNECTOR_DATA_DIR`). Every host config we write is a thin
-  pointer to that one stable binary, so one managed `agent-connector update`
+- **Home-dir single binary.** Runtime installs once under `~/.agentconnect`
+  (override `AGENTCONNECT_DATA_DIR`). Every host config we write is a thin
+  pointer to that one stable binary, so one managed `agentconnect update`
   propagates everywhere — never silent auto-update.
 - **Per-project data.** Telemetry/state is keyed by project identity (git remote or
   normalized path), stored under the home data-root — survives `git clean`, shared
@@ -138,5 +138,5 @@ summed.
 
 Aggregate counts only — raw tool arguments and results are never stored or
 transmitted. Local-first, zero network egress by default. Opt out via
-`AGENT_CONNECTOR_TELEMETRY=0` or `telemetry: { enabled: false }`. Network
+`AGENTCONNECT_TELEMETRY=0` or `telemetry: { enabled: false }`. Network
 calibration (Anthropic `count_tokens`) and host-native turn capture are opt-in only.

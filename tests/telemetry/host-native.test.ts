@@ -13,7 +13,7 @@
  *   • the three origins (per-MCP call, tool_defs overhead, host-native turns) are
  *     never summed: each leaderboard's totals stay within its own origin.
  *
- * Isolation: AGENT_CONNECTOR_DATA_DIR → fresh mkdtemp dir so the shared telemetry
+ * Isolation: AGENTCONNECT_DATA_DIR → fresh mkdtemp dir so the shared telemetry
  * store (dataRoot/telemetry.ndjson) is sandboxed; env saved/restored in afterEach.
  */
 
@@ -39,16 +39,16 @@ let tmp: string;
 
 const SAVED = {
   HOME: process.env.HOME,
-  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
-  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
+  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
+  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
 };
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "ac-hostnative-"));
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
-  process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
-  delete process.env.AGENT_CONNECTOR_TELEMETRY;
+  process.env.AGENTCONNECT_DATA_DIR = tmp;
+  delete process.env.AGENTCONNECT_TELEMETRY;
 });
 
 afterEach(() => {

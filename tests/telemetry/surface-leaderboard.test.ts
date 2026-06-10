@@ -32,8 +32,8 @@ let storePath: string;
 
 const SAVED = {
   HOME: process.env.HOME,
-  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
-  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
+  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
+  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
 };
 
 beforeEach(() => {
@@ -41,8 +41,8 @@ beforeEach(() => {
   storePath = join(tmp, "telemetry.ndjson");
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
-  process.env.AGENT_CONNECTOR_DATA_DIR = tmp;
-  delete process.env.AGENT_CONNECTOR_TELEMETRY;
+  process.env.AGENTCONNECT_DATA_DIR = tmp;
+  delete process.env.AGENTCONNECT_TELEMETRY;
 });
 
 afterEach(() => {

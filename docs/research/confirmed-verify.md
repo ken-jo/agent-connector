@@ -1,8 +1,8 @@
 I now have complete verification of all flagged adapters against the actual source code. I have confirmed every correction in the observation set against the live code. I have all the evidence needed to produce the decisive report.
 
-# Agent-Connector Coverage Verification — Confirmed-Grade Report
+# AgentConnect Coverage Verification — Confirmed-Grade Report
 
-This report cross-checks every platform observation (live install or source-confirmed) against the **actual adapter source** in `/home/ubuntu/workspace/github/agent-connector/src/adapters/`. Every "matches-adapter?" verdict below was re-derived by reading the adapter file, not taken on faith from the observation set.
+This report cross-checks every platform observation (live install or source-confirmed) against the **actual adapter source** in `/home/ubuntu/workspace/github/agentconnect/src/adapters/`. Every "matches-adapter?" verdict below was re-derived by reading the adapter file, not taken on faith from the observation set.
 
 ---
 

@@ -36,15 +36,15 @@ import type { UsageRecord } from "../../src/usage/types.js";
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fake-HOME harness. Every reader resolves its root via os.homedir(),
 // which honors process.env.HOME on POSIX. We also snapshot + restore the
-// env overrides these readers read (XDG_*, AGENT_CONNECTOR_*_DIR), so no test
+// env overrides these readers read (XDG_*, AGENTCONNECT_*_DIR), so no test
 // leaks state into another.
 //
 //   amp        → $XDG_DATA_HOME/amp/threads               (XDG_DATA_HOME pinned)
 //   droid      → ~/.factory/sessions
 //   codebuff   → $XDG_CONFIG_HOME/manicode/projects        (XDG_CONFIG_HOME pinned)
 //   mux        → ~/.mux/sessions
-//   roo-code   → AGENT_CONNECTOR_ROO_CODE_DIR (a fake tasks dir)
-//   kilo       → AGENT_CONNECTOR_KILO_DIR     (a fake tasks dir)
+//   roo-code   → AGENTCONNECT_ROO_CODE_DIR (a fake tasks dir)
+//   kilo       → AGENTCONNECT_KILO_DIR     (a fake tasks dir)
 //   kiro       → ~/.kiro/sessions/cli
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -52,9 +52,9 @@ const SAVED_ENV = [
   "HOME",
   "XDG_DATA_HOME",
   "XDG_CONFIG_HOME",
-  "AGENT_CONNECTOR_CODEBUFF_DIR",
-  "AGENT_CONNECTOR_ROO_CODE_DIR",
-  "AGENT_CONNECTOR_KILO_DIR",
+  "AGENTCONNECT_CODEBUFF_DIR",
+  "AGENTCONNECT_ROO_CODE_DIR",
+  "AGENTCONNECT_KILO_DIR",
   "APPDATA",
   "LOCALAPPDATA",
 ] as const;
@@ -73,9 +73,9 @@ beforeEach(() => {
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");
   // Neutralize the VS-Code-extension overrides; each test that needs them sets
   // its own value, every other test must see them unset (→ [] fail-open).
-  delete process.env.AGENT_CONNECTOR_CODEBUFF_DIR;
-  delete process.env.AGENT_CONNECTOR_ROO_CODE_DIR;
-  delete process.env.AGENT_CONNECTOR_KILO_DIR;
+  delete process.env.AGENTCONNECT_CODEBUFF_DIR;
+  delete process.env.AGENTCONNECT_ROO_CODE_DIR;
+  delete process.env.AGENTCONNECT_KILO_DIR;
 });
 
 afterEach(() => {
@@ -500,7 +500,7 @@ describe("roo-code reader", () => {
   let tasksRoot: string;
   beforeEach(() => {
     tasksRoot = join(tmpHome, "roo-tasks");
-    process.env.AGENT_CONNECTOR_ROO_CODE_DIR = tasksRoot;
+    process.env.AGENTCONNECT_ROO_CODE_DIR = tasksRoot;
   });
 
   /** Write a task's ui_messages.json + optional api_conversation_history.json. */
@@ -568,7 +568,7 @@ describe("roo-code reader", () => {
   });
 
   it("FAIL-OPEN: returns [] when the tasks root is absent", async () => {
-    process.env.AGENT_CONNECTOR_ROO_CODE_DIR = join(tmpHome, "nonexistent-roo");
+    process.env.AGENTCONNECT_ROO_CODE_DIR = join(tmpHome, "nonexistent-roo");
     expect(await rooCodeReader.read({})).toEqual([]);
   });
 
@@ -586,14 +586,14 @@ describe("roo-code reader", () => {
 
 // ═════════════════════════════════════════════════════════════════════════
 // 6. kilo — <tasks>/<taskId>/ui_messages.json ; SAME format as roo-code.
-//    No dedup (per-file isolation). AGENT_CONNECTOR_KILO_DIR override.
+//    No dedup (per-file isolation). AGENTCONNECT_KILO_DIR override.
 // ═════════════════════════════════════════════════════════════════════════
 
 describe("kilo reader", () => {
   let tasksRoot: string;
   beforeEach(() => {
     tasksRoot = join(tmpHome, "kilo-tasks");
-    process.env.AGENT_CONNECTOR_KILO_DIR = tasksRoot;
+    process.env.AGENTCONNECT_KILO_DIR = tasksRoot;
   });
 
   function writeTask(taskId: string, uiEntries: unknown[], history?: string): void {
@@ -643,7 +643,7 @@ describe("kilo reader", () => {
   });
 
   it("FAIL-OPEN: returns [] when the kilo tasks root is absent", async () => {
-    process.env.AGENT_CONNECTOR_KILO_DIR = join(tmpHome, "nonexistent-kilo");
+    process.env.AGENTCONNECT_KILO_DIR = join(tmpHome, "nonexistent-kilo");
     expect(await kiloReader.read({})).toEqual([]);
   });
 

@@ -1,8 +1,8 @@
 {
-  "name": "agent-connector",
+  "name": "agentconnect",
   "version": "0.1.0",
   "type": "module",
-  "description": "Write your MCP server + hooks once; agent-connector installs and adapts them across every AI-agent platform (Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp, …) and gives you default, platform-independent per-tool token telemetry.",
+  "description": "Write your MCP server + hooks once; agentconnect installs and adapts them across every AI-agent platform (Claude Code, Codex, Cursor, OpenCode, Copilot, Gemini, Warp, …) and gives you default, platform-independent per-tool token telemetry.",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -20,7 +20,7 @@
   "license": "MIT",
   "author": "KenJo",
   "bin": {
-    "agent-connector": "./dist/cli.js"
+    "agentconnect": "./dist/cli.js"
   },
   "exports": {
     ".": {

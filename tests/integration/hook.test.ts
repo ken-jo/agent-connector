@@ -10,7 +10,7 @@
  * fixture module (not an in-memory object) is what actually executes here — this
  * exercises the full register → load → parse → dispatch → format chain.
  *
- * Isolation: HOME + AGENT_CONNECTOR_DATA_DIR point at fresh temp dirs and are
+ * Isolation: HOME + AGENTCONNECT_DATA_DIR point at fresh temp dirs and are
  * restored in afterEach; both temp trees are removed.
  */
 
@@ -30,8 +30,8 @@ const CONNECTOR_ID = "guard-db";
 const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
-  DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
-  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
+  DATA_DIR: process.env.AGENTCONNECT_DATA_DIR,
+  TELEMETRY: process.env.AGENTCONNECT_TELEMETRY,
 };
 
 let tmpHome: string;
@@ -77,8 +77,8 @@ beforeEach(async () => {
   tmpData = mkdtempSync(join(tmpdir(), "ac-hook-data-"));
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
-  process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
-  delete process.env.AGENT_CONNECTOR_TELEMETRY;
+  process.env.AGENTCONNECT_DATA_DIR = tmpData;
+  delete process.env.AGENTCONNECT_TELEMETRY;
 
   const modPath = writeFixtureModule(tmpData);
   const { connector } = await loadConnectorFromPath(modPath);

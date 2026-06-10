@@ -79,11 +79,11 @@ describe("resolveSpawnCommand", () => {
 describe("isHomeBinHookCommand — Windows separator mismatch", () => {
   // homeBinPath() on win32 = native backslashes; the stored command is
   // forward-slashed by quoteArg().
-  const winHomeBin = "C:\\Users\\me\\.agent-connector\\bin\\agent-connector.cmd";
+  const winHomeBin = "C:\\Users\\me\\.agentconnect\\bin\\agentconnect.cmd";
   const stored = buildHomeBinHookCommand(winHomeBin, "claude-code", "SessionStart", "acme-db");
 
   it("the stored command is forward-slashed (quoteArg normalization)", () => {
-    expect(stored).toContain("C:/Users/me/.agent-connector/bin/agent-connector.cmd");
+    expect(stored).toContain("C:/Users/me/.agentconnect/bin/agentconnect.cmd");
     expect(stored).not.toContain("\\");
   });
 
@@ -96,7 +96,7 @@ describe("isHomeBinHookCommand — Windows separator mismatch", () => {
   });
 
   it("POSIX path is unaffected", () => {
-    const posixHome = "/home/me/.agent-connector/bin/agent-connector";
+    const posixHome = "/home/me/.agentconnect/bin/agentconnect";
     const c = buildHomeBinHookCommand(posixHome, "claude-code", "Stop", "acme-db");
     expect(isHomeBinHookCommand(c, posixHome, "acme-db")).toBe(true);
     expect(isHomeBinHookCommand(c, posixHome, "acme")).toBe(false);

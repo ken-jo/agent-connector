@@ -15,7 +15,7 @@
  *
  * Cache roots are resolved by src/usage/paths.ts under the tokscale config dir
  * (~/.config/tokscale by default). paths.ts supports an explicit
- * AGENT_CONNECTOR_TOKSCALE_DIR override which we point at a fresh temp dir each
+ * AGENTCONNECT_TOKSCALE_DIR override which we point at a fresh temp dir each
  * test, so the suite is hermetic and OS-independent (we never touch a real
  * tokscale install). The per-platform cache subdirs are:
  *   <tokscale>/cursor-cache/      (usage*.csv)
@@ -45,9 +45,9 @@ import warpReader from "../../src/usage/readers/warp.js";
 // ─────────────────────────────────────────────────────────────────────────
 // Shared harness. We set HOME to a fresh temp dir (so the antigravity reader's
 // ~/antigravity-* filesystem scan finds nothing stray) and point the tokscale
-// cache dir at a separate fresh temp dir via AGENT_CONNECTOR_TOKSCALE_DIR (the
+// cache dir at a separate fresh temp dir via AGENTCONNECT_TOKSCALE_DIR (the
 // override paths.ts honors first). We also neutralize the per-platform
-// AGENT_CONNECTOR_<P>_DIR overrides and XDG/APPDATA so resolution is fully
+// AGENTCONNECT_<P>_DIR overrides and XDG/APPDATA so resolution is fully
 // deterministic. All touched env keys are snapshotted + restored.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -58,12 +58,12 @@ const SAVED_ENV = [
   "XDG_DATA_HOME",
   "APPDATA",
   "LOCALAPPDATA",
-  "AGENT_CONNECTOR_TOKSCALE_DIR",
-  "AGENT_CONNECTOR_CURSOR_DIR",
-  "AGENT_CONNECTOR_ANTIGRAVITY_DIR",
-  "AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR",
-  "AGENT_CONNECTOR_TRAE_DIR",
-  "AGENT_CONNECTOR_WARP_DIR",
+  "AGENTCONNECT_TOKSCALE_DIR",
+  "AGENTCONNECT_CURSOR_DIR",
+  "AGENTCONNECT_ANTIGRAVITY_DIR",
+  "AGENTCONNECT_ANTIGRAVITY_CLI_DIR",
+  "AGENTCONNECT_TRAE_DIR",
+  "AGENTCONNECT_WARP_DIR",
 ] as const;
 
 let tmpHome: string;
@@ -92,14 +92,14 @@ beforeEach(() => {
   process.env.USERPROFILE = tmpHome; // homedir() on Windows
   // Point the tokscale cache dir at our temp dir; the per-platform cache subdirs
   // (cursor-cache, …) live under it. Nothing is created until a test writes one.
-  process.env.AGENT_CONNECTOR_TOKSCALE_DIR = tokscaleDir;
+  process.env.AGENTCONNECT_TOKSCALE_DIR = tokscaleDir;
   // Neutralize everything else so resolution is deterministic across OSes.
   delete process.env.XDG_CONFIG_HOME;
   delete process.env.XDG_DATA_HOME;
   delete process.env.APPDATA;
   delete process.env.LOCALAPPDATA;
   for (const key of SAVED_ENV) {
-    if (key.startsWith("AGENT_CONNECTOR_") && key !== "AGENT_CONNECTOR_TOKSCALE_DIR") {
+    if (key.startsWith("AGENTCONNECT_") && key !== "AGENTCONNECT_TOKSCALE_DIR") {
       delete process.env[key];
     }
   }
@@ -298,7 +298,7 @@ describe("antigravity reader does NOT parse the native protobuf store", () => {
 
   it("ignores the native dir even with the override set (still only reads the cache)", async () => {
     const overrideRoot = mkdtempSync(join(tmpdir(), "ac-u4-agy-pb-"));
-    process.env.AGENT_CONNECTOR_ANTIGRAVITY_DIR = overrideRoot;
+    process.env.AGENTCONNECT_ANTIGRAVITY_DIR = overrideRoot;
     // A .pb-only native store under the override → must NOT be parsed.
     writeFile(join(overrideRoot, "conversations", "c.pb"), "binary");
     expect(await antigravityReader.read({})).toEqual([]);

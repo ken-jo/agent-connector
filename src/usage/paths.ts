@@ -2,18 +2,18 @@
  * usage/paths — per-platform HOST storage-root resolution + small fs walkers.
  *
  * This is the read-only complement to core/paths.ts: where that module resolves
- * the FRAMEWORK data-root (~/.agent-connector), this one resolves each agent
+ * the FRAMEWORK data-root (~/.agentconnect), this one resolves each agent
  * CLI's OWN native storage roots (~/.qwen, ~/.claude, …) so the usage readers
  * can parse them. It NEVER writes; it only enumerates files.
  *
  * Ported from tokscale paths.rs (the tokscale cache dir) and from each reader's
  * storage-path spec (docs/research/usage-readers.json). Resolution order is
  * uniform across platforms:
- *   1. an explicit AGENT_CONNECTOR_<PLATFORM>_DIR env override (verbatim, when
+ *   1. an explicit AGENTCONNECT_<PLATFORM>_DIR env override (verbatim, when
  *      non-empty — an empty string is treated as unset so we never resolve to "");
  *   2. the platform-specific default for the current OS.
  *
- * The "tokscale cache dir" (~/.config/tokscale, or AGENT_CONNECTOR_TOKSCALE_DIR)
+ * The "tokscale cache dir" (~/.config/tokscale, or AGENTCONNECT_TOKSCALE_DIR)
  * is where synced readers (cursor/antigravity/antigravity-cli/trae/warp) look for
  * a local cache that a separate tokscale run may have produced — we read it if
  * present, but we never create or sync it. (Antigravity's own native store is
@@ -84,16 +84,16 @@ const isWin = process.platform === "win32";
 /**
  * Resolve the tokscale config dir (where synced caches live). Ported from
  * tokscale paths.rs get_config_dir():
- *   1. AGENT_CONNECTOR_TOKSCALE_DIR override (verbatim, non-empty);
+ *   1. AGENTCONNECT_TOKSCALE_DIR override (verbatim, non-empty);
  *   2. macOS: $HOME/.config/tokscale (NOT ~/Library/Application Support);
  *   3. Linux: $XDG_CONFIG_HOME/tokscale or ~/.config/tokscale;
  *   4. Windows: %APPDATA%/tokscale (config_dir equivalent) else ~/.config/tokscale.
  *
- * We use AGENT_CONNECTOR_TOKSCALE_DIR (not TOKSCALE_CONFIG_DIR) so the framework
+ * We use AGENTCONNECT_TOKSCALE_DIR (not TOKSCALE_CONFIG_DIR) so the framework
  * never accidentally couples to a tokscale install's hermetic test env.
  */
 export function tokscaleConfigDir(): string {
-  const override = envOverride("AGENT_CONNECTOR_TOKSCALE_DIR");
+  const override = envOverride("AGENTCONNECT_TOKSCALE_DIR");
   if (override) return override;
   if (isMac) return join(homedir(), ".config", "tokscale");
   if (isWin) {
@@ -122,7 +122,7 @@ export function tokscaleCacheDir(name: string): string {
 // read the tokscale synced-cache instead (see hostRoots → antigravity-cache).
 //
 // These helpers are retained for any detection caller and honor the standard
-// AGENT_CONNECTOR_<PLATFORM>_DIR override (prepended, preferred when set).
+// AGENTCONNECT_<PLATFORM>_DIR override (prepended, preferred when set).
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
@@ -130,11 +130,11 @@ export function tokscaleCacheDir(name: string): string {
  * (CONFIRMED). Its `conversations/<uuid>.pb` payloads are protobuf with no public
  * schema, so this dir is NOT parsed for usage — only its presence is a signal.
  *
- * Honors AGENT_CONNECTOR_ANTIGRAVITY_DIR (verbatim, when set) as the override.
+ * Honors AGENTCONNECT_ANTIGRAVITY_DIR (verbatim, when set) as the override.
  */
 export function antigravityNativeRoots(): string[] {
   const out: string[] = [];
-  const override = envOverride("AGENT_CONNECTOR_ANTIGRAVITY_DIR");
+  const override = envOverride("AGENTCONNECT_ANTIGRAVITY_DIR");
   if (override) out.push(override);
   out.push(join(homedir(), ".gemini", "antigravity"));
   return out;
@@ -145,11 +145,11 @@ export function antigravityNativeRoots(): string[] {
  * `agy` has NO separate dir — it SHARES the IDE's `~/.gemini/antigravity/` (also
  * protobuf, not parsed for usage).
  *
- * Honors AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR (verbatim, when set) as the override.
+ * Honors AGENTCONNECT_ANTIGRAVITY_CLI_DIR (verbatim, when set) as the override.
  */
 export function antigravityCliNativeRoots(): string[] {
   const out: string[] = [];
-  const override = envOverride("AGENT_CONNECTOR_ANTIGRAVITY_CLI_DIR");
+  const override = envOverride("AGENTCONNECT_ANTIGRAVITY_CLI_DIR");
   if (override) out.push(override);
   out.push(join(homedir(), ".gemini", "antigravity"));
   return out;
@@ -170,7 +170,7 @@ export function antigravityCliNativeRoots(): string[] {
  */
 export function hostRoots(platformId: string): string[] {
   const out: string[] = [];
-  const override = envOverride(`AGENT_CONNECTOR_${platformId.toUpperCase().replace(/-/g, "_")}_DIR`);
+  const override = envOverride(`AGENTCONNECT_${platformId.toUpperCase().replace(/-/g, "_")}_DIR`);
   if (override) out.push(override);
 
   switch (platformId) {

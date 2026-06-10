@@ -15,7 +15,7 @@
  *   - macOS   → ~/Library/Application Support/Code/User
  *   - Windows → %APPDATA%/Code/User  (else ~/AppData/Roaming/Code/User)
  *   - Linux   → ~/.config/Code/User
- * An AGENT_CONNECTOR_ROO_CODE_DIR override (verbatim, non-empty, ~-expanded)
+ * An AGENTCONNECT_ROO_CODE_DIR override (verbatim, non-empty, ~-expanded)
  * points directly at a `tasks` parent when set, matching the env convention in
  * paths.ts hostRoots.
  *
@@ -66,7 +66,7 @@ const ROO_EXTENSION_ID = "rooveterinaryinc.roo-cline";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Storage-root resolution (mirrors adapters/roo-code vscodeUserDir + the
-// AGENT_CONNECTOR_<PLATFORM>_DIR env convention in paths.ts hostRoots)
+// AGENTCONNECT_<PLATFORM>_DIR env convention in paths.ts hostRoots)
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Resolve the cross-OS VS Code per-user "User" dir (the globalStorage parent). */
@@ -86,12 +86,12 @@ function vscodeUserDir(): string {
 
 /**
  * The `tasks` root holding per-task subdirectories. Honors an
- * AGENT_CONNECTOR_ROO_CODE_DIR override (verbatim, non-empty, ~-expanded,
+ * AGENTCONNECT_ROO_CODE_DIR override (verbatim, non-empty, ~-expanded,
  * resolved against CWD when relative), else the extension's globalStorage tasks
  * dir under the resolved VS Code user dir.
  */
 function tasksRoot(): string {
-  const raw = process.env.AGENT_CONNECTOR_ROO_CODE_DIR;
+  const raw = process.env.AGENTCONNECT_ROO_CODE_DIR;
   if (raw != null && raw.trim() !== "") {
     const expanded = expandHome(raw.trim());
     return isAbsolute(expanded) ? expanded : resolve(expanded);

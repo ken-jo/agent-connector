@@ -12,7 +12,7 @@
  * reader emits.)
  *
  * DB path: ~/.local/share/opencode/opencode.db (XDG_DATA_HOME / the
- * AGENT_CONNECTOR_OPENCODE_DIR override are honored via paths.ts hostRoots).
+ * AGENTCONNECT_OPENCODE_DIR override are honored via paths.ts hostRoots).
  *
  * SQL (modern, with the session table for workspace attribution):
  *   SELECT m.id, m.session_id, m.data, NULLIF(s.directory, '') AS workspace_root

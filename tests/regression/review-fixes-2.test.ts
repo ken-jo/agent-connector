@@ -174,7 +174,7 @@ describe("HIGH/SECURITY: skill.resources path-traversal rejection", () => {
       connector,
       scope: "project",
       projectDir,
-      homeBinPath: "/home/u/.agent-connector/bin/agent-connector",
+      homeBinPath: "/home/u/.agentconnect/bin/agentconnect",
       dataRoot: join(projectDir, ".data"),
       dryRun: false,
     };
@@ -209,7 +209,7 @@ describe("HIGH: uninstallSkills does not rm -rf user-added files", () => {
       connector,
       scope: "project",
       projectDir,
-      homeBinPath: "/home/u/.agent-connector/bin/agent-connector",
+      homeBinPath: "/home/u/.agentconnect/bin/agentconnect",
       dataRoot: join(projectDir, ".data"),
       dryRun: false,
     };
@@ -603,7 +603,7 @@ describe("LOW: cursor command description with '-->' does not break the comment"
       connector,
       scope: "project",
       projectDir,
-      homeBinPath: "/home/u/.agent-connector/bin/agent-connector",
+      homeBinPath: "/home/u/.agentconnect/bin/agentconnect",
       dataRoot: join(projectDir, ".data"),
       dryRun: false,
     };

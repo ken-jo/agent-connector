@@ -85,13 +85,13 @@ export const sectionIds: ReadonlySet<string> = new Set(sectionOrder);
 /** Per-section <meta name="description"> copy (for /docs/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "Write your MCP server + hooks once with defineConnector; agent-connector renders it natively across 28 AI-agent platforms with default local-first token telemetry.",
+    "Write your MCP server + hooks once with defineConnector; agentconnect renders it natively across 28 AI-agent platforms with default local-first token telemetry.",
   installation:
-    "Install agent-connector as a dependency of your connector package (npm install agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
+    "Install agentconnect as a dependency of your connector package (npm install agentconnect), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
-    "Depend on agent-connector, write defineConnector, then ship a branded CLI or run npx agent-connector — install / sync / uninstall are idempotent, reversible, and --dry-run-able.",
+    "Depend on agentconnect, write defineConnector, then ship a branded CLI or run npx agentconnect — install / sync / uninstall are idempotent, reversible, and --dry-run-able.",
   "embed-cli":
-    "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
+    "Embed agentconnect as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
   "define-connector":
     "defineConnector(config): the write-once surface. Validates eagerly, throws ConnectorConfigError, and returns a fully-defaulted ResolvedConnector.",
   server:
@@ -103,7 +103,7 @@ export const sectionDescription: Record<string, string> = {
   surfaces:
     "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform.",
   packaging:
-    "Two ways to ship: direct install, or a packaged bundle. agent-connector package emits any of 9 marketplace/extension formats — each with its own manifest + install command — and every bundle keeps the telemetry serve-wrapper + home-bin hooks so a marketplace-installed connector still reports per-tool tokens.",
+    "Two ways to ship: direct install, or a packaged bundle. agentconnect package emits any of 9 marketplace/extension formats — each with its own manifest + install command — and every bundle keeps the telemetry serve-wrapper + home-bin hooks so a marketplace-installed connector still reports per-tool tokens.",
   "telemetry-overview":
     "Default per-MCP token telemetry: the serve proxy tokenizes input/output locally with documented confidence sources. Aggregate counts only.",
   "telemetry-surfaces":
@@ -112,7 +112,7 @@ export const sectionDescription: Record<string, string> = {
     "Three origin-labeled leaderboards (MCP/plugin, host/user, host-native turns) that measure different things and are never summed.",
   privacy:
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
-  cli: "The agent-connector CLI reference: detect, install, sync, uninstall, doctor, update, telemetry, usage, and leaderboard.",
+  cli: "The agentconnect CLI reference: detect, install, sync, uninstall, doctor, update, telemetry, usage, and leaderboard.",
   platforms:
     "The 28 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
   "add-a-platform":
@@ -334,7 +334,7 @@ export const serverDefFields: FieldRow[] = [
     type: "boolean",
     default: "true (stdio) / false (remote)",
     notes:
-      "Wrap with agent-connector serve so per-tool telemetry is captured. Remote transports can't be intercepted.",
+      "Wrap with agentconnect serve so per-tool telemetry is captured. Remote transports can't be intercepted.",
   },
 ];
 
@@ -409,7 +409,7 @@ export const paradigmRows: {
     label: "json-stdio",
     count: 15,
     description:
-      "Host pipes JSON to a command on stdin and reads JSON / exit-code back. One universal entrypoint (agent-connector hook <platform> <event> --connector <id>) reads the payload, normalizes it, runs your handler, and formats the reply.",
+      "Host pipes JSON to a command on stdin and reads JSON / exit-code back. One universal entrypoint (agentconnect hook <platform> <event> --connector <id>) reads the payload, normalizes it, runs your handler, and formats the reply.",
   },
   {
     id: "ts-plugin",
@@ -618,7 +618,7 @@ export const telemetryConfigFields: FieldRow[] = [
     name: "enabled",
     type: "boolean",
     default: "true",
-    notes: "AGENT_CONNECTOR_TELEMETRY=0 also kills it.",
+    notes: "AGENTCONNECT_TELEMETRY=0 also kills it.",
   },
   {
     name: "modelFamilyHint",
@@ -643,7 +643,7 @@ export const telemetryConfigFields: FieldRow[] = [
     type: "boolean",
     default: "false",
     notes:
-      "Opt-in host-native turn capture. Also forced via AGENT_CONNECTOR_HOST_NATIVE=1.",
+      "Opt-in host-native turn capture. Also forced via AGENTCONNECT_HOST_NATIVE=1.",
   },
   {
     name: "store",
@@ -730,48 +730,48 @@ export interface CliCommand {
 export const cliCommands: CliCommand[] = [
   {
     name: "detect",
-    signature: "agent-connector detect [--project <dir>] [--json]",
+    signature: "agentconnect detect [--project <dir>] [--json]",
     summary:
       "Probes every registered adapter and prints, per installed host: name, id, hook paradigm, install scope, the native config path that would be written, confidence + reason, and a one-line capabilities summary. --json emits the raw DetectedPlatform[].",
   },
   {
     name: "install",
     signature:
-      "agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run]",
+      "agentconnect install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run]",
     summary:
       "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. Exit code 1 if any change is a warn, else 0.",
   },
   {
     name: "upgrade",
-    signature: "agent-connector upgrade [--channel stable|latest] [same flags as install]",
+    signature: "agentconnect upgrade [--channel stable|latest] [same flags as install]",
     summary:
-      "The single “bring everything current” verb (aliases: update, sync). Re-renders the connector into every target host idempotently (byte-identical entries report skip — this is also the self-heal path: run upgrade to repair a drifted install), then refreshes the stable home-bin pointer and prints managed update guidance (the exact npm i -g agent-connector@<dist>). With no resolvable connector it does the tool-only refresh from anywhere. Never silently auto-updates. Same diff output + exit semantics as install for the re-render; exit 1 if the pointer refresh fails.",
+      "The single “bring everything current” verb (aliases: update, sync). Re-renders the connector into every target host idempotently (byte-identical entries report skip — this is also the self-heal path: run upgrade to repair a drifted install), then refreshes the stable home-bin pointer and prints managed update guidance (the exact npm i -g agentconnect@<dist>). With no resolvable connector it does the tool-only refresh from anywhere. Never silently auto-updates. Same diff output + exit semantics as install for the re-render; exit 1 if the pointer refresh fails.",
   },
   {
     name: "uninstall",
     signature:
-      "agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run]",
+      "agentconnect uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run]",
     summary:
       "Full inverse — removes the connector's MCP + hook registrations and content files from every resolved target, using registered metadata so it works even when the source module is gone. The id comes from --connector-id, else inferred from the local config.",
   },
   {
     name: "doctor",
     signature:
-      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe]",
+      "agentconnect doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe]",
     summary:
       "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code.",
   },
   {
     name: "status",
     signature:
-      "agent-connector status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
+      "agentconnect status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
     summary:
-      "A light, glanceable install-state summary: one line per detected host showing which connectors are present (server / hooks). There is no MCP standard for local install state, so this is agent-connector infra — it reuses detect + a read-only config-present check, adds no adapter methods, and ALWAYS exits 0 (descriptive, never a gate — that contrast with doctor is why it exists).",
+      "A light, glanceable install-state summary: one line per detected host showing which connectors are present (server / hooks). There is no MCP standard for local install state, so this is agentconnect infra — it reuses detect + a read-only config-present check, adds no adapter methods, and ALWAYS exits 0 (descriptive, never a gate — that contrast with doctor is why it exists).",
   },
   {
     name: "package",
     signature:
-      "agent-connector package [--connector <path>] [--format <fmt>] [--out <dir>] [--project <dir>] [--dry-run]",
+      "agentconnect package [--connector <path>] [--format <fmt>] [--out <dir>] [--project <dir>] [--dry-run]",
     summary:
       "Emit a marketplace / extension-installable bundle from a connector. Resolves the config (--connector, else auto-discovered walking up from --project), packages it for --format into --out (default <cwd>/dist-plugin), and prints the emitted file tree plus per-format install instructions. Every bundle re-renders the SAME command/skill/subagent markdown the live adapters write, the home-bin hooks, and the serve-wrapped MCP entry (--host <platform>) — so a marketplace-installed connector still reports per-tool telemetry.",
     flags: [
@@ -792,7 +792,7 @@ export const cliCommands: CliCommand[] = [
   {
     name: "telemetry",
     signature:
-      "agent-connector telemetry <report|export|leaderboard> [flags]",
+      "agentconnect telemetry <report|export|leaderboard> [flags]",
     summary:
       "Per-MCP token telemetry (the server's own bytes). Rows are aggregate counts only.",
     flags: [
@@ -812,7 +812,7 @@ export const cliCommands: CliCommand[] = [
   },
   {
     name: "usage",
-    signature: "agent-connector usage <report|export|leaderboard> [flags]",
+    signature: "agentconnect usage <report|export|leaderboard> [flags]",
     summary:
       "Host-native token usage parsed read-only from each agent CLI's own session logs/DBs (complement to telemetry; the two are NOT summed). Aggregate counts only.",
     flags: [
@@ -833,7 +833,7 @@ export const cliCommands: CliCommand[] = [
   {
     name: "leaderboard",
     signature:
-      "agent-connector leaderboard [--since <window>] [--scope <slice>] [--json]",
+      "agentconnect leaderboard [--since <window>] [--scope <slice>] [--json]",
     summary:
       "Prints THREE origin-labeled leaderboards that measure DIFFERENT things and are NEVER summed: 🔌 MCP/Plugin (mcp-self), 🖥️ Host/User (host-scan-logs), 🛰️ Host-native turns (host-native-live). --scope slices only the MCP section; --json emits { mcp, host, hostSkipped, hostNativeTurns }.",
   },
@@ -841,16 +841,16 @@ export const cliCommands: CliCommand[] = [
 
 export const internalEntrypoints: { signature: string; desc: string }[] = [
   {
-    signature: "agent-connector hook <platform> <event> --connector <id>",
+    signature: "agentconnect hook <platform> <event> --connector <id>",
     desc: "Universal json-stdio hook entrypoint. Reads the whole host payload from stdin, dispatches runHook, writes stdout/stderr, exits with the adapter's exit code. Fail-open (never rejects).",
   },
   {
     signature:
-      "agent-connector serve --connector <id> [--scope user|project] -- <command> [args…]",
+      "agentconnect serve --connector <id> [--scope user|project] -- <command> [args…]",
     desc: "Telemetry-wrapping MCP stdio proxy. Splits argv at the first literal --; the real server invocation on the right is passed through verbatim. Tolerant flag parsing (strict:false).",
   },
   {
-    signature: "agent-connector usage-event <platform> --connector <id>",
+    signature: "agentconnect usage-event <platform> --connector <id>",
     desc: "HIDDEN opt-in host-native turn-usage hook (installed by Gemini / Antigravity adapters when host-native usage is enabled). Reads stdin, records a distinct model_turn row, ALWAYS exits 0 (fail-open).",
   },
 ];
@@ -1011,12 +1011,12 @@ export const syncedPlatforms: string[] = [
 /** Why telemetry can show nothing. */
 export const telemetryEmptyRows: { reason: string; fix: string }[] = [
   {
-    reason: "AGENT_CONNECTOR_TELEMETRY=0 (or telemetry: { enabled: false })",
+    reason: "AGENTCONNECT_TELEMETRY=0 (or telemetry: { enabled: false })",
     fix: "Telemetry is disabled. Unset the env var / re-enable in config, then re-run.",
   },
   {
     reason: "The MCP server isn't wrapped",
-    fix: "Only servers launched through agent-connector serve are measured (wrapForTelemetry, default on for stdio). Remote transports can't be intercepted. Re-sync so the entry is wrapped.",
+    fix: "Only servers launched through agentconnect serve are measured (wrapForTelemetry, default on for stdio). Remote transports can't be intercepted. Re-sync so the entry is wrapped.",
   },
   {
     reason: "Nothing has been recorded yet",
@@ -1024,7 +1024,7 @@ export const telemetryEmptyRows: { reason: string; fix: string }[] = [
   },
   {
     reason: "Host-native turns not calibrated / not opted in",
-    fix: "model_turn rows only exist when host-native usage is enabled (hostNativeUsage / AGENT_CONNECTOR_HOST_NATIVE=1) on a supporting host.",
+    fix: "model_turn rows only exist when host-native usage is enabled (hostNativeUsage / AGENTCONNECT_HOST_NATIVE=1) on a supporting host.",
   },
 ];
 
@@ -1056,21 +1056,21 @@ export const packageFormatRows: PackageFormatRow[] = [
     format: "claude-plugin",
     targets: "Claude Code · Codex · VS Code Copilot · OpenClaw · OMP",
     manifest: ".claude-plugin/plugin.json + .claude-plugin/marketplace.json (+ commands/, agents/, skills/<n>/SKILL.md, hooks/hooks.json, .mcp.json)",
-    install: "/plugin marketplace add <out> · /plugin install <id>@agent-connector",
+    install: "/plugin marketplace add <out> · /plugin install <id>@agentconnect",
     note: "The default format. plugin.json carries a $schema; the marketplace catalog is the object-owner shape.",
   },
   {
     format: "codex-plugin",
     targets: "Codex CLI",
     manifest: ".codex-plugin/plugin.json + .codex-plugin/marketplace.json (same component tree as claude-plugin; .mcp.json)",
-    install: "codex plugin marketplace add <out> · codex plugin add <id>@agent-connector",
+    install: "codex plugin marketplace add <out> · codex plugin add <id>@agentconnect",
     note: "A manifest-dir rename of claude-plugin (.codex-plugin/ instead of .claude-plugin/).",
   },
   {
     format: "factory-plugin",
     targets: "Droid (Factory)",
     manifest: ".factory-plugin/plugin.json + droids/ + mcp.json + marketplace.json (git-repo catalog at the repo root)",
-    install: "droid plugin marketplace add <out> · droid plugin install <id>@agent-connector",
+    install: "droid plugin marketplace add <out> · droid plugin install <id>@agentconnect",
     note: "Subagents go in droids/ (not agents/); MCP filename is mcp.json; plugin.json pins version + author.",
   },
   {

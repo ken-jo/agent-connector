@@ -2,10 +2,10 @@ I have everything I need. I'll now produce the design + build plan as markdown, 
 
 # Host Usage Telemetry — Design + Build Plan
 
-`agent-connector` already ships **per-MCP serve-proxy telemetry** (`src/telemetry/*`): the framework tokenizes its own MCP bytes and records `ToolEventRecord` rows with an honest `ConfidenceSource`. This subsystem is the complement: a read-only **host usage** layer under `src/usage/` that parses each agent CLI's *native* session logs/DBs (porting tokscale's Rust logic) and reports per-platform / per-project / per-session / per-model / per-day token usage. It never writes host config and never collides with the serve-proxy store.
+`agentconnect` already ships **per-MCP serve-proxy telemetry** (`src/telemetry/*`): the framework tokenizes its own MCP bytes and records `ToolEventRecord` rows with an honest `ConfidenceSource`. This subsystem is the complement: a read-only **host usage** layer under `src/usage/` that parses each agent CLI's *native* session logs/DBs (porting tokscale's Rust logic) and reports per-platform / per-project / per-session / per-model / per-day token usage. It never writes host config and never collides with the serve-proxy store.
 
 Design rules inherited from the existing code (keep them):
-- **Data-root** via `core/paths.ts` (`AGENT_CONNECTOR_DATA_DIR || ~/.agent-connector`). Reuse `dataRoot()`, `ensureDir()`, `projectIdentity()`, and the `normalizeWorkspaceKey` idea. Host *source* roots (`~/.claude`, `~/.codex`, …) are separate from our data-root.
+- **Data-root** via `core/paths.ts` (`AGENTCONNECT_DATA_DIR || ~/.agentconnect`). Reuse `dataRoot()`, `ensureDir()`, `projectIdentity()`, and the `normalizeWorkspaceKey` idea. Host *source* roots (`~/.claude`, `~/.codex`, …) are separate from our data-root.
 - **Honesty model**: surface provenance. Host-native logs map to a new `UsageConfidence` of `"host-reported"` (the real numbers) vs `"host-estimated"` (Kiro char/4, Crush cost-only). Mirror the existing `worstConfidence` legend pattern in reports.
 - **Fail-open + tolerant parse**: a malformed line/file is skipped, never thrown (matches `NdjsonStore.query` and `parseStdin`).
 - **Lazy registry**: one entry per reader with a `load()` thunk, exactly like `ADAPTER_REGISTRY`.
@@ -83,8 +83,8 @@ export interface UsageSummary {
 Add one lazy command to the dispatch table in `src/cli/app.ts` (`COMMANDS["usage"] = () => import("./commands/usage.js")`) and a USAGE line. New `src/cli/commands/usage.ts` mirrors `commands/telemetry.ts` (reuse `parseSince`, `parseArgs`, `print`, `fail`, `--json`/`--out`):
 
 ```
-agent-connector usage report [--by platform|project|session|model|day] [--since 7d] [--platform <id>] [--json]
-agent-connector usage export [--format csv|json] [--out <file>] [--since 7d] [--platform <id>]
+agentconnect usage report [--by platform|project|session|model|day] [--since 7d] [--platform <id>] [--json]
+agentconnect usage export [--format csv|json] [--out <file>] [--since 7d] [--platform <id>]
 ```
 
 - `report` → `scan({ sinceMs })` → `aggregateBy(records, by)` → `formatUsageReport(rows, by)` (or `JSON.stringify(rows)`).
@@ -177,7 +177,7 @@ These finish the *existing* serve-proxy layer; they are not part of `src/usage/`
 - In `runtime/hook-entrypoint.ts`, special-case the host-native usage event: parse `usageMetadata.{promptTokenCount,candidatesTokenCount,totalTokenCount,cachedContentTokenCount,thoughtsTokenCount}` and append a `ToolEventRecord` (or a small `UsageEventRecord`) with `confidenceSource: "host-native"` — the source rank already sits at the top of `CONFIDENCE_RANK` (3). Keep fail-open: any parse error → allow, record nothing.
 - This upgrades Gemini rows from `tokenizer-approx` (serve-proxy estimate) to `host-native` (exact), per-session/per-project keyed via the existing `parseEvent` base (`sessionId`, `cwd`→`projectIdentity`).
 
-**4b. Anthropic `count_tokens` calibration sampler (opt-in).** The serve-proxy tokenizes Anthropic-family bytes as `tokenizer-approx`. Add an **opt-in** (`AGENT_CONNECTOR_CALIBRATE=anthropic`, requires `ANTHROPIC_API_KEY`) sampler that, for a small fraction of measured payloads, calls Anthropic's `count_tokens` endpoint and records the ratio (exact/approx) to derive a per-family correction factor stored in the data-root. Applied as a documented multiplier; never on by default (network + key); records stay aggregate-only. Surface a `tokenizer-calibrated` confidence between `approx` and `exact`.
+**4b. Anthropic `count_tokens` calibration sampler (opt-in).** The serve-proxy tokenizes Anthropic-family bytes as `tokenizer-approx`. Add an **opt-in** (`AGENTCONNECT_CALIBRATE=anthropic`, requires `ANTHROPIC_API_KEY`) sampler that, for a small fraction of measured payloads, calls Anthropic's `count_tokens` endpoint and records the ratio (exact/approx) to derive a per-family correction factor stored in the data-root. Applied as a documented multiplier; never on by default (network + key); records stay aggregate-only. Surface a `tokenizer-calibrated` confidence between `approx` and `exact`.
 
 **4c. Unify both telemetry sources in reporting.** Reports should present *MCP-self* (serve-proxy) and *host-native usage* coherently:
 - Keep two stores (`telemetry.ndjson` for serve-proxy; `usage.ndjson`/on-the-fly host scan for host usage) but add a combined `report` view that labels each row's origin (`mcp-self` vs `host-native` vs `host-scan`) and **never sums across origins by default** (they measure different things: server bytes vs whole-conversation usage). A `--combine` flag with explicit double-count warnings is opt-in. Confidence legend already exists in `telemetry/report.ts`; extend it with the host origins.

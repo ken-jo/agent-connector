@@ -1,7 +1,7 @@
 import { ChevronRight, Pencil } from "lucide-react";
 import { navGroups, sectionLabel } from "./docs-data";
 
-const GITHUB_REPO = "https://github.com/ken-jo/agent-connector";
+const GITHUB_REPO = "https://github.com/ken-jo/agentconnect";
 const EDIT_PATH = "site/src/components/docs/DocsContent.tsx";
 const EDIT_URL = `${GITHUB_REPO}/edit/main/${EDIT_PATH}`;
 
@@ -50,7 +50,7 @@ export function DocsHeader({ activeId }: { activeId: string }) {
         </a>
       </div>
       <p className="mt-2 text-[0.7rem] text-muted-foreground/70">
-        agent-connector v0.1.0 · Last updated June 2026
+        agentconnect v0.1.0 · Last updated June 2026
       </p>
     </div>
   );

@@ -29,7 +29,7 @@
  * idempotent content and uninstall removes only the files THIS connector wrote.
  *
  * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test. HOME and
- * AGENT_CONNECTOR_DATA_DIR point at temp and are restored in afterEach so the
+ * AGENTCONNECT_DATA_DIR point at temp and are restored in afterEach so the
  * user-scope copilot-cli subagent / pi skill paths resolve under the temp HOME.
  */
 
@@ -50,7 +50,7 @@ import jetbrainsAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import kiloAdapter from "../../src/adapters/kilo/index.js";
 import piAdapter from "../../src/adapters/pi/index.js";
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-surfaces";
 
 const COMMAND = {
@@ -133,12 +133,12 @@ let savedDataDir: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -151,7 +151,7 @@ function freshProject(): string {
   // Redirect HOME so user-scope writes (copilot-cli, pi) land under the temp dir.
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
   return dir;
 }
 

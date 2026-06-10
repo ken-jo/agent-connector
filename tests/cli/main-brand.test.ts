@@ -2,9 +2,9 @@
  * tests/cli/main-brand — main(argv, { programName }) brands the usage/help text.
  *
  * Pure unit test over {@link main}: capture stdout/stderr and assert the brand
- * replaces "agent-connector" in the top-level usage title, the `usage:` line, the
+ * replaces "agentconnect" in the top-level usage title, the `usage:` line, the
  * per-command help footer, the `--version` line, and the unknown-command error —
- * while the DEFAULT still reads "agent-connector" with no opts.
+ * while the DEFAULT still reads "agentconnect" with no opts.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -47,7 +47,7 @@ describe("main(argv, { programName }) branding", () => {
     expect(text).toContain("acme-db — write your MCP server");
     expect(text).toContain("usage: acme-db <command>");
     expect(text).toContain("Run `acme-db <command> --help`");
-    expect(text).not.toContain("agent-connector");
+    expect(text).not.toContain("agentconnect");
   });
 
   it("brands --version", async () => {
@@ -64,14 +64,14 @@ describe("main(argv, { programName }) branding", () => {
     cap.restore();
     expect(code).toBe(2);
     expect(cap.text()).toContain('acme-db: unknown command "nope-not-real"');
-    expect(cap.text()).not.toContain("agent-connector:");
+    expect(cap.text()).not.toContain("agentconnect:");
   });
 
-  it("defaults to agent-connector when no programName is given (back-compat)", async () => {
+  it("defaults to agentconnect when no programName is given (back-compat)", async () => {
     const cap = captureStdout();
     const code = await main(["--help"]);
     cap.restore();
     expect(code).toBe(0);
-    expect(cap.text()).toContain("usage: agent-connector <command>");
+    expect(cap.text()).toContain("usage: agentconnect <command>");
   });
 });

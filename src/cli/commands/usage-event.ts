@@ -1,7 +1,7 @@
 /**
  * cli/commands/usage-event — the HIDDEN host-native turn-usage entrypoint (4a).
  *
- *   agent-connector usage-event <platform> --connector <id>
+ *   agentconnect usage-event <platform> --connector <id>
  *
  * An OPT-IN AfterModel / PostInvocation hook (installed by the Gemini / Antigravity
  * adapters only when host-native usage is enabled) points here. It reads the ENTIRE

@@ -189,7 +189,7 @@ export async function installConnector(
  * config (identical entries report "skip"), and `ensureHomeBin` repairs a stale
  * or missing home-bin pointer. Use after editing a connector or upgrading the
  * framework. Behaviorally identical to install — the distinct name documents
- * intent and gives the CLI a stable verb to wire `agent-connector sync` to.
+ * intent and gives the CLI a stable verb to wire `agentconnect sync` to.
  */
 export async function syncConnector(
   opts: OrchestrationOptions,
@@ -356,7 +356,7 @@ function noConnectorsRemain(
  * Robust to the bundler's output layout: tsup flattens this module into a
  * `dist/chunk-*.js`, so a fixed relative guess like `../cli.js` is wrong. We
  * instead walk up from this module to the package root (the dir whose
- * `package.json` declares the `agent-connector` bin) and use its `dist/cli.js`.
+ * `package.json` declares the `agentconnect` bin) and use its `dist/cli.js`.
  * Fallbacks: a same-directory `cli.js` (flat-bundle case) then `process.argv[1]`.
  */
 export function resolveCliEntry(): string {

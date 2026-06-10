@@ -396,7 +396,7 @@ const CLAUDE_HOOKS_JSON = `// ~/.claude/settings.json
         "hooks": [
           {
             "type": "command",
-            "command": "agent-connector hook claude-code PreToolUse --connector my-connector"
+            "command": "agentconnect hook claude-code PreToolUse --connector my-connector"
           }
         ]
       }
@@ -423,7 +423,7 @@ export default {
 function runBridge(event, payload) {
   // both hosts dispatch the SAME handler via the one home-bin entrypoint:
   const r = spawnSync(
-    "agent-connector",
+    "agentconnect",
     ["hook", "kilo-cli", event, "--connector", "my-connector"],
     { input: JSON.stringify(payload), encoding: "utf8" },
   );
@@ -649,7 +649,7 @@ function ClaudeVsKilo() {
         <C>tool.execute.before</C> handler in a synthesized{" "}
         <C>@kilocode/plugin</C> module for Kilo CLI — and both shell back to the{" "}
         <em>same</em> home-bin entrypoint (
-        <C>agent-connector hook &lt;platform&gt; PreToolUse --connector &lt;id&gt;</C>
+        <C>agentconnect hook &lt;platform&gt; PreToolUse --connector &lt;id&gt;</C>
         ). They line up on PreToolUse / PostToolUse / SessionStart; they diverge
         on output-rewrite (Kilo can rewrite tool output, Claude can&apos;t) and on
         the four lifecycle events Kilo&apos;s plugin surface simply doesn&apos;t
@@ -663,7 +663,7 @@ function ClaudeVsKilo() {
 /* The composed Hooks developer-guide section                          */
 /* ------------------------------------------------------------------ */
 
-const SINGLE_WRAPPER_SNIPPET = `import { defineConnector } from "agent-connector";
+const SINGLE_WRAPPER_SNIPPET = `import { defineConnector } from "agentconnect";
 
 export default defineConnector({
   id: "my-connector",
@@ -699,7 +699,7 @@ export function HooksGuideSection() {
         every platform names the lifecycle events differently, supports a
         different subset of them, and signals a deny/decision in its own shape.
         You write <strong>one handler per canonical event</strong>;
-        agent-connector renders it into each host&apos;s native hook. This page
+        agentconnect renders it into each host&apos;s native hook. This page
         is the precise, visible map.
       </Lead>
 
@@ -741,13 +741,13 @@ export function HooksGuideSection() {
       <CodeBlock
         code={SINGLE_WRAPPER_SNIPPET}
         language="ts"
-        filename="agent-connector.config.ts"
+        filename="agentconnect.config.ts"
       />
       <div className="not-prose my-6 flex items-center justify-center gap-3 text-muted-foreground">
         <span className="h-px flex-1 bg-border" />
         <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 font-mono text-xs">
           <ArrowRight className="size-3.5" />
-          agent-connector hook &lt;platform&gt; &lt;event&gt; --connector &lt;id&gt;
+          agentconnect hook &lt;platform&gt; &lt;event&gt; --connector &lt;id&gt;
         </span>
         <span className="h-px flex-1 bg-border" />
       </div>

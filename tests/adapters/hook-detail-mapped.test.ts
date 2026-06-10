@@ -14,7 +14,7 @@
  * here we lock the human-facing detail to match that reality.
  *
  * Filesystem isolation: each test runs against a fresh os.tmpdir project dir with
- * HOME + AGENT_CONNECTOR_DATA_DIR redirected there, restored in afterEach.
+ * HOME + AGENTCONNECT_DATA_DIR redirected there, restored in afterEach.
  */
 
 import { mkdtempSync } from "node:fs";
@@ -32,7 +32,7 @@ import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
 import ompAdapter from "../../src/adapters/omp/index.js";
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 
 /**
@@ -73,19 +73,19 @@ let ctx: InstallContext;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   projectDir = mkdtempSync(join(tmpdir(), "ac-hookdetail-"));
   process.env.HOME = projectDir;
   process.env.USERPROFILE = projectDir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(projectDir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(projectDir, ".agentconnect");
   ctx = buildCtx(projectDir, buildConnector());
 });
 
 afterEach(() => {
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
-  if (savedDataDir === undefined) delete process.env.AGENT_CONNECTOR_DATA_DIR;
-  else process.env.AGENT_CONNECTOR_DATA_DIR = savedDataDir;
+  if (savedDataDir === undefined) delete process.env.AGENTCONNECT_DATA_DIR;
+  else process.env.AGENTCONNECT_DATA_DIR = savedDataDir;
 });
 
 /** The change whose detail names the plugin module (skip the manifest record). */

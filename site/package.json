@@ -1,9 +1,9 @@
 {
-  "name": "agent-connector-site",
+  "name": "agentconnect-site",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Marketing landing page for agent-connector.",
+  "description": "Marketing landing page for agentconnect.",
   "license": "MIT",
   "scripts": {
     "dev": "vite",

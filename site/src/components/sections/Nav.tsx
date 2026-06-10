@@ -40,7 +40,7 @@ function Logo() {
         </svg>
       </span>
       <span className="font-mono text-sm font-semibold tracking-tight">
-        agent-connector
+        agentconnect
       </span>
     </Link>
   );

@@ -7,7 +7,7 @@ import {
 } from "../../src/core/spawn.js";
 import type { ServerDef } from "../../src/core/types.js";
 
-const HOME_BIN = "/home/u/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/home/u/.agentconnect/bin/agentconnect";
 
 describe("isHomeBinHookCommand — anchored connector-id match", () => {
   const cmd = buildHomeBinHookCommand(HOME_BIN, "claude-code", "PreToolUse", "acme-db");
@@ -33,7 +33,7 @@ describe("isHomeBinHookCommand — anchored connector-id match", () => {
   });
 
   it("requires the home binary path to be present", () => {
-    const other = buildHomeBinHookCommand("/other/bin/agent-connector", "claude-code", "Stop", "acme-db");
+    const other = buildHomeBinHookCommand("/other/bin/agentconnect", "claude-code", "Stop", "acme-db");
     expect(isHomeBinHookCommand(other, HOME_BIN, "acme-db")).toBe(false);
   });
 

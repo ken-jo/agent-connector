@@ -1,5 +1,5 @@
 /**
- * adapters/copilot-cli — GitHub Copilot CLI platform adapter for agent-connector.
+ * adapters/copilot-cli — GitHub Copilot CLI platform adapter for agentconnect.
  *
  * GitHub Copilot CLI is a json-stdio host: the host pipes a JSON payload to a
  * hook command on stdin and reads JSON/exit-code back. Its hook event names and
@@ -13,7 +13,7 @@
  *     `tools: ["*"]`. Remote servers use type "http".
  *   - Hooks: a Claude-compatible hooks file shaped `{ version: 1, hooks: { … } }`
  *     discovered from ~/.copilot/hooks/*.json. We write a single dedicated file,
- *     ~/.copilot/hooks/agent-connector.json, so we never disturb a user's own
+ *     ~/.copilot/hooks/agentconnect.json, so we never disturb a user's own
  *     hook files and removal is a clean, scoped operation. Each event maps to an
  *     array of flat command entries `{ matcher?, hooks: [{ type:"command", command }] }`
  *     — the Claude shape, which Copilot CLI reads.
@@ -218,7 +218,7 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
    * uninstall is a clean, scoped operation.
    */
   getHookConfigPath(ctx: InstallContext): string {
-    return join(this.getConfigDir(ctx), "hooks", "agent-connector.json");
+    return join(this.getConfigDir(ctx), "hooks", "agentconnect.json");
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────

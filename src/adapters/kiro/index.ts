@@ -1,5 +1,5 @@
 /**
- * adapters/kiro — Kiro (AWS) platform adapter for agent-connector.
+ * adapters/kiro — Kiro (AWS) platform adapter for agentconnect.
  *
  * Kiro is a json-stdio host with TWO native config surfaces that live in
  * DIFFERENT files (so getServerConfigPath ≠ getHookConfigPath):

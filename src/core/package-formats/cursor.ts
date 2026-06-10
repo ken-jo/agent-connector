@@ -47,7 +47,7 @@ function buildManifest(
 ): Record<string, unknown> {
   const manifest: Record<string, unknown> = {
     name: connector.id,
-    description: `${connector.displayName} — connector emitted by agent-connector`,
+    description: `${connector.displayName} — connector emitted by agentconnect`,
   };
   if (connector.version && connector.version !== "0.0.0") {
     manifest.version = connector.version;
@@ -64,13 +64,13 @@ function buildManifest(
 /** Build .cursor-plugin/marketplace.json (owner object carries name; email optional). */
 function buildMarketplace(connector: ResolvedConnector): Record<string, unknown> {
   return {
-    name: "agent-connector",
-    owner: { name: "agent-connector" },
+    name: "agentconnect",
+    owner: { name: "agentconnect" },
     plugins: [
       {
         name: connector.id,
         source: `./${connector.id}`,
-        description: `${connector.displayName} — connector emitted by agent-connector`,
+        description: `${connector.displayName} — connector emitted by agentconnect`,
       },
     ],
   };

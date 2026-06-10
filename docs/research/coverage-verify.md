@@ -1,6 +1,6 @@
 Confirmed. The `kilo` adapter's `id = "kilo"` and `name = "Kilo Code"`, but it implements the **CLI** config dialect — which directly contradicts the usage layer where `platformId: "kilo"` is the VS Code extension and `kilo-cli` is the CLI. I have all decisive facts. Producing the final report.
 
-# Coverage-Correctness Audit Resolution — agent-connector (28 platforms)
+# Coverage-Correctness Audit Resolution — agentconnect (28 platforms)
 
 ## Verdict in one line
 The audit caught **one** real issue (`synthetic` orphan type) but **missed a second, more serious one** and **mislabeled the KILO question as "correct."** There are **two confirmed structural misclassifications**, one **identity inversion between the adapter layer and the usage layer for Kilo**, and one orphaned `PlatformId` (`kilo-cli`). Everything else (24 of the audited adapters) is verified correct.
@@ -26,7 +26,7 @@ This is the substantive correction to the audit's "kilo … paradigm is correct,
 
 The repo intends two distinct Kilo products (the usage layer states this explicitly):
 
-| tokscale parser | Product | agent-connector usage `platformId` | Storage |
+| tokscale parser | Product | agentconnect usage `platformId` | Storage |
 |---|---|---|---|
 | `sessions/kilocode.rs` (wraps `roocode.rs` `parse_roo_kilo_file`) | **Kilo Code** — VS Code extension (`kilocode.kilo-code`, a Roo/Cline fork) | **`kilo`** (`usage/readers/kilo.ts`) | VS Code `globalStorage/kilocode.kilo-code/tasks/.../ui_messages.json` |
 | `sessions/kilo.rs` (`parse_kilo_sqlite`) | **Kilo CLI** — SQLite, "same shape OpenCode uses" | **`kilo-cli`** (`usage/readers/kilo-cli.ts`) | `~/.local/share/kilo/kilo.db` |

@@ -14,7 +14,7 @@
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, and
  * HOME is redirected there so the USER-scope adapters (copilot-cli, warp) resolve
  * their homedir()-based paths into the sandbox — never the real home. HOME and
- * AGENT_CONNECTOR_DATA_DIR are restored in afterEach.
+ * AGENTCONNECT_DATA_DIR are restored in afterEach.
  */
 
 import { existsSync, readFileSync, mkdtempSync } from "node:fs";
@@ -36,7 +36,7 @@ import warpAdapter from "../../src/adapters/warp/index.js";
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -95,13 +95,13 @@ let savedEnvVar: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
 });
 
@@ -119,7 +119,7 @@ function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-p2-render-"));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
   // Set the env-ref var so literal-resolution produces a known value.
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
@@ -308,7 +308,7 @@ describe("copilot-cli adapter render/round-trip", () => {
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
 
-  it("installHooks writes ~/.copilot/hooks/agent-connector.json with version 1 + Claude-shaped entries", () => {
+  it("installHooks writes ~/.copilot/hooks/agentconnect.json with version 1 + Claude-shaped entries", () => {
     const changes = copilotCliAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
 
@@ -316,7 +316,7 @@ describe("copilot-cli adapter render/round-trip", () => {
       projectDir,
       ".copilot",
       "hooks",
-      "agent-connector.json",
+      "agentconnect.json",
     );
     expect(hooksPath).toBe(copilotCliAdapter.getHookConfigPath(ctx));
     expect(existsSync(hooksPath)).toBe(true);
@@ -353,7 +353,7 @@ describe("copilot-cli adapter render/round-trip", () => {
     expect(second.every((c) => c.action === "skip")).toBe(true);
 
     const cfg = readJson(
-      join(projectDir, ".copilot", "hooks", "agent-connector.json"),
+      join(projectDir, ".copilot", "hooks", "agentconnect.json"),
     );
     expect(cfg.hooks.PreToolUse).toHaveLength(1);
     expect(cfg.hooks.SessionStart).toHaveLength(1);
@@ -369,7 +369,7 @@ describe("copilot-cli adapter render/round-trip", () => {
 
     copilotCliAdapter.uninstallHooks(ctx);
     const hooks = readJson(
-      join(projectDir, ".copilot", "hooks", "agent-connector.json"),
+      join(projectDir, ".copilot", "hooks", "agentconnect.json"),
     );
     expect(JSON.stringify(hooks.hooks ?? {})).not.toContain(HOME_BIN);
   });

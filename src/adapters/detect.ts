@@ -109,7 +109,7 @@ const RUNTIME_SIGNALS: readonly RuntimeSignalRule[] = [
 /**
  * Identify which host runtime is executing the current process from environment
  * markers. High confidence on an env-marker hit; otherwise an explicit
- * `AGENT_CONNECTOR_PLATFORM` override (high confidence, validated against the
+ * `AGENTCONNECT_PLATFORM` override (high confidence, validated against the
  * registry) is honored; failing both, returns `unknown` at low confidence so
  * the caller can decide on a safe default.
  *
@@ -118,13 +118,13 @@ const RUNTIME_SIGNALS: readonly RuntimeSignalRule[] = [
  */
 export function detectRuntimeHost(env: NodeJS.ProcessEnv = process.env): DetectionSignal {
   // ── Explicit override (highest priority, validated against the registry) ──
-  const override = env.AGENT_CONNECTOR_PLATFORM;
+  const override = env.AGENTCONNECT_PLATFORM;
   if (override && override.trim() !== "") {
     if (REGISTERED_RUNTIME_IDS.has(override as PlatformId)) {
       return {
         platform: override as PlatformId,
         confidence: "high",
-        reason: `AGENT_CONNECTOR_PLATFORM=${override} override`,
+        reason: `AGENTCONNECT_PLATFORM=${override} override`,
       };
     }
   }

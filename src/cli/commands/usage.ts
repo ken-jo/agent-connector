@@ -194,7 +194,7 @@ export async function run(argv: string[]): Promise<number> {
     case undefined:
     case "--help":
     case "-h":
-      print("usage: agent-connector usage <report|export|leaderboard> [flags]");
+      print("usage: agentconnect usage <report|export|leaderboard> [flags]");
       print("  report       --by platform|project|session|model|day  --since 7d  --platform <id>  --json");
       print("  export       --format csv|json  --out <file>  --since 7d  --platform <id>");
       print("  leaderboard  --by platform|model  --since 7d  --platform <id>  --json");

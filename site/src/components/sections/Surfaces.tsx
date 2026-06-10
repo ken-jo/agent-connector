@@ -8,7 +8,7 @@ export function Surfaces() {
       <SectionHeading
         eyebrow="Five surfaces"
         title="Write once, deploy native"
-        description="agent-connector generalizes context-mode's adapter layer across the five integration surfaces every host exposes — each rendered into its native shape."
+        description="agentconnect generalizes context-mode's adapter layer across the five integration surfaces every host exposes — each rendered into its native shape."
       />
 
       <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">

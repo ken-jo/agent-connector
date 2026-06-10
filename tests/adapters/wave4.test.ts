@@ -4,7 +4,7 @@
  *
  * Both are `ts-plugin` hosts that — exactly like the reference OpenCode adapter —
  * SYNTHESIZE a self-contained ESM module that imports nothing from
- * agent-connector and, on each in-process hook firing, shells out to the ONE
+ * agentconnect and, on each in-process hook firing, shells out to the ONE
  * stable home binary's universal entrypoint
  *     <homeBin> hook <platformId> <event> --connector <id>
  * over child_process, feeds the host-shaped payload on stdin, and JSON.parses the
@@ -47,7 +47,7 @@
  * already registered when node:child_process is resolved by the module runner.
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, and
- * HOME + AGENT_CONNECTOR_DATA_DIR are redirected there and restored in afterEach so
+ * HOME + AGENTCONNECT_DATA_DIR are redirected there and restored in afterEach so
  * nothing escapes the sandbox. We use PROJECT scope throughout for deterministic
  * paths (the user-scope OMP/OpenClaw roots resolve from env vars we also pin).
  */
@@ -110,7 +110,7 @@ afterEach(() => {
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -171,7 +171,7 @@ let savedPiAgentDir: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
   savedOpenClawConfig = process.env.OPENCLAW_CONFIG_PATH;
   savedOpenClawState = process.env.OPENCLAW_STATE_DIR;
@@ -182,7 +182,7 @@ beforeEach(() => {
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
   restore("OPENCLAW_CONFIG_PATH", savedOpenClawConfig);
   restore("OPENCLAW_STATE_DIR", savedOpenClawState);
@@ -203,7 +203,7 @@ function freshProject(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
   process.env[ENV_VAR] = ENV_LITERAL;
   delete process.env.OPENCLAW_CONFIG_PATH;
   delete process.env.OPENCLAW_STATE_DIR;
@@ -291,12 +291,12 @@ describe("omp adapter (ts-plugin) render", () => {
     expect(manifest.omp?.extensions).toEqual(["./index.js"]);
 
     // The generated module is the self-contained bridge: it imports NOTHING from
-    // agent-connector (the only allowed import is node:child_process). The string
-    // "agent-connector" may appear in the AUTO-GENERATED header comment — what
+    // agentconnect (the only allowed import is node:child_process). The string
+    // "agentconnect" may appear in the AUTO-GENERATED header comment — what
     // must be absent is an actual import/require of the package.
     const src = readFileSync(entryPath, "utf8");
-    expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
-    expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
+    expect(src).not.toMatch(/from\s+["'][^"']*agentconnect/);
+    expect(src).not.toMatch(/require\(\s*["'][^"']*agentconnect/);
     expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
     expect(src).toContain("execFileSync");
     expect(src).toContain('"hook"');
@@ -543,12 +543,12 @@ describe("openclaw adapter (ts-plugin) render + dual registration", () => {
     expect(manifest.main).toBe("index.mjs");
 
     // The generated module is the self-contained bridge: it imports NOTHING from
-    // agent-connector (the only allowed import is node:child_process). The string
-    // "agent-connector" may appear in the AUTO-GENERATED header comment — what
+    // agentconnect (the only allowed import is node:child_process). The string
+    // "agentconnect" may appear in the AUTO-GENERATED header comment — what
     // must be absent is an actual import/require of the package.
     const src = readFileSync(pluginPath, "utf8");
-    expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
-    expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
+    expect(src).not.toMatch(/from\s+["'][^"']*agentconnect/);
+    expect(src).not.toMatch(/require\(\s*["'][^"']*agentconnect/);
     expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
     expect(src).toContain("execFileSync");
     expect(src).toContain('"hook"');

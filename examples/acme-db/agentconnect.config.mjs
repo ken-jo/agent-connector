@@ -1,15 +1,15 @@
-// Example agent-connector definition.
+// Example agentconnect definition.
 //
 // Run from this directory:
-//   agent-connector detect            # see which platforms are installed
-//   agent-connector install --dry-run # preview what would be written, everywhere
-//   agent-connector install           # deploy MCP + hooks across all detected hosts
-//   agent-connector telemetry report  # per-tool token footprint, platform-independent
+//   agentconnect detect            # see which platforms are installed
+//   agentconnect install --dry-run # preview what would be written, everywhere
+//   agentconnect install           # deploy MCP + hooks across all detected hosts
+//   agentconnect telemetry report  # per-tool token footprint, platform-independent
 //
-// Write it ONCE here; agent-connector renders it into each host's native dialect
+// Write it ONCE here; agentconnect renders it into each host's native dialect
 // (Claude Code mcpServers JSON, Codex TOML [mcp_servers.*], Cursor mcp.json + hooks.json, …).
 
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "agentconnect";
 
 export default defineConnector({
   id: "acme-db",

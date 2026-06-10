@@ -96,7 +96,7 @@ export async function openSqlite(path: string): Promise<SqliteDb | null> {
 
   if (hasSidecar) {
     try {
-      tempDir = mkdtempSync(join(tmpdir(), "agent-connector-usage-"));
+      tempDir = mkdtempSync(join(tmpdir(), "agentconnect-usage-"));
       const dst = join(tempDir, basename(path));
       copyFileSync(path, dst);
       for (const suffix of SIDECAR_SUFFIXES) {

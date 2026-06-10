@@ -1,5 +1,5 @@
 /**
- * adapters/codebuff — Codebuff platform adapter for agent-connector.
+ * adapters/codebuff — Codebuff platform adapter for agentconnect.
  *
  * Codebuff is an **mcp-only** host: it exposes no lifecycle hook system, and MCP
  * is its extensibility mechanism. This adapter therefore installs only the MCP

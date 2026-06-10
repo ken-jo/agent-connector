@@ -29,7 +29,7 @@ export function Footer() {
                 </svg>
               </span>
               <span className="font-mono text-sm font-semibold">
-                agent-connector
+                agentconnect
               </span>
             </div>
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
@@ -57,14 +57,14 @@ export function Footer() {
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
             >
               <GithubIcon className="size-4" />
-              github.com/ken-jo/agent-connector
+              github.com/ken-jo/agentconnect
             </a>
           </div>
         </div>
 
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row">
           <p>MIT © KenJo · {new Date().getFullYear()}</p>
-          <p>Built with the agent-connector framework.</p>
+          <p>Built with the agentconnect framework.</p>
         </div>
       </div>
     </footer>

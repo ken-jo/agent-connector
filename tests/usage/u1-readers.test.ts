@@ -47,7 +47,7 @@ const SAVED_ENV = [
   "PI_CODING_AGENT_DIR",
   "XDG_DATA_HOME",
   "XDG_CONFIG_HOME",
-  "AGENT_CONNECTOR_OPENCLAW_DIR",
+  "AGENTCONNECT_OPENCLAW_DIR",
 ] as const;
 
 let tmpHome: string;
@@ -62,7 +62,7 @@ beforeEach(() => {
   // Neutralize overrides so each reader resolves under the fake HOME by default.
   delete process.env.KIMI_CODE_HOME;
   delete process.env.PI_CODING_AGENT_DIR;
-  delete process.env.AGENT_CONNECTOR_OPENCLAW_DIR;
+  delete process.env.AGENTCONNECT_OPENCLAW_DIR;
   // Pin XDG so copilot-cli resolves under the fake HOME deterministically.
   process.env.XDG_DATA_HOME = join(tmpHome, ".local", "share");
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");

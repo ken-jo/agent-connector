@@ -1,5 +1,5 @@
 /**
- * adapters/cursor — Cursor platform adapter for agent-connector.
+ * adapters/cursor — Cursor platform adapter for agentconnect.
  *
  * Generalized from context-mode's proven Cursor adapter: the served identity is
  * now `ctx.connector` (not a hardcoded "context-mode"), and every hook command

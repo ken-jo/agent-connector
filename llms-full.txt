@@ -1,4 +1,4 @@
-# agent-connector — Full LLM Reference
+# agentconnect — Full LLM Reference
 
 > Write your MCP server + hooks (and slash commands / Agent Skills / subagents)
 > ONCE with `defineConnector({...})`; the CLI detects every installed AI-agent host,
@@ -26,23 +26,23 @@ Two pillars (see `docs/ARCHITECTURE.md`):
 
 Operating model (home-dir-centric, single binary, per-project data):
 
-- **One home binary.** The runtime installs once under `~/.agent-connector`
-  (override env `AGENT_CONNECTOR_DATA_DIR`):
+- **One home binary.** The runtime installs once under `~/.agentconnect`
+  (override env `AGENTCONNECT_DATA_DIR`):
   ```
-  ~/.agent-connector/
-    bin/agent-connector              single binary: CLI + hook entrypoint + telemetry runtime
+  ~/.agentconnect/
+    bin/agentconnect              single binary: CLI + hook entrypoint + telemetry runtime
     connectors/<id>/connector.json   each registered connector's resolved definition
     telemetry.ndjson (or .db)        shared telemetry store, rows keyed by project
     backups/                         timestamped settings backups before each mutation
     logs/
   ```
   Every host config we write is a **thin pointer** back to this one stable binary
-  (a hook command is `agent-connector hook <platform> <event> --connector <id>`; a
-  wrapped MCP entry runs `agent-connector serve --connector <id> -- <real cmd>`).
+  (a hook command is `agentconnect hook <platform> <event> --connector <id>`; a
+  wrapped MCP entry runs `agentconnect serve --connector <id> -- <real cmd>`).
   Updating that single binary updates behavior in every host. Updates are explicit
-  (`agent-connector update`), never silent auto-update — so one bad release can't
+  (`agentconnect update`), never silent auto-update — so one bad release can't
   break every project at once.
-- **Native config stays native.** `AGENT_CONNECTOR_DATA_DIR` relocates only
+- **Native config stays native.** `AGENTCONNECT_DATA_DIR` relocates only
   framework-owned state; a host's own settings files (`.cursor/mcp.json`,
   `~/.codex/config.toml`, …) are never relocated.
 - **Per-project data.** Telemetry/state is keyed by a stable project identity
@@ -55,11 +55,11 @@ Operating model (home-dir-centric, single binary, per-project data):
 ## 2. The public API — `defineConnector(config: ConnectorConfig): ResolvedConnector`
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "agentconnect";
 export default defineConnector({ /* ConnectorConfig */ });
 ```
 
-Place the config in `agent-connector.config.{mjs,js,json}` at the project root (found
+Place the config in `agentconnect.config.{mjs,js,json}` at the project root (found
 by walking up from the project dir), or pass `--connector <path>`. The function
 validates eagerly and **throws `ConnectorConfigError`** on any violation, returning a
 fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
@@ -114,7 +114,7 @@ interface ServerDef {
 |---|---|---|
 | `enabled` | `true` | When `false`, the entry is written disabled where the host supports it. |
 | `tools` | `{ include: ["*"] }` | Glob/exact include/exclude tool names. |
-| `wrapForTelemetry` | `true` for stdio, `false` otherwise | Wrap with `agent-connector serve` so per-tool telemetry is captured transparently. Remote transports can't be intercepted, so it defaults off there. |
+| `wrapForTelemetry` | `true` for stdio, `false` otherwise | Wrap with `agentconnect serve` so per-tool telemetry is captured transparently. Remote transports can't be intercepted, so it defaults off there. |
 
 `AuthSpec`: `{ type: "oauth" | "bearerEnv" | "none"; bearerEnvVar?: string }` —
 `bearerEnvVar` names the env var holding the token when `type === "bearerEnv"`.
@@ -191,7 +191,7 @@ Decision semantics:
 **Per-paradigm synthesis** (the framework picks the right one from the host's
 detected paradigm):
 - `json-stdio` — host pipes JSON to a command on stdin and reads JSON/exit-code back.
-  One universal entrypoint (`agent-connector hook <platform> <event> --connector <id>`)
+  One universal entrypoint (`agentconnect hook <platform> <event> --connector <id>`)
   reads the payload, normalizes it, runs your handler, and formats the reply.
 - `ts-plugin` — host loads a generated JS/TS module exporting lifecycle functions
   that import your handler.
@@ -279,7 +279,7 @@ the parent dir differs per platform.
 
 ```ts
 interface TelemetryConfig {
-  enabled?: boolean;                                   // default true; AGENT_CONNECTOR_TELEMETRY=0 also kills it
+  enabled?: boolean;                                   // default true; AGENTCONNECT_TELEMETRY=0 also kills it
   modelFamilyHint?: "auto" | "openai" | "anthropic" | "generic"; // default "auto"
   measureToolDefs?: boolean;                           // default true; tokenize tools/list once → per-turn overhead
   calibration?: { anthropicCountTokens?: boolean };    // default false; opt-in network calibration (sends content off-box)
@@ -291,7 +291,7 @@ interface TelemetryConfig {
 `ResolvedConnector.telemetry` is fully resolved:
 `{ enabled, modelFamilyHint, measureToolDefs, hostNativeUsage, store, calibration: { anthropicCountTokens } }`.
 
-`hostNativeUsage` may also be forced on at install via env `AGENT_CONNECTOR_HOST_NATIVE=1`.
+`hostNativeUsage` may also be forced on at install via env `AGENTCONNECT_HOST_NATIVE=1`.
 
 ### 2.6 `PlatformOverride` (per-platform escape hatch)
 
@@ -330,7 +330,7 @@ interface ResolvedConnector {
 ### 2.8 Full example (server + hooks + commands + skills)
 
 ```ts
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "agentconnect";
 
 export default defineConnector({
   id: "acme-db",
@@ -364,7 +364,7 @@ export default defineConnector({
 });
 ```
 
-`agent-connector install` turns the server into, e.g.:
+`agentconnect install` turns the server into, e.g.:
 
 | Host | What gets written |
 |---|---|
@@ -378,7 +378,7 @@ export default defineConnector({
 
 ## 3. CLI reference
 
-`agent-connector <command> [flags]`. Run `agent-connector <command> --help` for
+`agentconnect <command> [flags]`. Run `agentconnect <command> --help` for
 command-specific flags. `--help`/`-h`/`help` print usage; `--version`/`-v` prints the
 package name.
 
@@ -387,14 +387,14 @@ Shared flags: `--scope user|project` (default `user`); `--targets a,b,c`
 `--project <dir>` (defaults to cwd); `--dry-run`; `--json` (where noted).
 
 ### detect
-`agent-connector detect [--project <dir>] [--json]`
+`agentconnect detect [--project <dir>] [--json]`
 Probes every registered adapter and prints, per installed host: name, id, hook
 paradigm, install scope, the native config path that would be written, confidence +
 reason, and a one-line capabilities summary (events, transports, modifyArgs /
 modifyOutput / injectContext). `--json` emits the raw `DetectedPlatform[]`.
 
 ### install
-`agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run]`
+`agentconnect install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run]`
 Resolves the connector, then per target: backup settings → render server config into
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
 config + set the exec bit → write any command/skill/subagent files → register in the
@@ -403,20 +403,20 @@ plugin registry where applicable. Prints a readable diff (one line per `ChangeRe
 tally. Idempotent and reversible. **Exit code 1 if any change is a `warn`**, else 0.
 
 ### sync
-`agent-connector sync [same flags as install]`
+`agentconnect sync [same flags as install]`
 Idempotent re-render after editing a connector or upgrading the framework:
 byte-identical entries report `skip`, and the stable home-bin pointer is healed. Same
 diff output and exit semantics as install.
 
 ### uninstall
-`agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run]`
+`agentconnect uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run]`
 Full inverse — removes the connector's MCP + hook registrations and content files from
 every resolved target, using registered metadata so it works even when the source
 module is gone. The connector id comes from `--connector-id`, else inferred from the
 local config. Same diff output and exit semantics.
 
 ### doctor
-`agent-connector doctor [--targets …] [--connector <path>] [--scope …] [--project <dir>] [--json]`
+`agentconnect doctor [--targets …] [--connector <path>] [--scope …] [--project <dir>] [--json]`
 For each detected host (or `--targets`), loads its adapter, builds an `InstallContext`,
 and runs the adapter's doctor checks; prints `[pass] / [warn] / [FAIL]` with any
 suggested fix. Connector context comes from the local config, else every connector
@@ -424,15 +424,15 @@ registered under the data-root, else a minimal id-only placeholder. **Non-zero e
 any check FAILs** (warns alone do not fail).
 
 ### update
-`agent-connector update [--channel stable|latest]`
-Prints managed-update guidance (the exact `npm i -g agent-connector@<dist>` when the
+`agentconnect update [--channel stable|latest]`
+Prints managed-update guidance (the exact `npm i -g agentconnect@<dist>` when the
 install looks npm-managed: `latest` dist for stable channel, `next` for latest) and
 refreshes the stable home-bin pointer so hosts keep execing a working CLI. **Never
 silently auto-updates** (architecture R1) — that would give one bad release maximum
 blast radius. Exit 1 only if the pointer refresh fails.
 
 ### telemetry
-`agent-connector telemetry <report|export|leaderboard> [flags]` — per-MCP token
+`agentconnect telemetry <report|export|leaderboard> [flags]` — per-MCP token
 telemetry (the server's own bytes). Rows are aggregate counts only (never raw
 arguments/results).
 - `report --by tool|session|project (default tool) --since <Nd|Nh|Nm|Ns> --connector <id> [--json]`
@@ -443,7 +443,7 @@ arguments/results).
   → ranks per-connector ("which MCP server costs the most") or per-tool.
 
 ### usage
-`agent-connector usage <report|export|leaderboard> [flags]` — host-native token usage
+`agentconnect usage <report|export|leaderboard> [flags]` — host-native token usage
 parsed **read-only** from each agent CLI's own session logs/DBs (the complement to
 `telemetry`; the two are NOT summed). Rows are aggregate counts only.
 - `report --by platform|project|session|model|day (default platform) --since … --platform <id> [--json]`
@@ -453,7 +453,7 @@ parsed **read-only** from each agent CLI's own session logs/DBs (the complement 
   → the host/user leaderboard ("which CLI/host spent the most").
 
 ### leaderboard (unified)
-`agent-connector leaderboard [--since <window>] [--scope <slice>] [--json]`
+`agentconnect leaderboard [--since <window>] [--scope <slice>] [--json]`
 Prints THREE origin-labeled leaderboards that measure DIFFERENT things and are
 **NEVER summed**:
 - 🔌 **MCP / Plugin** (origin `mcp-self`) — serve-proxy telemetry (per-MCP `call` +
@@ -464,14 +464,14 @@ Prints THREE origin-labeled leaderboards that measure DIFFERENT things and are
 `--scope` slices only the MCP section; `--json` emits `{ mcp, host, hostSkipped, hostNativeTurns }`.
 
 ### Internal entrypoints (hosts point at these; omitted/hidden from top-level help)
-- `agent-connector hook <platform> <event> --connector <id>` — universal `json-stdio`
+- `agentconnect hook <platform> <event> --connector <id>` — universal `json-stdio`
   hook entrypoint. Reads the whole host payload from stdin, dispatches `runHook`,
   writes stdout/stderr, exits with the adapter's exit code. Fail-open (never rejects).
-- `agent-connector serve --connector <id> [--scope user|project] -- <command> [args…]`
+- `agentconnect serve --connector <id> [--scope user|project] -- <command> [args…]`
   — telemetry-wrapping MCP stdio proxy. Splits argv at the first literal `--`; the
   real server invocation on the right is passed through verbatim. Tolerant flag
   parsing (`strict:false`) so a future/older wrapper flag can't wedge a tool call.
-- `agent-connector usage-event <platform> --connector <id>` — HIDDEN opt-in
+- `agentconnect usage-event <platform> --connector <id>` — HIDDEN opt-in
   host-native turn-usage hook (installed by Gemini / Antigravity adapters when
   host-native usage is enabled). Reads stdin, records a distinct `model_turn` row,
   ALWAYS exits 0 (fail-open).
@@ -513,7 +513,7 @@ message, fix? }`.
 ## 5. Telemetry model
 
 **What is measured.** The only data identical across hosts: the server's own bytes.
-The `agent-connector serve` proxy (or in-proc middleware) intercepts every
+The `agentconnect serve` proxy (or in-proc middleware) intercepts every
 `tools/call` at the server boundary — input = `params.arguments`, output =
 `result.content[]` + `structuredContent` — and tokenizes them locally. With
 `measureToolDefs` (default on) it also tokenizes the `tools/list` schemas once → the
@@ -545,7 +545,7 @@ CLI's native logs/DBs (JSONL / JSON / SQLite via pure-WASM `sql.js` / synced-cac
 artifacts) to report per-platform/project/session/model/day usage. Confidence is
 `host-reported` (real numbers) vs `host-estimated` (e.g. Kiro char/4, Crush cost-only).
 It never writes host config and never collides with the serve-proxy store. Some hosts
-(cursor / antigravity / trae / warp) need an external sync agent-connector does not
+(cursor / antigravity / trae / warp) need an external sync agentconnect does not
 perform → those rows are "requires sync, skipped" unless a local cache already exists.
 
 **Two leaderboards, never summed.** Per-MCP server bytes (telemetry / 🔌) measure your
@@ -554,8 +554,8 @@ CLI logs; live host-native turns (🛰️) are whole-conversation usage from a r
 hook. Different things — totals are never added across origins.
 
 **Privacy / opt-out.** Local-first, **zero network egress by default**. Global kill
-switch `AGENT_CONNECTOR_TELEMETRY=0` (or `telemetry: { enabled: false }`); per-layer
-opt-in for measure / calibrate / host-native (`AGENT_CONNECTOR_HOST_NATIVE=1`).
+switch `AGENTCONNECT_TELEMETRY=0` (or `telemetry: { enabled: false }`); per-layer
+opt-in for measure / calibrate / host-native (`AGENTCONNECT_HOST_NATIVE=1`).
 Reported numbers are estimates from the server's own I/O, not host-billed usage.
 
 ---
@@ -636,12 +636,12 @@ core, fat per-adapter tail.
 ## 8. Quick start & development
 
 ```bash
-npm i -g agent-connector
-cd my-mcp-project                 # contains agent-connector.config.mjs (see examples/acme-db)
-agent-connector detect
-agent-connector install --dry-run
-agent-connector install
-agent-connector telemetry report
+npm i -g agentconnect
+cd my-mcp-project                 # contains agentconnect.config.mjs (see examples/acme-db)
+agentconnect detect
+agentconnect install --dry-run
+agentconnect install
+agentconnect telemetry report
 
 # from source:
 npm install
@@ -658,5 +658,5 @@ Engines: Node `>=18.17`, ESM only. Runtime deps are pure-JS / WASM (`gpt-tokeniz
 - README.md — overview + quick start.
 - docs/ARCHITECTURE.md — the authoritative design.
 - llms.txt — concise index.
-- examples/acme-db/agent-connector.config.mjs — runnable example.
-- skills/agent-connector/SKILL.md — agent-facing how-to (deployable via the skills surface).
+- examples/acme-db/agentconnect.config.mjs — runnable example.
+- skills/agentconnect/SKILL.md — agent-facing how-to (deployable via the skills surface).

@@ -12,7 +12,7 @@
  *
  * The command / skill / subagent markdown is rendered through the SAME shared
  * claude-code renderers the live adapter writes with, so an installed plugin and
- * an `agent-connector install` produce byte-identical content files. Hooks use
+ * an `agentconnect install` produce byte-identical content files. Hooks use
  * the universal home-bin command (telemetry-routed) and the MCP entry is
  * serve-wrapped with `--host <platform>` so telemetry carries through.
  */
@@ -97,7 +97,7 @@ function buildManifest(
   const manifest: Record<string, unknown> = {};
   if (spec.schemaUrl) manifest.$schema = spec.schemaUrl;
   manifest.name = connector.id;
-  manifest.description = `${connector.displayName} — connector emitted by agent-connector`;
+  manifest.description = `${connector.displayName} — connector emitted by agentconnect`;
 
   const hasRealVersion = connector.version && connector.version !== "0.0.0";
   if (hasRealVersion) {
@@ -106,7 +106,7 @@ function buildManifest(
     // factory requires a semver version; supply a sane default when unpinned.
     manifest.version = "0.0.1";
   }
-  if (spec.alwaysAuthor) manifest.author = { name: "agent-connector" };
+  if (spec.alwaysAuthor) manifest.author = { name: "agentconnect" };
   return manifest;
 }
 
@@ -116,13 +116,13 @@ function buildMarketplace(connector: ResolvedConnector): Record<string, unknown>
   // use the same minimal { name, owner, plugins:[{name,source,description}] }
   // shape — droid reads source as a path relative to the marketplace repo root.
   return {
-    name: "agent-connector",
-    owner: { name: "agent-connector" },
+    name: "agentconnect",
+    owner: { name: "agentconnect" },
     plugins: [
       {
         name: connector.id,
         source: `./${connector.id}`,
-        description: `${connector.displayName} — connector emitted by agent-connector`,
+        description: `${connector.displayName} — connector emitted by agentconnect`,
       },
     ],
   };

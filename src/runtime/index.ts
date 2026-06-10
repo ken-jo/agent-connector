@@ -9,7 +9,7 @@
  *     stdio server opts into transparent per-tool token telemetry.
  *
  * Keeping both behind this barrel lets the CLI import from one place and lets
- * the package expose a stable `agent-connector/runtime` subpath.
+ * the package expose a stable `agentconnect/runtime` subpath.
  */
 
 export { runHook } from "./hook-entrypoint.js";

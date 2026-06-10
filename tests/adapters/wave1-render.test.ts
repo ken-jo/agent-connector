@@ -24,7 +24,7 @@
  * merge (the settings.json is a shared, user-owned file).
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir,
- * and HOME + AGENT_CONNECTOR_DATA_DIR are redirected there so any user-scope path
+ * and HOME + AGENTCONNECT_DATA_DIR are redirected there so any user-scope path
  * (resolved from homedir()) lands inside the sandbox. Both are restored in
  * afterEach so the suite never leaks state.
  */
@@ -52,7 +52,7 @@ import muxAdapter from "../../src/adapters/mux/index.js";
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -104,13 +104,13 @@ let savedEnvVar: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
 });
 
@@ -129,7 +129,7 @@ function freshProject(prefix = "ac-wave1-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
 }

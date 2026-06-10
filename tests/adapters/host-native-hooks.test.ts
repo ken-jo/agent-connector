@@ -4,7 +4,7 @@
  * contract the plan calls out:
  *
  *   • The AfterModel `usage-event` hook is installed ONLY when host-native capture
- *     is opted in (telemetry.hostNativeUsage === true, OR AGENT_CONNECTOR_HOST_NATIVE=1
+ *     is opted in (telemetry.hostNativeUsage === true, OR AGENTCONNECT_HOST_NATIVE=1
  *     at install). With the opt-in OFF the hook is NEVER written — even for a
  *     connector that declares NO normalized hook events.
  *   • The installed hook command routes to the hidden `usage-event` entrypoint
@@ -30,7 +30,7 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
 import antigravityAdapter from "../../src/adapters/antigravity/index.js";
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 
 // Each adapter under test, with the native event-bucket key its AfterModel usage
@@ -108,13 +108,13 @@ function commandsUnder(file: any, eventKey: string): string[] {
 let savedHostNative: string | undefined;
 
 beforeEach(() => {
-  savedHostNative = process.env.AGENT_CONNECTOR_HOST_NATIVE;
-  delete process.env.AGENT_CONNECTOR_HOST_NATIVE;
+  savedHostNative = process.env.AGENTCONNECT_HOST_NATIVE;
+  delete process.env.AGENTCONNECT_HOST_NATIVE;
 });
 
 afterEach(() => {
-  if (savedHostNative === undefined) delete process.env.AGENT_CONNECTOR_HOST_NATIVE;
-  else process.env.AGENT_CONNECTOR_HOST_NATIVE = savedHostNative;
+  if (savedHostNative === undefined) delete process.env.AGENTCONNECT_HOST_NATIVE;
+  else process.env.AGENTCONNECT_HOST_NATIVE = savedHostNative;
 });
 
 function freshProject(prefix: string): string {
@@ -171,8 +171,8 @@ for (const { name, adapter } of ADAPTERS) {
       expect(entry.matcher).toBe("");
     });
 
-    it("installs the usage hook when AGENT_CONNECTOR_HOST_NATIVE=1 forces it on at install", () => {
-      process.env.AGENT_CONNECTOR_HOST_NATIVE = "1";
+    it("installs the usage hook when AGENTCONNECT_HOST_NATIVE=1 forces it on at install", () => {
+      process.env.AGENTCONNECT_HOST_NATIVE = "1";
       const ctx = buildCtx(project, noHooksConnector(false)); // config opt-in OFF
       adapter.installHooks(ctx);
 

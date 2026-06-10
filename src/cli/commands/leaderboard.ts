@@ -1,5 +1,5 @@
 /**
- * cli/commands/leaderboard — the unified top-level `agent-connector leaderboard`.
+ * cli/commands/leaderboard — the unified top-level `agentconnect leaderboard`.
  *
  * Prints THREE leaderboards, each clearly origin-labeled and NEVER summed:
  *   🔌 MCP / Plugin leaderboard       ← origin `mcp-self`: the serve-proxy
@@ -64,7 +64,7 @@ export function parseSince(since: string | undefined): number | null | undefined
 export async function run(argv: string[]): Promise<number> {
   const first = argv[0];
   if (first === "--help" || first === "-h") {
-    print("usage: agent-connector leaderboard [flags]");
+    print("usage: agentconnect leaderboard [flags]");
     print("  --since 7d|24h|…   window applied to BOTH sources");
     print(`  --scope <value>    MCP-section slice (${SCOPE_FILTER_VALUES.join("|")})`);
     print("  --connector <id>   restrict the 🔌 MCP + 🛰️ host-native sections to one connector");

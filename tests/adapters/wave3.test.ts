@@ -52,7 +52,7 @@ import hermesAdapter from "../../src/adapters/hermes/index.js";
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -109,7 +109,7 @@ function buildCtx(
     scope,
     projectDir,
     homeBinPath: HOME_BIN,
-    dataRoot: join(projectDir, ".agent-connector"),
+    dataRoot: join(projectDir, ".agentconnect"),
     dryRun: false,
   };
 }
@@ -125,7 +125,7 @@ let savedLocalAppData: string | undefined;
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedUserProfile = process.env.USERPROFILE;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
   savedAppData = process.env.APPDATA;
   savedLocalAppData = process.env.LOCALAPPDATA;
@@ -134,7 +134,7 @@ beforeEach(() => {
 afterEach(() => {
   restore("HOME", savedHome);
   restore("USERPROFILE", savedUserProfile);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
   restore("APPDATA", savedAppData);
   restore("LOCALAPPDATA", savedLocalAppData);
@@ -158,7 +158,7 @@ function freshProject(prefix = "ac-wave3-"): string {
   // into the sandbox so the test never reads or pollutes the real user AppData.
   process.env.APPDATA = join(dir, "AppData", "Roaming");
   process.env.LOCALAPPDATA = join(dir, "AppData", "Local");
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
 }

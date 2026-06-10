@@ -4,7 +4,7 @@ import { Section, SectionHeading } from "@/components/sections/Section";
 
 /**
  * The efficiency / "the math" section — the impact pitch. Quantifies the work
- * agent-connector does for you: one ~60-line connector definition replaces the
+ * agentconnect does for you: one ~60-line connector definition replaces the
  * ~19,600 lines of per-platform integration logic (29 adapters) you would
  * otherwise hand-author and maintain. Numbers are grounded in the repo itself
  * (src/adapters LOC vs an example connector).
@@ -41,7 +41,7 @@ export function Efficiency() {
             Write it once. Skip <span className="whitespace-nowrap">~19,600 lines</span> of glue.
           </>
         }
-        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agent-connector already did that work — across 29 platforms, 4 surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
+        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agentconnect already did that work — across 29 platforms, 4 surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
       />
 
       {/* Hero stat band */}
@@ -120,7 +120,7 @@ export function Efficiency() {
             }}
           />
           <span className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-            agent-connector · once
+            agentconnect · once
           </span>
           <h3 className="mt-4 flex items-center gap-2 text-xl font-bold tracking-tight">
             One definition <ArrowRight className="size-5 text-muted-foreground" /> every platform

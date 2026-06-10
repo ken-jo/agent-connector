@@ -11,7 +11,7 @@ export function HowItWorks() {
       <SectionHeading
         eyebrow="How it works"
         title="Home-dir-centric, single binary"
-        description="One runtime under ~/.agent-connector. Thin native pointers everywhere. Per-project data that survives git clean. Managed updates, Windows-safe."
+        description="One runtime under ~/.agentconnect. Thin native pointers everywhere. Per-project data that survives git clean. Managed updates, Windows-safe."
       />
 
       <div className="relative mt-14">

@@ -10,7 +10,7 @@ export function WriteOnceTabs() {
       <SectionHeading
         eyebrow="Write once → N dialects"
         title="The same server, every native format"
-        description="Declare it once. agent-connector renders the right root key, fields and file layout for each host — mcpServers vs servers, JSON vs TOML, scalar vs array command."
+        description="Declare it once. agentconnect renders the right root key, fields and file layout for each host — mcpServers vs servers, JSON vs TOML, scalar vs array command."
       />
 
       <div className="mx-auto mt-12 max-w-3xl">
@@ -29,7 +29,7 @@ export function WriteOnceTabs() {
           <span className="h-px flex-1 bg-border" />
           <span className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 font-mono text-xs">
             <ArrowDown className="size-3.5" />
-            agent-connector install
+            agentconnect install
           </span>
           <span className="h-px flex-1 bg-border" />
         </div>

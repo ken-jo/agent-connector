@@ -34,7 +34,7 @@ import {
 export interface EmitContext {
   /** Directory the bundle is written under (the format root). */
   outDir: string;
-  /** Absolute path to agent-connector's stable home-bin (hooks + serve wrapper point here). */
+  /** Absolute path to agentconnect's stable home-bin (hooks + serve wrapper point here). */
   homeBinPath: string;
   /** Enumerate the file list without writing anything. */
   dryRun: boolean;

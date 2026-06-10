@@ -11,7 +11,7 @@
  * never types `--connector`.
  */
 
-import { defineConnector } from "agent-connector";
+import { defineConnector } from "agentconnect";
 
 export default defineConnector({
   id: "acme-db",

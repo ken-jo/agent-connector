@@ -24,7 +24,7 @@ function ctxFor(id: string, projectDir: string): InstallContext {
     connector,
     scope: "project",
     projectDir,
-    homeBinPath: "/home/u/.agent-connector/bin/agent-connector",
+    homeBinPath: "/home/u/.agentconnect/bin/agentconnect",
     dataRoot: join(projectDir, ".data"),
     dryRun: false,
   };

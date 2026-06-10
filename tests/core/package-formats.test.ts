@@ -15,7 +15,7 @@
  *     not errors, and returns a drop note.
  *
  * Isolation mirrors tests/core/package.test.ts: a fresh mkdtemp outDir per test;
- * HOME + AGENT_CONNECTOR_DATA_DIR redirected to temp and restored in afterEach.
+ * HOME + AGENTCONNECT_DATA_DIR redirected to temp and restored in afterEach.
  */
 
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
@@ -35,7 +35,7 @@ import {
 import { readTomlString } from "../../src/core/toml.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-connector";
 
 /** A connector declaring every surface: server + hooks + command + skill + subagent. */
@@ -108,17 +108,17 @@ let connector: ResolvedConnector;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   outDir = mkdtempSync(join(tmpdir(), "ac-fmt-"));
   process.env.HOME = outDir;
   process.env.USERPROFILE = outDir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(outDir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(outDir, ".agentconnect");
   connector = buildConnector();
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -176,7 +176,7 @@ describe("packageConnector — codex-plugin", () => {
     const res = packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN });
     expect(res.marketplacePath).toBe(join(outDir, ".codex-plugin", "marketplace.json"));
     const mkt = readJson(res.marketplacePath!);
-    expect(mkt.owner).toEqual({ name: "agent-connector" });
+    expect(mkt.owner).toEqual({ name: "agentconnect" });
 
     const hooks = readJson(join(res.pluginDir, "hooks", "hooks.json")).hooks as Record<
       string,
@@ -201,7 +201,7 @@ describe("packageConnector — factory-plugin", () => {
     const m = readJson(join(res.pluginDir, ".factory-plugin", "plugin.json"));
     expect(m.name).toBe(CONNECTOR_ID);
     expect(m.version).toBe("0.0.1"); // factory requires a version → default supplied
-    expect(m.author).toEqual({ name: "agent-connector" });
+    expect(m.author).toEqual({ name: "agentconnect" });
 
     // Subagents go under droids/, NOT agents/.
     expect(existsSync(join(res.pluginDir, "droids", "reviewer.md"))).toBe(true);
@@ -362,7 +362,7 @@ describe("packageConnector — cursor-plugin", () => {
 
     expect(res.marketplacePath).toBe(join(outDir, ".cursor-plugin", "marketplace.json"));
     const mkt = readJson(res.marketplacePath!);
-    expect(mkt.owner).toEqual({ name: "agent-connector" });
+    expect(mkt.owner).toEqual({ name: "agentconnect" });
     const plugins = mkt.plugins as Array<Record<string, unknown>>;
     expect(plugins[0]?.source).toBe(`./${CONNECTOR_ID}`);
   });

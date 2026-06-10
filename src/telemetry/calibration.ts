@@ -11,7 +11,7 @@
  * "tokenizer-calibrated".
  *
  * PRIVACY + SAFETY — load-bearing invariants:
- *   • OPT-IN only. Nothing here runs unless BOTH AGENT_CONNECTOR_CALIBRATE
+ *   • OPT-IN only. Nothing here runs unless BOTH AGENTCONNECT_CALIBRATE
  *     contains "anthropic" AND ANTHROPIC_API_KEY is set (see isCalibrationEnabled).
  *   • Sampling only — shouldSample() rate-limits hard so we never hammer the API.
  *   • Content leaves the box ONLY on a sampled call, ONLY when opted in. We store
@@ -34,15 +34,15 @@ import type { ConfidenceSource, ModelFamily } from "./types.js";
  * Is opt-in Anthropic calibration enabled for this process?
  *
  * Requires BOTH:
- *   • AGENT_CONNECTOR_CALIBRATE — a comma-separated allowlist that INCLUDES
- *     `anthropic` (so a future `AGENT_CONNECTOR_CALIBRATE=openai,anthropic` can
+ *   • AGENTCONNECT_CALIBRATE — a comma-separated allowlist that INCLUDES
+ *     `anthropic` (so a future `AGENTCONNECT_CALIBRATE=openai,anthropic` can
  *     opt other families in without touching this gate), and
  *   • ANTHROPIC_API_KEY — a non-empty key to authenticate the off-box call.
  *
  * Either missing → disabled (the privacy-safe default).
  */
 export function isCalibrationEnabled(): boolean {
-  const families = (process.env.AGENT_CONNECTOR_CALIBRATE || "")
+  const families = (process.env.AGENTCONNECT_CALIBRATE || "")
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s !== "");

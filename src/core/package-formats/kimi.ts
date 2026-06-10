@@ -43,7 +43,7 @@ function buildManifest(
       connector.version && connector.version !== "0.0.0"
         ? connector.version
         : "0.0.1",
-    description: `${connector.displayName} — connector emitted by agent-connector`,
+    description: `${connector.displayName} — connector emitted by agentconnect`,
   };
   if (hasSkills) manifest.skills = "./skills/";
   const mcp = buildMcpEntry(connector, homeBin, PLATFORM);

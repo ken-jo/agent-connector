@@ -26,9 +26,9 @@ import {
 } from "../../core/package.js";
 import { fail, print } from "../app.js";
 
-const HELP = `agent-connector package — emit a plugin/extension/marketplace bundle.
+const HELP = `agentconnect package — emit a plugin/extension/marketplace bundle.
 
-usage: agent-connector package [flags]
+usage: agentconnect package [flags]
 
 flags:
   --connector <path>   Connector config to package (else auto-discovered).
@@ -76,18 +76,18 @@ function installInstructions(
     case "claude-plugin":
       return [
         `/plugin marketplace add ${outDir}`,
-        `/plugin install ${id}@agent-connector`,
-        `(CLI: claude plugin marketplace add ${outDir} && claude plugin install ${id}@agent-connector)`,
+        `/plugin install ${id}@agentconnect`,
+        `(CLI: claude plugin marketplace add ${outDir} && claude plugin install ${id}@agentconnect)`,
       ];
     case "codex-plugin":
       return [
         `codex plugin marketplace add ${outDir}`,
-        `codex plugin add ${id}@agent-connector`,
+        `codex plugin add ${id}@agentconnect`,
       ];
     case "factory-plugin":
       return [
         `droid plugin marketplace add ${outDir}`,
-        `droid plugin install ${id}@agent-connector`,
+        `droid plugin install ${id}@agentconnect`,
       ];
     case "gemini-extension":
       return [`gemini extensions install ${join(outDir, id)}`];
@@ -146,7 +146,7 @@ export async function run(argv: string[]): Promise<number> {
   if (!configPath) {
     return fail(
       "no connector config found. Pass --connector <path> or add an " +
-        "agent-connector.config.{mjs,js,json} to your project.",
+        "agentconnect.config.{mjs,js,json} to your project.",
     );
   }
 

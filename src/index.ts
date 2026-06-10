@@ -1,12 +1,12 @@
 /**
- * agent-connector — public API surface.
+ * agentconnect — public API surface.
  *
  * Write your MCP server + hooks once:
  *
- *   import { defineConnector } from "agent-connector";
+ *   import { defineConnector } from "agentconnect";
  *   export default defineConnector({ id: "acme-db", server: {...}, hooks: {...} });
  *
- * Then `agent-connector install` deploys it across every detected platform and
+ * Then `agentconnect install` deploys it across every detected platform and
  * collects platform-independent per-tool token telemetry.
  */
 

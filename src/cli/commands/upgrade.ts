@@ -1,5 +1,5 @@
 /**
- * cli/commands/upgrade — bring an agent-connector install current.
+ * cli/commands/upgrade — bring an agentconnect install current.
  *
  * `upgrade` (aliases: `update`, `sync`) consolidates the two former verbs into
  * ONE the way npm/brew pair `install` + `upgrade`, so there is a single verb to
@@ -12,7 +12,7 @@
  *      update guidance for the chosen channel, exactly like the old `update`.
  *
  * When no connector config is resolvable it still does step 2, so `upgrade`
- * works as a pure tool-refresh from anywhere. By design agent-connector NEVER
+ * works as a pure tool-refresh from anywhere. By design agentconnect NEVER
  * silently auto-updates (docs/ARCHITECTURE.md §3 R1).
  */
 
@@ -81,19 +81,19 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   // ── Step 2: managed update guidance + home-bin pointer refresh (former `update`). ──
-  print("agent-connector uses managed (explicit) updates — never silent");
+  print("agentconnect uses managed (explicit) updates — never silent");
   print("auto-update — so one bad release can't break every project at once.\n");
 
   const dist = ch === "stable" ? "latest" : "next";
   if (looksNpmManaged()) {
     print(`To update the ${ch} channel, run:`);
-    print(`  npm i -g agent-connector@${dist}`);
+    print(`  npm i -g agentconnect@${dist}`);
   } else {
     print(
       `This install does not look npm-managed. Update it the way you installed it,`,
     );
-    print(`then re-run \`agent-connector upgrade\` to refresh the home pointer.`);
-    print(`(npm installs would use: npm i -g agent-connector@${dist})`);
+    print(`then re-run \`agentconnect upgrade\` to refresh the home pointer.`);
+    print(`(npm installs would use: npm i -g agentconnect@${dist})`);
   }
 
   // Refresh the stable home-bin pointer so hosts keep execing a working CLI.

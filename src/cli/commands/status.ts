@@ -4,7 +4,7 @@
  * There is NO MCP standard for "which connectors are installed into which host
  * configs on this machine" — distribution/wire standards (server.json, MCPB,
  * the lifecycle) cover publishing + the protocol, not local install state. So
- * `status` is purely agent-connector infrastructure, and we design it for the
+ * `status` is purely agentconnect infrastructure, and we design it for the
  * everyday question it answers in one line per platform:
  *
  *   "which of my connectors are present on which hosts?"

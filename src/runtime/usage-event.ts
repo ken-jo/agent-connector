@@ -124,7 +124,7 @@ export async function runUsageEvent(
 ): Promise<RunUsageEventResult> {
   try {
     // Global telemetry kill switch is honored by the store's append (no-op when
-    // AGENT_CONNECTOR_TELEMETRY=0); we still parse cheaply and let append drop it.
+    // AGENTCONNECT_TELEMETRY=0); we still parse cheaply and let append drop it.
     const trimmed = opts.stdin.trim();
     if (trimmed === "") return NOOP;
 

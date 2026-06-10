@@ -1,30 +1,30 @@
-# branded-cli example — ship your own CLI on top of agent-connector
+# branded-cli example — ship your own CLI on top of agentconnect
 
 This is a realistic developer package, `acme-db-tools`, that depends on
-`agent-connector` and ships its **own** branded CLI, `acme-db`. The consumer
-never installs `agent-connector` globally and never types `--connector` — every
+`agentconnect` and ships its **own** branded CLI, `acme-db`. The consumer
+never installs `agentconnect` globally and never types `--connector` — every
 subcommand is auto-scoped to the connector this package ships.
 
 ## How it works
 
 Three files:
 
-- `agent-connector.config.mjs` — the connector: a stdio MCP server (wrapped for
+- `agentconnect.config.mjs` — the connector: a stdio MCP server (wrapped for
   per-tool token telemetry), a `PreToolUse` guard hook, and an `/acme-schema`
   command. Declared once via `defineConnector`.
 - `bin.mjs` — the `acme-db` bin. It calls `createConnectorCli({ name, connector })`
-  from `agent-connector/cli` and runs it.
+  from `agentconnect/cli` and runs it.
 - `package.json` — `bin: { "acme-db": "./bin.mjs" }` + a dependency on
-  `agent-connector`.
+  `agentconnect`.
 
 ```js
 // bin.mjs (essence)
 import { fileURLToPath } from "node:url";
-import { createConnectorCli } from "agent-connector/cli";
+import { createConnectorCli } from "agentconnect/cli";
 
 createConnectorCli({
   name: "acme-db",
-  connector: fileURLToPath(new URL("./agent-connector.config.mjs", import.meta.url)),
+  connector: fileURLToPath(new URL("./agentconnect.config.mjs", import.meta.url)),
 }).run();
 ```
 
@@ -48,7 +48,7 @@ acme-db telemetry leaderboard      # "which acme-db tool costs the most"
 # Package the connector as an installable plugin/extension bundle.
 acme-db package --format claude-plugin
 
-# Every agent-connector subcommand is available, branded as `acme-db`:
+# Every agentconnect subcommand is available, branded as `acme-db`:
 acme-db --help
 ```
 

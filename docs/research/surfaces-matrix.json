@@ -288,7 +288,7 @@
       "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills",
       "https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/"
     ],
-    "notes": "GitHub Copilot adopted the Agent Skills open standard (announced 2025-12-18; stable in VS Code early Jan 2026). Same SKILL.md across Copilot coding agent, Copilot CLI, and VS Code agent mode. Project dirs: .github/skills/, .claude/skills/, or .agents/skills/. Personal dirs: ~/.copilot/skills/ or shared ~/.agents/skills/. Folder-per-skill, SKILL.md = markdown + YAML frontmatter (name + description). NOTE: this platformId (vscode-copilot) in agent-connector maps to the VS Code Copilot surface; the same skills also apply to copilot-cli."
+    "notes": "GitHub Copilot adopted the Agent Skills open standard (announced 2025-12-18; stable in VS Code early Jan 2026). Same SKILL.md across Copilot coding agent, Copilot CLI, and VS Code agent mode. Project dirs: .github/skills/, .claude/skills/, or .agents/skills/. Personal dirs: ~/.copilot/skills/ or shared ~/.agents/skills/. Folder-per-skill, SKILL.md = markdown + YAML frontmatter (name + description). NOTE: this platformId (vscode-copilot) in agentconnect maps to the VS Code Copilot surface; the same skills also apply to copilot-cli."
   },
   {
     "platformId": "copilot-cli",
@@ -307,7 +307,7 @@
       "https://docs.github.com/en/copilot/concepts/agents/about-agent-skills",
       "https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/"
     ],
-    "notes": "Copilot CLI shares the same Agent Skills standard and the same discovery dirs as the VS Code/GitHub Copilot surface (skills work across Copilot coding agent, Copilot CLI, and VS Code agent mode). Listed separately because agent-connector may carry a distinct copilot-cli PlatformId; if not, fold into vscode-copilot. Confidence medium only on the CLI-specific home-dir precedence (~/.copilot/skills vs ~/.agents/skills)."
+    "notes": "Copilot CLI shares the same Agent Skills standard and the same discovery dirs as the VS Code/GitHub Copilot surface (skills work across Copilot coding agent, Copilot CLI, and VS Code agent mode). Listed separately because agentconnect may carry a distinct copilot-cli PlatformId; if not, fold into vscode-copilot. Confidence medium only on the CLI-specific home-dir precedence (~/.copilot/skills vs ~/.agents/skills)."
   },
   {
     "platformId": "opencode",

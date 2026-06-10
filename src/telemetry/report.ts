@@ -136,7 +136,7 @@ export function formatReport(rows: RollupRow[], by: RollupDimension): string {
       lines.push(
         "note: tokenizer-calibrated = local approx adjusted by a sampled " +
           "Anthropic count_tokens factor (opt-in; content sampled off-box only " +
-          "when AGENT_CONNECTOR_CALIBRATE=anthropic).",
+          "when AGENTCONNECT_CALIBRATE=anthropic).",
       );
     }
   }

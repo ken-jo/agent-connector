@@ -23,7 +23,7 @@
  *   - macOS   → ~/Library/Application Support/Code/User
  *   - Windows → %APPDATA%/Code/User  (else ~/AppData/Roaming/Code/User)
  *   - Linux   → ~/.config/Code/User
- * An AGENT_CONNECTOR_KILO_DIR override (verbatim, non-empty, ~-expanded, resolved
+ * An AGENTCONNECT_KILO_DIR override (verbatim, non-empty, ~-expanded, resolved
  * against CWD when relative) points directly at a single `tasks` parent when set,
  * matching the env convention in paths.ts hostRoots.
  *
@@ -75,7 +75,7 @@ const KILO_EXTENSION_ID = "kilocode.kilo-code";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Storage-root resolution (mirrors readers/roo-code.ts vscodeUserDir + the
-// AGENT_CONNECTOR_<PLATFORM>_DIR env convention in paths.ts hostRoots, plus the
+// AGENTCONNECT_<PLATFORM>_DIR env convention in paths.ts hostRoots, plus the
 // remote .vscode-server server path the Rust scanner adds for KiloCode)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -96,14 +96,14 @@ function vscodeUserDir(): string {
 
 /**
  * The `tasks` roots holding per-task subdirectories. An
- * AGENT_CONNECTOR_KILO_DIR override (verbatim, non-empty, ~-expanded, resolved
+ * AGENTCONNECT_KILO_DIR override (verbatim, non-empty, ~-expanded, resolved
  * against CWD when relative) short-circuits to that single root. Otherwise we
  * return the desktop globalStorage tasks dir and the remote-host
  * ~/.vscode-server tasks dir (the two roots the Rust scanner discovers for
  * KiloCode); the caller scans whichever exist.
  */
 function tasksRoots(): string[] {
-  const raw = process.env.AGENT_CONNECTOR_KILO_DIR;
+  const raw = process.env.AGENTCONNECT_KILO_DIR;
   if (raw != null && raw.trim() !== "") {
     const expanded = expandHome(raw.trim());
     return [isAbsolute(expanded) ? expanded : resolve(expanded)];

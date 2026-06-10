@@ -48,10 +48,10 @@ function runCli(args: string[]): { code: number; stdout: string } {
   const env: NodeJS.ProcessEnv = { ...process.env };
   env.HOME = tmpHome;
   env.USERPROFILE = tmpHome;
-  env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+  env.AGENTCONNECT_DATA_DIR = tmpData;
   env.XDG_DATA_HOME = join(tmpHome, ".local", "share");
   env.XDG_CONFIG_HOME = join(tmpHome, ".config");
-  delete env.AGENT_CONNECTOR_TELEMETRY;
+  delete env.AGENTCONNECT_TELEMETRY;
   try {
     const stdout = execFileSync(process.execPath, [DIST_CLI, ...args], {
       env,

@@ -1,5 +1,5 @@
 /**
- * adapters/warp — Warp (Warp.dev) platform adapter for agent-connector.
+ * adapters/warp — Warp (Warp.dev) platform adapter for agentconnect.
  *
  * Warp is an **mcp-only** host: it has NO lifecycle hook system (open FR #7834),
  * and MCP *is* its extensibility mechanism ("MCP servers act as plugins"). This

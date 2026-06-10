@@ -40,7 +40,7 @@ import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
+const HOME_BIN = "/fake/stable/.agentconnect/bin/agentconnect";
 const CONNECTOR_ID = "acme-db";
 
 function buildConnector(
@@ -85,14 +85,14 @@ let savedKimiHomeNew: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
+  savedDataDir = process.env.AGENTCONNECT_DATA_DIR;
   savedKimiHome = process.env.KIMI_CODE_HOME;
   savedKimiHomeNew = process.env.KIMI_HOME;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
+  restore("AGENTCONNECT_DATA_DIR", savedDataDir);
   restore("KIMI_CODE_HOME", savedKimiHome);
   restore("KIMI_HOME", savedKimiHomeNew);
 });
@@ -106,7 +106,7 @@ function freshProject(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+  process.env.AGENTCONNECT_DATA_DIR = join(dir, ".agentconnect");
   delete process.env.KIMI_CODE_HOME;
   delete process.env.KIMI_HOME;
   return dir;
