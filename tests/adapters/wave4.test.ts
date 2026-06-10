@@ -56,6 +56,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -200,7 +201,10 @@ function restore(key: string, value: string | undefined): void {
  * env on the host machine can never leak into a project-scoped test.
  */
 function freshProject(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  // realpathSync.native expands the Windows 8.3 short tmpdir (C:\Users\RUNNER~1\…)
+  // to its long form so the later pathToFileURL() import of the generated bridge
+  // doesn't break on the "~" (round-trips as %7E and fails to load).
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");

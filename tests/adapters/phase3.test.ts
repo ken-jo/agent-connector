@@ -46,7 +46,7 @@
  * nothing escapes the sandbox.
  */
 
-import { existsSync, readFileSync, mkdtempSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -166,7 +166,10 @@ function restore(key: string, value: string | undefined): void {
 
 /** Fresh temp project dir + redirect HOME/data-root there so nothing escapes. */
 function freshProject(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  // realpathSync.native expands the Windows 8.3 short tmpdir (C:\Users\RUNNER~1\…)
+  // to its long form so the later pathToFileURL() import of the generated bridge
+  // doesn't break on the "~" (round-trips as %7E and fails to load).
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
