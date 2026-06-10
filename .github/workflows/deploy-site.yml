@@ -1,11 +1,10 @@
 name: Deploy site
 
 # Build site/ (Vite SPA) and publish it to GitHub Pages.
-# Until the custom domain (agent-connector.ai) is wired up, this serves at
-# https://ken-jo.github.io/agent-connector/ — hence VITE_BASE=/agent-connector/.
-# To switch to the apex domain later: drop VITE_BASE (base -> "/") and add a
-# site/public/CNAME with the domain (+ DNS). main.tsx reads the base for the
-# router basename, so routing follows automatically.
+# Served at the apex custom domain agent-connector.ai (site/public/CNAME), so the
+# build base is "/" (Vite default — no VITE_BASE). main.tsx reads the base for the
+# router basename, so routing follows automatically. The ken-jo.github.io/agent-
+# connector/ URL 301-redirects to the custom domain once DNS is live.
 
 on:
   push:
@@ -41,8 +40,6 @@ jobs:
       - run: npm ci
       - name: Build
         run: npm run build
-        env:
-          VITE_BASE: /agent-connector/
       - name: SPA fallback (deep-link refresh on Pages serves 404.html)
         run: cp dist/index.html dist/404.html
       - uses: actions/configure-pages@v5
