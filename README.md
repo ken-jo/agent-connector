@@ -349,4 +349,4 @@ npm run dev -- detect     # run the CLI from source via tsx
 
 ## License
 
-MIT © KenJo
+Apache-2.0 © 2026 KenJo

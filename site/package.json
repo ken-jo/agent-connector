@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Marketing landing page for agent-connector.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

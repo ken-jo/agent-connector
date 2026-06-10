@@ -74,7 +74,7 @@ export function Hero() {
           </div>
 
           <p className="animate-fade-up mt-5 text-xs text-muted-foreground">
-            MIT licensed · local-first telemetry · marketplace install supported · opt-out anytime
+            Apache-2.0 licensed · local-first telemetry · marketplace install supported · opt-out anytime
           </p>
         </div>
       </div>

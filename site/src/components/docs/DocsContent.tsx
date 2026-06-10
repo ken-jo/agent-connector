@@ -127,7 +127,7 @@ export function Installation() {
       <Callout title="Engines">
         Node <C>&gt;=18.17</C>, ESM only. Runtime deps are pure-JS / WASM (
         <C>gpt-tokenizer</C>, <C>sql.js</C>, <C>fzstd</C>, <C>@iarna/toml</C>,{" "}
-        <C>yaml</C>) — no native build. License: MIT © KenJo.
+        <C>yaml</C>) — no native build. License: Apache-2.0 © KenJo.
       </Callout>
 
       <H3 id="optional-global">Optional: use the CLI directly</H3>

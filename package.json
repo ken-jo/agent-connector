@@ -17,7 +17,7 @@
     "tokens",
     "multi-platform"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "KenJo",
   "repository": {
     "type": "git",
@@ -45,7 +45,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=18.17"

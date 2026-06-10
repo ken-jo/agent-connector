@@ -713,7 +713,7 @@ connector (see `examples/branded-cli`); explicit `--connector`/`--connector-id`
 always overrides.
 
 Engines: Node `>=18.17`, ESM only. Runtime deps are pure-JS / WASM (`gpt-tokenizer`,
-`sql.js`, `fzstd`, `@iarna/toml`, `yaml`) — no native build. License: MIT © KenJo.
+`sql.js`, `fzstd`, `@iarna/toml`, `yaml`) — no native build. License: Apache-2.0 © KenJo.
 
 ## Links
 - README.md — overview + quick start.
