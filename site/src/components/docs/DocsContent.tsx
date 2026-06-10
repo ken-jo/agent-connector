@@ -226,12 +226,38 @@ export function QuickStart() {
   return (
     <DocSection id="quick-start" eyebrow="Getting Started" title="Quick start">
       <Lead>
-        The Quick start <strong>forks by audience</strong>. Track A is for the{" "}
-        <strong>MCP developer</strong> deploying their own MCP everywhere; Track
-        B is for the <strong>agent-CLI user</strong> who just wants to see the
-        token usage of the agent CLIs they already use. Follow the one that
-        matches you.
+        The Quick start <strong>forks by audience</strong>. Track B — the{" "}
+        <strong>agent-CLI user</strong> who just wants to see the token usage of
+        the CLIs they already use — comes first: it is a few lines and needs no
+        connector. Track A is the <strong>MCP developer</strong> deploying their
+        own MCP everywhere; everything after it is theirs.
       </Lead>
+
+      <H3 id="qs-user">
+        🖥️ Track B — Agent-CLI user: see the usage of the CLIs I use
+      </H3>
+      <P>
+        No <C>defineConnector</C>, no config file, no install. If you simply want
+        to know how many tokens your agent CLIs are burning, run one command and
+        agent-connector reads their own session logs read-only:
+      </P>
+      <CodeBlock code={S.usageQuickStartSnippet} language="bash" filename="terminal" />
+      <Callout title="What this can and cannot show" tone="warn">
+        <C>usage</C> reports <strong>whole-conversation totals</strong> grouped
+        by platform / model / project / session / day — it does{" "}
+        <strong>not</strong> itemize cost per MCP server or per tool, because
+        agent CLIs don&apos;t log per-tool token attribution. Per-MCP and
+        per-tool token costs require an MCP to run through agent-connector&apos;s
+        serve proxy, which is the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/quick-start#qs-developer">
+          MCP-developer track
+        </Link>{" "}
+        below. Full details on the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/usage">
+          usage page
+        </Link>
+        . That&apos;s the entire agent-CLI track — everything below is Track A.
+      </Callout>
 
       <H3 id="qs-developer">
         🔌 Track A — MCP developer: deploy MY MCP everywhere
@@ -272,32 +298,6 @@ export function QuickStart() {
         no separate global install is required. Per-tool telemetry for your own
         wrapped server is automatic for <strong>stdio</strong> servers; remote
         servers are registered but not wrapped.
-      </Callout>
-
-      <H3 id="qs-user">
-        🖥️ Track B — Agent-CLI user: see the usage of the CLIs I use
-      </H3>
-      <P>
-        No <C>defineConnector</C>, no config file, no install. If you simply want
-        to know how many tokens your agent CLIs are burning, run one command and
-        agent-connector reads their own session logs read-only:
-      </P>
-      <CodeBlock code={S.usageQuickStartSnippet} language="bash" filename="terminal" />
-      <Callout title="What this can and cannot show" tone="warn">
-        <C>usage</C> reports <strong>whole-conversation totals</strong> grouped
-        by platform / model / project / session / day — it does{" "}
-        <strong>not</strong> itemize cost per MCP server or per tool, because
-        agent CLIs don&apos;t log per-tool token attribution. Per-MCP and
-        per-tool token costs require an MCP to run through agent-connector&apos;s
-        serve proxy, which is the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/quick-start#qs-developer">
-          MCP-developer track
-        </Link>{" "}
-        above. Full details on the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/usage">
-          usage page
-        </Link>
-        .
       </Callout>
     </DocSection>
   );

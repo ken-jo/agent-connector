@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Section, SectionHeading } from "@/components/sections/Section";
@@ -127,12 +128,28 @@ export function Telemetry() {
             unit="CONNECTOR"
           />
 
-          <LeaderboardTable
-            title="Host / User leaderboard"
-            icon="🖥️"
-            rows={hostLeaderboard}
-            unit="HOST"
-          />
+          <div className="space-y-2.5">
+            <LeaderboardTable
+              title="Host / User leaderboard"
+              icon="🖥️"
+              rows={hostLeaderboard}
+              unit="HOST"
+            />
+
+            <p className="px-1 text-xs leading-relaxed text-muted-foreground">
+              No connector? The connector-free{" "}
+              <code className="font-mono text-foreground">usage</code> command
+              gives you a host view like this from your agent CLIs&apos; own
+              logs — whole-conversation token totals per CLI / model, never
+              per-tool.{" "}
+              <Link
+                to="/docs/usage"
+                className="underline underline-offset-4 transition-colors hover:text-foreground"
+              >
+                See your agent-CLI usage →
+              </Link>
+            </p>
+          </div>
 
           <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/30 p-3.5 text-xs leading-relaxed text-muted-foreground">
             <Info className="mt-0.5 size-4 shrink-0" />

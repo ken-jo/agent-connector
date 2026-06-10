@@ -111,46 +111,10 @@ static code/web audit missed. See the reports under
 
 ## Quick start
 
-The Quick start forks by audience. Build an integration? Start with **MCP
-developer**. Just want to see your agent CLIs' token usage? Skip straight to
-**Agent-CLI end user** — it needs no connector at all.
-
-### MCP developer
-
-> **Audience A** — you write an MCP server + hooks once and deploy them across
-> every detected host, measuring **your own server's** per-tool tokens.
-
-agent-connector is an **SDK you depend on**, not a global tool. Add it to the
-package that holds your connector, declare the connector once, then **either**
-ship a branded CLI your users drive directly **or** run it with `npx`. No
-separate global install is required.
-
-```bash
-# 1. add agent-connector as a DEPENDENCY of your connector package
-npm install @ken-jo/agent-connector
-
-# 2. write agent-connector.config.mjs (defineConnector — see "Define once" below)
-
-# 3a. ship a branded CLI so YOUR users drive it (auto-scoped — no --connector):
-acme-db detect             # which platforms are installed here?
-acme-db install --dry-run  # preview every change across the detected hosts
-acme-db install            # deploy across the hosts detected on this machine
-acme-db leaderboard        # acme-db's token footprint vs the boards
-acme-db package            # OR emit a marketplace-installable plugin (below)
-
-# 3b. …or just run it from the project with npx — still no global install:
-npx @ken-jo/agent-connector detect
-npx @ken-jo/agent-connector install
-```
-
-> `install` targets only the hosts actually **detected** on this machine (or an
-> explicit `--targets` / `connector.targets` list), intersected with the
-> 29-adapter registry — there is no "install to all 29 unconditionally" path.
-
-> **Optional convenience.** A global `npm i -g @ken-jo/agent-connector` is **not**
-> required for the flow above — `npx @ken-jo/agent-connector …` runs it straight from
-> your project. Install it globally only if you want to poke at the CLI by hand
-> outside any connector package.
+The Quick start forks by audience. Just want to see your agent CLIs' token
+usage? **Agent-CLI end user** comes first — it needs no connector at all, and
+those few lines are the entire track. Build an integration? Skip ahead to
+**MCP developer** — everything from there to the end of the README is yours.
 
 ### Agent-CLI end user
 
@@ -186,6 +150,49 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 > antigravity-cli, trae, warp** — are reported as skipped (`requires sync — no
 > local cache found`) unless a local cache already exists, since agent-connector
 > does not populate that cache.
+
+> **That's the entire agent-CLI track.** Everything below this point is the
+> MCP-developer track. ([back to top](#agent-connector))
+
+### MCP developer
+
+> **Audience A** — you write an MCP server + hooks once and deploy them across
+> every detected host, measuring **your own server's** per-tool tokens.
+
+agent-connector is an **SDK you depend on**, not a global tool. Add it to the
+package that holds your connector, declare the connector once, then **either**
+ship a branded CLI your users drive directly **or** run it with `npx`. No
+separate global install is required.
+
+```bash
+# 1. add agent-connector as a DEPENDENCY of your connector package
+npm install @ken-jo/agent-connector
+
+# 2. write agent-connector.config.mjs (defineConnector — see "Define once" below)
+
+# 3a. ship a branded CLI so YOUR users drive it (auto-scoped — no --connector):
+acme-db detect             # which platforms are installed here?
+acme-db install --dry-run  # preview every change across the detected hosts
+acme-db install            # deploy across the hosts detected on this machine
+acme-db doctor             # health-check every detected platform — add --probe for a live MCP handshake (initialize → ping → tools/list)
+acme-db upgrade            # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
+acme-db leaderboard        # acme-db's token footprint vs the boards
+acme-db package            # OR distribute: marketplace plugin (9 formats) — or --format mcp-server-json | mcpb for the MCP Registry / an MCPB bundle (see "Publish to the MCP ecosystem")
+acme-db uninstall          # full inverse — removes everything install wrote; --purge clears framework state; --dry-run works here too
+
+# 3b. …or just run it from the project with npx — still no global install:
+npx @ken-jo/agent-connector detect
+npx @ken-jo/agent-connector install
+```
+
+> `install` targets only the hosts actually **detected** on this machine (or an
+> explicit `--targets` / `connector.targets` list), intersected with the
+> 29-adapter registry — there is no "install to all 29 unconditionally" path.
+
+> **Optional convenience.** A global `npm i -g @ken-jo/agent-connector` is **not**
+> required for the flow above — `npx @ken-jo/agent-connector …` runs it straight from
+> your project. Install it globally only if you want to poke at the CLI by hand
+> outside any connector package.
 
 ### Embed it / ship a branded CLI
 

@@ -47,8 +47,10 @@ cd my-mcp-project                    # contains agent-connector.config.mjs
 npx @ken-jo/agent-connector detect              # which hosts are installed here?
 npx @ken-jo/agent-connector install --dry-run   # preview every change, everywhere
 npx @ken-jo/agent-connector install             # deploy across detected hosts (subset of the 29 adapters)
-npx @ken-jo/agent-connector doctor              # per-platform health checks
+npx @ken-jo/agent-connector doctor              # per-platform health checks — add --probe for a live MCP handshake (initialize → ping → tools/list)
+npx @ken-jo/agent-connector upgrade             # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
 npx @ken-jo/agent-connector telemetry report --by tool   # per-tool footprint of YOUR wrapped server
+npx @ken-jo/agent-connector uninstall           # full inverse — removes everything install wrote (--purge clears framework state; --dry-run works here too)
 ```
 
 Or ship a branded CLI: `createConnectorCli({ name, connector })` from `agent-connector/cli` exposes every subcommand under your own bin, auto-scoped to your connector (`acme-db install` ≈ `agent-connector install --connector ./agent-connector.config.mjs`; explicit `--connector`/`--connector-id` always overrides).

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { REPO_URL } from "@/data";
 
 const links = [
+  { href: "#audiences", label: "Who it's for" },
   { href: "#pillars", label: "Pillars" },
   { href: "#surfaces", label: "Surfaces" },
   { href: "#platforms", label: "Platforms" },
@@ -76,6 +77,17 @@ export function Nav() {
             )}
           >
             Docs
+          </Link>
+          <Link
+            to="/docs/usage"
+            className={cn(
+              "rounded-md px-3 py-2 text-sm transition-colors hover:text-foreground",
+              pathname === "/docs/usage"
+                ? "font-medium text-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            Usage
           </Link>
         </nav>
         <div className="flex items-center gap-1.5">

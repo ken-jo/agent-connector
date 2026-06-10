@@ -16,6 +16,11 @@ export interface NavItem {
 export interface NavGroup {
   title: string;
   items: NavItem[];
+  /**
+   * Optional audience tag, rendered as a small badge in the sidebar group
+   * header — the two tracks share one nav tree but are explicitly labeled.
+   */
+  audience?: "mcp-dev" | "cli-user";
 }
 
 export const navGroups: NavGroup[] = [
@@ -26,6 +31,13 @@ export const navGroups: NavGroup[] = [
       { id: "installation", label: "Installation" },
       { id: "quick-start", label: "Quick start" },
       { id: "embed-cli", label: "Embed it / branded CLI" },
+    ],
+  },
+  {
+    title: "Track token usage (agent-CLI users)",
+    audience: "cli-user",
+    items: [
+      { id: "usage", label: "See your agent-CLI usage" },
     ],
   },
   {
@@ -44,13 +56,8 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: "Track token usage (agent-CLI users)",
-    items: [
-      { id: "usage", label: "See your agent-CLI usage" },
-    ],
-  },
-  {
     title: "Telemetry (MCP developers)",
+    audience: "mcp-dev",
     items: [
       { id: "telemetry-overview", label: "Overview" },
       { id: "telemetry-surfaces", label: "The 5-surface model" },
@@ -88,6 +95,19 @@ export const sectionLabel: Record<string, string> = Object.fromEntries(
 /** Set of every valid section id — used to detect unknown :section params. */
 export const sectionIds: ReadonlySet<string> = new Set(sectionOrder);
 
+/**
+ * Per-section prev/next overrides for the pager, where raw sectionOrder would
+ * route a reader into the other audience's track. `usage` (the agent-CLI
+ * track's single page) exits forward to the CLI reference — where every usage
+ * flag lives — instead of interleaving into the MCP-developer Core API.
+ */
+export const pagerOverrides: Record<
+  string,
+  { prev?: string; next?: string }
+> = {
+  usage: { prev: "quick-start", next: "cli" },
+};
+
 /** Per-section <meta name="description"> copy (for /docs/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
@@ -95,7 +115,7 @@ export const sectionDescription: Record<string, string> = {
   installation:
     "Install agent-connector as a dependency of your connector package (npm install @ken-jo/agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
-    "The Quick start forks by audience. MCP developers: depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector to deploy their MCP everywhere. Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup to see the token usage of the agent CLIs they already use.",
+    "The Quick start forks by audience. MCP developers: depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector to deploy their MCP everywhere — then verify with doctor, heal with upgrade, and reverse with uninstall. Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup to see the token usage of the agent CLIs they already use.",
   "embed-cli":
     "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
   "define-connector":

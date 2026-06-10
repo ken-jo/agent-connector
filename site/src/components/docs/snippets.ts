@@ -41,8 +41,12 @@ npm install @ken-jo/agent-connector
 acme-db detect            # list installed hosts + paradigms
 acme-db install --dry-run # preview the diff
 acme-db install           # write native configs everywhere
+acme-db doctor            # verify — add --probe for a live MCP handshake (initialize → ping → tools/list)
+acme-db upgrade           # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
 acme-db leaderboard       # acme-db's token footprint vs the boards
 acme-db telemetry report --by tool   # which of acme-db's tools cost the most tokens
+# distribute? acme-db package — 9 marketplace formats, or --format mcp-server-json | mcpb (see Packaging)
+acme-db uninstall         # full inverse — removes everything install wrote (--purge, --dry-run work too)
 
 # 3b. …or just run it from the project with npx — no global install:
 npx @ken-jo/agent-connector detect

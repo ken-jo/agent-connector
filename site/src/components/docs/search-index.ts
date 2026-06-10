@@ -34,16 +34,29 @@ export interface SearchEntry {
  * DocsContent.tsx. Titles are the human heading text shown in the result row.
  */
 const sectionHeadings: Record<string, { id: string; title: string }[]> = {
-  introduction: [{ id: "two-pillars", title: "Two pillars" }],
+  introduction: [
+    { id: "two-audiences", title: "Two audiences, two tracks" },
+    { id: "two-pillars", title: "Two pillars" },
+  ],
   installation: [
     { id: "optional-global", title: "Optional: use the CLI directly" },
     { id: "from-source", title: "From source" },
+  ],
+  "quick-start": [
+    {
+      id: "qs-user",
+      title: "🖥️ Track B — Agent-CLI user: see the usage of the CLIs I use",
+    },
   ],
   "embed-cli": [
     { id: "embed-package", title: "Depend on it + add a bin" },
     { id: "embed-bin", title: "createConnectorCli in your bin" },
     { id: "embed-usage", title: "Your users drive your brand" },
     { id: "embed-scoping", title: "Auto-scoping & the shared home binary" },
+  ],
+  usage: [
+    { id: "usage-run", title: "Run it" },
+    { id: "usage-confidence", title: "Coverage & confidence" },
   ],
   "define-connector": [
     { id: "connector-config", title: "ConnectorConfig" },

@@ -117,9 +117,12 @@ agent-connector detect                      # which hosts are installed + scope 
 agent-connector install --dry-run           # preview every change, everywhere (nothing written)
 agent-connector install                     # deploy across detected hosts
 agent-connector install --scope project --targets claude-code,codex   # narrow it
-agent-connector doctor                      # per-platform health checks (non-zero exit on FAIL)
+agent-connector doctor [--probe]            # health checks; --probe spawns the real stdio server: initialize → ping → tools/list; non-zero exit on FAIL
+agent-connector status                      # glanceable install-state, ALWAYS exits 0 — doctor is the gate, status is the glance
 agent-connector upgrade                     # ONE verb: re-render + heal stale pointers + managed-update guidance (aliases: sync, update)
 agent-connector uninstall                   # full inverse — removes everything we wrote
+agent-connector package                     # marketplace bundle, claude-plugin default (9 host formats)
+agent-connector package --format mcp-server-json|mcpb   # official MCP Registry server.json / MCPB bundle — requires the connector's publish{} block; see /docs/packaging
 ```
 
 `--scope` is `user` (default) or `project`. `--targets` is a comma-separated

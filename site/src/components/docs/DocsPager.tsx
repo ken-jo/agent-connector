@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { sectionOrder, sectionLabel, navGroups } from "./docs-data";
+import { sectionOrder, sectionLabel, navGroups, pagerOverrides } from "./docs-data";
 
 /** Group title that owns a given section id (for the pager sub-label). */
 function groupOf(id: string): string | undefined {
@@ -8,16 +8,20 @@ function groupOf(id: string): string | undefined {
 }
 
 /**
- * Prev / next page footer pager, driven entirely by sectionOrder + sectionLabel.
- * `activeId` is the section id of the current page; the pager links to its
- * neighbours' pages in reading order.
+ * Prev / next page footer pager, driven by sectionOrder + sectionLabel, with
+ * per-section pagerOverrides so a track-terminal page (e.g. the agent-CLI
+ * `usage` page) doesn't interleave into the other audience's reading order.
  */
 export function DocsPager({ activeId }: { activeId: string }) {
   const idx = sectionOrder.indexOf(activeId);
   if (idx === -1) return null;
 
-  const prevId = idx > 0 ? sectionOrder[idx - 1] : undefined;
-  const nextId = idx < sectionOrder.length - 1 ? sectionOrder[idx + 1] : undefined;
+  const override = pagerOverrides[activeId];
+  const prevId =
+    override?.prev ?? (idx > 0 ? sectionOrder[idx - 1] : undefined);
+  const nextId =
+    override?.next ??
+    (idx < sectionOrder.length - 1 ? sectionOrder[idx + 1] : undefined);
 
   if (!prevId && !nextId) return null;
 

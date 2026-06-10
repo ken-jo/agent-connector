@@ -78,6 +78,18 @@ export function DocsSidebar({
                   )}
                 />
                 {group.title}
+                {group.audience ? (
+                  <span
+                    className={cn(
+                      "ml-auto shrink-0 rounded-full border px-1.5 py-px font-mono text-[0.58rem] font-medium normal-case tracking-normal",
+                      group.audience === "cli-user"
+                        ? "border-emerald-500/40 text-emerald-500"
+                        : "border-blue-500/40 text-blue-400",
+                    )}
+                  >
+                    {group.audience === "cli-user" ? "🖥️ user" : "🔌 dev"}
+                  </span>
+                ) : null}
               </button>
               {isOpen ? (
                 <ul

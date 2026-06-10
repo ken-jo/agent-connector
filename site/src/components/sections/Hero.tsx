@@ -76,6 +76,16 @@ export function Hero() {
           <p className="animate-fade-up mt-5 text-xs text-muted-foreground">
             Apache-2.0 licensed · local-first telemetry · marketplace install supported · opt-out anytime
           </p>
+
+          <p className="animate-fade-up mt-2 text-xs text-muted-foreground">
+            Not building anything?{" "}
+            <Link
+              to="/docs/usage"
+              className="underline underline-offset-4 transition-colors hover:text-foreground"
+            >
+              See your agent CLIs&apos; token usage →
+            </Link>
+          </p>
         </div>
       </div>
     </section>

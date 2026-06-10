@@ -1,6 +1,7 @@
 import { SkipLink } from "@/components/ui/skip-link";
 import { Nav } from "@/components/sections/Nav";
 import { Hero } from "@/components/sections/Hero";
+import { Audiences } from "@/components/sections/Audiences";
 import { Pillars } from "@/components/sections/Pillars";
 import { Surfaces } from "@/components/sections/Surfaces";
 import { Platforms } from "@/components/sections/Platforms";
@@ -18,6 +19,7 @@ export function Landing() {
       <Nav />
       <main id="main-content" tabIndex={-1} className="outline-none">
         <Hero />
+        <Audiences />
         <Efficiency />
         <Pillars />
         <Surfaces />
