@@ -95,6 +95,12 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "command-def", title: "CommandDef" },
     { id: "skill-def", title: "SkillDef" },
     { id: "subagent-def", title: "SubagentDef" },
+    { id: "memory-def", title: "MemoryDef (memory surface)" },
+    {
+      id: "memory-managed-blocks",
+      title: "Managed blocks: markers, hashes, reversibility",
+    },
+    { id: "memory-targets", title: "AGENTS.md-first: where the block goes" },
     { id: "surface-validation", title: "Validation rules" },
     { id: "surface-support", title: "Per-platform surface support" },
   ],

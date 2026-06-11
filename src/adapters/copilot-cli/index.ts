@@ -48,7 +48,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -181,6 +181,9 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
+    // via the base default; user scope → ~/.copilot/copilot-instructions.md below).
+    supportsMemory: true,
     // Copilot CLI delivers the full Claude-compatible lifecycle event set.
     preToolUse: true,
     postToolUse: true,
@@ -232,6 +235,23 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         : `no GitHub Copilot CLI config at ${userDir}`,
       confidence: installed ? "high" : "low",
     };
+  }
+
+  // ── Memory surface: user-scope global instructions file ─────────────────
+  // Project scope stays on the AGENTS.md base default (root AGENTS.md is the
+  // primary instructions file). User scope targets Copilot CLI's documented
+  // $HOME/.copilot/copilot-instructions.md — a markdown file shared with other
+  // writers, so the managed block (not whole-file ownership) applies as usual.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "user") {
+      return super.memoryTargets(ctx);
+    }
+    return [
+      {
+        path: join(homedir(), ".copilot", "copilot-instructions.md"),
+        reason: "copilot-cli global instructions (~/.copilot/copilot-instructions.md)",
+      },
+    ];
   }
 
   // ── Native paths ─────────────────────────────────────────────────────────

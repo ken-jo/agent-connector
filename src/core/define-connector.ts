@@ -13,12 +13,18 @@ import type {
   ConnectorConfig,
   HookEventName,
   HooksConfig,
+  MemoryDef,
   PublishConfig,
   ResolvedConnector,
   SkillDef,
   SubagentDef,
 } from "./types.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
+import {
+  MANAGED_BLOCK_BEGIN_TOKEN,
+  MANAGED_BLOCK_END_TOKEN,
+  MEMORY_CONTENT_HARD_CAP_BYTES,
+} from "./managed-block.js";
 import {
   CONFIG_PATCH_SEGMENT_RE,
   configPatchNamespaceViolation,
@@ -80,6 +86,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const hasCommands = Array.isArray(config.commands) && config.commands.length > 0;
   const hasSkills = Array.isArray(config.skills) && config.skills.length > 0;
   const hasSubagents = Array.isArray(config.subagents) && config.subagents.length > 0;
+  const hasMemory = Array.isArray(config.memory) && config.memory.length > 0;
   // A platform-scoped nativeHooks declaration is a legitimate sole payload
   // (a hooks-only connector wired entirely through native passthrough events).
   const hasNativeHooks = Object.values(config.platforms ?? {}).some(
@@ -97,11 +104,12 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     !hasCommands &&
     !hasSkills &&
     !hasSubagents &&
+    !hasMemory &&
     !hasNativeHooks &&
     !hasConfigPatch
   ) {
     throw new ConnectorConfigError(
-      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, " +
+      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, " +
         "or a per-platform `nativeHooks` / `configPatch` declaration",
     );
   }
@@ -147,6 +155,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const commands = normalizeCommands(config.commands);
   const skills = normalizeSkills(config.skills);
   const subagents = normalizeSubagents(config.subagents);
+  const memory = normalizeMemory(config.memory);
 
   const t = config.telemetry ?? {};
 
@@ -172,6 +181,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     commands,
     skills,
     subagents,
+    memory,
     platforms: config.platforms ?? {},
     targets: config.targets ?? "auto",
     ...(config.publish ? { publish: normalizePublish(config.publish) } : {}),
@@ -436,6 +446,59 @@ function assertSafeResourceKeys(
       );
     }
   }
+}
+
+/** Default name for a single-entry memory declaration. */
+const MEMORY_DEFAULT_NAME = "memory";
+
+/**
+ * Validate + normalize `memory` entries (the managed-block content surface).
+ *   - `name` defaults to "memory", then must be kebab-case and unique — it is
+ *     half of the block marker id (`<connectorId>/<name>`) and must stay stable;
+ *   - `content` must be a non-empty string, ≤ 16 KiB (hard cap — memory files
+ *     are injected into every prompt of every session on the host), and must
+ *     NOT contain the literal marker tokens `agent-connector:begin` /
+ *     `agent-connector:end` (they would corrupt marker scanning in the shared
+ *     file — rephrase the guidance instead). The 4 KiB SOFT budget is reported
+ *     at install time as a `warn` ChangeRecord, not a config error
+ *     (defineConnector has no warning channel).
+ */
+function normalizeMemory(input: MemoryDef[] | undefined): MemoryDef[] {
+  if (input == null) return [];
+  if (!Array.isArray(input)) {
+    throw new ConnectorConfigError("memory must be an array");
+  }
+  const seen = new Set<string>();
+  return input.map((entry, i) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ConnectorConfigError(`memory[${i}] must be an object`);
+    }
+    const name =
+      entry.name === undefined
+        ? MEMORY_DEFAULT_NAME
+        : assertSurfaceName("memory", entry.name, i);
+    assertNoDuplicate("memory", seen, name, i);
+    const content = assertNonEmptyString("memory", i, "content", entry.content);
+    const bytes = Buffer.byteLength(content, "utf8");
+    if (bytes > MEMORY_CONTENT_HARD_CAP_BYTES) {
+      throw new ConnectorConfigError(
+        `memory[${i}].content exceeds the ${MEMORY_CONTENT_HARD_CAP_BYTES}-byte hard cap ` +
+          `(got ${bytes} bytes); memory is inlined into every prompt of every targeted host — keep it terse`,
+      );
+    }
+    for (const token of [MANAGED_BLOCK_BEGIN_TOKEN, MANAGED_BLOCK_END_TOKEN]) {
+      if (content.includes(token)) {
+        throw new ConnectorConfigError(
+          `memory[${i}].content must not contain the literal marker token "${token}" ` +
+            `(it would corrupt managed-block scanning in the shared memory file); rephrase the guidance`,
+        );
+      }
+    }
+    if (entry.description !== undefined && typeof entry.description !== "string") {
+      throw new ConnectorConfigError(`memory[${i}].description must be a string`);
+    }
+    return { ...entry, name };
+  });
 }
 
 function normalizeSubagents(input: SubagentDef[] | undefined): SubagentDef[] {

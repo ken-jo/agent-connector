@@ -51,7 +51,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   CommandDef,
@@ -179,6 +179,11 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
+    // via the base default — Qwen reads repo AGENTS.md natively alongside QWEN.md,
+    // so no QWEN.md duplicate; user scope → ~/.qwen/QWEN.md below, the only
+    // documented user-scope memory file).
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
@@ -236,6 +241,24 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
         : `no Qwen CLI config at ${userDir}`,
       confidence: installed ? "high" : "low",
     };
+  }
+
+  // ── Memory surface: ~/.qwen/QWEN.md at user scope ────────────────────────
+  // Project scope stays on the AGENTS.md base default (Qwen reads the repo
+  // AGENTS.md natively in ADDITION to QWEN.md — one canonical copy, never a
+  // QWEN.md duplicate). User scope targets ~/.qwen/QWEN.md: Qwen has no
+  // user-scope AGENTS.md, so the host's own global memory file is the only
+  // file it actually reads there.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "user") {
+      return super.memoryTargets(ctx);
+    }
+    return [
+      {
+        path: join(homedir(), ".qwen", "QWEN.md"),
+        reason: "qwen-code global memory (~/.qwen/QWEN.md; no user-scope AGENTS.md exists)",
+      },
+    ];
   }
 
   // ── Native paths ─────────────────────────────────────────────────────────

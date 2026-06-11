@@ -39,6 +39,8 @@ export type {
   SubagentStartEvent,
   SubagentStopEvent,
   TelemetryConfig,
+  MemoryDef,
+  PlatformMemoryOverride,
   PlatformId,
   PlatformOverride,
   PlatformCapabilities,

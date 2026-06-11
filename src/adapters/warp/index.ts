@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -67,6 +67,10 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block. memoryTargets below probes
+    // for a legacy WARP.md (it takes priority over AGENTS.md in the same dir);
+    // user-scope rules live in Warp Drive (cloud) → standard skip-warn.
+    supportsMemory: true,
     // Warp has no lifecycle hook system — every hook capability is false.
     preToolUse: false,
     postToolUse: false,
@@ -103,6 +107,27 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
         : `no Warp config at ${userDir}`,
       confidence: installed ? "high" : "low",
     };
+  }
+
+  // ── Memory surface: WARP.md shadow probe (project scope) ────────────────
+  // AGENTS.md is Warp's DEFAULT project rules file, but a legacy WARP.md in
+  // the same directory still takes priority — a block in AGENTS.md beside an
+  // existing WARP.md would be shadowed, so the probe targets the file Warp
+  // actually reads. User scope has no row in the base map (Warp Drive rules
+  // are cloud-managed) → the standard skip-warn.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "project") {
+      return super.memoryTargets(ctx);
+    }
+    const warpMd = join(ctx.projectDir, "WARP.md");
+    if (existsSync(warpMd)) {
+      return [
+        { path: warpMd, reason: "WARP.md takes priority over AGENTS.md in the same dir on warp" },
+      ];
+    }
+    return [
+      { path: join(ctx.projectDir, "AGENTS.md"), reason: "AGENTS.md (warp's default rules file)" },
+    ];
   }
 
   // ── Native paths ─────────────────────────────────────────────────────────

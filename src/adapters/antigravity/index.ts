@@ -180,6 +180,9 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
+    // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
+    supportsMemory: true,
     // Antigravity 2.0 fires PreToolUse / PostToolUse / SessionStart / Stop.
     preToolUse: true,
     postToolUse: true,

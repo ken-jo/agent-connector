@@ -163,6 +163,9 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
+    // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
+    supportsMemory: true,
     // Cursor natively supports pre/post tool-use, session start, and stop.
     preToolUse: true,
     postToolUse: true,

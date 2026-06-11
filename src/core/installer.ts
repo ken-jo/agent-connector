@@ -48,6 +48,7 @@ import {
   homeBinPath,
 } from "./paths.js";
 import { configPatchManualEdit } from "./config-patch-ledger.js";
+import { hasMemoryLedger } from "./managed-block.js";
 import { log } from "./logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -68,6 +69,12 @@ export interface OrchestrationOptions {
   targets?: PlatformId[];
   /** Render but do not write anything. */
   dryRun: boolean;
+  /**
+   * Overwrite USER-EDITED managed memory blocks (hash drift). Default false:
+   * drift is reported as a `warn` and the user's in-block edits are left
+   * intact. With force, a one-time timestamped backup is written first.
+   */
+  force?: boolean;
 }
 
 /** Options for {@link uninstallConnector}. */
@@ -107,7 +114,7 @@ export interface UninstallOptions {
 export async function installConnector(
   opts: OrchestrationOptions,
 ): Promise<InstallResult> {
-  const { connector, modulePath, scope, projectDir, dryRun } = opts;
+  const { connector, modulePath, scope, projectDir, dryRun, force } = opts;
 
   // 1. Stable home binary + connector registry record. These are framework-state
   //    mutations (never platform-native config) and are safe to skip on dry-run.
@@ -138,7 +145,7 @@ export async function installConnector(
     const adapter = await tryLoadAdapter(id, result);
     if (!adapter) continue;
 
-    const ctx = buildContext(connector, id, scope, projectDir, dryRun);
+    const ctx = buildContext(connector, id, scope, projectDir, dryRun, force);
 
     // Back up native settings before any mutation (no-op on dry-run / absent file).
     if (!dryRun) {
@@ -194,6 +201,15 @@ export async function installConnector(
     if (connector.subagents.length) {
       runStep(id, "installSubagents", result, () => {
         pushAll(result.changes, adapter.installSubagents!(ctx));
+      });
+    }
+    // Memory (managed blocks in the host's memory/rules file) installs LAST
+    // among the content surfaces; uninstall removes it FIRST (the inverse).
+    // `?? []` tolerates pre-resolved connectors from versions before the
+    // memory surface existed (loadConnectorFromPath passes those through).
+    if ((connector.memory ?? []).length) {
+      runStep(id, "installMemory", result, () => {
+        pushAll(result.changes, adapter.installMemory!(ctx));
       });
     }
 
@@ -283,6 +299,17 @@ export async function uninstallConnector(
     if (adapter.capabilities.supportsConfigPatch ?? false) {
       runStep(id, "uninstallConfigPatches", result, () => {
         pushAll(result.changes, adapter.uninstallConfigPatches!(ctx));
+      });
+    }
+
+    // Memory is removed FIRST among the content surfaces (inverse of its
+    // install-last position). The guard is widened beyond the declaration:
+    // an id-only synthetic uninstall (connector record lost) still reclaims
+    // blocks via the persisted memory ledger + the marker prefix-scan.
+    // (`?? []` tolerates pre-memory-surface resolved connectors.)
+    if ((connector.memory ?? []).length > 0 || hasMemoryLedger(connector.id)) {
+      runStep(id, "uninstallMemory", result, () => {
+        pushAll(result.changes, adapter.uninstallMemory!(ctx));
       });
     }
 
@@ -490,6 +517,7 @@ function buildContext(
   defaultScope: InstallScope,
   projectDir: string,
   dryRun: boolean,
+  force = false,
 ): InstallContext {
   return {
     connector,
@@ -498,6 +526,7 @@ function buildContext(
     homeBinPath: homeBinPath(),
     dataRoot: dataRoot(),
     dryRun,
+    force,
   };
 }
 
@@ -583,6 +612,7 @@ function syntheticConnector(id: string): ResolvedConnector {
     commands: [],
     skills: [],
     subagents: [],
+    memory: [],
     platforms: {},
     targets: "auto",
   };

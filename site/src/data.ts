@@ -4,6 +4,7 @@ import {
   TerminalSquare,
   Sparkles,
   Bot,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -171,7 +172,7 @@ export const pillars: Pillar[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Five surfaces                                                       */
+/* Six surfaces                                                        */
 /* ------------------------------------------------------------------ */
 
 export interface Surface {
@@ -205,6 +206,12 @@ export const surfaces: Surface[] = [
     name: "Subagents",
     description: "Specialized agents shipped natively wherever the host allows.",
     icon: Bot,
+  },
+  {
+    name: "Memory",
+    description:
+      "Standing guidance as reversible managed blocks — landing in the standard AGENTS.md on 27 hosts.",
+    icon: BookOpen,
   },
 ];
 

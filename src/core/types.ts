@@ -542,6 +542,14 @@ export interface PlatformCapabilities {
   supportsCommands?: boolean;
   supportsSkills?: boolean;
   supportsSubagents?: boolean;
+  /**
+   * Memory-surface support (managed marker blocks in the host's memory/rules
+   * file, AGENTS.md-first). OPTIONAL, read as `?? false` (supportsCommands
+   * precedent). Supporting adapters inherit BaseAdapter's generic
+   * installMemory/uninstallMemory; the write target comes from the
+   * per-adapter `memoryTargets()` hook.
+   */
+  supportsMemory?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -605,6 +613,61 @@ export interface SubagentDef {
   /** Coarse permission knob → Cursor readonly, opencode/kilo permission map. */
   readonly?: boolean;
   extra?: Record<string, unknown>;
+}
+
+/**
+ * A standing-guidance entry ("memory") — declared ONCE; each supporting adapter
+ * writes it as a MANAGED BLOCK (marker-fenced, hash-stamped,
+ * uninstall-reversible — see core/managed-block.ts) into the memory/rules file
+ * that host actually reads: AGENTS.md wherever the host supports the agents.md
+ * standard (27/29 hosts), the host's own file (CLAUDE.md / GEMINI.md)
+ * otherwise. CONTENT-ONLY like commands/skills/subagents: no runtime dispatch,
+ * no telemetry wrapping — a pure, surgical file edit that never touches bytes
+ * outside its own marker pair.
+ */
+export interface MemoryDef {
+  /**
+   * kebab-case identifier; default "memory". Suffixes the connector id in the
+   * block marker (`<connectorId>/<name>`), so it must stay STABLE across
+   * versions — renaming orphans the old block until the next sync's
+   * prefix-scan reclaims it. Two entries without distinct names are a
+   * ConnectorConfigError (duplicate name).
+   */
+  name?: string;
+  /** One-line "what this guidance is for" — status/docs output only; never written to the host file. */
+  description?: string;
+  /**
+   * The guidance markdown. Plain CommonMark, host-agnostic: no @imports, no
+   * frontmatter, no host-specific syntax — it is inlined verbatim into EVERY
+   * targeted host's prompt context. Budgets: ConnectorConfigError above
+   * 16 KiB; install-time `warn` ChangeRecord above 4 KiB (every host pays
+   * this cost on every prompt). MUST NOT contain the literal marker tokens
+   * `agent-connector:begin` / `agent-connector:end` (ConnectorConfigError).
+   */
+  content: string;
+}
+
+/** Per-host memory tuning — the object form of {@link PlatformOverride.memory}. */
+export interface PlatformMemoryOverride {
+  /**
+   * Override the write target file. Absolute, or resolved against the project
+   * dir (project scope) / home dir (user scope). Escape hatch for org
+   * conventions (e.g. "docs/AGENTS.md") or a host whose config moved.
+   */
+  path?: string;
+  /**
+   * claude-code ONLY (ignored elsewhere, with a `warn` ChangeRecord):
+   *  - "block" (default): write the managed block directly into CLAUDE.md.
+   *    Zero side-effects beyond the block itself.
+   *  - "agents-import": write the canonical block into AGENTS.md and manage a
+   *    shared `@AGENTS.md` import bridge block in CLAUDE.md — Anthropic's
+   *    documented interop. NOTE: Claude then reads the ENTIRE AGENTS.md
+   *    (user content included), which is why this is opt-in.
+   * Regardless of mode, when CLAUDE.md already imports or symlinks AGENTS.md
+   * the adapter auto-behaves as "agents-import" and never writes a duplicate
+   * block into CLAUDE.md.
+   */
+  mode?: "block" | "agents-import";
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -686,6 +749,11 @@ export interface PlatformOverride {
   skills?: boolean;
   /** false → skip subagent files on this platform. */
   subagents?: boolean;
+  /**
+   * false → do not write memory blocks on this platform;
+   * object → per-host target/mode tuning ({@link PlatformMemoryOverride}).
+   */
+  memory?: boolean | PlatformMemoryOverride;
   /** Verbatim fields merged into the native config (reach platform-exclusive features). */
   extra?: Record<string, unknown>;
 }
@@ -740,6 +808,11 @@ export interface ConnectorConfig {
   skills?: SkillDef[];
   /** Named subagents to deploy as native content files. */
   subagents?: SubagentDef[];
+  /**
+   * Standing guidance written as managed marker blocks into each host's
+   * memory/rules file (AGENTS.md-first). Omit when the connector ships none.
+   */
+  memory?: MemoryDef[];
   /** Per-platform overrides / escape hatches. */
   platforms?: Partial<Record<PlatformId, PlatformOverride>>;
   /** "auto" (all detected) or an explicit allow-list. Default "auto". */
@@ -768,6 +841,8 @@ export interface ResolvedConnector {
   skills: SkillDef[];
   /** Normalized subagents; defaults applied; [] when none. */
   subagents: SubagentDef[];
+  /** Normalized memory entries; names defaulted ("memory"); [] when none. */
+  memory: MemoryDef[];
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   /** Distribution metadata (registry server.json + MCPB bundle); passed through verbatim. */

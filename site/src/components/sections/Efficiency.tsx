@@ -12,7 +12,7 @@ import { Section, SectionHeading } from "@/components/sections/Section";
 
 const stats = [
   { value: "29", label: "platforms" },
-  { value: "4", label: "surfaces" },
+  { value: "5", label: "surfaces" },
   { value: "3", label: "hook paradigms" },
   { value: "+1", label: "line to add a host" },
 ];
@@ -25,7 +25,7 @@ const oldWay = [
 ];
 
 const newWay = [
-  "Declare your server + hooks + commands + tools once with defineConnector({…})",
+  "Declare your server + hooks + commands + tools + memory once with defineConnector({…})",
   "Pick which platforms to activate via targets — or let it auto-detect every installed host",
   "Ship it your way: install directly into every host, or `package` one connector into 9 marketplace/extension formats (Claude Code, Gemini, Antigravity, Cursor, Kimi, npm…) for one-command install",
   "A new platform? Change one line. You maintain none of the adapter code",
@@ -41,7 +41,7 @@ export function Efficiency() {
             Write it once. Skip <span className="whitespace-nowrap">~19,600 lines</span> of glue.
           </>
         }
-        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agent-connector already did that work — across 29 platforms, 4 surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
+        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agent-connector already did that work — across 29 platforms, 5 surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
       />
 
       {/* Hero stat band */}

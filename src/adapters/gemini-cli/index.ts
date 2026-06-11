@@ -64,7 +64,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   CommandDef,
@@ -221,6 +221,10 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // Memory surface — EXCEPTION host: Gemini reads GEMINI.md by default;
+    // AGENTS.md only when the user opted in via settings `context.fileName`.
+    // memoryTargets below probes that setting (and NEVER edits it).
+    supportsMemory: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -767,6 +771,50 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     if (agent.model !== undefined) frontmatter.model = agent.model;
     if (agent.extra) Object.assign(frontmatter, agent.extra);
     return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
+  // ── Memory surface: GEMINI.md (default) / AGENTS.md (context.fileName opt-in) ─
+  // EXCEPTION host. Gemini CLI reads GEMINI.md by default; AGENTS.md is read
+  // ONLY when the user set `context.fileName` (string or array) to include it
+  // in .gemini/settings.json. PROBE-AND-RESPECT: agent-connector never flips
+  // that setting itself — it targets whichever file the running configuration
+  // actually loads. NOTE: ~/.gemini is SHARED with Antigravity/agy; the
+  // idempotent hash-stamped upsert dedupes convergent writes there.
+
+  /**
+   * True when project or user settings opt Gemini into reading AGENTS.md
+   * (`context.fileName` includes "AGENTS.md"). Project settings are probed
+   * first, then user settings; the first file that DECLARES context.fileName
+   * decides (mirroring Gemini's setting precedence).
+   */
+  private agentsMdOptedIn(ctx: InstallContext): boolean {
+    const candidates = [
+      join(ctx.projectDir, ".gemini", "settings.json"),
+      join(homedir(), ".gemini", "settings.json"),
+    ];
+    for (const p of candidates) {
+      const settings = this.readJson<{ context?: { fileName?: unknown } }>(p);
+      const fileName = settings?.context?.fileName;
+      if (fileName === undefined) continue;
+      if (typeof fileName === "string") return fileName === "AGENTS.md";
+      if (Array.isArray(fileName)) return fileName.includes("AGENTS.md");
+      return false;
+    }
+    return false;
+  }
+
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    // An explicit path override keeps the base resolution (escape hatch wins).
+    if (this.memoryOverride(ctx)?.path) return super.memoryTargets(ctx);
+    if (ctx.scope !== "project" && ctx.scope !== "user") return [];
+    const optedIn = this.agentsMdOptedIn(ctx);
+    const file = optedIn ? "AGENTS.md" : "GEMINI.md";
+    const reason = optedIn
+      ? "AGENTS.md (settings context.fileName opts Gemini into the agents.md standard)"
+      : "GEMINI.md (gemini-cli default context file; AGENTS.md needs the context.fileName opt-in)";
+    return ctx.scope === "project"
+      ? [{ path: join(ctx.projectDir, file), reason }]
+      : [{ path: join(homedir(), ".gemini", file), reason }];
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────

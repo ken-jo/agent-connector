@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import type {
   CommandDef,
   HookEventName,
+  MemoryDef,
   PlatformId,
   PlatformOverride,
   ResolvedConnector,
@@ -62,6 +63,12 @@ export interface RegisteredMeta {
   commands: CommandDef[];
   skills: SkillDef[];
   subagents: SubagentDef[];
+  /**
+   * Memory entries (managed-block content surface). Plain content, persisted
+   * whole so uninstall normally has the full entry list even when the source
+   * module is gone (the marker prefix-scan is the fallback beyond that).
+   */
+  memory: MemoryDef[];
   targets: ResolvedConnector["targets"];
   /** Per-platform overrides with any hook handler functions stripped. */
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
@@ -205,6 +212,7 @@ export function registerConnector(
     commands: connector.commands,
     skills: connector.skills,
     subagents: connector.subagents,
+    memory: connector.memory,
     targets: connector.targets,
     platforms: serializablePlatforms(connector.platforms),
   };
@@ -289,6 +297,7 @@ export function connectorFromMeta(meta: RegisteredMeta): ResolvedConnector {
     commands: meta.commands ?? [],
     skills: meta.skills ?? [],
     subagents: meta.subagents ?? [],
+    memory: meta.memory ?? [],
     platforms: meta.platforms ?? {},
     targets: meta.targets,
   };

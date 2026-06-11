@@ -131,6 +131,9 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
+    // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     // session_before_compact is wired as an observe-only PreCompact surface.

@@ -99,6 +99,9 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
+    // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
+    supportsMemory: true,
     // Codebuff has no lifecycle hook system — every hook capability is false.
     preToolUse: false,
     postToolUse: false,

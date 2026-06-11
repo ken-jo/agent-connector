@@ -28,6 +28,8 @@ import {
   commandDefFields,
   skillDefFields,
   subagentDefFields,
+  memoryDefFields,
+  memoryTargetRows,
   surfaceSupportRows,
   telemetryConfigFields,
   confidenceSources,
@@ -62,7 +64,7 @@ export function Introduction() {
     <DocSection id="introduction" eyebrow="Getting Started" title="Introduction">
       <Lead>
         The <strong>MCP-developer track</strong>. You write your MCP server +
-        hooks (and optionally commands, skills, subagents){" "}
+        hooks (and optionally commands, skills, subagents, memory){" "}
         <strong>once</strong> with <C>defineConnector(&#123;...&#125;)</C>, then
         deploy across every detected agent platform — shipping a branded CLI or
         running <C>npx @ken-jo/agent-connector</C>. You get per-MCP and per-tool
@@ -339,8 +341,9 @@ export function DefineConnector() {
         </LI>
         <LI>
           A connector must declare <strong>at least one</strong> of <C>server</C>
-          , <C>hooks</C>, <C>commands</C>, <C>skills</C>, <C>subagents</C> — else
-          it throws.
+          , <C>hooks</C>, <C>commands</C>, <C>skills</C>, <C>subagents</C>,{" "}
+          <C>memory</C> (or a per-platform <C>nativeHooks</C> /{" "}
+          <C>configPatch</C> declaration) — else it throws.
         </LI>
         <LI>
           If <C>server</C> is present: stdio transport requires a string{" "}
@@ -355,8 +358,8 @@ export function DefineConnector() {
         What <C>defineConnector</C> returns: every optional <C>ConnectorConfig</C>{" "}
         field is resolved to a concrete value. <C>hookEvents</C> lists the events
         that have a function handler (what adapters install), and <C>telemetry</C>{" "}
-        is fully defaulted. <C>commands</C> / <C>skills</C> / <C>subagents</C> are
-        normalized to <C>[]</C> when none.
+        is fully defaulted. <C>commands</C> / <C>skills</C> / <C>subagents</C> /{" "}
+        <C>memory</C> are normalized to <C>[]</C> when none.
       </P>
       <FieldTable rows={resolvedConnectorFields} />
 
@@ -632,13 +635,21 @@ export function SurfacesSection() {
     <DocSection
       id="surfaces"
       eyebrow="Core API"
-      title="Commands, Skills & Subagents"
+      title="Commands, Skills, Subagents & Memory"
     >
       <Lead>
         Content surfaces are <strong>content-only</strong> (markdown / TOML
         files): no runtime dispatch, no telemetry wrapping, no home-bin pointer —
         pure file writers. Each supporting adapter writes the native file(s);
-        unsupporting adapters skip + warn.
+        unsupporting adapters skip + warn. <C>memory</C> is the fourth content
+        surface with the same contract, except it edits a <strong>shared,
+        user-authored</strong> memory/rules file (AGENTS.md / CLAUDE.md /
+        GEMINI.md) via marker-fenced managed blocks instead of writing files
+        agent-connector wholly owns — see{" "}
+        <a className="underline hover:text-foreground" href="#memory-def">
+          MemoryDef
+        </a>{" "}
+        below.
       </Lead>
       <P>
         <C>SurfaceToolPolicy</C> is shared:{" "}
@@ -664,6 +675,117 @@ export function SurfacesSection() {
         filename="agent-connector.config.mjs"
       />
 
+      <H3 id="memory-def">MemoryDef</H3>
+      <P>
+        Standing guidance declared once and upserted by every supporting adapter
+        as a <strong>managed block</strong> into the memory/rules file that host
+        actually reads. Unlike the three surfaces above, the target file is{" "}
+        <strong>shared and user-authored</strong> — agent-connector never touches
+        bytes outside its own marker pair.
+      </P>
+      <FieldTable rows={memoryDefFields} />
+      <CodeBlock
+        code={S.memorySnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+
+      <H3 id="memory-managed-blocks">Managed blocks: markers, hashes, reversibility</H3>
+      <P>
+        Every memory write goes through one dependency-free engine
+        (<C>core/managed-block.ts</C>). The block is fenced by HTML-comment
+        markers carrying the blockId (<C>&lt;connectorId&gt;/&lt;name&gt;</C> —
+        unique per connector, so multiple connectors coexist in one file) and a
+        content hash (first 12 hex of sha256 over the normalized inner content):
+      </P>
+      <CodeBlock code={S.managedBlockSnippet} language="markdown" filename="AGENTS.md" />
+      <List>
+        <LI>
+          <strong>Idempotent:</strong> unchanged content → an O(1) <C>skip</C>{" "}
+          (no mtime/git churn); replacement is <strong>in place</strong> — zero
+          bytes outside the marker pair ever change, no move-to-top, no
+          blank-line reflow. New blocks append at EOF with exactly one blank
+          separator line; a missing file is created and recorded as
+          agent-connector-created.
+        </LI>
+        <LI>
+          <strong>Edit detection:</strong> if the actual inner hash differs from
+          the recorded <C>hash=</C>, the user edited inside the block — sync{" "}
+          <C>warn</C>s and leaves the edit intact; only{" "}
+          <C>install --force</C> overwrites, after a timestamped backup.
+        </LI>
+        <LI>
+          <strong>Robust scanning:</strong> line-anchored, CRLF-preserving,
+          BOM-safe, and fence-aware (marker text quoted inside code fences never
+          matches); lone stray markers are recovered safely and duplicate pairs
+          collapse on upsert.
+        </LI>
+        <LI>
+          <strong>Fully reversible:</strong> memory installs last among the
+          content surfaces and is removed <strong>first</strong> on uninstall —
+          a prefix scan over the connector&apos;s marker namespace (plus the
+          persisted ownership ledger) excises every block, reclaims the blank
+          separator line, and deletes the file only when agent-connector created
+          it and nothing else remains. <C>doctor</C> verifies each installed
+          block: file present / block present / hash intact / user-edited.
+        </LI>
+      </List>
+
+      <H3 id="memory-targets">AGENTS.md-first: where the block goes</H3>
+      <P>
+        <strong>27 of the 29 hosts read the open{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://agents.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          AGENTS.md
+        </a>{" "}
+        standard</strong> (the Linux Foundation-stewarded &quot;README for
+        agents&quot; format) — so you write the guidance once and it lands in
+        the standard file across every adopter host. agent-connector never flips
+        host settings to make AGENTS.md readable (probe-and-respect only), and
+        the two non-reader hosts are wired per their own official docs:
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Host</Th>
+            <Th>project scope</Th>
+            <Th>user scope</Th>
+            <Th>Notes</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {memoryTargetRows.map((r) => (
+            <tr key={r.host}>
+              <Td className="whitespace-nowrap">
+                <code className="font-mono text-[0.8rem] text-foreground">
+                  {r.host}
+                </code>
+              </Td>
+              <Td className="text-muted-foreground">
+                <span className="font-mono text-[0.75rem]">{r.project}</span>
+              </Td>
+              <Td className="text-muted-foreground">
+                <span className="font-mono text-[0.75rem]">{r.user}</span>
+              </Td>
+              <Td className="text-muted-foreground">{r.note}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <Callout title="Why HTML-comment markers are correct for CLAUDE.md">
+        Claude Code strips HTML comments from CLAUDE.md before injecting it into
+        the model&apos;s context — so the markers and the do-not-edit notice are{" "}
+        <strong>invisible to Claude</strong> while remaining fully parseable by
+        agent-connector for sync / doctor / uninstall. On AGENTS.md hosts (which
+        inline the whole file into the prompt) the one-line notice doubles as an
+        in-prompt &quot;do not edit&quot; instruction to the host&apos;s own
+        agent.
+      </Callout>
+
       <H3 id="surface-validation">Validation rules</H3>
       <List>
         <LI>
@@ -684,6 +806,13 @@ export function SurfacesSection() {
           skill dir — empty, <C>.</C>, absolute, or any <C>..</C>-traversal key
           is rejected.
         </LI>
+        <LI>
+          Memory <C>content</C> must be non-empty; hard{" "}
+          <C>ConnectorConfigError</C> above 16 KiB (it is injected into every
+          prompt of every targeted host) or when it contains the literal marker
+          tokens <C>agent-connector:begin</C> / <C>agent-connector:end</C>. A
+          soft 4 KiB budget is an install-time <C>warn</C>, not a config error.
+        </LI>
       </List>
 
       <H3 id="surface-support">Per-platform surface support</H3>
@@ -691,7 +820,11 @@ export function SurfacesSection() {
         Adapters that don&apos;t support a surface skip with a warning.{" "}
         <C>&lt;n&gt;</C> is the surface name; skills are uniformly
         folder-per-skill <C>SKILL.md</C> (only the parent dir differs per
-        platform).
+        platform). Memory targets are listed separately under{" "}
+        <a className="underline hover:text-foreground" href="#memory-targets">
+          AGENTS.md-first
+        </a>{" "}
+        above.
       </P>
       <DocsTable>
         <thead>

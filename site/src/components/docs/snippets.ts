@@ -365,6 +365,25 @@ subagents: [
   },
 ],`;
 
+export const memorySnippet = `memory: [
+  {
+    // name defaults to "memory" → blockId "acme-db/memory"
+    description: "Standing guidance for agents working with acme-db.",
+    content:
+      "Use the acme-db MCP tools for schema questions; never hand-edit migrations.",
+  },
+],
+platforms: {
+  // optional per-host tuning — both fields are escape hatches:
+  "claude-code": { memory: { mode: "agents-import" } }, // opt-in @AGENTS.md bridge
+  codex: { memory: { path: "docs/AGENTS.md" } },        // org convention override
+},`;
+
+export const managedBlockSnippet = `<!-- agent-connector:begin acme-db/memory hash=3f9c2a81d04e -->
+<!-- Managed by agent-connector for "acme-db". Do not edit between these markers: \`agent-connector sync\` rewrites this block; \`agent-connector uninstall acme-db\` removes it. -->
+Use the acme-db MCP tools for schema questions; never hand-edit migrations.
+<!-- agent-connector:end acme-db/memory -->`;
+
 export const telemetrySnippet = `telemetry: {
   enabled: true,            // AGENT_CONNECTOR_TELEMETRY=0 kills it
   modelFamilyHint: "auto",  // auto | openai | anthropic | generic

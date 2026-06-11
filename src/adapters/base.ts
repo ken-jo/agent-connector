@@ -17,7 +17,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import type { Dirent } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type {
   ChangeRecord,
@@ -27,14 +28,79 @@ import type {
   HookParadigm,
   PlatformCapabilities,
   PlatformId,
+  PlatformMemoryOverride,
 } from "../core/types.js";
 import { backupsDir, ensureDir } from "../core/paths.js";
 import { parseJsonc } from "../core/jsonc.js";
+import {
+  MEMORY_CONTENT_SOFT_BUDGET_BYTES,
+  listManagedBlocks,
+  loadMemoryLedger,
+  recordMemoryTarget,
+  removeManagedBlocksFile,
+  saveMemoryLedger,
+  upsertManagedBlockFile,
+} from "../core/managed-block.js";
 import { renderFrontmatterMd } from "./claude-code/render.js";
-import type { Adapter, InstallContext } from "./spi.js";
+import type { Adapter, InstallContext, MemoryTarget } from "./spi.js";
 
 /** Content-surface kinds with BaseAdapter default install/uninstall handling. */
-type ContentSurface = "commands" | "skills" | "subagents";
+type ContentSurface = "commands" | "skills" | "subagents" | "memory";
+
+/**
+ * Documented USER-scope AGENTS.md locations, per host (the AGENTS.md-first
+ * research matrix). Only hosts with a REAL user/global AGENTS.md file are
+ * listed. Hosts whose documented user-scope memory lives in a DIFFERENT file
+ * (qwen-code ~/.qwen/QWEN.md, goose .goosehints, kilo/roo/kiro rules dirs,
+ * copilot-cli copilot-instructions.md) override memoryTargets in-adapter;
+ * hosts whose user rules are app/UI/cloud-managed (warp Drive, trae,
+ * jetbrains/cursor settings UI) deliberately have no row — user-scope memory
+ * there reports the standard skip-warn (the JetBrains-MCP precedent), never a
+ * write into a file the host ignores.
+ */
+const AGENTS_MD_USER_PATHS: Partial<Record<PlatformId, () => MemoryTarget>> = {
+  // codex resolves its own user path in-adapter ($CODEX_HOME with ~ expansion
+  // + the AGENTS.override.md shadow probe) — deliberately no row here.
+  zed: () => ({
+    path:
+      process.platform === "win32" && process.env.APPDATA
+        ? join(process.env.APPDATA, "Zed", "AGENTS.md")
+        : join(homedir(), ".config", "zed", "AGENTS.md"),
+    reason: "zed personal instructions file",
+  }),
+  amp: () => ({
+    path: join(homedir(), ".config", "amp", "AGENTS.md"),
+    reason: "amp user-scope AGENTS.md",
+  }),
+  mux: () => ({
+    path: join(homedir(), ".mux", "AGENTS.md"),
+    reason: "mux global AGENTS.md",
+  }),
+  pi: () => ({
+    path: join(homedir(), ".pi", "agent", "AGENTS.md"),
+    reason: "pi global AGENTS.md",
+  }),
+  droid: () => ({
+    path: join(homedir(), ".factory", "AGENTS.md"),
+    reason: "droid (Factory) personal AGENTS.md",
+  }),
+  opencode: () => ({
+    path: join(homedir(), ".config", "opencode", "AGENTS.md"),
+    reason: "opencode global AGENTS.md",
+  }),
+  antigravity: () => ({
+    path: join(homedir(), ".gemini", "AGENTS.md"),
+    reason: "antigravity global rules (~/.gemini/AGENTS.md, shared tree)",
+  }),
+  "antigravity-cli": () => ({
+    path: join(homedir(), ".gemini", "AGENTS.md"),
+    reason: "agy shares the IDE's ~/.gemini tree (idempotent upsert dedupes)",
+  }),
+  omp: () => ({
+    path: join(homedir(), ".omp", "agent", "AGENTS.md"),
+    reason: "omp global AGENTS.md (pi-parity; verify for your version)",
+  }),
+};
 
 export abstract class BaseAdapter implements Adapter {
   abstract readonly id: PlatformId;
@@ -75,6 +141,325 @@ export abstract class BaseAdapter implements Adapter {
   }
   uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
     return this.unsupportedSurface(ctx, "subagents", ctx.connector.subagents.length);
+  }
+
+  // ── Memory surface (managed marker blocks; AGENTS.md-first) ───────────────
+  // ONE generic implementation for every supporting host: the per-adapter
+  // `memoryTargets()` hook resolves WHERE to write (AGENTS.md defaults below;
+  // claude-code → CLAUDE.md and gemini-cli → GEMINI.md override it), and the
+  // core/managed-block engine performs the surgical, hash-stamped block edit.
+  // Unlike commands/skills/subagents these files are SHARED and user-authored —
+  // bytes outside this connector's own marker pair are never touched.
+
+  /**
+   * Resolve the memory/rules file(s) this host actually reads at ctx.scope.
+   * Base default (AGENTS.md-first, owner mandate):
+   *   - an explicit `platforms[<id>].memory.path` override wins;
+   *   - project scope → `<projectDir>/AGENTS.md` (the agents.md standard);
+   *   - user scope → the host's documented user-scope AGENTS.md, when one
+   *     exists ({@link AGENTS_MD_USER_PATHS}); otherwise [] → skip-warn.
+   * Exception hosts (claude-code, gemini-cli) override this hook.
+   */
+  protected memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    const override = this.memoryOverride(ctx);
+    if (override?.path) {
+      const base = ctx.scope === "project" ? ctx.projectDir : homedir();
+      return [
+        {
+          path: isAbsolute(override.path) ? override.path : join(base, override.path),
+          reason: `platforms.${this.id}.memory.path override`,
+        },
+      ];
+    }
+    if (ctx.scope === "project") {
+      return [
+        { path: join(ctx.projectDir, "AGENTS.md"), reason: "AGENTS.md standard (project root)" },
+      ];
+    }
+    if (ctx.scope === "user") {
+      const user = AGENTS_MD_USER_PATHS[this.id]?.();
+      return user ? [user] : [];
+    }
+    return [];
+  }
+
+  /** The per-platform memory override object, when one is declared. */
+  protected memoryOverride(ctx: InstallContext): PlatformMemoryOverride | undefined {
+    const o = ctx.connector.platforms[this.id]?.memory;
+    return o && typeof o === "object" ? o : undefined;
+  }
+
+  installMemory(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    // `?? []` tolerates pre-resolved connectors from versions before the
+    // memory surface existed (the installer applies the same guard).
+    const entries = connector.memory ?? [];
+    if (connector.platforms[this.id]?.memory === false) {
+      return [{ platform: this.id, action: "skip", detail: `memory disabled for ${this.id}` }];
+    }
+    if (entries.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no memory" }];
+    }
+    if (!(this.capabilities.supportsMemory ?? false)) {
+      return this.unsupportedSurface(ctx, "memory", entries.length);
+    }
+
+    const changes: ChangeRecord[] = [];
+    const override = this.memoryOverride(ctx);
+    if (override?.mode && this.id !== "claude-code") {
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        detail: `memory.mode is claude-code-only; ignored on ${this.id}`,
+      });
+    }
+    if (ctx.scope !== "project" && ctx.scope !== "user") {
+      // system/profile/managed memory files are admin-owned — out of scope (v1).
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        detail:
+          `memory not supported at ${ctx.scope} scope on ${this.id} ` +
+          `(managed/admin memory files are out of scope); ${entries.length} skipped`,
+      });
+      return changes;
+    }
+    const targets = this.memoryTargets(ctx);
+    if (targets.length === 0) {
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        detail:
+          `no ${ctx.scope}-scope memory file on ${this.id} ` +
+          `(user rules are app/UI-managed or undocumented); ${entries.length} skipped`,
+      });
+      return changes;
+    }
+    changes.push(...this.writeMemoryBlocks(ctx, targets));
+    return changes;
+  }
+
+  /**
+   * Upsert every declared memory entry's block into every resolved target and
+   * record the ownership ledger rows (`connectorDir(id)/memory-state.json`).
+   * Shared by the base implementation and the exception-host overrides.
+   */
+  protected writeMemoryBlocks(ctx: InstallContext, targets: MemoryTarget[]): ChangeRecord[] {
+    const changes: ChangeRecord[] = [];
+    const ledger = loadMemoryLedger(ctx.connector.id);
+    let ledgerMutated = false;
+
+    for (const target of targets) {
+      for (const entry of ctx.connector.memory ?? []) {
+        const blockId = `${ctx.connector.id}/${entry.name ?? "memory"}`;
+        const res = upsertManagedBlockFile(target.path, {
+          blockId,
+          connectorId: ctx.connector.id,
+          content: entry.content,
+          ...(target.commentStyle ? { commentStyle: target.commentStyle } : {}),
+          force: ctx.force ?? false,
+          dryRun: ctx.dryRun,
+        });
+        changes.push({
+          platform: this.id,
+          action: res.action,
+          path: target.path,
+          detail: `memory: ${res.detail} — ${target.reason}`,
+        });
+        if (res.backupPath) {
+          changes.push({
+            platform: this.id,
+            action: "create",
+            path: res.backupPath,
+            detail: "backed up memory file before destructive change",
+          });
+        }
+        const bytes = Buffer.byteLength(entry.content, "utf8");
+        if (bytes > MEMORY_CONTENT_SOFT_BUDGET_BYTES) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: target.path,
+            detail:
+              `memory entry "${entry.name ?? "memory"}" is ${bytes} bytes ` +
+              `(soft budget ${MEMORY_CONTENT_SOFT_BUDGET_BYTES}); this file is injected into ` +
+              `every prompt — keep guidance terse`,
+          });
+        }
+        if (res.action !== "warn") {
+          recordMemoryTarget(ledger, {
+            platform: this.id,
+            scope: ctx.scope,
+            path: target.path,
+            blockId,
+            createdFile: res.createdFile,
+            hash: res.hash,
+          });
+          ledgerMutated = true;
+        }
+      }
+      // Per-FILE budget (e.g. codex caps combined project docs at 32 KiB —
+      // budgetBytes ≈ 28 KiB leaves headroom): warn when the whole target file
+      // (user content + every block) outgrows what the host will actually load.
+      if (target.budgetBytes !== undefined && !ctx.dryRun && existsSync(target.path)) {
+        const fileBytes = statSync(target.path).size;
+        if (fileBytes > target.budgetBytes) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: target.path,
+            detail:
+              `memory file is ${fileBytes} bytes — over this host's ~${target.budgetBytes}-byte ` +
+              `budget; the host may truncate or drop it`,
+          });
+        }
+      }
+    }
+
+    if (ledgerMutated && !ctx.dryRun) saveMemoryLedger(ctx.connector.id, ledger);
+    return changes;
+  }
+
+  uninstallMemory(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (!(this.capabilities.supportsMemory ?? false)) {
+      // Nothing could ever have been written by a non-supporting adapter.
+      return this.unsupportedSurface(ctx, "memory", (connector.memory ?? []).length);
+    }
+
+    // Candidate files = union of (a) memoryTargets recomputed NOW (probe re-run
+    // — catches teammate machines with no ledger; the markers in the committed
+    // file are the source of truth) and (b) ledger rows for this platform from
+    // EVERY scope (catches a scope flag that differs from install time).
+    const ledger = loadMemoryLedger(connector.id);
+    const mine = ledger.targets.filter((t) => t.platform === this.id);
+    const candidates = new Map<string, { createdFile: boolean }>();
+    if (ctx.scope === "project" || ctx.scope === "user") {
+      for (const t of this.memoryTargets(ctx)) {
+        candidates.set(t.path, { createdFile: false });
+      }
+    }
+    for (const row of mine) {
+      const existing = candidates.get(row.path);
+      candidates.set(row.path, { createdFile: (existing?.createdFile ?? false) || row.createdFile });
+    }
+    if (candidates.size === 0) {
+      return [
+        { platform: this.id, action: "skip", detail: `no memory targets to clean on ${this.id}` },
+      ];
+    }
+
+    // Prefix scan (`<connectorId>/`), NOT the declared entry list: renamed or
+    // removed entries and stale blocks from older versions are reclaimed too.
+    const changes: ChangeRecord[] = [];
+    for (const [path, { createdFile }] of candidates) {
+      const results = removeManagedBlocksFile(
+        path,
+        { blockIdPrefix: `${connector.id}/` },
+        { dryRun: ctx.dryRun, deleteFileIfCreated: createdFile },
+      );
+      for (const r of results) {
+        changes.push({
+          platform: this.id,
+          action: r.action,
+          path: r.path,
+          detail: `memory: ${r.detail}`,
+        });
+        if (r.backupPath) {
+          changes.push({
+            platform: this.id,
+            action: "create",
+            path: r.backupPath,
+            detail: "backed up memory file before block removal",
+          });
+        }
+      }
+    }
+
+    // Prune this connector's ledger rows for this platform (the file itself is
+    // deleted when no rows remain). Markers stay the uninstall source of truth.
+    if (!ctx.dryRun && mine.length > 0) {
+      ledger.targets = ledger.targets.filter((t) => t.platform !== this.id);
+      saveMemoryLedger(connector.id, ledger);
+    }
+    return changes;
+  }
+
+  /**
+   * Doctor: per-ledger-row memory state for this platform — file present,
+   * block present, and recorded-vs-actual inner hash (drift → warn, the
+   * user edited inside our block; sync reports the same drift and never
+   * clobbers it without --force).
+   */
+  protected memoryDiagnostics(ctx: InstallContext): DiagnosticResult[] {
+    const results: DiagnosticResult[] = [];
+    const rows = loadMemoryLedger(ctx.connector.id).targets.filter(
+      (t) => t.platform === this.id,
+    );
+    for (const row of rows) {
+      const check = `${this.name}: memory block ${row.blockId}`;
+      if (!existsSync(row.path)) {
+        results.push({
+          check,
+          status: "warn",
+          message: `memory file missing: ${row.path}`,
+          fix: "agent-connector install (sync) will re-create the block",
+        });
+        continue;
+      }
+      let raw: string;
+      try {
+        raw = readFileSync(row.path, "utf8");
+      } catch {
+        results.push({ check, status: "warn", message: `cannot read ${row.path}` });
+        continue;
+      }
+      const block = listManagedBlocks(raw).find((b) => b.blockId === row.blockId);
+      if (!block) {
+        results.push({
+          check,
+          status: "warn",
+          message: `managed block not found in ${row.path}`,
+          fix: "agent-connector install (sync) will re-append it",
+        });
+      } else if (block.drifted) {
+        results.push({
+          check,
+          status: "warn",
+          message:
+            `user-edited: inner content hash ${block.actualHash} differs from recorded ` +
+            `${block.recordedHash} in ${row.path}; sync leaves it intact (use --force to overwrite)`,
+        });
+      } else {
+        results.push({ check, status: "pass", message: `intact in ${row.path}` });
+      }
+      // Shadow-flip probe: re-run memoryTargets NOW for the row's scope — if
+      // the host's resolution moved (a WARP.md / AGENTS.override.md / .rules /
+      // .hermes.md appeared, gemini context.fileName changed), the written
+      // block sits in a file the host no longer reads. The #1 wrong-file
+      // risk; doctor is the detection layer.
+      // (`_shared/` bridge rows deliberately live OUTSIDE memoryTargets —
+      // e.g. claude-code's @AGENTS.md import in CLAUDE.md — skip those.)
+      if (
+        !row.blockId.startsWith("_shared/") &&
+        row.scope === ctx.scope &&
+        (ctx.scope === "project" || ctx.scope === "user")
+      ) {
+        const current = this.memoryTargets(ctx);
+        if (current.length > 0 && !current.some((t) => t.path === row.path)) {
+          results.push({
+            check,
+            status: "warn",
+            message:
+              `${this.id} now resolves its ${row.scope}-scope memory file to ` +
+              `${current[0]!.path} (${current[0]!.reason}) — the block in ${row.path} ` +
+              `may no longer be read`,
+            fix: "agent-connector install (sync) re-probes and writes the file the host reads now",
+          });
+        }
+      }
+    }
+    return results;
   }
 
   // ── Declarative host-config key patches (configPatch) ─────────────────────
@@ -435,6 +820,9 @@ export abstract class BaseAdapter implements Adapter {
         message: r.detail ?? r.status,
       });
     }
+    // Memory-surface checks are ledger-driven: no installed memory → no rows →
+    // no noise. Shared by every adapter (the overrides call super.doctor()).
+    results.push(...this.memoryDiagnostics(ctx));
     return results;
   }
 }

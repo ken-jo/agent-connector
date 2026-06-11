@@ -36,7 +36,7 @@ import { homedir, platform as osPlatform } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -106,6 +106,10 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
+    // via the base default — Roo's "Agent Rules standard" support is default-on;
+    // user scope → ~/.roo/rules/agent-connector.md below).
+    supportsMemory: true,
     // Roo Code has no lifecycle hook system — every hook capability is false.
     preToolUse: false,
     postToolUse: false,
@@ -180,6 +184,23 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
       "settings",
       MCP_SETTINGS_FILE,
     );
+  }
+
+  // ── Memory surface: global rules dir at user scope ──────────────────────
+  // Project scope stays on the AGENTS.md base default ("Agent Rules standard",
+  // default-on). User scope targets a dedicated agent-connector.md in Roo's
+  // documented ~/.roo/rules/ dir (files concatenated; AC-created → cleanly
+  // deletable on uninstall).
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "user") {
+      return super.memoryTargets(ctx);
+    }
+    return [
+      {
+        path: join(homedir(), ".roo", "rules", "agent-connector.md"),
+        reason: "roo-code global rules dir (~/.roo/rules; agent-connector-owned file)",
+      },
+    ];
   }
 
   getConfigDir(ctx: InstallContext): string {

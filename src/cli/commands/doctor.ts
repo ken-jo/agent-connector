@@ -79,6 +79,7 @@ async function resolveDoctorConnectors(
       commands: [],
       skills: [],
       subagents: [],
+      memory: [],
       platforms: {},
       targets: "auto",
     },

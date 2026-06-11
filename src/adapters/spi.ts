@@ -51,6 +51,24 @@ export interface InstallContext {
   /** Framework data-root (`~/.agent-connector`, or AGENT_CONNECTOR_DATA_DIR). */
   dataRoot: string;
   dryRun: boolean;
+  /**
+   * Overwrite USER-EDITED managed memory blocks (hash drift) instead of the
+   * default warn-and-leave. OPTIONAL, read as `?? false`; a one-time
+   * timestamped backup is written before any forced overwrite.
+   */
+  force?: boolean;
+}
+
+/** One resolved memory write target (returned by BaseAdapter.memoryTargets). */
+export interface MemoryTarget {
+  /** ABSOLUTE path of the memory/rules file this host actually reads at ctx.scope. */
+  path: string;
+  /** Probe rationale, surfaced in ChangeRecord.detail (e.g. "AGENTS.md standard (project root)"). */
+  reason: string;
+  /** Marker comment style. Default "html" (`<!-- -->`); "hash" emits `#`-prefixed marker lines. */
+  commentStyle?: "html" | "hash";
+  /** Soft per-FILE byte budget — whole file incl. user content (e.g. ~28 KiB on codex, headroom under its 32 KiB project-doc cap); exceeding → warn. */
+  budgetBytes?: number;
 }
 
 /** Normalized reply the runtime turns into the host's native hook response. */
@@ -127,6 +145,16 @@ export interface Adapter {
   installSubagents?(ctx: InstallContext): ChangeRecord[];
   /** Remove the subagent content file(s) this connector wrote. */
   uninstallSubagents?(ctx: InstallContext): ChangeRecord[];
+  /**
+   * MEMORY surface: upsert this connector's managed marker block(s) into the
+   * memory/rules file(s) the host actually reads (AGENTS.md-first; see
+   * core/managed-block.ts). Unlike the other content surfaces these files are
+   * SHARED and user-authored — only the bytes inside this connector's own
+   * marker pair are ever touched.
+   */
+  installMemory?(ctx: InstallContext): ChangeRecord[];
+  /** Remove every managed block under this connector's marker namespace (`<id>/…`). */
+  uninstallMemory?(ctx: InstallContext): ChangeRecord[];
 
   // ── Declarative host-config key patches (configPatch) ────────────────────
   // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the

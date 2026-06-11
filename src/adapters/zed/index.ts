@@ -38,7 +38,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -79,6 +79,11 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block. Zed's project rules file
+    // is FIRST-MATCH across nine candidates — memoryTargets below probes that
+    // order and writes into the file Zed will actually read; user scope is the
+    // personal ~/.config/zed/AGENTS.md (%APPDATA%\Zed on Windows, base map).
+    supportsMemory: true,
     // Zed has no lifecycle hook system — every hook capability is false.
     preToolUse: false,
     postToolUse: false,
@@ -163,6 +168,49 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
 
   private userSettingsPath(): string {
     return join(this.userConfigDir(), "settings.json");
+  }
+
+  // ── Memory surface: first-match project rules probe ─────────────────────
+  /**
+   * Zed reads exactly ONE project rules file — the FIRST existing of these
+   * worktree-root candidates (zed docs/src/ai/instructions.md order). A block
+   * in AGENTS.md is silently ignored when e.g. `.cursorrules` exists, so the
+   * probe targets the file Zed will actually pick; AGENTS.md is created only
+   * when nothing shadows it.
+   */
+  private static readonly PROJECT_RULES_PROBE_ORDER = [
+    ".rules",
+    ".cursorrules",
+    ".windsurfrules",
+    ".clinerules",
+    join(".github", "copilot-instructions.md"),
+    "AGENT.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+  ];
+
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "project") {
+      return super.memoryTargets(ctx); // user scope: personal AGENTS.md (base map)
+    }
+    for (const rel of ZedAdapter.PROJECT_RULES_PROBE_ORDER) {
+      const candidate = join(ctx.projectDir, rel);
+      if (existsSync(candidate)) {
+        return [
+          {
+            path: candidate,
+            reason: `zed first-match project rules file (${rel} shadows later candidates)`,
+          },
+        ];
+      }
+    }
+    return [
+      {
+        path: join(ctx.projectDir, "AGENTS.md"),
+        reason: "AGENTS.md (created; no zed first-match rules file present)",
+      },
+    ];
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────

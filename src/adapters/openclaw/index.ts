@@ -101,6 +101,7 @@ import type {
   GeneratedPluginFile,
   HookReply,
   InstallContext,
+  MemoryTarget,
   NormalizedEvent,
 } from "../spi.js";
 import type {
@@ -225,6 +226,11 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block. OpenClaw's AGENTS.md
+    // lives in the AGENT WORKSPACE (default ~/.openclaw/workspace), NOT the
+    // user's repo — memoryTargets below maps BOTH scopes there (R2:
+    // platforms force scopes; personal-assistant semantics, no project file).
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     // OpenClaw compaction is owned by a context engine, not wired through the
@@ -278,6 +284,37 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     } catch {
       return null;
     }
+  }
+
+  // ── Memory surface: agent-workspace AGENTS.md (both scopes) ─────────────
+  /**
+   * OpenClaw loads AGENTS.md (operating instructions) from its AGENT WORKSPACE
+   * every session — `agents.defaults.workspace` in openclaw.json when set,
+   * else `<stateDir>/workspace` (default ~/.openclaw/workspace). That file is
+   * personal-assistant state, NOT a repo file, so a "project scope" write does
+   * not apply: BOTH scopes map to the workspace (R2: platforms force scopes),
+   * with the reason string flagging the semantics.
+   */
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path) return super.memoryTargets(ctx);
+    if (ctx.scope !== "project" && ctx.scope !== "user") return [];
+    const configPath = resolveOpenClawConfigPath();
+    const cfg = this.readJson<{ agents?: { defaults?: { workspace?: unknown } } }>(configPath);
+    const declared = cfg?.agents?.defaults?.workspace;
+    const workspace =
+      typeof declared === "string" && declared.trim() !== ""
+        ? declared.startsWith("~")
+          ? resolve(homedir(), declared.replace(/^~[/\\]?/, ""))
+          : resolve(declared)
+        : join(dirname(configPath), "workspace");
+    return [
+      {
+        path: join(workspace, "AGENTS.md"),
+        reason:
+          "openclaw agent-workspace AGENTS.md (workspace-scoped operating instructions, " +
+          "not the project repo — both scopes map here)",
+      },
+    ];
   }
 
   // ── Detection ──────────────────────────────────────────────────────────

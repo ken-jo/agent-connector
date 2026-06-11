@@ -64,6 +64,7 @@ import { BaseAdapter } from "../base.js";
 import type {
   HookReply,
   InstallContext,
+  MemoryTarget,
   NormalizedEvent,
 } from "../spi.js";
 
@@ -161,6 +162,9 @@ export class CodexAdapter extends BaseAdapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block. memoryTargets below probes
+    // AGENTS.override.md first (it shadows AGENTS.md per directory on codex).
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
@@ -230,6 +234,39 @@ export class CodexAdapter extends BaseAdapter {
 
   override getHookConfigPath(ctx: InstallContext): string {
     return join(this.getConfigDir(ctx), "hooks.json");
+  }
+
+  // ── Memory surface: AGENTS.override.md probe + 32 KiB doc-cap budget ─────
+  // Codex reads AGENTS.override.md > AGENTS.md per directory (one file per
+  // directory), so when the override file exists OUR block must live there or
+  // it is never loaded. Combined project docs are capped at 32 KiB
+  // (`project_doc_max_bytes`), hence the ~28 KiB per-file budget warn.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    // An explicit path override keeps the base resolution (escape hatch wins).
+    if (this.memoryOverride(ctx)?.path) return super.memoryTargets(ctx);
+    if (ctx.scope !== "project" && ctx.scope !== "user") return [];
+    const budgetBytes = 28 * 1024;
+    const dir = ctx.scope === "project" ? ctx.projectDir : this.userConfigDir();
+    const overrideMd = join(dir, "AGENTS.override.md");
+    if (existsSync(overrideMd)) {
+      return [
+        {
+          path: overrideMd,
+          reason: "AGENTS.override.md shadows AGENTS.md on codex (one doc per directory)",
+          budgetBytes,
+        },
+      ];
+    }
+    return [
+      {
+        path: join(dir, "AGENTS.md"),
+        reason:
+          ctx.scope === "project"
+            ? "AGENTS.md standard (project root; codex is the format's originator)"
+            : "codex global guidance ($CODEX_HOME/AGENTS.md)",
+        budgetBytes,
+      },
+    ];
   }
 
   /** `$CODEX_HOME` || `~/.codex` for user scope. */

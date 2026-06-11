@@ -47,7 +47,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -154,6 +154,10 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
+    // via the base default — always included, no inclusion modes; user scope →
+    // ~/.kiro/steering/agent-connector.md below).
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     preCompact: false,
@@ -208,6 +212,23 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
         : `no Kiro config at ${userDir}`,
       confidence: installed ? "high" : "low",
     };
+  }
+
+  // ── Memory surface: global steering dir at user scope ───────────────────
+  // Project scope stays on the AGENTS.md base default (workspace-root
+  // AGENTS.md is always included, with no inclusion modes). User scope targets
+  // a dedicated agent-connector.md in Kiro's documented ~/.kiro/steering/ dir
+  // (default-always inclusion; AC-created → cleanly deletable on uninstall).
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "user") {
+      return super.memoryTargets(ctx);
+    }
+    return [
+      {
+        path: join(homedir(), ".kiro", "steering", "agent-connector.md"),
+        reason: "kiro global steering dir (~/.kiro/steering; agent-connector-owned file)",
+      },
+    ];
   }
 
   // ── Native paths ─────────────────────────────────────────────────────────

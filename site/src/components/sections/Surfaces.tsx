@@ -6,12 +6,12 @@ export function Surfaces() {
   return (
     <Section id="surfaces" className="py-16 sm:py-20">
       <SectionHeading
-        eyebrow="Five surfaces"
+        eyebrow="Six surfaces"
         title="Write once, deploy native"
-        description="agent-connector generalizes context-mode's adapter layer across the five integration surfaces every host exposes — each rendered into its native shape."
+        description="agent-connector generalizes context-mode's adapter layer across the six integration surfaces every host exposes — each rendered into its native shape."
       />
 
-      <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3">
         {surfaces.map((surface) => {
           const Icon = surface.icon;
           return (

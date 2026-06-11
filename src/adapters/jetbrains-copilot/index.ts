@@ -132,6 +132,9 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
+    // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
+    supportsMemory: true,
     // JetBrains Copilot's Preview hooks runtime delivers Pre/PostToolUse,
     // PreCompact, and SessionStart (the four events its schema documents) —
     // same surface as VS Code Copilot.

@@ -1,7 +1,7 @@
 # agent-connector — Full LLM Reference
 
 > agent-connector serves TWO audiences. **(A) MCP developers** write their MCP server +
-> hooks (and slash commands / Agent Skills / subagents) ONCE with `defineConnector({...})`;
+> hooks (and slash commands / Agent Skills / subagents / memory) ONCE with `defineConnector({...})`;
 > the CLI detects every installed AI-agent host, renders the right config in each one's
 > native dialect, installs/syncs/uninstalls them, and gives you default, platform-
 > independent, local-first per-tool token telemetry for YOUR OWN wrapped server.
@@ -29,7 +29,7 @@ between them. Decide which one you are before reading further.
 
 You are **writing** an MCP integration and want it deployed and measured everywhere.
 You author one `defineConnector({...})` config (server + hooks, optionally commands /
-skills / subagents), then deploy it across the detected agent hosts with one CLI —
+skills / subagents / memory), then deploy it across the detected agent hosts with one CLI —
 either by shipping a branded CLI (`createConnectorCli`) so your users never type
 `--connector`, or by running `npx @ken-jo/agent-connector`. For **stdio** servers,
 agent-connector transparently wraps your server in the `serve` telemetry proxy, so you
@@ -150,14 +150,16 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `commands` | `CommandDef[]` | `[]` | Slash commands → native content files. |
 | `skills` | `SkillDef[]` | `[]` | Agent Skills → native content files. |
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
-| `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, disable a surface, force scope). |
+| `memory` | `MemoryDef[]` | `[]` | Standing guidance → marker-fenced MANAGED BLOCKS in each host's memory/rules file (AGENTS.md-first; see §2.4). |
+| `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
 
 **Top-level validation rules** (`define-connector.ts`):
 - `config` must be an object; `id` must match the kebab-case regex.
 - A connector must declare **at least one** of `server`, `hooks`, `commands`,
-  `skills`, `subagents` — else it throws.
+  `skills`, `subagents`, `memory` (or a per-platform `nativeHooks` /
+  `configPatch` declaration) — else it throws.
 - If `server` is present: stdio transport requires a string `command`; any remote
   transport (`http`/`sse`/`ws`) requires a string `url`.
 - Every present hook entry's `handler` must be a function.
@@ -363,11 +365,15 @@ developer-axis row under the host-native event name.
 union when ≥3 hosts ship a native analog (tracked in the living cross-host matrix);
 `TaskCreated` / `TaskCompleted` are the named first candidates.
 
-### 2.4 Content surfaces — `CommandDef`, `SkillDef`, `SubagentDef`
+### 2.4 Content surfaces — `CommandDef`, `SkillDef`, `SubagentDef`, `MemoryDef`
 
 These are **content-only** (markdown / TOML files): no runtime dispatch, no telemetry
 wrapping, no home-bin pointer — pure file writers. Each supporting adapter writes the
 native file(s); unsupporting adapters skip+warn (same as `mcp-only` hook handling).
+`memory` is the fourth content surface with the same contract, except it edits a
+**shared, user-authored** memory/rules file (AGENTS.md / CLAUDE.md / GEMINI.md)
+via marker-fenced managed blocks instead of writing files agent-connector wholly
+owns — full mechanics under "The `memory` surface" below.
 
 `SurfaceToolPolicy` (shared): `{ allow?: string[]; deny?: string[] }` — rendered to
 each host's allowed-tools / tools[] / readonly.
@@ -404,6 +410,14 @@ interface SubagentDef {          // a named subagent
   readonly?: boolean;            // coarse permission knob (Cursor readonly, opencode/kilo perms)
   extra?: Record<string, unknown>;
 }
+
+interface MemoryDef {            // standing guidance → a managed block in the host's memory file
+  name?: string;                 // kebab-case; default "memory". Suffixes the connector id in the
+                                 // block marker (<connectorId>/<name>) — keep it STABLE across versions
+  description?: string;          // status/docs output only; never written to the host file
+  content: string;               // plain CommonMark, host-agnostic (no @imports, no frontmatter);
+                                 // inlined VERBATIM into every targeted host's prompt context
+}
 ```
 
 **Surface validation rules** (`define-connector.ts`):
@@ -415,6 +429,12 @@ interface SubagentDef {          // a named subagent
 - Skill `resources` keys must be SAFE relative paths inside the skill dir — empty,
   `.`, absolute, or any `..`-traversal key is rejected (prevents arbitrary file
   write/delete via `join(skillDir, rel)`).
+- Memory `content` must be non-empty; **hard `ConnectorConfigError`** above
+  16 KiB (memory is injected into every prompt of every targeted host — keep
+  it terse) or when it contains the literal marker tokens
+  `agent-connector:begin` / `agent-connector:end` (they would corrupt marker
+  scanning). A **soft 4 KiB budget** is reported at install time as a `warn`
+  ChangeRecord, not a config error.
 
 **Per-platform surface support** (from `docs/research/surfaces-design.md`; adapters
 that don't support a surface skip with a warning):
@@ -437,6 +457,129 @@ that don't support a surface skip with a warning):
 `md+fm` = YAML frontmatter + markdown body. Skills are uniformly folder-per-skill
 `SKILL.md` (`name`+`description` frontmatter) plus optional `resources` files; only
 the parent dir differs per platform.
+
+**The `memory` surface — managed blocks in the file each host actually reads.**
+Unlike commands/skills/subagents (files agent-connector wholly owns), memory edits
+a SHARED, user-authored memory/rules file. Every write goes through one
+dependency-free engine (`core/managed-block.ts`) implementing idempotent,
+hash-stamped, uninstall-reversible **managed blocks**:
+
+```
+<!-- agent-connector:begin <connectorId>/<name> hash=<sha256-12> -->
+<!-- Managed by agent-connector for "<connectorId>". Do not edit between these markers: `agent-connector sync` rewrites this block; `agent-connector uninstall <connectorId>` removes it. -->
+…content…
+<!-- agent-connector:end <connectorId>/<name> -->
+```
+
+Marker + edit-detection semantics:
+- The blockId (`<connectorId>/<name>`) lives ON the marker line, so multiple
+  connectors coexist in one file and each update path only ever touches its own
+  pair; the shared `agent-connector` namespace token lets doctor/uninstall
+  enumerate every block in a file with one scan. `_shared/<name>` is a reserved
+  blockId prefix for ref-counted bridge blocks (claude-code, below).
+- `hash=` is the first 12 hex chars of sha256 over the NORMALIZED inner region
+  (CRLF→LF + trim — stable under prettier/EOL converters). It gives O(1)
+  idempotence (unchanged → `skip` ChangeRecord, no mtime/git churn) and **edit
+  detection**: actual inner hash ≠ recorded hash ⇒ the user edited inside the
+  block ⇒ `warn` and leave the edit intact — overwrite only under
+  `install --force`, after a timestamped backup. The END line carries no hash,
+  so a content change can never strand an unmatched end marker.
+- Replacement is **in place**: zero bytes outside the marker pair ever change —
+  no move-to-top, no blank-line reflow of user content. A new block appends at
+  EOF separated by exactly one blank line; a missing file is created (and
+  recorded as agent-connector-created). The scanner is line-anchored,
+  CRLF-preserving (blocks are emitted with the file's detected EOL), BOM-safe,
+  and fence-aware (marker text quoted inside backtick/tilde code fences never
+  matches); stray lone markers are recovered (backup + strip the marker line
+  only), and duplicate pairs from past bugs collapse into one on every upsert.
+
+**AGENTS.md-first policy (where the block goes).** 27 of the 29 registered
+hosts read the open AGENTS.md standard (https://agents.md — plain-markdown "README
+for agents", stewarded by the Agentic AI Foundation under the Linux Foundation),
+so the default target is the standard file. Project scope →
+`<projectDir>/AGENTS.md` — one canonical copy shared by every adopter host (the
+hash-stamped upsert makes convergent writes dedupe: the first adapter
+creates/updates, every subsequent one reports `skip`). EXCLUSIVE / first-match
+readers are PROBED so the block lands in the file the host will ACTUALLY read
+(a block in a file the host never loads fails silently, and creating AGENTS.md
+beside a fallback file can shadow the user's own rules): zed targets the first
+existing of [.rules, .cursorrules, .windsurfrules, .clinerules,
+.github/copilot-instructions.md, AGENT.md, AGENTS.md, CLAUDE.md, GEMINI.md]
+(creating AGENTS.md only when none exists); warp targets WARP.md when present
+(it takes priority in the same dir); hermes targets .hermes.md / HERMES.md when
+present (first context category wins); opencode targets an existing CLAUDE.md
+when no AGENTS.md exists (the fallback it actually reads); codex targets
+AGENTS.override.md when present (it shadows AGENTS.md; ~28 KiB per-file budget
+warn under its 32 KiB project-doc cap); openclaw maps BOTH scopes to its agent
+workspace `~/.openclaw/workspace/AGENTS.md` (personal-assistant semantics, not
+a repo file). User scope → the host's documented user/global memory file:
+AGENTS.md where one exists — codex `$CODEX_HOME/AGENTS.md` (default
+`~/.codex/AGENTS.md`), zed `~/.config/zed/AGENTS.md` (`%APPDATA%\Zed\AGENTS.md`
+on Windows), amp `~/.config/amp/AGENTS.md`, mux `~/.mux/AGENTS.md`, pi
+`~/.pi/agent/AGENTS.md`, droid `~/.factory/AGENTS.md`, opencode
+`~/.config/opencode/AGENTS.md`, antigravity + antigravity-cli
+`~/.gemini/AGENTS.md` (a shared tree — the idempotent upsert dedupes), omp
+`~/.omp/agent/AGENTS.md` — and the host's own documented file otherwise:
+qwen-code `~/.qwen/QWEN.md`, goose `.goosehints` beside config.yaml,
+copilot-cli `~/.copilot/copilot-instructions.md`, kilo/kilo-cli
+`~/.kilocode/rules/agent-connector.md`, roo-code
+`~/.roo/rules/agent-connector.md`, kiro `~/.kiro/steering/agent-connector.md`
+(dedicated agent-connector-owned rules-dir files — deletable on uninstall).
+Hosts whose user-scope rules are app/UI/cloud-managed (cursor, warp, trae,
+jetbrains-copilot, …) have no writable user file → the standard skip-warn,
+never silent. The two documented exceptions do NOT read AGENTS.md:
+
+- **claude-code → CLAUDE.md.** The official memory docs state verbatim:
+  *"Claude Code reads CLAUDE.md, not AGENTS.md"* (code.claude.com/docs/en/memory;
+  no AGENTS.md support shipped through v2.1.172). Default mode `"block"` writes
+  the managed block directly into `<projectDir>/CLAUDE.md` (project) /
+  `~/.claude/CLAUDE.md` (user) — zero side effects beyond the block itself.
+  Opt-in `platforms["claude-code"].memory.mode: "agents-import"` instead writes
+  the canonical block into AGENTS.md and manages Anthropic's documented interop
+  — the `@AGENTS.md` import line (`@~/.claude/AGENTS.md` at user scope) — as its
+  own tiny `_shared/claude-agents-import` bridge block in CLAUDE.md. The import
+  is opt-in, never default, because it makes Claude read the ENTIRE AGENTS.md
+  (user content included). When CLAUDE.md ALREADY imports or symlinks AGENTS.md,
+  the adapter auto-behaves as agents-import: the canonical block goes to
+  AGENTS.md, CLAUDE.md is not touched, and the pre-existing user wiring is never
+  claimed as managed. HTML-comment markers are CORRECT here: Claude Code strips
+  HTML comments from CLAUDE.md before context injection, so the markers and the
+  do-not-edit notice are invisible to the model while remaining fully parseable
+  for sync/doctor/uninstall. On AGENTS.md hosts (which inline the whole file
+  into the prompt) the one-line notice doubles as an in-prompt "do not edit"
+  instruction to the host's own agent.
+- **gemini-cli → GEMINI.md** (project `<projectDir>/GEMINI.md`, user
+  `~/.gemini/GEMINI.md`) — unless `context.fileName` in `.gemini/settings.json`
+  (project probed first, then user) includes `"AGENTS.md"`, in which case the
+  natively-read AGENTS.md is targeted instead. PROBE-AND-RESPECT:
+  agent-connector never flips host settings to make AGENTS.md readable — the
+  `context.fileName: ["AGENTS.md", "GEMINI.md"]` opt-in is documented as a user
+  recipe only.
+
+Per-host tuning via `platforms.<id>.memory`: `false` disables the surface on
+that host; `{ path }` overrides the target file (absolute, or resolved against
+the project dir / home dir per scope); `{ mode }` is claude-code-only (ignored
+elsewhere with a `warn`). Scopes: `project` and `user`; `system` / `profile` /
+`managed` skip-warn (admin-owned memory files are out of scope in v1).
+
+**Reversibility.** Memory installs LAST among the content surfaces and is
+removed FIRST on uninstall. Uninstall candidates are the union of the re-probed
+targets and the persisted ownership ledger
+(`connectorDir(id)/memory-state.json`: platform / scope / path / blockId /
+createdFile / hash rows); in each candidate file EVERY block under the
+`<connectorId>/` marker prefix is excised — prefix scan, not the declared entry
+list, so renamed or stale entries are reclaimed too — plus at most one adjacent
+blank separator line. The markers in the committed file remain the source of
+truth: a teammate's machine with no ledger still uninstalls cleanly. A
+user-edited block (hash drift) is backed up before removal; a file
+agent-connector itself created is deleted when only whitespace remains; the
+claude-code `@AGENTS.md` bridge block is removed only when the sibling AGENTS.md
+holds no remaining agent-connector blocks (ref-counted — connector B's import
+keeps working when connector A uninstalls), and a user-authored import line is
+never touched. Re-running uninstall yields only `skip` records, and every byte
+outside agent-connector's own markers is exactly as the user left it. `doctor`
+verifies each ledger row: file present, block present, recorded hash == actual
+inner hash (user-edited drift → warn, never auto-fixed).
 
 ### 2.5 `TelemetryConfig`
 
@@ -468,7 +611,17 @@ interface PlatformOverride {
   commands?: boolean;                       // false → skip command files here
   skills?: boolean;                         // false → skip skill files here
   subagents?: boolean;                      // false → skip subagent files here
+  memory?: boolean | PlatformMemoryOverride; // false → no memory block here; object → per-host tuning
   extra?: Record<string, unknown>;          // verbatim fields merged into the native config
+}
+
+interface PlatformMemoryOverride {
+  path?: string;                  // override the target memory file (absolute, or resolved
+                                  // against projectDir / home per scope)
+  mode?: "block" | "agents-import"; // claude-code ONLY (ignored elsewhere with a warn):
+                                  // "block" (default) = managed block in CLAUDE.md;
+                                  // "agents-import" = canonical block in AGENTS.md + managed
+                                  // @AGENTS.md import bridge in CLAUDE.md (§2.4)
 }
 ```
 
@@ -613,6 +766,7 @@ interface ResolvedConnector {
   commands: CommandDef[];             // normalized; [] when none
   skills: SkillDef[];                 // normalized; [] when none
   subagents: SubagentDef[];           // normalized; [] when none
+  memory: MemoryDef[];                // normalized; names defaulted ("memory"); [] when none
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   publish?: PublishConfig;            // registry/MCPB metadata, passed through verbatim
@@ -686,12 +840,15 @@ reason, and a one-line capabilities summary (events, transports, modifyArgs /
 modifyOutput / injectContext). `--json` emits the raw `DetectedPlatform[]`.
 
 ### install
-`agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run]`
+`agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]`
 Resolves the connector, then per target: backup settings → render server config into
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
-config + set the exec bit → write any command/skill/subagent files → register in the
+config + set the exec bit → write any command/skill/subagent files → upsert any
+`memory` managed blocks (last among the content surfaces, §2.4) → register in the
 plugin registry where applicable → apply any `configPatch` entries LAST (§2.6 — so
 the diff reflects final state; `--dry-run` shows the exact key + value + reason).
+`--force` overwrites USER-EDITED memory blocks (hash drift) after a timestamped
+backup; the default is warn-and-leave.
 Prints a readable diff (one line per `ChangeRecord`:
 `+` create, `~` update, `-` remove, `=` skip, `!` warn) plus warnings and a summary
 tally. Idempotent and reversible. **Exit code 1 if any change is a `warn`**, else 0.
@@ -712,9 +869,11 @@ pointer refresh fails.
 `agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--purge] [--dry-run]`
 Full inverse — releases `configPatch` ownership FIRST (ledger-keyed; a patched key is
 deleted only when this connector is the last owner and the value is unchanged, §2.6),
-then removes the connector's MCP + hook registrations and content files from
-every resolved target, using registered metadata so it works even when the source
-module is gone. The connector id comes from `--connector-id`, else inferred from the
+then excises `memory` managed blocks (first among the content surfaces — prefix scan
+over the connector's marker namespace + the memory ledger, so even an id-only
+synthetic uninstall reclaims blocks, §2.4), then removes the connector's MCP + hook
+registrations and content files from every resolved target, using registered
+metadata so it works even when the source module is gone. The connector id comes from `--connector-id`, else inferred from the
 local config. Same diff output and exit semantics. `--purge` additionally removes the
 connector's registered framework state (`connectors/<id>/` under the data-root) and,
 when no connectors remain, the shared home-bin launcher.
@@ -724,7 +883,9 @@ when no connectors remain, the shared home-bin launcher.
 For each detected host (or `--targets`), loads its adapter, builds an `InstallContext`,
 and runs the adapter's doctor checks; prints `[pass] / [warn] / [FAIL]` with any
 suggested fix. Connector context comes from the local config, else every connector
-registered under the data-root, else a minimal id-only placeholder. With `--probe` it
+registered under the data-root, else a minimal id-only placeholder. Installed
+`memory` blocks are verified per ledger row — file present, block present,
+recorded hash == actual inner hash (user-edited drift → warn, never auto-fixed). With `--probe` it
 also spawns the connector's REAL stdio server and runs a live MCP handshake
 (initialize → ping → tools/list); probe FAILs fold into the exit code. **Non-zero exit
 if any check FAILs** (warns alone do not fail).

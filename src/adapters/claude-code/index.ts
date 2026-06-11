@@ -15,12 +15,12 @@
  *     additionalContext, updatedInput) on stdout with exit 0.
  */
 
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   CommandDef,
@@ -75,6 +75,16 @@ import {
   saveConfigPatchLedger,
 } from "../../core/config-patch-ledger.js";
 import { readRegisteredMeta } from "../../core/load-connector.js";
+import {
+  linesOutsideFences,
+  listManagedBlocks,
+  loadMemoryLedger,
+  recordMemoryTarget,
+  removeBlocksFromText,
+  removeManagedBlocksFile,
+  saveMemoryLedger,
+  upsertManagedBlockFile,
+} from "../../core/managed-block.js";
 import { backupsDir, ensureDir } from "../../core/paths.js";
 import {
   type ClaudeHookEvent,
@@ -86,6 +96,15 @@ import { renderCommandMd, renderSkillMd, renderSubagentMd } from "./render.js";
 
 const HOST: PlatformId = "claude-code";
 const MCP_ROOT_KEY = "mcpServers";
+
+/**
+ * Reserved blockId of the SHARED `@AGENTS.md` import bridge in CLAUDE.md
+ * (agents-import mode). The `_shared/` prefix cannot collide with a connector
+ * blockId (connector ids match ^[a-z0-9][a-z0-9-]*$), and the bridge is
+ * refcounted namespace-wide: it is removed only when the LAST agent-connector
+ * block leaves the sibling AGENTS.md.
+ */
+const CLAUDE_AGENTS_IMPORT_BLOCK_ID = "_shared/claude-agents-import";
 
 /** A single hook registration entry as Claude Code stores it in settings.json. */
 interface ClaudeHookEntry {
@@ -144,6 +163,10 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // Memory surface — EXCEPTION host: Claude Code reads CLAUDE.md, NOT
+    // AGENTS.md (docs are explicit; no AGENTS.md support through v2.1.172), so
+    // memoryTargets/installMemory below override the base AGENTS.md default.
+    supportsMemory: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -1077,6 +1100,265 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
   /** Render a subagent to md+frontmatter (delegates to the shared renderer). */
   private renderSubagent(agent: SubagentDef): string {
     return renderSubagentMd(agent);
+  }
+
+  // ── Memory surface: CLAUDE.md managed block + AGENTS.md interop ────────────
+  // EXCEPTION host. Claude Code reads CLAUDE.md, NOT AGENTS.md (docs verbatim:
+  // "Claude Code reads CLAUDE.md, not AGENTS.md"; no AGENTS.md support through
+  // v2.1.172), so the base AGENTS.md-first default is overridden:
+  //   - mode "block" (default): the managed block goes straight into CLAUDE.md.
+  //     HTML-comment markers are CORRECT here — Claude strips HTML comments
+  //     from CLAUDE.md before context injection, so the markers and the
+  //     do-not-edit notice are INVISIBLE to the model while remaining fully
+  //     parseable by us for sync/doctor/uninstall.
+  //   - mode "agents-import" (opt-in via platforms["claude-code"].memory.mode):
+  //     canonical block goes into AGENTS.md, plus a SHARED `@AGENTS.md` import
+  //     bridge block in CLAUDE.md (Anthropic's documented interop). Opt-in
+  //     because the import makes Claude read the ENTIRE AGENTS.md — a behavior
+  //     change agent-connector must not make silently.
+  //   - AUTO interop: when CLAUDE.md ALREADY imports `@AGENTS.md` (a line
+  //     outside code fences and outside our own blocks) or IS a symlink
+  //     resolving to AGENTS.md, the canonical block goes to AGENTS.md and
+  //     CLAUDE.md is NOT touched — the pre-existing user wiring is never
+  //     claimed as agent-connector-managed (prevents double-reads and writes
+  //     "through" a symlink). Order-independent: keyed off the import/symlink
+  //     existing, never off whether the AGENTS.md block was written yet.
+
+  /** CLAUDE.md path: project `<projectDir>/CLAUDE.md`, user `~/.claude/CLAUDE.md`. */
+  private claudeMdPath(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, "CLAUDE.md")
+      : join(homedir(), ".claude", "CLAUDE.md");
+  }
+
+  /** Sibling AGENTS.md at the same scope (agents-import / auto-interop target). */
+  private agentsMdPath(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, "AGENTS.md")
+      : join(homedir(), ".claude", "AGENTS.md");
+  }
+
+  /**
+   * True when the user ALREADY wired CLAUDE.md to AGENTS.md themselves:
+   * an `@AGENTS.md` import line outside code fences and outside agent-connector
+   * managed blocks (our own bridge must not count), or CLAUDE.md being a
+   * symlink that resolves to the sibling AGENTS.md.
+   */
+  private claudeMdWiredToAgentsMd(ctx: InstallContext): boolean {
+    const claudeMd = this.claudeMdPath(ctx);
+    if (!existsSync(claudeMd)) return false;
+    try {
+      if (lstatSync(claudeMd).isSymbolicLink()) {
+        const agentsMd = this.agentsMdPath(ctx);
+        const resolved = realpathSync(claudeMd);
+        const agentsResolved = existsSync(agentsMd) ? realpathSync(agentsMd) : agentsMd;
+        if (resolved === agentsResolved) return true;
+      }
+    } catch {
+      /* unreadable link — fall through to the content probe */
+    }
+    let raw: string;
+    try {
+      raw = readFileSync(claudeMd, "utf8");
+    } catch {
+      return false;
+    }
+    // Strip every agent-connector managed block first so OUR bridge import is
+    // never mistaken for user wiring (idempotence across modes).
+    const withoutBlocks = removeBlocksFromText(raw, { blockIdPrefix: "" }).text;
+    const importRe = /(^|\s)@(?:AGENTS\.md|~\/\.claude\/AGENTS\.md)(\s|$)/;
+    return linesOutsideFences(withoutBlocks).some((line) => importRe.test(line));
+  }
+
+  /**
+   * Effective memory mode for this install:
+   *   "user-import"   — the user already wired CLAUDE.md→AGENTS.md (wins over
+   *                     everything; we never write a duplicate or a second import);
+   *   "agents-import" — explicit opt-in via platforms["claude-code"].memory.mode;
+   *   "block"         — the default (managed block directly in CLAUDE.md).
+   */
+  private effectiveMemoryMode(ctx: InstallContext): "block" | "agents-import" | "user-import" {
+    if (this.claudeMdWiredToAgentsMd(ctx)) return "user-import";
+    return this.memoryOverride(ctx)?.mode === "agents-import" ? "agents-import" : "block";
+  }
+
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    // An explicit path override keeps the base resolution (escape hatch wins).
+    if (this.memoryOverride(ctx)?.path) return super.memoryTargets(ctx);
+    if (ctx.scope !== "project" && ctx.scope !== "user") return [];
+    const mode = this.effectiveMemoryMode(ctx);
+    if (mode === "block") {
+      return [
+        {
+          path: this.claudeMdPath(ctx),
+          reason:
+            "CLAUDE.md (Claude Code reads CLAUDE.md, not AGENTS.md; " +
+            "HTML-comment markers are stripped from the model's context)",
+        },
+      ];
+    }
+    return [
+      {
+        path: this.agentsMdPath(ctx),
+        reason:
+          mode === "user-import"
+            ? "AGENTS.md (CLAUDE.md already imports/symlinks it — user wiring respected)"
+            : "AGENTS.md (agents-import mode; @AGENTS.md bridge managed in CLAUDE.md)",
+      },
+    ];
+  }
+
+  override installMemory(ctx: InstallContext): ChangeRecord[] {
+    const changes = super.installMemory(ctx);
+    const { connector } = ctx;
+    // Bridge management applies only when the generic path actually installed.
+    if (connector.platforms[HOST]?.memory === false || (connector.memory ?? []).length === 0) {
+      return changes;
+    }
+    if (ctx.scope !== "project" && ctx.scope !== "user") return changes;
+    if (this.memoryOverride(ctx)?.path) return changes;
+
+    const mode = this.effectiveMemoryMode(ctx);
+    if (mode === "user-import") {
+      changes.push({
+        platform: this.id,
+        action: "skip",
+        path: this.claudeMdPath(ctx),
+        detail:
+          "memory: CLAUDE.md already imports AGENTS.md; canonical block in AGENTS.md " +
+          "suffices (pre-existing user import never claimed as managed)",
+      });
+      return changes;
+    }
+    if (mode !== "agents-import") return changes;
+
+    // agents-import: ensure the SHARED `@AGENTS.md` bridge block in CLAUDE.md.
+    const claudeMd = this.claudeMdPath(ctx);
+    const importLine = ctx.scope === "project" ? "@AGENTS.md" : "@~/.claude/AGENTS.md";
+    const res = upsertManagedBlockFile(claudeMd, {
+      blockId: CLAUDE_AGENTS_IMPORT_BLOCK_ID,
+      connectorId: "_shared",
+      content: importLine,
+      notice:
+        "Managed by agent-connector (shared bridge). This import makes Claude Code read " +
+        "AGENTS.md; it is removed automatically when the last agent-connector block " +
+        "leaves AGENTS.md.",
+      force: ctx.force ?? false,
+      dryRun: ctx.dryRun,
+    });
+    changes.push({
+      platform: this.id,
+      action: res.action,
+      path: claudeMd,
+      detail: `memory: ${res.detail} — @AGENTS.md import bridge (agents-import mode)`,
+    });
+    if (res.backupPath) {
+      changes.push({
+        platform: this.id,
+        action: "create",
+        path: res.backupPath,
+        detail: "backed up CLAUDE.md before destructive change",
+      });
+    }
+    if (res.action !== "warn" && !ctx.dryRun) {
+      const ledger = loadMemoryLedger(connector.id);
+      recordMemoryTarget(ledger, {
+        platform: this.id,
+        scope: ctx.scope,
+        path: claudeMd,
+        blockId: CLAUDE_AGENTS_IMPORT_BLOCK_ID,
+        createdFile: res.createdFile,
+        hash: res.hash,
+      });
+      saveMemoryLedger(connector.id, ledger);
+    }
+    return changes;
+  }
+
+  override uninstallMemory(ctx: InstallContext): ChangeRecord[] {
+    // Capture bridge facts BEFORE super prunes this platform's ledger rows.
+    const priorRows = loadMemoryLedger(ctx.connector.id).targets.filter(
+      (t) => t.platform === this.id && t.blockId === CLAUDE_AGENTS_IMPORT_BLOCK_ID,
+    );
+    const changes = super.uninstallMemory(ctx);
+
+    // Bridge candidates: the current-scope CLAUDE.md plus any CLAUDE.md the
+    // ledger recorded a bridge in (scope drift between install and uninstall).
+    const pairs = new Map<string, { agentsMd: string; createdFile: boolean }>();
+    if (ctx.scope === "project" || ctx.scope === "user") {
+      pairs.set(this.claudeMdPath(ctx), {
+        agentsMd: this.agentsMdPath(ctx),
+        createdFile: false,
+      });
+    }
+    for (const row of priorRows) {
+      const existing = pairs.get(row.path);
+      pairs.set(row.path, {
+        agentsMd: existing?.agentsMd ?? join(dirname(row.path), "AGENTS.md"),
+        createdFile: (existing?.createdFile ?? false) || row.createdFile,
+      });
+    }
+    for (const [claudeMd, { agentsMd, createdFile }] of pairs) {
+      changes.push(...this.releaseAgentsImportBridge(ctx, claudeMd, agentsMd, createdFile));
+    }
+    return changes;
+  }
+
+  /**
+   * Refcounted bridge release: remove the `_shared/claude-agents-import` block
+   * from CLAUDE.md ONLY when the sibling AGENTS.md holds zero agent-connector
+   * blocks from OTHER connectors (namespace-wide count, excluding this
+   * connector's own blocks so the answer is identical on dry-run and real run).
+   * A user-authored `@AGENTS.md` import (no markers) is NEVER touched.
+   */
+  private releaseAgentsImportBridge(
+    ctx: InstallContext,
+    claudeMd: string,
+    agentsMd: string,
+    createdFile: boolean,
+  ): ChangeRecord[] {
+    if (!existsSync(claudeMd)) return [];
+    let raw: string;
+    try {
+      raw = readFileSync(claudeMd, "utf8");
+    } catch {
+      return [];
+    }
+    if (!listManagedBlocks(raw).some((b) => b.blockId === CLAUDE_AGENTS_IMPORT_BLOCK_ID)) {
+      return []; // no managed bridge here (user wiring or block mode) — nothing to release
+    }
+    let remaining = 0;
+    if (existsSync(agentsMd)) {
+      try {
+        remaining = listManagedBlocks(readFileSync(agentsMd, "utf8")).filter(
+          (b) => !b.blockId.startsWith(`${ctx.connector.id}/`),
+        ).length;
+      } catch {
+        remaining = 1; // unreadable → conservative: keep the bridge
+      }
+    }
+    if (remaining > 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: claudeMd,
+          detail:
+            `memory: @AGENTS.md import bridge retained — ${remaining} agent-connector ` +
+            `block(s) from other connectors remain in ${agentsMd}`,
+        },
+      ];
+    }
+    return removeManagedBlocksFile(
+      claudeMd,
+      { blockId: CLAUDE_AGENTS_IMPORT_BLOCK_ID },
+      { dryRun: ctx.dryRun, deleteFileIfCreated: createdFile },
+    ).map((r) => ({
+      platform: this.id,
+      action: r.action,
+      path: r.path,
+      detail: `memory: ${r.detail}`,
+    }));
   }
 
   /** True when a hook command references our home binary AND this connector id

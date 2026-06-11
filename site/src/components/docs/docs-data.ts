@@ -65,7 +65,7 @@ export const tracks: Record<TrackId, TrackDef> = {
           { id: "define-connector", label: "defineConnector" },
           { id: "server", label: "Server" },
           { id: "hooks", label: "Hooks" },
-          { id: "surfaces", label: "Commands, Skills & Subagents" },
+          { id: "surfaces", label: "Commands, Skills, Subagents & Memory" },
         ],
       },
       {
@@ -224,7 +224,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 12 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform.",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance upserted as a marker-fenced, hash-stamped managed block into the memory/rules file each host actually reads — AGENTS.md on 27 of 29 hosts (the open agents.md standard), CLAUDE.md for Claude Code, GEMINI.md for Gemini CLI.",
   packaging:
     "Two ways to ship: direct install, or a packaged bundle. agent-connector package emits any of 9 marketplace/extension formats — each with its own manifest + install command — and every bundle keeps the telemetry serve-wrapper + home-bin hooks so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -313,11 +313,18 @@ export const connectorConfigFields: FieldRow[] = [
     notes: "Named subagents → native content files.",
   },
   {
+    name: "memory",
+    type: "MemoryDef[]",
+    default: "[]",
+    notes:
+      "Standing guidance → marker-fenced managed blocks in each host's memory/rules file (AGENTS.md-first; CLAUDE.md / GEMINI.md exceptions).",
+  },
+  {
     name: "platforms",
     type: "Partial<Record<PlatformId, PlatformOverride>>",
     default: "{}",
     notes:
-      "Per-platform overrides / escape hatch (extra, nativeHooks, configPatch, disable a surface, force scope).",
+      "Per-platform overrides / escape hatch (extra, nativeHooks, configPatch, memory target/mode tuning, disable a surface, force scope).",
   },
   {
     name: "targets",
@@ -398,6 +405,12 @@ export const resolvedConnectorFields: FieldRow[] = [
     type: "SubagentDef[]",
     required: true,
     notes: "Normalized; [] when none.",
+  },
+  {
+    name: "memory",
+    type: "MemoryDef[]",
+    required: true,
+    notes: 'Normalized; names defaulted ("memory"); [] when none.',
   },
   {
     name: "platforms",
@@ -677,6 +690,63 @@ export const subagentDefFields: FieldRow[] = [
   { name: "extra", type: "Record<string, unknown>", notes: "Escape hatch." },
 ];
 
+export const memoryDefFields: FieldRow[] = [
+  {
+    name: "name",
+    type: "string",
+    default: '"memory"',
+    notes:
+      "kebab-case; suffixes the connector id in the block marker (<connectorId>/<name>) — keep it STABLE across versions.",
+  },
+  {
+    name: "description",
+    type: "string",
+    notes: "Status/docs output only; never written to the host file.",
+  },
+  {
+    name: "content",
+    type: "string",
+    required: true,
+    notes:
+      "Plain CommonMark, host-agnostic (no @imports, no frontmatter) — inlined verbatim into every targeted host's prompt context. Hard 16 KiB cap (ConnectorConfigError); soft 4 KiB install-time warn; must not contain the literal marker tokens.",
+  },
+];
+
+/**
+ * Memory write targets (llms-full §2.4): the AGENTS.md-first policy plus the
+ * two documented exception hosts.
+ */
+export const memoryTargetRows: {
+  host: string;
+  project: string;
+  user: string;
+  note: string;
+}[] = [
+  {
+    host: "27 AGENTS.md adopter hosts",
+    project:
+      "<projectDir>/AGENTS.md — exclusive/first-match readers are probed so the block lands where the host actually reads (zed's nine-candidate first-match, warp's WARP.md priority, hermes' .hermes.md, opencode's CLAUDE.md fallback, codex's AGENTS.override.md; openclaw → its agent workspace)",
+    user:
+      "the host's documented global memory file: AGENTS.md where one exists (e.g. ~/.codex/AGENTS.md, ~/.config/zed/AGENTS.md, ~/.config/amp/AGENTS.md, ~/.factory/AGENTS.md), else the host's own file (~/.qwen/QWEN.md, goose .goosehints, ~/.copilot/copilot-instructions.md, kilo/roo/kiro rules-dir agent-connector.md) — else skip-warn",
+    note:
+      "One canonical copy in the open agents.md standard file; convergent writes dedupe via the content hash (first adapter writes, the rest skip). Hosts whose user rules are app/UI-managed (cursor, warp, trae, jetbrains-copilot, …) skip-warn at user scope.",
+  },
+  {
+    host: "claude-code",
+    project: "<projectDir>/CLAUDE.md",
+    user: "~/.claude/CLAUDE.md",
+    note:
+      'Official docs: "Claude Code reads CLAUDE.md, not AGENTS.md". HTML-comment markers are stripped from the model\'s context — invisible to Claude, still parseable for sync/doctor/uninstall. Opt-in memory.mode: "agents-import" writes AGENTS.md + a managed @AGENTS.md import bridge in CLAUDE.md; pre-existing user imports/symlinks are auto-detected and respected.',
+  },
+  {
+    host: "gemini-cli",
+    project: "<projectDir>/GEMINI.md",
+    user: "~/.gemini/GEMINI.md",
+    note:
+      'AGENTS.md is targeted instead when the user\'s context.fileName setting includes "AGENTS.md" — probed and respected, never edited by agent-connector.',
+  },
+];
+
 /** Per-platform surface support (llms-full §2.4). */
 export const surfaceSupportRows: {
   platform: string;
@@ -867,6 +937,12 @@ export const platformOverrideFields: FieldRow[] = [
     notes: "false → skip subagent files here.",
   },
   {
+    name: "memory",
+    type: "boolean | PlatformMemoryOverride",
+    notes:
+      'false → no memory block on this host; object → { path? (override the target file), mode? ("block" | "agents-import" — claude-code only, ignored elsewhere with a warn) }.',
+  },
+  {
     name: "extra",
     type: "Record<string, unknown>",
     notes: "Verbatim fields merged into the native config.",
@@ -929,9 +1005,9 @@ export const cliCommands: CliCommand[] = [
   {
     name: "install",
     signature:
-      "agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run]",
+      "agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]",
     summary:
-      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. Exit code 1 if any change is a warn, else 0.",
+      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
   },
   {
     name: "upgrade",
@@ -944,7 +1020,7 @@ export const cliCommands: CliCommand[] = [
     signature:
       "agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run] [--purge]",
     summary:
-      "Full inverse — removes the connector's MCP + hook registrations and content files from every resolved target, using registered metadata so it works even when the source module is gone. The id comes from --connector-id, else inferred from the local config. With --purge it also removes the connector's ~/.agent-connector state record and, when no connectors remain, the shared home-bin launcher; without it the record lingers so the connector can be re-synced without re-registering.",
+      "Full inverse — excises memory managed blocks FIRST (a prefix scan over the connector's marker namespace plus the memory ledger, so even an id-only uninstall reclaims blocks; user-edited blocks are backed up before removal), then removes the connector's MCP + hook registrations and content files from every resolved target, using registered metadata so it works even when the source module is gone. The id comes from --connector-id, else inferred from the local config. With --purge it also removes the connector's ~/.agent-connector state record and, when no connectors remain, the shared home-bin launcher; without it the record lingers so the connector can be re-synced without re-registering.",
   },
   {
     name: "doctor",
@@ -1183,9 +1259,15 @@ export const configErrorRows: { message: string; cause: string }[] = [
   },
   {
     message:
-      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, or `subagents`",
+      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, or a per-platform `nativeHooks` / `configPatch` declaration",
     cause:
-      "No surface was declared. A connector needs at least one of those five to do anything.",
+      "No surface was declared. A connector needs at least one of those to do anything.",
+  },
+  {
+    message:
+      'memory[<i>].content must not contain the literal marker token "agent-connector:begin"',
+    cause:
+      "Memory content containing the managed-block marker tokens (agent-connector:begin / agent-connector:end) would corrupt marker scanning. Rephrase the content; the 16 KiB hard cap throws a similar error.",
   },
   {
     message: "server.command is required for stdio transport",

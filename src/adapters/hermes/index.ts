@@ -37,7 +37,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -151,6 +151,11 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block. memoryTargets below probes
+    // for .hermes.md / HERMES.md (first context category wins on hermes —
+    // AGENTS.md is ignored when they exist); ~/.hermes holds identity/volatile
+    // files (SOUL.md, MEMORY.md), not a rules surface → user-scope skip-warn.
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     preCompact: false,
@@ -193,6 +198,38 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
         : `no Hermes config at ${configPath}`,
       confidence: installed ? "high" : "low",
     };
+  }
+
+  // ── Memory surface: .hermes.md / HERMES.md shadow probe (project) ────────
+  // Hermes assembles project context by FIRST CATEGORY WINS: .hermes.md or
+  // HERMES.md (cwd walking up to the git root) → AGENTS.md (cwd only) →
+  // CLAUDE.md (cwd only). When a hermes-native file exists our block must live
+  // there or it is never loaded. Reason strings note the cwd-only AGENTS.md
+  // read and hermes' ~20k-chars-per-file truncation.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "project") {
+      return super.memoryTargets(ctx); // user scope: no rules surface → skip-warn
+    }
+    for (const name of [".hermes.md", "HERMES.md"]) {
+      const candidate = join(ctx.projectDir, name);
+      if (existsSync(candidate)) {
+        return [
+          {
+            path: candidate,
+            reason: `${name} shadows AGENTS.md on hermes (first context category wins)`,
+            budgetBytes: 18 * 1024, // hermes truncates each context file at ~20k chars
+          },
+        ];
+      }
+    }
+    return [
+      {
+        path: join(ctx.projectDir, "AGENTS.md"),
+        reason:
+          "AGENTS.md (hermes reads it from the cwd only — run from the project root; ~20k chars/file truncation)",
+        budgetBytes: 18 * 1024,
+      },
+    ];
   }
 
   // ── Native paths (server + hooks share the SAME file) ─────────────────────

@@ -22,6 +22,9 @@ export async function run(argv: string[]): Promise<number> {
       connector: { type: "string" },
       project: { type: "string" },
       "dry-run": { type: "boolean", default: false },
+      // Memory surface: overwrite USER-EDITED managed blocks (hash drift).
+      // Default behavior is warn-and-leave; --force backs the file up first.
+      force: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });
@@ -47,6 +50,7 @@ export async function run(argv: string[]): Promise<number> {
     scope,
     projectDir,
     dryRun: values["dry-run"],
+    force: values.force,
     ...(targets ? { targets } : {}),
   });
 

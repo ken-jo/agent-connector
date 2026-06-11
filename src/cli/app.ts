@@ -183,7 +183,7 @@ export const DEFAULT_PROGRAM_NAME = "agent-connector";
 const COMMAND_USAGE: Record<string, string> = {
   detect: "detect [--json] [--project <dir>]",
   install:
-    "install [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run]",
+    "install [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force]",
   uninstall:
     "uninstall [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge]",
   upgrade:

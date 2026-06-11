@@ -9,7 +9,7 @@
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
 ![platforms](https://img.shields.io/badge/platforms-29-2563eb)
-![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools-2563eb)
+![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
@@ -336,6 +336,49 @@ export default defineConnector({
 …each pointing hooks at a **single stable home binary**, so one update propagates
 everywhere.
 
+### Standing guidance (`memory`) — aligned with the AGENTS.md standard
+
+Ship the rules every agent should follow when your MCP is installed:
+
+```ts
+memory: [
+  {
+    content:
+      "Use the acme-db MCP tools for schema questions; never hand-edit migrations.",
+  },
+],
+```
+
+**Write the guidance once — it lands in the standard
+[AGENTS.md](https://agents.md) on 27 of the 29 hosts** (the open, Linux
+Foundation-stewarded "README for agents" format): project scope targets
+`<projectDir>/AGENTS.md` — and where a host resolves its rules file
+exclusively, the target is *probed* so the block lands in the file the host
+actually reads (zed's first-match rules list, warp's `WARP.md` priority,
+hermes' `.hermes.md`, opencode's `CLAUDE.md` fallback, codex's
+`AGENTS.override.md`). User scope goes to the host's documented global memory
+file (AGENTS.md where one exists, else the host's own file — `~/.qwen/QWEN.md`,
+goose `.goosehints`, kilo/roo/kiro rules dirs).
+The two hosts that don't read AGENTS.md are wired per their own official docs:
+
+- **Claude Code** → the block goes in `CLAUDE.md` (the official memory docs are
+  explicit: *"Claude Code reads CLAUDE.md, not AGENTS.md"*). Opt-in
+  `platforms: { "claude-code": { memory: { mode: "agents-import" } } }` instead
+  writes the canonical AGENTS.md block plus Anthropic's documented `@AGENTS.md`
+  import line as a managed bridge in CLAUDE.md — opt-in because the import makes
+  Claude read the *entire* AGENTS.md.
+- **Gemini CLI** → `GEMINI.md`, unless the user's `context.fileName` setting
+  already opts Gemini into AGENTS.md (probed and respected — never edited).
+
+Writes are **surgical managed blocks** — marker-fenced
+(`<!-- agent-connector:begin <id>/memory hash=… -->`), hash-stamped, multiple
+connectors coexist in one file, and bytes outside your own markers are never
+touched. If a user edits inside the block, the hash mismatch is detected and the
+edit is *left intact* (sync warns; `install --force` overwrites after a backup).
+Uninstall excises exactly your blocks and `doctor` verifies them (present /
+hash-intact / user-edited / file missing). Hosts with no writable memory file at
+a scope skip-warn, never silently.
+
 ## How it works (operating model)
 
 - **Home-dir, single binary.** The runtime installs once under
@@ -356,7 +399,7 @@ everywhere.
 | Command | Purpose |
 |---|---|
 | `detect` | List installed platforms, scopes, capabilities, hook paradigm. |
-| `install [--scope user\|project] [--targets …] [--dry-run]` | Render + write MCP + hooks across targets. |
+| `install [--scope user\|project] [--targets …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces (commands / skills / subagents / memory) across targets. `--force` overwrites user-edited memory blocks (after a backup). |
 | `uninstall [--targets …]` | Full inverse — removes everything we wrote. |
 | `upgrade [--channel stable\|latest]` | One verb (alias: `update`, `sync`) — re-render host config + heal stale pointers + refresh the home-binary pointer, printing managed-update guidance (never a silent self-update). |
 | `doctor [--probe]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real server. |

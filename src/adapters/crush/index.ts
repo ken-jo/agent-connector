@@ -133,6 +133,9 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
+    // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
+    supportsMemory: true,
     // PreToolUse deny is the only hook decision Crush honors.
     preToolUse: true,
     postToolUse: false,

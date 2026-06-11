@@ -33,7 +33,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -164,6 +164,10 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
+    // via the base default — goose reads AGENTS.md AND .goosehints at each level,
+    // .goosehints left untouched; user scope → the global .goosehints below).
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     preCompact: false,
@@ -242,6 +246,25 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
       return join(appData, "Block", "goose", "config", "config.yaml");
     }
     return join(homedir(), ".config", "goose", "config.yaml");
+  }
+
+  // ── Memory surface: global .goosehints at user scope ────────────────────
+  // Project scope stays on the AGENTS.md base default (goose reads project
+  // AGENTS.md and .goosehints at each level by default — one canonical copy in
+  // the standard file; the user's .goosehints is never touched). User scope:
+  // goose's only documented global memory file is the .goosehints next to
+  // config.yaml (~/.config/goose/.goosehints; Windows under
+  // %APPDATA%\Block\goose\config — adapter-corroborated, verify per version).
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "user") {
+      return super.memoryTargets(ctx);
+    }
+    return [
+      {
+        path: join(dirname(this.userConfigPath()), ".goosehints"),
+        reason: "goose global hints file (.goosehints beside config.yaml)",
+      },
+    ];
   }
 
   // ── MCP server install / uninstall (YAML — merge via readYaml/writeYaml) ──

@@ -78,6 +78,7 @@ import type {
   GeneratedPluginFile,
   HookReply,
   InstallContext,
+  MemoryTarget,
   NormalizedEvent,
 } from "../spi.js";
 import type {
@@ -159,6 +160,9 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
+    // via the base default; user scope → ~/.kilocode/rules/agent-connector.md below).
+    supportsMemory: true,
     // Matches the OpenCode capability surface — the fork inherits its plugin
     // event model.
     preToolUse: true,
@@ -225,6 +229,24 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
         : `no Kilo CLI config at ${userDir} or session store at ${cliDb}`,
       confidence: installed ? "high" : "low",
     };
+  }
+
+  // ── Memory surface: global rules dir at user scope ──────────────────────
+  // Project scope stays on the AGENTS.md base default. User scope targets a
+  // dedicated agent-connector.md in the legacy-compatible ~/.kilocode/rules/
+  // dir (always loaded; avoids JSONC `instructions` edits in kilo.jsonc; the
+  // AC-created file is cleanly deletable on uninstall). Shared backend with
+  // the kilo extension — the convergent write dedupes via the content hash.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "user") {
+      return super.memoryTargets(ctx);
+    }
+    return [
+      {
+        path: join(homedir(), ".kilocode", "rules", "agent-connector.md"),
+        reason: "kilo global rules dir (~/.kilocode/rules; agent-connector-owned file)",
+      },
+    ];
   }
 
   // ── Native paths ─────────────────────────────────────────────────────────

@@ -162,6 +162,45 @@ Distilled from the union of platform behaviors (report §3).
 - **Escape hatch** — every adapter accepts `platforms.<id>.extra` passthrough so a
   dev reaches platform-exclusive features the core doesn't model. Thin universal
   core + fat per-adapter tail.
+- **`memory` (the fourth content surface) & the AGENTS.md standard** — standing
+  guidance declared once (`memory: [{ name?, description?, content }]`) and
+  written by each supporting adapter as a **marker-fenced managed block** into
+  the memory/rules file that host actually reads. Unlike commands / skills /
+  subagents (files we wholly own), memory edits a SHARED, user-authored file —
+  so every write goes through one dependency-free engine
+  (`core/managed-block.ts`): markers
+  `<!-- agent-connector:begin <connectorId>/<name> hash=<sha256-12> -->` …
+  `<!-- agent-connector:end <connectorId>/<name> -->` plus a one-line
+  do-not-edit notice; the blockId-on-the-marker makes multi-connector
+  coexistence safe, and the hash (sha256-12 over the CRLF→LF-normalized,
+  trimmed inner content) gives O(1) idempotence (unchanged → skip) and **edit
+  detection** (inner hash ≠ recorded ⇒ user edited ⇒ warn-and-leave; overwrite
+  only under `install --force` after a timestamped backup). Replacement is
+  in-place — zero bytes outside the marker pair ever change; the scanner is
+  line-anchored, CRLF-preserving, BOM-safe, and fence-aware. **AGENTS.md-first
+  policy (grammar v1):** 27/29 hosts read the open AGENTS.md standard, so
+  project scope targets `<projectDir>/AGENTS.md` — with exclusive/first-match
+  readers PROBED so the block lands in the file the host will actually read
+  (zed's first-match candidate list, warp's WARP.md priority, hermes'
+  .hermes.md, opencode's CLAUDE.md fallback, codex's AGENTS.override.md;
+  openclaw maps both scopes to its agent workspace) — and user scope the
+  host's documented global memory file: AGENTS.md where one exists, else the
+  host's own file (~/.qwen/QWEN.md, goose .goosehints,
+  ~/.copilot/copilot-instructions.md, kilo/roo/kiro rules-dir
+  agent-connector.md), else skip-warn. The two exceptions follow
+  their own official docs: claude-code → CLAUDE.md ("Claude Code reads
+  CLAUDE.md, not AGENTS.md" — HTML-comment markers are stripped from Claude's
+  context, invisible to the model yet parseable by us; opt-in
+  `memory.mode: "agents-import"` manages the documented `@AGENTS.md` import as
+  a ref-counted `_shared` bridge block instead) and gemini-cli → GEMINI.md
+  (AGENTS.md only when `context.fileName` opts in). **We never edit host
+  settings to make AGENTS.md readable — probe and respect only.** Install
+  order: memory last among content surfaces, removed FIRST on uninstall;
+  uninstall excises every block under the `<connectorId>/` marker prefix
+  (markers in the file are the source of truth; the
+  `connectorDir(id)/memory-state.json` ledger adds created-file deletion
+  rights + doctor diagnostics: block present / hash intact / user-edited /
+  file missing). Full contract: `llms-full.txt` §2.4.
 - **`configPatch`** — the third (and smallest) escape hatch beside `extra` and
   `nativeHooks`: a declarative, ownership-tracked patch of ONE host-exclusive
   config key `extra` cannot reach (`extra` merges into the native MCP ENTRY /
@@ -282,6 +321,10 @@ export default defineConnector({
     },
   },
 
+  memory: [{                                 // standing guidance → managed marker block in each
+    content: "Use the acme-db MCP tools for schema questions; never hand-edit migrations.",
+  }],                                        // host's memory file (AGENTS.md-first; CLAUDE.md/GEMINI.md exceptions)
+
   telemetry: { enabled: true, modelFamilyHint: "auto", measureToolDefs: true },
 
   platforms: {                               // per-platform escape hatch / overrides
@@ -343,6 +386,7 @@ src/
     types.ts               all shared contracts (ServerDef, events, config, scope, …)
     define-connector.ts    defineConnector() + validation + normalization
     interpolate.ts         ${env:VAR} / ${env:VAR:-default}
+    managed-block.ts       marker-fenced managed blocks + memory ledger (the memory-surface engine)
     paths.ts               home data-root, project key/identity, per-OS dirs
     spawn.ts               Windows-safe build/parseNodeCommand, runtime resolution
     spawn-child.ts         Windows-safe child_process.spawn wrapper

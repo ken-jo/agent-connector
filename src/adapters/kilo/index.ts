@@ -46,7 +46,7 @@ import { homedir, platform as osPlatform } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
   CommandDef,
@@ -135,6 +135,9 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
+    // via the base default; user scope → ~/.kilocode/rules/agent-connector.md below).
+    supportsMemory: true,
     // Kilo Code has no lifecycle hook system — every hook capability is false.
     preToolUse: false,
     postToolUse: false,
@@ -209,6 +212,24 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
   /** Absolute path to the user-scope kilo.json (kilo backend, XDG dir). */
   private userConfigPath(): string {
     return join(kiloConfigDir(), CONFIG_FILE);
+  }
+
+  // ── Memory surface: global rules dir at user scope ──────────────────────
+  // Project scope stays on the AGENTS.md base default. User scope targets a
+  // dedicated agent-connector.md in the legacy-compatible ~/.kilocode/rules/
+  // dir (always loaded; avoids JSONC `instructions` edits in kilo.jsonc; the
+  // AC-created file is cleanly deletable on uninstall). Shared backend with
+  // kilo-cli — the convergent write dedupes via the content hash.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "user") {
+      return super.memoryTargets(ctx);
+    }
+    return [
+      {
+        path: join(homedir(), ".kilocode", "rules", "agent-connector.md"),
+        reason: "kilo global rules dir (~/.kilocode/rules; agent-connector-owned file)",
+      },
+    ];
   }
 
   /**

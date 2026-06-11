@@ -69,6 +69,7 @@ import type {
   GeneratedPluginFile,
   HookReply,
   InstallContext,
+  MemoryTarget,
   NormalizedEvent,
 } from "../spi.js";
 import type {
@@ -140,6 +141,10 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
+    // Memory surface: AGENTS.md-first managed block. memoryTargets below probes
+    // project scope (CLAUDE.md is opencode's fallback ONLY when AGENTS.md is
+    // absent — creating AGENTS.md beside it would shadow the user's rules).
+    supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
     // OpenCode's compaction hook is experimental and not wired here.
@@ -201,6 +206,34 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
         : `no OpenCode config at ${userConfigDir}`,
       confidence: installed ? "high" : "low",
     };
+  }
+
+  // ── Memory surface: AGENTS.md / CLAUDE.md-fallback probe (project) ──────
+  // OpenCode reads project AGENTS.md, falling back to CLAUDE.md ONLY when no
+  // AGENTS.md exists. If the user relies on that CLAUDE.md fallback, CREATING
+  // AGENTS.md beside it would shadow their own rules — so the block goes into
+  // the file opencode actually reads today; AGENTS.md is created only when
+  // neither exists. User scope (~/.config/opencode/AGENTS.md) stays on the
+  // BaseAdapter default.
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path || ctx.scope !== "project") {
+      return super.memoryTargets(ctx);
+    }
+    const agentsMd = join(ctx.projectDir, "AGENTS.md");
+    if (existsSync(agentsMd)) {
+      return [{ path: agentsMd, reason: "AGENTS.md (opencode's primary project rules file)" }];
+    }
+    const claudeMd = join(ctx.projectDir, "CLAUDE.md");
+    if (existsSync(claudeMd)) {
+      return [
+        {
+          path: claudeMd,
+          reason:
+            "CLAUDE.md (opencode's fallback rules file — creating AGENTS.md would shadow it)",
+        },
+      ];
+    }
+    return [{ path: agentsMd, reason: "AGENTS.md standard (created; no opencode rules file yet)" }];
   }
 
   // ── Native paths ───────────────────────────────────────────────────────
