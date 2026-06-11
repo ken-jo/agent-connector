@@ -29,7 +29,7 @@ export function Hero() {
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-indigo-500/60" />
               <span className="relative inline-flex size-2 rounded-full bg-indigo-500" />
             </span>
-            {platformCount} platforms · all 3 hook paradigms · 1263 tests
+            {platformCount} platforms · all 3 hook paradigms
           </Badge>
 
           <h1 className="animate-fade-up mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
