@@ -22,8 +22,11 @@
       property="og:description"
       content="One declarative defineConnector deploys MCP servers, hooks, commands, skills & subagents across 29 AI-agent platforms — with default, platform-independent per-tool token telemetry."
     />
-    <meta property="og:url" content="https://agent-connector.dev/" />
-    <meta property="og:image" content="https://agent-connector.dev/og.png" />
+    <meta property="og:url" content="https://agent-connector.ai/" />
+    <!-- og.png is generated at build time by scripts/prerender.mjs (playwright
+         screenshot). If no Chromium is available at build, the prerender strips
+         the og:image/twitter:image tags from dist/ so we never ship a 404 image. -->
+    <meta property="og:image" content="https://agent-connector.ai/og.png" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
@@ -35,7 +38,26 @@
       name="twitter:description"
       content="One declarative defineConnector deploys MCP servers, hooks, commands, skills & subagents across 29 AI-agent platforms — with default, platform-independent per-tool token telemetry."
     />
-    <meta name="twitter:image" content="https://agent-connector.dev/og.png" />
+    <meta name="twitter:image" content="https://agent-connector.ai/og.png" />
+
+    <!-- Canonical: rewritten per-route by scripts/prerender.mjs for every
+         prerendered page; this is the landing's self-canonical. -->
+    <link rel="canonical" href="https://agent-connector.ai/" />
+
+    <!-- Structured data (landing only — the prerender strips it from docs pages). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "agent-connector",
+        "url": "https://agent-connector.ai/",
+        "description": "One declarative defineConnector deploys MCP servers, hooks, commands, skills & subagents across 29 AI-agent platforms — with default, platform-independent per-tool token telemetry.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Windows, macOS, Linux",
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "programmingLanguage": "TypeScript"
+      }
+    </script>
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
