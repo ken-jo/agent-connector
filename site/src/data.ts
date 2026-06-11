@@ -15,7 +15,7 @@ export const INSTALL_CMD = "npm install @ken-jo/agent-connector";
 /* Hook paradigms                                                      */
 /* ------------------------------------------------------------------ */
 
-export type ParadigmId = "json-stdio" | "mcp-only" | "ts-plugin" | "skills-only";
+export type ParadigmId = "json-stdio" | "mcp-only" | "ts-plugin";
 
 export interface Paradigm {
   id: ParadigmId;
@@ -40,7 +40,7 @@ export const paradigms: Paradigm[] = [
     label: "mcp-only",
     short: "MCP registration only",
     description:
-      "No hook layer on these hosts — we install only the MCP server and detection reports that hooks are unavailable here.",
+      "No hook layer on these hosts — we install the MCP server (or, on Pi, the skills surface) and detection reports that hooks are unavailable here.",
     dot: "bg-cyan-500",
   },
   {
@@ -50,14 +50,6 @@ export const paradigms: Paradigm[] = [
     description:
       "The framework generates an exported plugin module that imports your handler — the native shape these hosts expect.",
     dot: "bg-amber-500",
-  },
-  {
-    id: "skills-only",
-    label: "skills-only",
-    short: "Future telemetry target",
-    description:
-      "Exposes no writable MCP config today — reserved as a future telemetry-only target.",
-    dot: "bg-rose-500",
   },
 ];
 
@@ -87,23 +79,22 @@ export const platforms: Platform[] = [
   { name: "Hermes", paradigm: "json-stdio" },
   { name: "Antigravity", paradigm: "json-stdio" },
   { name: "Antigravity CLI", paradigm: "json-stdio" },
+  { name: "Droid", paradigm: "json-stdio" },
   // mcp-only
   { name: "Warp", paradigm: "mcp-only" },
   { name: "Kilo", paradigm: "mcp-only" },
-  { name: "Droid", paradigm: "mcp-only" },
   { name: "Roo Code", paradigm: "mcp-only" },
   { name: "Trae", paradigm: "mcp-only" },
   { name: "Zed", paradigm: "mcp-only" },
   { name: "Amp", paradigm: "mcp-only" },
   { name: "Codebuff", paradigm: "mcp-only" },
   { name: "Mux", paradigm: "mcp-only" },
+  { name: "Pi", paradigm: "mcp-only" },
   // ts-plugin
   { name: "OpenCode", paradigm: "ts-plugin" },
   { name: "Kilo CLI", paradigm: "ts-plugin" },
   { name: "OMP", paradigm: "ts-plugin" },
   { name: "OpenClaw", paradigm: "ts-plugin" },
-  // skills-only
-  { name: "Pi", paradigm: "skills-only" },
 ];
 
 export const platformCount = platforms.length;
@@ -129,15 +120,21 @@ export const pillars: Pillar[] = [
     eyebrow: "Pillar 01",
     title: "One API → 29 platforms",
     summary:
-      "Declare your server + hooks once with defineConnector. The CLI detects every installed host and renders the right native config in each.",
+      "Declare your server, hooks, commands, skills, subagents & memory once with defineConnector. The CLI detects every installed host and renders the right native config in each.",
     points: [
       {
         label: "3 hook paradigms",
-        detail: "json-stdio · ts-plugin · mcp-only — degrades gracefully per host.",
+        detail:
+          "json-stdio · ts-plugin · mcp-only — 12 normalized lifecycle events, degrading gracefully per host.",
       },
       {
-        label: "install · sync · uninstall · doctor",
+        label: "install · upgrade · uninstall · doctor",
         detail: "Idempotent, reversible, and --dry-run-able everywhere.",
+      },
+      {
+        label: "Per-host escape hatches",
+        detail:
+          "platforms[host] extra · nativeHooks · configPatch — verbatim config merges, host-native hook events, and ownership-tracked, reversible settings keys (claude-code v1). No fork required.",
       },
       {
         label: "Thin native pointers",
@@ -153,9 +150,9 @@ export const pillars: Pillar[] = [
       "No host reports per-tool usage back to an MCP server. agent-connector measures your server's own bytes and tokenizes them locally — the metric MCP devs actually want.",
     points: [
       {
-        label: "Two leaderboards",
+        label: "Three origin-labeled leaderboards",
         detail:
-          "A plugin/MCP board (which tool costs the most tokens) + a user/host board.",
+          "A plugin/MCP board (which tool costs the most tokens), a user/host board, and an opt-in host-native turns board — never summed across origins.",
       },
       {
         label: "Platform-independent",
@@ -189,7 +186,8 @@ export const surfaces: Surface[] = [
   },
   {
     name: "Hooks",
-    description: "Normalized lifecycle events synthesized per paradigm.",
+    description:
+      "12 normalized lifecycle events synthesized per paradigm, plus a nativeHooks passthrough — every Claude Code hook event (all 30) is expressible, and future events need no release.",
     icon: GitBranch,
   },
   {
@@ -210,7 +208,7 @@ export const surfaces: Surface[] = [
   {
     name: "Memory",
     description:
-      "Standing guidance as reversible managed blocks — landing in the standard AGENTS.md on 27 hosts.",
+      "Write guidance once — it lands in the standard AGENTS.md on 27 of 29 hosts as reversible managed blocks (CLAUDE.md / GEMINI.md natively on the rest).",
     icon: BookOpen,
   },
 ];
@@ -221,14 +219,15 @@ export const surfaces: Surface[] = [
 
 export const cliCommands: { cmd: string; purpose: string }[] = [
   { cmd: "detect", purpose: "List installed platforms, scopes, capabilities & paradigm." },
-  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets." },
+  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets; user-edited managed blocks are left alone unless --force (backs the file up first)." },
   { cmd: "uninstall", purpose: "Full inverse — removes everything we wrote." },
   { cmd: "upgrade", purpose: "Bring all current: re-render config, heal pointers, managed update (alias: update, sync)." },
+  { cmd: "package", purpose: "One connector → 9 marketplace/extension formats via --format all, plus opt-in official mcp-server-json / mcpb artifacts." },
   { cmd: "doctor", purpose: "Per-platform health checks; --probe runs a live MCP handshake." },
   { cmd: "status", purpose: "Light install-state: which connectors are present on which hosts (exits 0)." },
   { cmd: "telemetry", purpose: "Per-tool token footprint, input/output split." },
   { cmd: "usage", purpose: "Whole-conversation token totals per agent CLI / model / project / session — no connector needed." },
-  { cmd: "leaderboard", purpose: "Ranked MCP/plugin and host/user token boards." },
+  { cmd: "leaderboard", purpose: "Ranked MCP/plugin, host/user, and opt-in host-native turn boards — never summed across origins." },
 ];
 
 /* ------------------------------------------------------------------ */

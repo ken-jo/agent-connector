@@ -292,18 +292,24 @@ export const vscodeOutput = `// .vscode/mcp.json
 }`;
 
 export const hooksConfigSnippet = `interface HooksConfig {
-  SessionStart?:     HookDefinition<"SessionStart">;
-  SessionEnd?:       HookDefinition<"SessionEnd">;
-  UserPromptSubmit?: HookDefinition<"UserPromptSubmit">;
-  PreToolUse?:       HookDefinition<"PreToolUse">;
-  PostToolUse?:      HookDefinition<"PostToolUse">;
-  PreCompact?:       HookDefinition<"PreCompact">;
-  Stop?:             HookDefinition<"Stop">;
-  Notification?:     HookDefinition<"Notification">;
+  SessionStart?:       HookDefinition<"SessionStart">;
+  SessionEnd?:         HookDefinition<"SessionEnd">;
+  UserPromptSubmit?:   HookDefinition<"UserPromptSubmit">;
+  PreToolUse?:         HookDefinition<"PreToolUse">;
+  PostToolUse?:        HookDefinition<"PostToolUse">;
+  PreCompact?:         HookDefinition<"PreCompact">;
+  Stop?:               HookDefinition<"Stop">;
+  Notification?:       HookDefinition<"Notification">;
+  PermissionRequest?:  HookDefinition<"PermissionRequest">;
+  PostToolUseFailure?: HookDefinition<"PostToolUseFailure">;
+  SubagentStart?:      HookDefinition<"SubagentStart">;
+  SubagentStop?:       HookDefinition<"SubagentStop">;
 }
 
 interface HookDefinition<E> {
-  matcher?: string;  // regex on tool name; empty = match all
+  matcher?: string;  // regex on tool name (tool events, incl. PermissionRequest /
+                     // PostToolUseFailure) or on agent type (SubagentStart /
+                     // SubagentStop); empty = match all
   handler(event: EventPayloadMap[E]):
     HookResponse | void | Promise<HookResponse | void>;
 }`;

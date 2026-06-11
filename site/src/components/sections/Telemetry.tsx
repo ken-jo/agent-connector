@@ -98,7 +98,7 @@ export function Telemetry() {
             <span className="text-gradient">cost context?</span>
           </>
         }
-        description="agent-connector measures your server's own bytes — args in, results out, tool schemas — and tokenizes them locally. Two leaderboards, platform-independent, aggregate counts only."
+        description="agent-connector measures your server's own bytes — args in, results out, tool schemas — and tokenizes them locally. Origin-labeled leaderboards, platform-independent, aggregate counts only."
       />
 
       <Card className="mx-auto mt-12 max-w-4xl overflow-hidden p-0">

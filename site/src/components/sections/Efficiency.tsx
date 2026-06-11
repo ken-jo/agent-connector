@@ -5,14 +5,14 @@ import { Section, SectionHeading } from "@/components/sections/Section";
 /**
  * The efficiency / "the math" section — the impact pitch. Quantifies the work
  * agent-connector does for you: one ~60-line connector definition replaces the
- * ~19,600 lines of per-platform integration logic (29 adapters) you would
+ * ~23,000 lines of per-platform integration logic (29 adapters) you would
  * otherwise hand-author and maintain. Numbers are grounded in the repo itself
- * (src/adapters LOC vs an example connector).
+ * (src/adapters non-test LOC vs an example connector).
  */
 
 const stats = [
   { value: "29", label: "platforms" },
-  { value: "5", label: "surfaces" },
+  { value: "6", label: "surfaces" },
   { value: "3", label: "hook paradigms" },
   { value: "+1", label: "line to add a host" },
 ];
@@ -25,9 +25,9 @@ const oldWay = [
 ];
 
 const newWay = [
-  "Declare your server + hooks + commands + tools + memory once with defineConnector({…})",
+  "Declare your server + hooks + commands + skills + subagents + memory once with defineConnector({…})",
   "Pick which platforms to activate via targets — or let it auto-detect every installed host",
-  "Ship it your way: install directly into every host, or `package` one connector into 9 marketplace/extension formats (Claude Code, Gemini, Antigravity, Cursor, Kimi, npm…) for one-command install",
+  "Ship it your way: install directly into every host, or `package` one connector into 9 marketplace/extension formats (Claude Code, Gemini, Antigravity, Cursor, Kimi, npm…) — plus opt-in official MCP server.json / MCPB artifacts — for one-command install",
   "A new platform? Change one line. You maintain none of the adapter code",
 ];
 
@@ -38,10 +38,10 @@ export function Efficiency() {
         eyebrow="The efficiency"
         title={
           <>
-            Write it once. Skip <span className="whitespace-nowrap">~19,600 lines</span> of glue.
+            Write it once. Skip <span className="whitespace-nowrap">~23,000 lines</span> of glue.
           </>
         }
-        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agent-connector already did that work — across 29 platforms, 5 surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
+        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agent-connector already did that work — across 29 platforms, 6 surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
       />
 
       {/* Hero stat band */}
@@ -63,7 +63,7 @@ export function Efficiency() {
               less integration code you write &amp; maintain — one{" "}
               <span className="font-semibold text-foreground">~60-line</span> connector
               definition vs the{" "}
-              <span className="font-semibold text-foreground">~19,600 lines</span> of
+              <span className="font-semibold text-foreground">~23,000 lines</span> of
               per-platform adapters that ship with the framework.
             </p>
           </div>
@@ -106,7 +106,7 @@ export function Efficiency() {
             ))}
           </ul>
           <p className="mt-7 border-t border-border pt-5 font-mono text-sm text-muted-foreground">
-            ≈ 19,600 lines × every host × forever
+            ≈ 23,000 lines × every host × forever
           </p>
         </Card>
 

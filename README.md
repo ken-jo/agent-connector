@@ -14,7 +14,7 @@
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-974%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-1263%20passing-22c55e)
 
 ## Who this is for
 
@@ -73,9 +73,9 @@ agent-connector is the middleware that does it for you:
 ## Verification
 
 The full single-API contract is **install-verified across all 29 platforms**. A
-sample connector declaring **all four surfaces** — MCP server **+** lifecycle
-hooks **+** slash commands **+** tools (skills + subagents) — was installed into
-an isolated environment for every adapter and inspected on disk:
+sample connector declaring **all four launch surfaces** — MCP server **+**
+lifecycle hooks **+** slash commands **+** tools (skills + subagents) — was
+installed into an isolated environment for every adapter and inspected on disk:
 
 - **29 / 29 platforms — zero missing, zero failed surfaces.** Each surface is
   written where the host supports it and gracefully *skip-warned* (never silently
@@ -102,7 +102,12 @@ an isolated environment for every adapter and inspected on disk:
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **974 tests passing** · `tsc` clean · build green.
+- **1263 tests passing** · `tsc` clean · build green.
+
+The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
+`configPatch` — went through the same bar: dogfooded against real connector
+migrations (context-mode, oh-my-claudecode) and verified in isolated-home
+installs before landing (see [`CHANGELOG.md`](CHANGELOG.md)).
 
 Coverage was confirmed by **installing the real, not-yet-present agent CLIs into
 isolated homes and observing their actual config** — which caught defects a
@@ -209,7 +214,7 @@ users never install agent-connector globally or type `--connector`. See
   "name": "acme-db-tools",
   "type": "module",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "@ken-jo/agent-connector": "0.1.0" }
+  "dependencies": { "@ken-jo/agent-connector": "^0.2.0" }
 }
 ```
 

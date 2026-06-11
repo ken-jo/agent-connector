@@ -492,22 +492,31 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
   // agent}. No runtime dispatch, no home-bin pointer, no telemetry wrap. Each
   // method is idempotent (byte-identical → skip) via BaseAdapter.writeContentFile
   // and reversible via removeContentFile. Honors platforms["opencode"]
-  // per-surface false to skip. <ocDir> is reused from getConfigDir (user
-  // ~/.config/opencode, project <projectDir>/.opencode).
+  // per-surface false to skip.
+  //
+  // <ocDir> is NOT getConfigDir for project scope: opencode.json lives at the
+  // project ROOT, but content surfaces are read from <projectDir>/.opencode/
+  // (e.g. .opencode/skills/<name>/SKILL.md per opencode.ai/docs/skills) — the
+  // 0.1.0 adapter wrote <projectDir>/skills, which OpenCode never reads.
   //
   // NOTE on dirs: commands live in commands/<name>.md and skills in
   // skills/<name>/SKILL.md, but subagents use the SINGULAR "agent/" dir
   // (agent/<name>.md) — the OpenCode loader/CLI historically uses singular
   // (anomalyco/opencode#14410); singular is the safe choice.
 
+  private contentRootDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".opencode")
+      : this.getConfigDir(ctx);
+  }
   private commandsDir(ctx: InstallContext): string {
-    return join(this.getConfigDir(ctx), "commands");
+    return join(this.contentRootDir(ctx), "commands");
   }
   private skillsDir(ctx: InstallContext): string {
-    return join(this.getConfigDir(ctx), "skills");
+    return join(this.contentRootDir(ctx), "skills");
   }
   private agentDir(ctx: InstallContext): string {
-    return join(this.getConfigDir(ctx), "agent");
+    return join(this.contentRootDir(ctx), "agent");
   }
 
   /** Native command file path: <ocDir>/commands/<name>.md. */

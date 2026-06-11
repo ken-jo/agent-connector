@@ -29,7 +29,7 @@ export function Hero() {
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-indigo-500/60" />
               <span className="relative inline-flex size-2 rounded-full bg-indigo-500" />
             </span>
-            {platformCount} platforms · all 3 hook paradigms
+            {platformCount} platforms · all 3 hook paradigms · 1263 tests
           </Badge>
 
           <h1 className="animate-fade-up mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
@@ -39,7 +39,7 @@ export function Hero() {
 
           <p className="animate-fade-up mt-6 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
             One declarative <code className="font-mono text-foreground">defineConnector</code>{" "}
-            deploys MCP servers, hooks, commands, skills &amp; subagents across{" "}
+            deploys MCP servers, hooks, commands, skills, subagents &amp; memory across{" "}
             {platformCount} AI-agent platforms — install in place{" "}
             <span className="text-foreground">or ship it as a marketplace plugin</span> —
             with default, platform-independent per-tool token telemetry.

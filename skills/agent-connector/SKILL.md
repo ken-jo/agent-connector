@@ -1,6 +1,6 @@
 ---
 name: agent-connector
-description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks, slash commands, Agent Skills, or subagents ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 29 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
+description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks (12 normalized events + a native-event passthrough), slash commands, Agent Skills, subagents, or standing AGENTS.md guidance (memory) ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 29 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
 ---
 
 # agent-connector
@@ -8,8 +8,8 @@ description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle
 agent-connector serves two distinct audiences and the work forks between them:
 
 - **(A) MCP developer** — writes an integration once with `defineConnector()` and
-  deploys their MCP server + lifecycle hooks (+ commands / skills / subagents) across
-  every detected agent CLI. It solves two dev problems: (1) each agent host re-invents
+  deploys their MCP server + lifecycle hooks (+ commands / skills / subagents /
+  memory) across every detected agent CLI. It solves two dev problems: (1) each agent host re-invents
   MCP registration + lifecycle hooks with incompatible config files, root keys, formats
   (JSON/JSONC/TOML/YAML/exported TS), and event names; (2) no host reports per-tool
   token usage back to an MCP server. Write the integration once; the CLI renders it into
@@ -29,8 +29,8 @@ per-model token totals — whole-conversation only, never itemized per MCP or pe
 ## When to reach for it
 
 - **(A) MCP developer** wants to ship ONE MCP server (and/or hooks / slash commands /
-  Agent Skills / subagents) across many agent CLIs without hand-authoring N config
-  dialects → `defineConnector` + `install`.
+  Agent Skills / subagents / standing memory guidance) across many agent CLIs without
+  hand-authoring N config dialects → `defineConnector` + `install`.
 - **(A) MCP developer** asks "which of MY OWN server's tools cost the most context?" →
   `telemetry report --by tool` / `telemetry leaderboard --by mcp|tool`. Requires a
   declared connector with a wrapped stdio server (per-tool counts exist only for the
@@ -68,8 +68,11 @@ export default defineConnector({
     // wrapForTelemetry defaults true for stdio when telemetry is on
   },
 
-  // Lifecycle hooks — canonical event names; the framework synthesizes the right
-  // entrypoint per host paradigm (json-stdio binary / ts-plugin module / skip on mcp-only).
+  // Lifecycle hooks — 12 canonical events (SessionStart, SessionEnd, UserPromptSubmit,
+  // PreToolUse, PostToolUse, PreCompact, Stop, Notification, PermissionRequest,
+  // PostToolUseFailure, SubagentStart, SubagentStop); the framework synthesizes the
+  // right entrypoint per host paradigm (json-stdio binary / ts-plugin module / skip
+  // on mcp-only). Hosts without a native analog skip-warn — never silently dropped.
   hooks: {
     PreToolUse: {
       matcher: "acme_write",     // regex on tool name; empty = all
@@ -96,16 +99,52 @@ export default defineConnector({
   ],
   // subagents: [{ name: "db-auditor", description: "...", prompt: "..." }],
 
+  // Standing guidance (memory) — written ONCE as a marker-fenced, hash-stamped
+  // managed block into the memory file each host actually reads: the standard
+  // AGENTS.md on 27 of the 29 hosts, CLAUDE.md on Claude Code (opt-in
+  // `platforms["claude-code"].memory.mode: "agents-import"` manages an @AGENTS.md
+  // bridge instead), GEMINI.md on Gemini CLI. User edits inside the block are
+  // hash-detected and never clobbered (`install --force` overrides after a backup);
+  // uninstall excises exactly your block. 16 KiB hard cap / 4 KiB soft warn.
+  memory: [
+    { content: "Use the acme-db MCP tools for schema questions; never hand-edit migrations." },
+  ],
+
   telemetry: { enabled: true, modelFamilyHint: "auto", measureToolDefs: true }, // ON by default
-  platforms: { warp: { hooks: false } },  // per-platform escape hatch / overrides
+
+  // Per-platform escape hatches: disable a surface, force scope, merge `extra`
+  // verbatim — plus two claude-code-only (v1) hatches: `nativeHooks` wires ANY
+  // host hook event outside the 12 normalized ones by its verbatim name (Claude
+  // Code ships 30; raw payload in, returned JSON out verbatim, fail-open) and
+  // `configPatch` patches host-exclusive settings keys (set-if-absent + skip-warn,
+  // refcounted ownership, sensitive-key denylist, reversible uninstall).
+  platforms: {
+    warp: { hooks: false },
+    "claude-code": {
+      nativeHooks: {
+        TaskCompleted: { async handler(evt) { /* evt.raw = host JSON, verbatim */ } },
+      },
+      configPatch: [{
+        key: "statusLine",                    // dotted LEAF path into settings.json
+        value: { type: "command", command: "acme-db statusline" },
+        reason: "Render the Acme meter in Claude Code's status line",
+      }],
+      // memory: { mode: "agents-import" },   // or memory: { path: "docs/AGENTS.md" }
+    },
+  },
   targets: "auto",                        // "auto" = all detected, or e.g. ["claude-code","codex"]
 });
 ```
 
 A connector must declare at least one of `server`, `hooks`, `commands`, `skills`,
-or `subagents`. `defineConnector` validates eagerly and throws `ConnectorConfigError`
+`subagents`, or `memory` (or a per-platform `nativeHooks` / `configPatch`
+declaration). `defineConnector` validates eagerly and throws `ConnectorConfigError`
 on bad ids, non-function handlers, duplicate surface names, oversized skill
-descriptions (>1024 chars), or unsafe skill `resources` paths.
+descriptions (>1024 chars), unsafe skill `resources` paths, memory content over the
+16 KiB hard cap (or containing the literal managed-block marker tokens), a
+`nativeHooks` key that names one of the 12 normalized events (use `hooks` for
+those), or a `configPatch` key in the agent-connector namespace (`hooks*`,
+`mcpServers*` — the sensitive-key denylist is enforced at install).
 
 ## CLI workflow
 
@@ -122,13 +161,15 @@ agent-connector status                      # glanceable install-state, ALWAYS e
 agent-connector upgrade                     # ONE verb: re-render + heal stale pointers + managed-update guidance (aliases: sync, update)
 agent-connector uninstall                   # full inverse — removes everything we wrote
 agent-connector package                     # marketplace bundle, claude-plugin default (9 host formats)
-agent-connector package --format mcp-server-json|mcpb   # official MCP Registry server.json / MCPB bundle — requires the connector's publish{} block; see /docs/packaging
+agent-connector package --format mcp-server-json|mcpb   # official MCP Registry server.json / MCPB bundle — requires the connector's publish{} block; see /docs/dev/packaging
 ```
 
 `--scope` is `user` (default) or `project`. `--targets` is a comma-separated
 PlatformId list. `--dry-run` works on install/upgrade/uninstall. `--connector <path>`
 points at a config explicitly; otherwise it's found by walking up from the project.
-Canonical flag-level reference: `llms-full.txt` §3 / the docs site `/docs/cli`.
+`install --force` additionally overwrites USER-EDITED memory managed blocks (hash
+drift) after a timestamped backup — the default is warn-and-leave. Canonical
+flag-level reference: `llms-full.txt` §3 / the docs site `/docs/dev/cli`.
 
 ## Telemetry, leaderboards, usage
 

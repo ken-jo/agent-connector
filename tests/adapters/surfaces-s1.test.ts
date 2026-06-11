@@ -418,7 +418,7 @@ describe("opencode adapter — content surfaces", () => {
     const changes = opencodeAdapter.installCommands!(ctx);
     expect(changes[0]?.action).toBe("create");
     // Project scope: opencode getConfigDir === projectDir (no dot-dir wrapper).
-    const cmdPath = join(projectDir, "commands", "deploy.md");
+    const cmdPath = join(projectDir, ".opencode", "commands", "deploy.md");
     expect(changes[0]?.path).toBe(cmdPath);
     expect(existsSync(cmdPath)).toBe(true);
 
@@ -430,9 +430,9 @@ describe("opencode adapter — content surfaces", () => {
 
   it("installSkills writes uniform SKILL.md + resource", () => {
     opencodeAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, "skills", "pdf-tools", "SKILL.md");
+    const skillMd = join(projectDir, ".opencode", "skills", "pdf-tools", "SKILL.md");
     expect(existsSync(skillMd)).toBe(true);
-    expect(existsSync(join(projectDir, "skills", "pdf-tools", "scripts", "extract.sh"))).toBe(true);
+    expect(existsSync(join(projectDir, ".opencode", "skills", "pdf-tools", "scripts", "extract.sh"))).toBe(true);
 
     const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
     expect(frontmatter.name).toBe("pdf-tools");
@@ -442,7 +442,7 @@ describe("opencode adapter — content surfaces", () => {
   it("installSubagents writes md+fm under the SINGULAR agent/ dir (mode:subagent)", () => {
     opencodeAdapter.installSubagents!(ctx);
     // SINGULAR "agent" dir, not "agents".
-    const agentPath = join(projectDir, "agent", "reviewer.md");
+    const agentPath = join(projectDir, ".opencode", "agent", "reviewer.md");
     expect(existsSync(agentPath)).toBe(true);
     expect(existsSync(join(projectDir, "agents", "reviewer.md"))).toBe(false);
 
@@ -471,9 +471,9 @@ describe("opencode adapter — content surfaces", () => {
     opencodeAdapter.uninstallSkills!(ctx);
     opencodeAdapter.uninstallSubagents!(ctx);
 
-    expect(existsSync(join(projectDir, "commands", "deploy.md"))).toBe(false);
-    expect(existsSync(join(projectDir, "skills", "pdf-tools"))).toBe(false);
-    expect(existsSync(join(projectDir, "agent", "reviewer.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".opencode", "commands", "deploy.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".opencode", "skills", "pdf-tools"))).toBe(false);
+    expect(existsSync(join(projectDir, ".opencode", "agent", "reviewer.md"))).toBe(false);
   });
 });
 

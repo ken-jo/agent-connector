@@ -548,7 +548,15 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     return join(this.contentRootDir(ctx), "prompts");
   }
   private skillsDir(ctx: InstallContext): string {
-    return join(this.contentRootDir(ctx), "skills");
+    // Project scope: .github/skills (a VS Code-documented project location).
+    // User scope: ~/.agents/skills — the vendor-neutral Agent Skills location
+    // VS Code reads for personal skills. Deliberately NOT ~/.copilot/skills
+    // (also read): copilot-cli's adapter owns that dir, and two adapters
+    // writing the same SKILL.md would fight over ownership at uninstall.
+    // (~/.config/github-copilot/skills, the 0.1.0 target, is read by nothing.)
+    return ctx.scope === "project"
+      ? join(this.contentRootDir(ctx), "skills")
+      : join(homedir(), ".agents", "skills");
   }
   private agentsDir(ctx: InstallContext): string {
     return join(this.contentRootDir(ctx), "agents");

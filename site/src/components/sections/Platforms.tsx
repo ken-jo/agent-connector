@@ -74,7 +74,6 @@ export function Platforms() {
         <div className="grid gap-5">
           <PlatformGroup paradigmId="mcp-only" />
           <PlatformGroup paradigmId="ts-plugin" />
-          <PlatformGroup paradigmId="skills-only" />
         </div>
       </div>
     </Section>

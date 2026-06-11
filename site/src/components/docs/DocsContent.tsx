@@ -496,10 +496,12 @@ export function HooksSection() {
 
       <CodeBlock code={S.hooksConfigSnippet} language="ts" filename="HooksConfig" />
       <P>
-        <C>matcher</C> is a regex matched against the tool name (tool events
-        only); empty or omitted matches all. It is rendered into each host&apos;s
-        native matcher syntax where supported, else evaluated by the universal
-        entrypoint at runtime.
+        <C>matcher</C> is a regex matched against the tool name (tool events,
+        incl. <C>PermissionRequest</C> / <C>PostToolUseFailure</C>) or against
+        the agent type (<C>SubagentStart</C> / <C>SubagentStop</C>); empty or
+        omitted matches all. It is rendered into each host&apos;s native matcher
+        syntax where supported, else evaluated by the universal entrypoint at
+        runtime.
       </P>
 
       <H3 id="hook-events">Normalized events</H3>

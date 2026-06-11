@@ -508,6 +508,22 @@ export const hookEventRows: { event: string; payload: string }[] = [
   { event: "PreCompact", payload: 'trigger?: "auto" | "manual"' },
   { event: "Stop", payload: "stopHookActive?: boolean" },
   { event: "Notification", payload: "message: string" },
+  {
+    event: "PermissionRequest",
+    payload:
+      "toolName, toolInput, permissionSuggestions?: unknown[] (host dialog suggestions, passthrough)",
+  },
+  {
+    event: "PostToolUseFailure",
+    payload:
+      "toolName, toolInput, toolUseId?, error: string, isInterrupt?: boolean, durationMs?: number",
+  },
+  { event: "SubagentStart", payload: "agentId?: string, agentType?: string" },
+  {
+    event: "SubagentStop",
+    payload:
+      "agentId?, agentType?, agentTranscriptPath?, lastAssistantMessage?, stopHookActive?",
+  },
 ];
 
 /** HookResponse fields (llms-full §2.3 / types.ts). */
@@ -525,7 +541,8 @@ export const hookResponseFields: FieldRow[] = [
   {
     name: "updatedInput",
     type: "Record<string, unknown>",
-    notes: 'Replacement tool input — only with "modify" (PreToolUse).',
+    notes:
+      'Replacement tool input — only with "modify" (PreToolUse / PermissionRequest).',
   },
   {
     name: "additionalContext",
@@ -541,11 +558,31 @@ export const hookResponseFields: FieldRow[] = [
 
 /** HookResponse decision semantics. */
 export const decisionSemantics: { decision: string; meaning: string }[] = [
-  { decision: "allow", meaning: "Pass through (default when the handler returns void)." },
-  { decision: "deny", meaning: "Block the tool call / stop the action." },
-  { decision: "modify", meaning: "Replace tool input with updatedInput (PreToolUse)." },
-  { decision: "context", meaning: "Inject additionalContext as soft guidance." },
-  { decision: "ask", meaning: "Prompt the user to confirm." },
+  {
+    decision: "allow",
+    meaning:
+      "Pass through (default when the handler returns void). On PermissionRequest ONLY, an explicit allow is an ACTIVE grant that suppresses the host's permission dialog (a void return falls through to the native dialog).",
+  },
+  {
+    decision: "deny",
+    meaning:
+      "Block the tool call / stop the action. On SubagentStop this keeps the subagent running with reason as its next instruction (Stop semantics); on the feedback-only events (PostToolUseFailure, SubagentStart) it degrades to context carrying the reason.",
+  },
+  {
+    decision: "modify",
+    meaning:
+      "Replace tool input with updatedInput (PreToolUse / PermissionRequest).",
+  },
+  {
+    decision: "context",
+    meaning:
+      "Inject additionalContext as soft guidance (on SubagentStart it lands in the SUBAGENT's conversation, before its first prompt).",
+  },
+  {
+    decision: "ask",
+    meaning:
+      "Prompt the user to confirm. On PermissionRequest this falls through to the native dialog (the dialog IS the ask).",
+  },
 ];
 
 /** The 3 hook paradigms (llms-full §2.3 / §6). */
