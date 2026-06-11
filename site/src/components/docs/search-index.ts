@@ -73,6 +73,7 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "validation-rules", title: "Top-level validation rules" },
     { id: "resolved-connector", title: "ResolvedConnector" },
     { id: "platform-override", title: "PlatformOverride (escape hatch)" },
+    { id: "config-patch", title: "Host-config key patches (configPatch)" },
   ],
   server: [
     { id: "transports", title: "Transports & dialects" },

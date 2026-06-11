@@ -151,7 +151,10 @@ export async function loadConnectorFromPath(
  * name + matcher only) so meta-based inspection (doctor / health checks / the
  * hook CLI) can still see WHICH native events were declared — the live handlers
  * are re-imported from `modulePath` at runtime, exactly like normalized hooks.
- * Everything else on the override is kept verbatim.
+ * Everything else on the override is kept verbatim — notably `configPatch`
+ * declarations, which are pure JSON (key/value/reason/docsUrl, no functions)
+ * and persist WHOLE so uninstall/doctor can reason about them even when the
+ * source module is gone.
  */
 function serializablePlatforms(
   platforms: Partial<Record<PlatformId, PlatformOverride>>,

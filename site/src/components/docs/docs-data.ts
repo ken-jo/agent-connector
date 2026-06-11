@@ -316,7 +316,8 @@ export const connectorConfigFields: FieldRow[] = [
     name: "platforms",
     type: "Partial<Record<PlatformId, PlatformOverride>>",
     default: "{}",
-    notes: "Per-platform overrides / escape hatch.",
+    notes:
+      "Per-platform overrides / escape hatch (extra, nativeHooks, configPatch, disable a surface, force scope).",
   },
   {
     name: "targets",
@@ -843,6 +844,12 @@ export const platformOverrideFields: FieldRow[] = [
       "Native passthrough — wire ANY host hook event outside the 12 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). claude-code only today; other adapters skip-warn.",
   },
   {
+    name: "configPatch",
+    type: "ConfigPatchDef[]",
+    notes:
+      "Declarative host-config key patches for host-exclusive settings keys extra can't reach (e.g. Claude Code statusLine). Fixed semantics: set-if-absent on a dotted leaf key, skip-warn on ANY conflict, refcounted ownership ledger, reversible uninstall. claude-code only today; other adapters skip-warn with the manual edit.",
+  },
+  {
     name: "server",
     type: "Partial<ServerDef> | false",
     notes: "false → don't register server here; object → shallow-merge.",
@@ -863,6 +870,41 @@ export const platformOverrideFields: FieldRow[] = [
     name: "extra",
     type: "Record<string, unknown>",
     notes: "Verbatim fields merged into the native config.",
+  },
+];
+
+/**
+ * ConfigPatchDef — one declarative, ownership-tracked patch of a
+ * host-exclusive config key (llms-full §2.6). Semantics are FIXED:
+ * set-if-absent on a single leaf key, skip-warn on ANY conflict.
+ */
+export const configPatchFields: FieldRow[] = [
+  {
+    name: "key",
+    type: "string",
+    required: true,
+    notes:
+      'Dotted LEAF path into the adapter\'s one patchable file, e.g. "statusLine" or "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS". Segments match [A-Za-z0-9_-]+ — no dots-in-key, no array indices. Keys agent-connector already models (hooks*, mcpServers*) are rejected at defineConnector; the claude-code sensitive-key denylist (permissions*, allowedTools*, apiKey*, env.ANTHROPIC_*, token/key/secret/proxy env vars, auth/login keys) is hard-refused.',
+  },
+  {
+    name: "value",
+    type: "JsonValue",
+    required: true,
+    notes:
+      "Written ONLY when the key is absent; ${env:VAR} refs resolve at install time. May be an object/array but is written atomically as the leaf — never merged into.",
+  },
+  {
+    name: "reason",
+    type: "string",
+    required: true,
+    notes:
+      "Human-readable why — printed in the install diff, every ChangeRecord, and every skip-warn (one declaration doubles as its own documented manual edit).",
+  },
+  {
+    name: "docsUrl",
+    type: "string",
+    notes:
+      "Docs link appended to the manual-edit fallback printed on skip / conflict / unsupported host.",
   },
 ];
 

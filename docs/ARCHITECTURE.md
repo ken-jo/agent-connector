@@ -162,6 +162,47 @@ Distilled from the union of platform behaviors (report §3).
 - **Escape hatch** — every adapter accepts `platforms.<id>.extra` passthrough so a
   dev reaches platform-exclusive features the core doesn't model. Thin universal
   core + fat per-adapter tail.
+- **`configPatch`** — the third (and smallest) escape hatch beside `extra` and
+  `nativeHooks`: a declarative, ownership-tracked patch of ONE host-exclusive
+  config key `extra` cannot reach (`extra` merges into the native MCP ENTRY /
+  content frontmatter, not sibling top-level settings keys — e.g. Claude Code's
+  `statusLine` or `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`). Semantics are
+  FIXED and not configurable: **set-if-absent on a single dotted leaf key**
+  (segments `[A-Za-z0-9_-]+`, no array indices, no deep merge, no overwrite, no
+  delete), **skip-warn on ANY conflict** (present key, drifted value,
+  non-object intermediate — every skip prints the exact manual edit from the
+  required `reason` + optional `docsUrl`). Ownership lives in a persisted,
+  refcounted ledger (`<dataRoot>/state/config-patches.json`, atomic writes):
+  co-owners refcount a shared key; uninstall removes a key only when the LAST
+  owner releases it AND the current value still deep-equals what was written
+  AND the prior state was absent — otherwise the key is left in place with a
+  warn. Doctor reports per-patch `ok / drifted / missing / orphaned` and never
+  auto-fixes drift. Safety: keys agent-connector already models (`hooks*`,
+  `mcpServers*`) are rejected at `defineConnector` (namespace guard), and each
+  supporting adapter hard-refuses a documented sensitive-key denylist
+  (claude-code: `permissions*`, `allowedTools*`/`disallowedTools*`, `apiKey*`,
+  `awsAuthRefresh`/`awsCredentialExport`, `forceLoginMethod`/`forceLoginOrgUUID`,
+  `otelHeadersHelper`, `env.ANTHROPIC_*`, `env.AWS_*`, `env.*_PROXY`,
+  `env.*TOKEN*`/`env.*KEY*`/`env.*SECRET*`). v1 host scope: **claude-code only**
+  (`supportsConfigPatch`); every other adapter reports the standard skip-warn
+  (the `supportsNativeHooks` precedent) plus the per-patch manual edit.
+  **Promotion rules:** (a) a second host gains `supportsConfigPatch` only on
+  demonstrated, genuine connector-facing key demand for that host; (b) a
+  host-exclusive feature graduates from `configPatch` to a typed cross-host
+  knob (e.g. `statusline?: {…}`) only when **≥3 hosts** ship an analog — the
+  same bar as hook-event promotion. **Format-preservation requirements for
+  future hosts:** VS Code JSONC must use `jsonc-parser` modify/applyEdits and
+  Codex `config.toml` must use an anchored section/line edit —
+  `core/toml.ts`'s parse/stringify round-trip destroys comments/ordering and
+  is **BANNED for configPatch**. **Explicitly NOT configPatch targets:**
+  VS Code `inputs` arrays and Zed `context_servers.<id>.settings` — same-file
+  sibling structures coupled to the MCP entry's lifecycle (adapter dialect /
+  `extra` territory; VS Code `inputs` doubles as the secret-prompt mechanism).
+  Also out of v1 scope (deferred, documented): TOML hosts (Codex's
+  `experimental_use_rmcp_client` becomes codex-adapter-internal behavior when
+  remote-MCP support lands), `onConflict`/`force` options, array/index paths,
+  secret sourcing, sidecar/side-state files, prereq checks, and sync-removal
+  of patches dropped between connector versions (uninstall/reinstall covers it).
 
 ## 5. What we borrow vs. generalize from context-mode
 

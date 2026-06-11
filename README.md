@@ -315,6 +315,16 @@ export default defineConnector({
 > **verbatim** JSON reply (exit 0 only — exit-2 blocking isn't modeled). Claude
 > Code only for now; other hosts skip-warn, never silently.
 
+> **Host-config key patches.** For host-exclusive *settings keys* no other
+> surface reaches (Claude Code's `statusLine`, an experimental `env.*` flag),
+> declare `platforms: { "claude-code": { configPatch: [{ key, value, reason }] } }`.
+> Semantics are fixed: **set-if-absent + skip-warn on any conflict** — never
+> overwrite, never deep-merge. Ownership is refcounted in a persisted ledger, so
+> uninstall removes a key only when the last owning connector releases it and the
+> value is untouched; security-relevant keys (`permissions*`, `apiKey*`,
+> `env.ANTHROPIC_*`, token/secret env vars, …) are hard-refused. Claude Code only
+> for now; other hosts skip-warn with the exact manual edit.
+
 `agent-connector install` turns that into, e.g.:
 
 | Host | What gets written |

@@ -128,6 +128,27 @@ export interface Adapter {
   /** Remove the subagent content file(s) this connector wrote. */
   uninstallSubagents?(ctx: InstallContext): ChangeRecord[];
 
+  // ── Declarative host-config key patches (configPatch) ────────────────────
+  // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the
+  // content-surface pattern). Only adapters advertising
+  // capabilities.supportsConfigPatch (v1: claude-code) override these; the
+  // installer routes around non-supporting adapters with the standard
+  // nativeHooks-style skip-warn — never silent.
+  /**
+   * Apply the connector's `platforms[<id>].configPatch` declarations to this
+   * adapter's declared patchable file. FIXED semantics: set-if-absent on a
+   * single leaf key, skip-warn on ANY conflict, refcounted ownership ledger.
+   */
+  installConfigPatches?(ctx: InstallContext): ChangeRecord[];
+  /**
+   * Release this connector's configPatch ownership; remove a key ONLY when it
+   * is the last owner AND the current value still equals what was written AND
+   * the prior state was absent — otherwise leave the key + skip-warn.
+   */
+  uninstallConfigPatches?(ctx: InstallContext): ChangeRecord[];
+  /** The ONLY file this adapter allows configPatch to touch, for the effective scope. */
+  getPatchableConfigPath?(ctx: InstallContext): string;
+
   /** Back up the settings file(s) before mutation. Returns backup path or null. */
   backupSettings(ctx: InstallContext): string | null;
 

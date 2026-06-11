@@ -32,6 +32,7 @@ import {
   telemetryConfigFields,
   confidenceSources,
   platformOverrideFields,
+  configPatchFields,
   cliCommands,
   internalEntrypoints,
   sharedFlags,
@@ -371,6 +372,43 @@ export function DefineConnector() {
         language="ts"
         filename="agent-connector.config.mjs"
       />
+
+      <H3 id="config-patch">Host-config key patches (configPatch)</H3>
+      <P>
+        <C>extra</C> merges into the native MCP server <em>entry</em> — it
+        cannot reach a sibling top-level settings key like Claude Code&apos;s{" "}
+        <C>statusLine</C> or <C>env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS</C>.{" "}
+        <C>platforms.&lt;id&gt;.configPatch</C> declares those as
+        ownership-tracked patches: you name a platform + key,{" "}
+        <strong>never a file path</strong> — the adapter owns the key→file
+        mapping (claude-code: <C>settings.json</C> at the install scope).
+      </P>
+      <FieldTable rows={configPatchFields} />
+      <CodeBlock
+        code={S.configPatchSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+      <Callout title="Fixed semantics — set-if-absent, skip-warn, refcounted ownership">
+        The value is written <strong>only when the key is absent</strong>; ANY
+        conflict (key already present, drifted value, non-object intermediate)
+        is a skip-warn that prints current vs desired plus the exact manual
+        edit — never an overwrite, delete, or deep merge. Ownership is
+        refcounted in a persisted ledger
+        (<C>&lt;dataRoot&gt;/state/config-patches.json</C>): co-owners share a
+        key, and uninstall (run first, before other surfaces) deletes a key
+        only when the <strong>last</strong> owner releases it AND the current
+        value still equals what was written AND the key was absent before
+        install — after backing up the file. <C>doctor</C> reports each patch
+        as ok / drifted / missing / orphaned and <strong>never</strong>{" "}
+        auto-fixes drift. Only claude-code sets <C>supportsConfigPatch</C>{" "}
+        today; other adapters skip-warn with the per-patch manual edit. VS Code{" "}
+        <C>inputs</C> arrays and Zed <C>context_servers.&lt;id&gt;.settings</C>{" "}
+        are deliberately NOT configPatch targets (entry-coupled adapter
+        dialect), and TOML hosts are out of v1 (comment-destroying round-trips
+        are banned). A patch graduates to a typed cross-host knob only when ≥3
+        hosts ship an analog.
+      </Callout>
     </DocSection>
   );
 }

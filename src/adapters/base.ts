@@ -77,6 +77,33 @@ export abstract class BaseAdapter implements Adapter {
     return this.unsupportedSurface(ctx, "subagents", ctx.connector.subagents.length);
   }
 
+  // ── Declarative host-config key patches (configPatch) ─────────────────────
+  // CONCRETE (overridable) defaults, mirroring the content surfaces above: the
+  // installer additionally guards these behind capabilities.supportsConfigPatch
+  // (the nativeHooks precedent), so these defaults only fire if a capability-
+  // flagged adapter forgot to override them — still skip-warn, never silent.
+
+  installConfigPatches(ctx: InstallContext): ChangeRecord[] {
+    const count = (ctx.connector.platforms[this.id]?.configPatch ?? []).length;
+    if (count === 0) {
+      return [
+        { platform: this.id, action: "skip", detail: "connector declares no configPatch entries" },
+      ];
+    }
+    return [
+      {
+        platform: this.id,
+        action: "warn",
+        detail: `configPatch not supported on ${this.id}; ${count} skipped`,
+      },
+    ];
+  }
+
+  uninstallConfigPatches(_ctx: InstallContext): ChangeRecord[] {
+    // Nothing was ever applied by a non-supporting adapter → nothing to release.
+    return [];
+  }
+
   /**
    * Default response for a content surface this platform cannot honor: a single
    * skip when the connector declares none of that surface, else a single "warn"

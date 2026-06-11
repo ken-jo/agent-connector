@@ -47,6 +47,7 @@ import {
   ensureHomeBin,
   homeBinPath,
 } from "./paths.js";
+import { configPatchManualEdit } from "./config-patch-ledger.js";
 import { log } from "./logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -195,6 +196,33 @@ export async function installConnector(
         pushAll(result.changes, adapter.installSubagents!(ctx));
       });
     }
+
+    // Declarative host-config key patches — LAST on install (so the reported
+    // diff reflects final state; uninstall runs them FIRST, the inverse).
+    // Unsupported hosts get the exact nativeHooks skip-warn treatment, plus
+    // the per-patch manual-edit instructions (reason/docsUrl) so a skipped
+    // declaration still documents the manual step. Never silent.
+    const configPatches = connector.platforms[id]?.configPatch ?? [];
+    if (configPatches.length > 0) {
+      if (adapter.capabilities.supportsConfigPatch ?? false) {
+        runStep(id, "installConfigPatches", result, () => {
+          pushAll(result.changes, adapter.installConfigPatches!(ctx));
+        });
+      } else {
+        result.changes.push({
+          platform: id,
+          action: "warn",
+          detail: `configPatch not supported on ${id}; ${configPatches.length} skipped`,
+        });
+        for (const patch of configPatches) {
+          result.changes.push({
+            platform: id,
+            action: "warn",
+            detail: `configPatch ${patch.key} skipped on ${id} — ${configPatchManualEdit(patch)}`,
+          });
+        }
+      }
+    }
   }
 
   return result;
@@ -246,9 +274,20 @@ export async function uninstallConnector(
 
     const ctx = buildContext(connector, id, scope, projectDir, dryRun);
 
-    // Inverse order of install: remove content surfaces, then hooks, then the
-    // server entry. Surface removals are guarded by declaration; BaseAdapter
-    // defines all six so the `!` is safe.
+    // Inverse order of install: config patches FIRST (install applies them
+    // last), then content surfaces, then hooks, then the server entry. The
+    // configPatch step is keyed off the persisted ownership LEDGER inside the
+    // adapter (not just the declaration), so it still releases/removes owned
+    // keys when the connector record is a minimal synthetic fallback. Only
+    // supporting adapters can have applied patches, so others are skipped.
+    if (adapter.capabilities.supportsConfigPatch ?? false) {
+      runStep(id, "uninstallConfigPatches", result, () => {
+        pushAll(result.changes, adapter.uninstallConfigPatches!(ctx));
+      });
+    }
+
+    // Surface removals are guarded by declaration; BaseAdapter defines all six
+    // so the `!` is safe.
     if (connector.subagents.length) {
       runStep(id, "uninstallSubagents", result, () => {
         pushAll(result.changes, adapter.uninstallSubagents!(ctx));

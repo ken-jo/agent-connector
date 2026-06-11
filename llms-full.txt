@@ -150,7 +150,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `commands` | `CommandDef[]` | `[]` | Slash commands → native content files. |
 | `skills` | `SkillDef[]` | `[]` | Agent Skills → native content files. |
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
-| `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch. |
+| `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
 
@@ -462,6 +462,7 @@ interface TelemetryConfig {
 interface PlatformOverride {
   hooks?: boolean | Partial<HooksConfig>;   // false → no NORMALIZED hooks here; object → merge/replace
   nativeHooks?: Record<string, NativeHookDef>; // native-event passthrough (§2.3); claude-code only today
+  configPatch?: ConfigPatchDef[];           // host-config key patches (below); claude-code only today
   server?: Partial<ServerDef> | false;      // false → don't register server here; object → shallow-merge
   scope?: InstallScope;                     // force a scope for this platform
   commands?: boolean;                       // false → skip command files here
@@ -473,6 +474,132 @@ interface PlatformOverride {
 
 Use `extra` to reach platform-exclusive features the core doesn't model (thin
 universal core + fat per-adapter tail).
+
+**Host-config key patches (`platforms.<id>.configPatch`)** — the third escape
+hatch beside `extra` and `nativeHooks`, for host-exclusive config KEYS that
+`extra` cannot reach: `extra` merges into the native MCP server ENTRY (or
+content frontmatter), not sibling top-level settings keys, so something like
+Claude Code's `statusLine` or `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is
+structurally unreachable without it. Connectors name a platform + key, NEVER a
+file path — the adapter owns the key→file mapping.
+
+```ts
+type JsonValue = string | number | boolean | null | JsonValue[] | { [k: string]: JsonValue };
+
+interface ConfigPatchDef {
+  key: string;       // dotted LEAF path, e.g. "statusLine" or "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS";
+                     // segments match /^[A-Za-z0-9_-]+$/ — no dots-in-key, no array indices
+  value: JsonValue;  // written ONLY when the key is absent; ${env:VAR} refs resolve at install time;
+                     // may be an object/array but is written atomically as the leaf — never merged into
+  reason: string;    // REQUIRED why — printed in the install diff, every ChangeRecord, every skip-warn
+  docsUrl?: string;  // appended to the manual-edit fallback printed on skip/conflict/unsupported host
+}
+```
+
+SEMANTICS ARE FIXED, not configurable: **set-if-absent on a single leaf key,
+skip-warn on ANY conflict** — no overwrite, no delete, no deep merge, no array
+ops, no `onConflict`/`force` options. Intermediate objects are created only
+when absent. Every outcome is a `ChangeRecord` in the install diff (`--dry-run`
+shows the exact key + value + reason before anything is written; warns exit 1):
+
+| State at install | Outcome |
+|---|---|
+| Key absent | `create` — value written, ownership recorded: `configPatch <key>: <absent> → <value> (reason)` |
+| Present, AC-owned, equals what AC wrote | `skip` — this connector registered as co-owner (refcount++); no file write |
+| Present, AC-owned, value drifted (user edited) | `warn` — left in place, never reverted; sync re-asserts only ABSENT keys |
+| Present, NOT AC-owned (even if values match) | `warn` — never adopted; prints current vs desired + the exact manual edit |
+| Owned by another connector with a different value | `warn` — first-writer-wins, names the owning connector(s) |
+| Intermediate path segment exists but is not an object | `warn` — manual edit printed |
+| Key in the AC namespace (`hooks*`, `mcpServers*`, `enable/enabled/disabledMcpjsonServers`) | `ConnectorConfigError` at defineConnector — use `hooks`/`nativeHooks` or `server`/`extra` |
+| Key on the sensitive denylist (below) | `warn` — hard refuse, no override flag in v1 |
+
+**Ownership ledger + uninstall.** Ownership lives in a persisted, refcounted
+ledger at `<dataRoot>/state/config-patches.json` (atomic temp+rename writes;
+shared across connectors because refcounting needs a global view; survives
+`--purge` of a connector's dir). One row per (platform, file, key):
+`{ writtenValue, writtenValueHash (sha256 of canonical JSON; deep-equal is the
+authority), prior: { present: false }, owners: [{ connectorId,
+connectorVersion, installedAt }] }`. `prior` is ALWAYS `{ present: false }` —
+ownership only ever attaches to keys agent-connector itself created, so the
+blind-restore footgun is structurally impossible. configPatches are installed
+LAST (after server/hooks/content surfaces) and uninstalled FIRST. Uninstall is
+keyed off the LEDGER, not the declaration, and removes a key ONLY when this
+connector is the LAST owner AND the current value still deep-equals
+`writtenValue` AND the prior state was absent — after backing up the exact
+file. Any other state: earlier owners out → `skip: key retained, still owned
+by <ids>` (A-installs/B-relies/A-uninstalls cannot break B); drifted value →
+`warn: value changed since install; left in place` (ownership still released).
+Declared patches with no ownership record are skipped explicitly — a key AC
+did not create is never deleted.
+
+**Safety gates** (validated at `defineConnector` where statically knowable,
+re-validated in the adapter): leaf-path grammar, JSON-serializable value,
+required non-empty `reason`, duplicate-key rejection, the AC-namespace guard
+above, and a per-adapter sensitive-key DENYLIST. The documented claude-code v1
+list (hard refuse): `permissions`/`permissions.*`,
+`allowedTools*`/`disallowedTools*`, `apiKey*` (e.g. `apiKeyHelper`),
+`awsAuthRefresh`, `awsCredentialExport`, `forceLoginMethod`,
+`forceLoginOrgUUID`, `otelHeadersHelper`, `env.ANTHROPIC_*`, `env.AWS_*`,
+`env.*_PROXY`, `env.*TOKEN*`, `env.*KEY*`, `env.*SECRET*`. (The teams-flag env
+case passes; credential rerouting and self-granted permissions do not.) The
+list lives in the claude-code adapter (`claudeSensitiveKeyViolation`) and is
+reviewed whenever the host matrix updates.
+
+**v1 host scope: claude-code ONLY**, opt-in via
+`PlatformCapabilities.supportsConfigPatch` (optional, read `?? false` — the
+`supportsNativeHooks` precedent). The patchable file is exactly one per scope:
+`~/.claude/settings.json` (user) / `<project>/.claude/settings.json`
+(project), and keys are free-form leaf paths within that one file, minus the
+denylist. Every other adapter reports the standard skip-warn ChangeRecord
+(`configPatch not supported on <id>; N skipped` — never silent) plus a
+per-patch manual-edit line built from `reason`/`docsUrl`, so one declaration
+doubles as its own documented manual step on unsupported hosts.
+
+**doctor** checks every ledger entry owned by the connector: `ok` /
+`drifted` (current ≠ written — prints the manual-edit hint, NEVER auto-fixes)
+/ `missing` (key deleted by the user; the next install/upgrade re-asserts it)
+/ `orphaned` (ledger row whose owning connector records are gone — GC hint).
+It also re-prints the manual edit for any declared patch that was skipped at
+install (conflict, denylist, or not yet installed).
+
+Example — the statusline case that drove the design:
+
+```ts
+platforms: {
+  "claude-code": {
+    configPatch: [{
+      key: "statusLine",
+      value: { type: "command", command: "context-mode statusline", padding: 0 },
+      reason: "Render the context meter in Claude Code's status line",
+      docsUrl: "https://github.com/acme/context-mode#statusline",
+    }],
+  },
+},
+```
+
+**Explicitly OUT of scope in v1** (deferred with the trigger that un-defers
+each): VS Code `inputs` arrays and Zed `context_servers.<id>.settings` —
+same-file SIBLING structures coupled to the MCP entry's lifecycle, where
+set-if-absent semantics are simply wrong (adapter dialect / `extra`
+territory; VS Code `inputs` doubles as its secret-prompt mechanism); TOML
+hosts — `core/toml.ts`'s parse/stringify round-trip destroys comments and
+ordering in files like `~/.codex/config.toml` and is BANNED for configPatch
+(Codex's `experimental_use_rmcp_client` becomes codex-adapter-internal
+behavior via an anchored line edit when remote-MCP support lands — no
+connector API); secret sourcing (the denylist refuses token/key/secret env
+paths; secrets need an acquisition/prompt surface, not a config write);
+sidecar/side-state files (`~/.mcp-auth`, browser profiles, caches — an
+uninstall-manifest concern, not a config key); runtime prereq checks
+(Docker/Node — doctor roadmap); array/index paths and deep merges (no
+surveyed demand); sync-removal of patches dropped between connector versions
+(uninstall/reinstall covers it). Future JSONC hosts MUST use jsonc-parser
+modify/applyEdits — never whole-file re-serialization.
+
+**Promotion rules** (mirroring the nativeHooks ≥3-hosts bar): (a) a second
+host gains `supportsConfigPatch` only on demonstrated, genuine
+connector-facing key demand for that host; (b) a host-exclusive feature
+graduates from `configPatch` to a typed cross-host knob (e.g.
+`statusline?: {…}`) only when ≥3 hosts ship an analog.
 
 ### 2.7 `ResolvedConnector` (what `defineConnector` returns)
 
@@ -563,7 +690,9 @@ modifyOutput / injectContext). `--json` emits the raw `DetectedPlatform[]`.
 Resolves the connector, then per target: backup settings → render server config into
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
 config + set the exec bit → write any command/skill/subagent files → register in the
-plugin registry where applicable. Prints a readable diff (one line per `ChangeRecord`:
+plugin registry where applicable → apply any `configPatch` entries LAST (§2.6 — so
+the diff reflects final state; `--dry-run` shows the exact key + value + reason).
+Prints a readable diff (one line per `ChangeRecord`:
 `+` create, `~` update, `-` remove, `=` skip, `!` warn) plus warnings and a summary
 tally. Idempotent and reversible. **Exit code 1 if any change is a `warn`**, else 0.
 
@@ -581,7 +710,9 @@ pointer refresh fails.
 
 ### uninstall
 `agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--purge] [--dry-run]`
-Full inverse — removes the connector's MCP + hook registrations and content files from
+Full inverse — releases `configPatch` ownership FIRST (ledger-keyed; a patched key is
+deleted only when this connector is the last owner and the value is unchanged, §2.6),
+then removes the connector's MCP + hook registrations and content files from
 every resolved target, using registered metadata so it works even when the source
 module is gone. The connector id comes from `--connector-id`, else inferred from the
 local config. Same diff output and exit semantics. `--purge` additionally removes the

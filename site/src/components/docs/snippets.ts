@@ -385,6 +385,23 @@ export const platformOverrideSnippet = `platforms: {
   },
 }`;
 
+export const configPatchSnippet = `platforms: {
+  "claude-code": {
+    configPatch: [
+      {
+        // dotted LEAF path into settings.json at the install scope
+        // (segments [A-Za-z0-9_-]+ — no array indices)
+        key: "statusLine",
+        // written ONLY if the key is absent; any conflict → skip-warn
+        value: { type: "command", command: "context-mode statusline", padding: 0 },
+        // REQUIRED — printed in the install diff and every skip-warn
+        reason: "Render the context meter in Claude Code's status line",
+        docsUrl: "https://github.com/acme/context-mode#statusline",
+      },
+    ],
+  },
+}`;
+
 export const leaderboardSnippet = `$ agent-connector leaderboard --since 7d
 
 🔌 MCP / Plugin            (origin: mcp-self)

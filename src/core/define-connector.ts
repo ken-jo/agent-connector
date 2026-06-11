@@ -19,6 +19,12 @@ import type {
   SubagentDef,
 } from "./types.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
+import {
+  CONFIG_PATCH_SEGMENT_RE,
+  configPatchNamespaceViolation,
+  isJsonValue,
+  isValidConfigPatchKey,
+} from "./config-patch-ledger.js";
 
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
@@ -80,17 +86,23 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     (override) =>
       override?.nativeHooks != null && Object.keys(override.nativeHooks).length > 0,
   );
+  // Likewise a platform-scoped configPatch declaration (a connector whose whole
+  // job is asserting a host config key, e.g. an experimental feature flag).
+  const hasConfigPatch = Object.values(config.platforms ?? {}).some(
+    (override) => Array.isArray(override?.configPatch) && override.configPatch.length > 0,
+  );
   if (
     !config.server &&
     !config.hooks &&
     !hasCommands &&
     !hasSkills &&
     !hasSubagents &&
-    !hasNativeHooks
+    !hasNativeHooks &&
+    !hasConfigPatch
   ) {
     throw new ConnectorConfigError(
       "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, " +
-        "or a per-platform `nativeHooks` declaration",
+        "or a per-platform `nativeHooks` / `configPatch` declaration",
     );
   }
 
@@ -126,6 +138,11 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   // `platforms` verbatim, so live handlers survive resolution and are recovered
   // at runtime by re-importing the module via the registry's modulePath).
   validateNativeHooks(config.platforms);
+
+  // Validate per-platform declarative config patches (pure JSON — persisted
+  // whole; semantics are FIXED set-if-absent/skip-warn, so only the shape is
+  // validated here; the host adapter enforces its sensitive-key denylist).
+  validateConfigPatches(config.platforms);
 
   const commands = normalizeCommands(config.commands);
   const skills = normalizeSkills(config.skills);
@@ -202,6 +219,72 @@ function validateNativeHooks(platforms: ConnectorConfig["platforms"]): void {
         throw new ConnectorConfigError(`${where}.${event}.matcher must be a string`);
       }
     }
+  }
+}
+
+/**
+ * Validate every `platforms[<id>].configPatch` declaration:
+ *   - the value must be an array of patch objects;
+ *   - `key` must be a dotted LEAF path whose segments match
+ *     {@link CONFIG_PATCH_SEGMENT_RE} — no dots-in-key, no array indices;
+ *   - `key` must not collide with the agent-connector-modeled namespace
+ *     (`hooks*` → hooks/nativeHooks; `mcpServers*` & friends → server/extra);
+ *   - duplicate keys within one platform's list are rejected (a duplicate
+ *     would double-apply / fight itself on refcounts);
+ *   - `value` must be JSON-serializable data (it is persisted whole in the
+ *     connector record and in the ownership ledger);
+ *   - `reason` is REQUIRED (printed in the install diff and every skip-warn);
+ *   - `docsUrl`, when present, must be a string.
+ * The HOST-side sensitive-key denylist is deliberately NOT validated here —
+ * it lives in (and is documented by) each supporting adapter.
+ */
+function validateConfigPatches(platforms: ConnectorConfig["platforms"]): void {
+  if (platforms == null) return;
+  for (const [platformId, override] of Object.entries(platforms)) {
+    const patches = override?.configPatch;
+    if (patches == null) continue;
+    const where = `platforms.${platformId}.configPatch`;
+    if (!Array.isArray(patches)) {
+      throw new ConnectorConfigError(`${where} must be an array of patch objects`);
+    }
+    const seen = new Set<string>();
+    patches.forEach((patch, i) => {
+      if (patch == null || typeof patch !== "object" || Array.isArray(patch)) {
+        throw new ConnectorConfigError(`${where}[${i}] must be an object`);
+      }
+      if (!isValidConfigPatchKey(patch.key)) {
+        throw new ConnectorConfigError(
+          `${where}[${i}].key must be a dotted LEAF path whose segments match ` +
+            `${CONFIG_PATCH_SEGMENT_RE} (no dots-in-key, no array indices); ` +
+            `got ${JSON.stringify(patch.key)}`,
+        );
+      }
+      const violation = configPatchNamespaceViolation(patch.key);
+      if (violation) {
+        throw new ConnectorConfigError(`${where}[${i}].key ${violation}`);
+      }
+      if (seen.has(patch.key)) {
+        throw new ConnectorConfigError(
+          `${where}[${i}] duplicate key "${patch.key}"`,
+        );
+      }
+      seen.add(patch.key);
+      if (!isJsonValue(patch.value)) {
+        throw new ConnectorConfigError(
+          `${where}[${i}].value must be JSON-serializable data ` +
+            `(string/finite number/boolean/null/array/plain object)`,
+        );
+      }
+      if (typeof patch.reason !== "string" || patch.reason.trim() === "") {
+        throw new ConnectorConfigError(
+          `${where}[${i}].reason is required (a human-readable why, printed in ` +
+            `the install diff and every skip-warn)`,
+        );
+      }
+      if (patch.docsUrl !== undefined && typeof patch.docsUrl !== "string") {
+        throw new ConnectorConfigError(`${where}[${i}].docsUrl must be a string`);
+      }
+    });
   }
 }
 

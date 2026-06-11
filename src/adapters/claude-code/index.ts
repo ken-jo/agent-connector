@@ -15,9 +15,9 @@
  *     additionalContext, updatedInput) on stdout with exit 0.
  */
 
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
@@ -25,10 +25,12 @@ import type {
   ChangeRecord,
   CommandDef,
   DetectedPlatform,
+  DiagnosticResult,
   HealthCheck,
   HookEventName,
   HookParadigm,
   HookResponse,
+  JsonValue,
   NotificationEvent,
   PermissionRequestEvent,
   PlatformCapabilities,
@@ -55,6 +57,25 @@ import {
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import {
+  type ConfigPatchLedgerEntry,
+  addLedgerOwner,
+  configPatchManualEdit,
+  configPatchNamespaceViolation,
+  createLedgerEntry,
+  describeJsonValue,
+  dropLedgerEntry,
+  findLedgerEntry,
+  hashJsonValue,
+  isValidConfigPatchKey,
+  jsonDeepEquals,
+  ledgerEntriesOwnedBy,
+  loadConfigPatchLedger,
+  removeLedgerOwner,
+  saveConfigPatchLedger,
+} from "../../core/config-patch-ledger.js";
+import { readRegisteredMeta } from "../../core/load-connector.js";
+import { backupsDir, ensureDir } from "../../core/paths.js";
 import {
   type ClaudeHookEvent,
   type ClaudeWireInput,
@@ -114,6 +135,10 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     // names, so any host event (TaskCreated, TeammateIdle, WorktreeCreate, …)
     // declared under platforms["claude-code"].nativeHooks installs verbatim.
     supportsNativeHooks: true,
+    // Declarative host-config key patches: claude-code is the ONLY v1 host
+    // (set-if-absent leaf keys in settings.json, refcounted ownership ledger,
+    // sensitive-key denylist — see SENSITIVE_KEY_RULES below).
+    supportsConfigPatch: true,
     transports: ["stdio", "http"],
     // Content surfaces: Claude Code is the reference implementation for all three.
     supportsCommands: true,
@@ -421,6 +446,476 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
 
   private entryHasCommand(entry: ClaudeHookEntry, command: string): boolean {
     return (entry.hooks ?? []).some((h) => h.command === command);
+  }
+
+  // ── Declarative host-config key patches (configPatch) ────────────────────
+  // FIXED semantics (docs/ARCHITECTURE.md §4): set-if-absent on a single
+  // dotted LEAF key of settings.json, skip-warn on ANY conflict (present key,
+  // non-object intermediate, drift), refcounted ownership in the persisted
+  // ledger at <dataRoot>/state/config-patches.json. Reuses the adapter's
+  // existing whole-file settings.json JSON IO (the same handling the hook
+  // install performs on this exact file) — Claude Code itself rewrites this
+  // file, so format preservation is a non-issue here. NOTE for future hosts:
+  // VS Code JSONC needs jsonc-parser modify/applyEdits and Codex TOML needs an
+  // anchored edit — core/toml.ts's round-trip is BANNED for configPatch.
+
+  /** The ONLY file configPatch may touch on claude-code: settings.json at scope. */
+  getPatchableConfigPath(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "settings.json");
+  }
+
+  override installConfigPatches(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    const patches = connector.platforms[HOST]?.configPatch ?? [];
+    if (patches.length === 0) {
+      return [
+        { platform: this.id, action: "skip", detail: "connector declares no configPatch entries" },
+      ];
+    }
+
+    const filePath = this.getPatchableConfigPath(ctx);
+    // OVERWRITE GUARD (upsertServerInJson precedent): never round-trip a
+    // present-but-unparseable settings file into `{}`.
+    if (this.isPresentButUnparseable(filePath)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail: `existing ${filePath} is not parseable; configPatch left unapplied (back it up / fix it, then re-run)`,
+        },
+      ];
+    }
+    const settings = this.readJson<Record<string, unknown>>(filePath) ?? {};
+    if (typeof settings !== "object" || Array.isArray(settings)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail: `existing ${filePath} is not a JSON object; configPatch left unapplied`,
+        },
+      ];
+    }
+
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    const changes: ChangeRecord[] = [];
+    let fileMutated = false;
+    let ledgerMutated = false;
+
+    for (const patch of patches) {
+      // Defense in depth: re-validate grammar + AC-namespace here (a connector
+      // loaded from raw meta/JSON must not bypass defineConnector's checks).
+      if (!isValidConfigPatchKey(patch.key)) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          detail:
+            `configPatch ${JSON.stringify(patch.key)} refused: not a dotted leaf path ` +
+            `(segments must match [A-Za-z0-9_-]+; no array indices)`,
+        });
+        continue;
+      }
+      const namespace = configPatchNamespaceViolation(patch.key);
+      if (namespace) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          detail: `configPatch refused: ${namespace}`,
+        });
+        continue;
+      }
+      // SENSITIVE-KEY DENYLIST — hard refuse, no override flag in v1.
+      const sensitive = claudeSensitiveKeyViolation(patch.key);
+      if (sensitive) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          detail:
+            `configPatch ${patch.key} refused: matches the claude-code sensitive-key ` +
+            `denylist (${sensitive}); security-relevant keys are never patched`,
+        });
+        continue;
+      }
+
+      // `${env:VAR}` refs resolve at install time, matching server-entry behavior.
+      const desired = resolveEnvRefsDeep(patch.value) as JsonValue;
+      const segments = patch.key.split(".");
+      const leaf = readJsonLeaf(settings, segments);
+      const entry = findLedgerEntry(ledger, HOST, filePath, patch.key);
+
+      if (leaf.kind === "blocked") {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `configPatch ${patch.key} skipped: "${leaf.atPath}" exists but is not an ` +
+            `object — ${configPatchManualEdit(patch)}`,
+        });
+        continue;
+      }
+
+      if (leaf.kind === "absent") {
+        // SET-IF-ABSENT: the one write path. Intermediates created only as needed.
+        writeJsonLeaf(settings, segments, desired);
+        fileMutated = true;
+        if (entry) {
+          // Stale ledger row (key was deleted out from under us): re-assert the
+          // value, keep existing owners (they still rely on the key existing),
+          // and record what was actually (re)written.
+          entry.writtenValue = desired;
+          entry.writtenValueHash = hashJsonValue(desired);
+          addLedgerOwner(entry, connector.id, connector.version);
+        } else {
+          createLedgerEntry(ledger, {
+            platform: HOST,
+            file: filePath,
+            key: patch.key,
+            value: desired,
+            connectorId: connector.id,
+            connectorVersion: connector.version,
+          });
+        }
+        ledgerMutated = true;
+        changes.push({
+          platform: this.id,
+          action: "create",
+          path: filePath,
+          detail: `configPatch ${patch.key}: <absent> → ${describeJsonValue(desired)} (${patch.reason})`,
+        });
+        continue;
+      }
+
+      // Key PRESENT — never overwrite; the only question is ownership/refcount.
+      if (!entry) {
+        // User- (or other-tool-) owned. No ownership is taken even when values
+        // happen to match — uninstall must never delete a key we did not create.
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `configPatch ${patch.key} skipped: already set to ${describeJsonValue(leaf.value)} ` +
+            `(not created by agent-connector; desired ${describeJsonValue(desired)}) — ` +
+            configPatchManualEdit(patch),
+        });
+        continue;
+      }
+
+      if (!jsonDeepEquals(leaf.value, entry.writtenValue)) {
+        // DRIFT: the user edited the value after we wrote it. Never revert —
+        // sync re-asserts only ABSENT keys.
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `configPatch ${patch.key}: value changed since install ` +
+            `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
+            `leaving in place — ${configPatchManualEdit(patch)}`,
+        });
+        continue;
+      }
+
+      if (jsonDeepEquals(desired, leaf.value)) {
+        // Same value we own: register as co-owner (refcount++) or plain
+        // idempotent skip when this connector is already an owner.
+        const owners = entry.owners.map((o) => o.connectorId);
+        if (addLedgerOwner(entry, connector.id, connector.version)) {
+          ledgerMutated = true;
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `configPatch ${patch.key} already installed; registered as co-owner (co-owned with ${owners.join(", ")})`,
+          });
+        } else {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `configPatch ${patch.key} already installed`,
+          });
+        }
+        continue;
+      }
+
+      // FIRST-WRITER-WINS: another connector owns this key with a different value.
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        path: filePath,
+        detail:
+          `configPatch ${patch.key} skipped: already owned by ${entry.owners
+            .map((o) => o.connectorId)
+            .join(", ")} with a different value ` +
+          `(current ${describeJsonValue(leaf.value)}, desired ${describeJsonValue(desired)}) — ` +
+          configPatchManualEdit(patch),
+      });
+    }
+
+    if (fileMutated) this.writeJson(filePath, settings, ctx.dryRun);
+    if (ledgerMutated && !ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+    return changes;
+  }
+
+  override uninstallConfigPatches(ctx: InstallContext): ChangeRecord[] {
+    const connectorId = ctx.connector.id;
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    // Keyed off the LEDGER (not the declaration): releases ownership for every
+    // file/scope this connector ever patched, even when the uninstall context
+    // is a minimal synthetic connector or the scope flag differs from install.
+    const owned = ledgerEntriesOwnedBy(ledger, HOST, connectorId);
+    const declared = ctx.connector.platforms[HOST]?.configPatch ?? [];
+    const changes: ChangeRecord[] = [];
+
+    // Declared patches with NO ownership record anywhere: never delete a key
+    // we did not create (rule 1) — explicit skip so the outcome is never silent.
+    const ownedKeys = new Set(owned.map((e) => e.key));
+    for (const patch of declared) {
+      if (!ownedKeys.has(patch.key)) {
+        changes.push({
+          platform: this.id,
+          action: "skip",
+          detail: `configPatch ${patch.key}: no ownership recorded; left untouched`,
+        });
+      }
+    }
+    if (owned.length === 0) return changes;
+
+    let ledgerMutated = false;
+    const backedUp = new Set<string>();
+
+    // Group by file (entries may span scopes/files).
+    const byFile = new Map<string, ConfigPatchLedgerEntry[]>();
+    for (const entry of owned) {
+      const bucket = byFile.get(entry.file) ?? [];
+      bucket.push(entry);
+      byFile.set(entry.file, bucket);
+    }
+
+    for (const [filePath, entries] of byFile) {
+      const unparseable = this.isPresentButUnparseable(filePath);
+      const settings = unparseable
+        ? null
+        : this.readJson<Record<string, unknown>>(filePath);
+      let fileMutated = false;
+
+      for (const entry of entries) {
+        const { lastOwner } = removeLedgerOwner(entry, connectorId);
+        ledgerMutated = true;
+
+        if (!lastOwner) {
+          // The shared-flag case: A uninstalls, B still relies on the key.
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `configPatch ${entry.key} retained: still owned by ${entry.owners
+              .map((o) => o.connectorId)
+              .join(", ")}`,
+          });
+          continue;
+        }
+
+        // Last owner out → the ledger row is dropped on every branch below;
+        // the KEY is removed only on the fully-verified branch.
+        dropLedgerEntry(ledger, entry);
+
+        if (unparseable) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: filePath,
+            detail: `configPatch ${entry.key}: ${filePath} is not parseable; key left in place (ownership released)`,
+          });
+          continue;
+        }
+        if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `configPatch ${entry.key} already absent (no settings file); ownership record dropped`,
+          });
+          continue;
+        }
+        const leaf = readJsonLeaf(settings, entry.key.split("."));
+        if (leaf.kind !== "present") {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `configPatch ${entry.key} already absent; ownership record dropped`,
+          });
+          continue;
+        }
+        if (entry.prior?.present !== false || !jsonDeepEquals(leaf.value, entry.writtenValue)) {
+          // User edited the value after install (or the row predates the
+          // set-if-absent guarantee): deleting would clobber them. Leave it.
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: filePath,
+            detail:
+              `configPatch ${entry.key}: value changed since install ` +
+              `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
+              `left in place`,
+          });
+          continue;
+        }
+
+        // VERIFIED: last owner + current === writtenValue + prior was absent.
+        // Back up the exact file before its first mutation, then delete the
+        // leaf key (intermediate objects we created are left in place).
+        if (!ctx.dryRun && !backedUp.has(filePath) && existsSync(filePath)) {
+          const backup = this.backupFileForConfigPatch(filePath);
+          backedUp.add(filePath);
+          if (backup) {
+            changes.push({
+              platform: this.id,
+              action: "create",
+              path: backup,
+              detail: "backed up settings before configPatch removal",
+            });
+          }
+        }
+        deleteJsonLeaf(settings, entry.key.split("."));
+        fileMutated = true;
+        changes.push({
+          platform: this.id,
+          action: "remove",
+          path: filePath,
+          detail: `configPatch ${entry.key} removed (was ${describeJsonValue(entry.writtenValue)})`,
+        });
+      }
+
+      if (fileMutated && settings) this.writeJson(filePath, settings, ctx.dryRun);
+    }
+
+    if (ledgerMutated && !ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+    return changes;
+  }
+
+  /**
+   * Back up ONE exact file (the ledger-recorded patch target, which may belong
+   * to a different scope than the current ctx) into the standard backups dir.
+   * Best-effort: a failed copy returns null and the caller proceeds — the
+   * removal is already value-verified.
+   */
+  private backupFileForConfigPatch(filePath: string): string | null {
+    try {
+      ensureDir(backupsDir());
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const dest = join(backupsDir(), `${this.id}-${stamp}-${basename(filePath)}`);
+      copyFileSync(filePath, dest);
+      return dest;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Doctor: per-ledger-entry configPatch state for this connector —
+   *   ok       → key present and still exactly what we wrote;
+   *   drifted  → user changed the value (we print the manual edit, NEVER
+   *              auto-fix — sync re-asserts only absent keys);
+   *   missing  → key deleted by the user; sync will re-assert it;
+   *   orphaned → ledger row whose owners' connector records are all gone.
+   * Plus a re-print of the manual edit for declared patches that hold no
+   * ownership (skipped at install).
+   */
+  private configPatchDiagnostics(ctx: InstallContext): DiagnosticResult[] {
+    const results: DiagnosticResult[] = [];
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    const connectorId = ctx.connector.id;
+    const platformEntries = ledger.entries.filter((e) => e.platform === this.id);
+
+    for (const entry of platformEntries) {
+      const ownedByThis = entry.owners.some((o) => o.connectorId === connectorId);
+      if (!ownedByThis) {
+        // ORPHAN check (global hygiene): every owner's connector record is gone.
+        const orphaned =
+          entry.owners.length === 0 ||
+          entry.owners.every((o) => readRegisteredMeta(o.connectorId) === null);
+        if (orphaned) {
+          results.push({
+            check: `${this.name}: configPatch ${entry.key}`,
+            status: "warn",
+            message:
+              `orphaned ledger entry in ${entry.file}: owning connector record(s) ` +
+              `gone (${entry.owners.map((o) => o.connectorId).join(", ") || "none"})`,
+            fix:
+              `re-run \`agent-connector uninstall <owner-id>\` to release it, or remove ` +
+              `${entry.key} from ${entry.file} manually`,
+          });
+        }
+        continue;
+      }
+
+      const state = this.configPatchState(entry);
+      if (state.kind === "ok") {
+        results.push({
+          check: `${this.name}: configPatch ${entry.key}`,
+          status: "pass",
+          message: `ok — ${entry.key} = ${describeJsonValue(entry.writtenValue)} (${entry.file})`,
+        });
+      } else if (state.kind === "missing") {
+        results.push({
+          check: `${this.name}: configPatch ${entry.key}`,
+          status: "warn",
+          message: `missing — key deleted from ${entry.file} since install`,
+          fix: `agent-connector install (sync) will re-assert it`,
+        });
+      } else {
+        results.push({
+          check: `${this.name}: configPatch ${entry.key}`,
+          status: "warn",
+          message:
+            `drifted — value changed since install (current ${describeJsonValue(state.current)}, ` +
+            `wrote ${describeJsonValue(entry.writtenValue)}); never auto-fixed`,
+          fix: `manual edit if wanted: set ${entry.key} = ${describeJsonValue(entry.writtenValue)} in ${entry.file}`,
+        });
+      }
+    }
+
+    // Declared-but-unowned patches: re-print the manual edit (the patch was
+    // skipped at install — conflict, denylist, or simply not installed yet).
+    const declared = ctx.connector.platforms[HOST]?.configPatch ?? [];
+    const ownedKeys = new Set(
+      ledgerEntriesOwnedBy(ledger, HOST, connectorId).map((e) => e.key),
+    );
+    for (const patch of declared) {
+      if (ownedKeys.has(patch.key)) continue;
+      results.push({
+        check: `${this.name}: configPatch ${patch.key}`,
+        status: "warn",
+        message: `declared but not owned (skipped at install or not yet installed)`,
+        fix: configPatchManualEdit(patch),
+      });
+    }
+    return results;
+  }
+
+  /** Current on-disk state of one owned ledger entry. */
+  private configPatchState(
+    entry: ConfigPatchLedgerEntry,
+  ): { kind: "ok" } | { kind: "missing" } | { kind: "drifted"; current: JsonValue } {
+    const settings = this.readJson<Record<string, unknown>>(entry.file);
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+      return { kind: "missing" };
+    }
+    const leaf = readJsonLeaf(settings, entry.key.split("."));
+    if (leaf.kind !== "present") return { kind: "missing" };
+    if (jsonDeepEquals(leaf.value, entry.writtenValue)) return { kind: "ok" };
+    return { kind: "drifted", current: leaf.value };
+  }
+
+  override doctor(ctx: InstallContext): DiagnosticResult[] {
+    const results = super.doctor(ctx);
+    results.push(...this.configPatchDiagnostics(ctx));
+    return results;
   }
 
   // ── Content surfaces: commands / skills / subagents ──────────────────────
@@ -958,6 +1453,127 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
   private stdout(payload: unknown): HookReply {
     return { exitCode: 0, stdout: JSON.stringify(payload) };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// configPatch: sensitive-key denylist + JSON leaf-path helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * SENSITIVE-KEY DENYLIST (claude-code, v1) — THE documented list. configPatch
+ * targeting any key below is HARD-REFUSED (warn ChangeRecord, never applied;
+ * no override flag in v1). Rationale: configPatch writes bare host keys with
+ * no inherent attribution, and these keys are security-relevant — permission
+ * grants, tool allowlists, credential/auth helpers, login pinning, and any
+ * env var that can reroute credentials or traffic. The OMC case
+ * `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` passes; credential rerouting and
+ * self-granted permissions do not. Reviewed whenever the host matrix updates.
+ *
+ *   permissions, permissions.*            — self-granted permission rules
+ *   allowedTools / disallowedTools (.*)   — tool allowlist tampering
+ *   apiKey* (e.g. apiKeyHelper)           — credential helpers
+ *   awsAuthRefresh / awsCredentialExport  — AWS credential plumbing
+ *   forceLoginMethod / forceLoginOrgUUID  — login/org pinning
+ *   otelHeadersHelper                     — telemetry-header (token) helper
+ *   hooks*, mcpServers* (+ enable/enabled/disabledMcpjsonServers)
+ *                                         — refused upstream by the
+ *                                           agent-connector NAMESPACE guard
+ *   env.ANTHROPIC_*                       — API key / base-URL rerouting
+ *   env.AWS_*                             — AWS credentials
+ *   env.*_PROXY                           — traffic interception
+ *   env.*TOKEN* / env.*KEY* / env.*SECRET* — generic credential patterns
+ */
+const SENSITIVE_KEY_RULES: ReadonlyArray<{ re: RegExp; label: string }> = [
+  { re: /^permissions(\.|$)/, label: "permissions" },
+  { re: /^allowedTools(\.|$)/, label: "allowedTools" },
+  { re: /^disallowedTools(\.|$)/, label: "disallowedTools" },
+  { re: /^apiKey/i, label: "apiKey*" },
+  { re: /^awsAuthRefresh$/, label: "awsAuthRefresh" },
+  { re: /^awsCredentialExport$/, label: "awsCredentialExport" },
+  { re: /^forceLoginMethod$/, label: "forceLoginMethod" },
+  { re: /^forceLoginOrgUUID$/, label: "forceLoginOrgUUID" },
+  { re: /^otelHeadersHelper$/, label: "otelHeadersHelper" },
+  { re: /^env\.ANTHROPIC_/, label: "env.ANTHROPIC_*" },
+  { re: /^env\.AWS_/, label: "env.AWS_*" },
+  { re: /^env\.[^.]*_PROXY(\.|$)/i, label: "env.*_PROXY" },
+  { re: /^env\.[^.]*TOKEN/i, label: "env.*TOKEN*" },
+  { re: /^env\.[^.]*KEY/i, label: "env.*KEY*" },
+  { re: /^env\.[^.]*SECRET/i, label: "env.*SECRET*" },
+];
+
+/**
+ * The matched denylist pattern label when `key` is sensitive on claude-code,
+ * else null. Exported so tests and docs stay pinned to the real list.
+ */
+export function claudeSensitiveKeyViolation(key: string): string | null {
+  for (const rule of SENSITIVE_KEY_RULES) {
+    if (rule.re.test(key)) return rule.label;
+  }
+  return null;
+}
+
+/** Result of looking up a dotted leaf path in a parsed JSON object. */
+type JsonLeafLookup =
+  | { kind: "absent" }
+  | { kind: "present"; value: JsonValue }
+  | { kind: "blocked"; atPath: string };
+
+/**
+ * Walk `segments` (a validated dotted leaf path) through `root`. "blocked"
+ * reports the first intermediate that exists but is not a plain object —
+ * the skip-warn case (we never replace a non-object intermediate).
+ */
+function readJsonLeaf(root: Record<string, unknown>, segments: string[]): JsonLeafLookup {
+  let node: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const next = node[segments[i]!];
+    if (next === undefined) return { kind: "absent" };
+    if (next === null || typeof next !== "object" || Array.isArray(next)) {
+      return { kind: "blocked", atPath: segments.slice(0, i + 1).join(".") };
+    }
+    node = next as Record<string, unknown>;
+  }
+  const leaf = node[segments[segments.length - 1]!];
+  if (leaf === undefined) return { kind: "absent" };
+  return { kind: "present", value: leaf as JsonValue };
+}
+
+/**
+ * Write `value` at the leaf, creating ONLY absent intermediate objects along
+ * the way (callers must have verified the path is not blocked).
+ */
+function writeJsonLeaf(
+  root: Record<string, unknown>,
+  segments: string[],
+  value: JsonValue,
+): void {
+  let node: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i]!;
+    const next = node[seg];
+    if (next === undefined) {
+      const created: Record<string, unknown> = {};
+      node[seg] = created;
+      node = created;
+    } else {
+      node = next as Record<string, unknown>;
+    }
+  }
+  node[segments[segments.length - 1]!] = value;
+}
+
+/**
+ * Delete the leaf key only. Intermediate objects — even ones we created — are
+ * deliberately left in place (harmless; pruning risks collateral).
+ */
+function deleteJsonLeaf(root: Record<string, unknown>, segments: string[]): void {
+  let node: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const next = node[segments[i]!];
+    if (next === null || typeof next !== "object" || Array.isArray(next)) return;
+    node = next as Record<string, unknown>;
+  }
+  delete node[segments[segments.length - 1]!];
 }
 
 /** Claude Code native interpolation token: `${env:VAR}` → `${VAR}`. */

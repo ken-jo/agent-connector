@@ -427,6 +427,62 @@ export interface NativeHookDef {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Declarative host-config key patches (configPatch) — platform-scoped
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A JSON-serializable value (what JSON.parse can produce). */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [k: string]: JsonValue };
+
+/**
+ * One declarative, ownership-tracked patch of a host-exclusive config key
+ * (e.g. Claude Code settings.json `statusLine`, or
+ * `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`). SEMANTICS ARE FIXED:
+ * set-if-absent on a single leaf key, skip-warn on ANY conflict, refcounted
+ * ownership (persisted ledger at `<dataRoot>/state/config-patches.json`),
+ * reversible uninstall. No overwrite, no delete, no deep merge, no array ops.
+ *
+ * Connectors name a host + key, NEVER a file path — the adapter owns the
+ * key→file mapping ({@link PlatformCapabilities.supportsConfigPatch}; v1:
+ * claude-code only, every other adapter reports the standard skip-warn).
+ * Same-file sibling structures that belong to the MCP entry dialect (VS Code
+ * `inputs`, Zed `context_servers.<id>.settings`) are NOT configPatch targets —
+ * they stay in the adapter / `extra`. Keys agent-connector already models
+ * (`hooks*`, `mcpServers*`) are rejected at defineConnector; security-relevant
+ * keys are refused by the adapter's documented sensitive-key denylist.
+ */
+export interface ConfigPatchDef {
+  /**
+   * Dotted LEAF path into the adapter's declared patchable file, e.g.
+   * "statusLine" or "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS".
+   * Segments match /^[A-Za-z0-9_-]+$/ (no dots-in-key, no array indices).
+   * Intermediate objects are created only when absent; a non-object
+   * intermediate → skip-warn. The VALUE may be an object/array but is
+   * written atomically as the leaf — never merged into.
+   */
+  key: string;
+  /**
+   * Value written when (and only when) the key is absent. `${env:VAR}` refs
+   * are resolved at install time via core/interpolate resolveEnvRefsDeep,
+   * matching server-entry behavior.
+   */
+  value: JsonValue;
+  /**
+   * REQUIRED human-readable why — printed in the install diff, every
+   * ChangeRecord, and every skip-warn (so one declaration doubles as its own
+   * documented manual-edit fallback on skip/conflict/unsupported hosts).
+   */
+  reason: string;
+  /** Docs link appended to the manual-edit fallback printed on skip/conflict. */
+  docsUrl?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Platform capabilities
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -467,6 +523,16 @@ export interface PlatformCapabilities {
    * installer (never silent).
    */
   supportsNativeHooks?: boolean;
+  /**
+   * Declarative host-config key patches — can this adapter apply
+   * {@link PlatformOverride.configPatch} entries (set-if-absent, ownership-
+   * tracked) to its declared patchable config file? OPTIONAL, read as
+   * `?? false` (supportsNativeHooks precedent). v1: claude-code only; an
+   * adapter that leaves this unset and receives a configPatch declaration gets
+   * the standard skip-warn ChangeRecord from the installer (never silent),
+   * plus per-patch manual-edit instructions from `reason`/`docsUrl`.
+   */
+  supportsConfigPatch?: boolean;
   /**
    * Content-surface support (all OPTIONAL so existing adapter capability
    * literals compile unchanged; read as `?? false`). Only surface-supporting
@@ -600,6 +666,16 @@ export interface PlatformOverride {
    * matrix); TaskCreated/TaskCompleted are the named first candidates.
    */
   nativeHooks?: Record<string, NativeHookDef>;
+  /**
+   * Declarative host-config key patches (set-if-absent, ownership-tracked,
+   * skip-warn on ANY conflict — see {@link ConfigPatchDef} for the full fixed
+   * contract). Platform-scoped by construction: a declaration only ever
+   * applies to the platform it is declared under, and only adapters with
+   * {@link PlatformCapabilities.supportsConfigPatch} (v1: claude-code) apply
+   * it; every other adapter reports the standard skip-warn ChangeRecord with
+   * the per-patch manual-edit instructions (never silent).
+   */
+  configPatch?: ConfigPatchDef[];
   /** false → do not register the MCP server here; object → shallow-merge into ServerDef. */
   server?: Partial<ServerDef> | false;
   /** Force a specific scope for this platform. */
