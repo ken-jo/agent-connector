@@ -728,7 +728,23 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const decision = response.decision ?? "allow";
 
     // deny → block the action with a reason (exit 0; JSON carries the decision).
+    // Claude's deny shape is EVENT-SPECIFIC: PreToolUse uses
+    // hookSpecificOutput.permissionDecision, but Stop / UserPromptSubmit /
+    // PostToolUse honor only the TOP-LEVEL {"decision":"block","reason"} —
+    // rendering those as permissionDecision is silently ignored by Claude
+    // (found porting oh-my-claudecode: its ralph persistence loop denies the
+    // Stop event, which never blocked through the old shape).
     if (decision === "deny") {
+      if (
+        event === "Stop" ||
+        event === "UserPromptSubmit" ||
+        event === "PostToolUse"
+      ) {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
       return this.stdout({
         hookSpecificOutput: {
           hookEventName,
