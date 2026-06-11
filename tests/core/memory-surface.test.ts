@@ -103,6 +103,9 @@ function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-memory-"));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
+  // Isolate %APPDATA% too — goose (and other win32 branches) resolve user files
+  // under it; without this the Windows runner writes outside the sandbox.
+  process.env.APPDATA = join(dir, "AppData", "Roaming");
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   return dir;
 }
@@ -710,7 +713,16 @@ describe("memory surface: user-scope host-file targets", () => {
     ["kiro", kiroAdapter, [".kiro", "steering", "agent-connector.md"]],
     ["copilot-cli", copilotCliAdapter, [".copilot", "copilot-instructions.md"]],
     ["qwen-code", qwenCodeAdapter, [".qwen", "QWEN.md"]],
-    ["goose", gooseAdapter, [".config", "goose", ".goosehints"]],
+    // goose resolves its config dir per-OS: %APPDATA%\Block\goose\config on
+    // Windows (isolated into the sandbox by freshProject), ~/.config/goose
+    // elsewhere — the .goosehints sits beside config.yaml either way.
+    [
+      "goose",
+      gooseAdapter,
+      process.platform === "win32"
+        ? ["AppData", "Roaming", "Block", "goose", "config", ".goosehints"]
+        : [".config", "goose", ".goosehints"],
+    ],
   ];
   for (const [id, adapter, segments] of rows) {
     it(`${id} user scope targets ~/${segments.join("/")}`, () => {
