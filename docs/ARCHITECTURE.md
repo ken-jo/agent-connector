@@ -126,7 +126,10 @@ Distilled from the union of platform behaviors (report §3).
   `user`; `--scope project` opt-in.
 - **Normalized lifecycle events** — `SessionStart`, `SessionEnd`,
   `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `Stop`,
-  `Notification` (+ optional extras). Mapped to each platform's names
+  `Notification`, `PermissionRequest`, `PostToolUseFailure`, `SubagentStart`,
+  `SubagentStop` (12 canonical events — the last four are newer additions;
+  hosts without a native analog mark them unsupported in capabilities and the
+  install reports a skip-warn, never a silent drop). Mapped to each platform's names
   (`PreToolUse`↔`BeforeTool`↔`tool.execute.before`↔`pre_tool_call`). Normalized
   payload `{ toolName, toolInput, toolOutput?, isError?, sessionId, projectDir?,
   raw }`; normalized response `{ decision: allow|deny|modify|context|ask, reason?,

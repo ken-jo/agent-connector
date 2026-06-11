@@ -170,6 +170,13 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: like OpenCode, the fork ships a decision-capable
+    // `permission.ask` plugin hook upstream, but it is NOT wired here (E1
+    // keeps this adapter degrade-only); subagents run as child sessions (bus
+    // events only) and tool failure is merged into tool.execute.after /
+    // session.error. permissionRequest / postToolUseFailure / subagentStart /
+    // subagentStop stay unset — the generated bridge never references them and
+    // install reports them as "unsupported here".
     // tool.execute.before mutates output.args → input rewrite supported.
     canModifyArgs: true,
     // tool.execute.after mutates output.output → output rewrite supported.

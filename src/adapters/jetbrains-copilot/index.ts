@@ -143,6 +143,10 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: the JetBrains Copilot Preview hooks runtime documents no
+    // permission-dialog, tool-failure, or subagent lifecycle events, so
+    // permissionRequest / postToolUseFailure / subagentStart / subagentStop
+    // stay unset — install reports the standard skip-warn for them.
     // Per the JetBrains spec this host is deny/ask-only: a PreToolUse hook
     // CANNOT rewrite tool input, and PostToolUse cannot rewrite tool output.
     canModifyArgs: false,
@@ -758,6 +762,16 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
           message: typeof input.message === "string" ? input.message : "",
         };
         return ev;
+      }
+      case "PermissionRequest":
+      case "PostToolUseFailure":
+      case "SubagentStart":
+      case "SubagentStop": {
+        // No JetBrains Copilot analog — its Preview hooks runtime documents no
+        // permission-dialog, tool-failure, or subagent lifecycle events.
+        // Install already skip-warns these via EVENT_MAP; a runtime dispatch is
+        // a mis-route — fail loudly.
+        throw new Error(`unsupported jetbrains-copilot hook event: ${String(event)}`);
       }
       default: {
         // Exhaustive guard — every HookEventName is handled above. (JetBrains only

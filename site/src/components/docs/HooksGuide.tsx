@@ -155,7 +155,7 @@ const hookableHosts: PlatformHookEntry[] = [
 const matrixStarter = ["claude-code", "codex", "gemini-cli", "opencode", "kilo-cli"];
 
 /**
- * The mapping matrix as an interactive, column-toggled table: rows are the 8
+ * The mapping matrix as an interactive, column-toggled table: rows are the 12
  * canonical events, columns are the platforms you switch ON via the chips
  * (All | <platform> …) — they append to the right, so you build exactly the
  * comparison you want instead of scrolling one giant fixed table.
@@ -479,6 +479,30 @@ const compareEvents: {
     align: "claude-only",
     note: "Claude has Notification 1:1; Kilo has no equivalent → skip-warn.",
   },
+  {
+    event: "PermissionRequest",
+    align: "claude-only",
+    note:
+      "Claude has PermissionRequest 1:1 (explicit allow = active grant that suppresses the dialog; ask/void fall through to it); Kilo has no permission-dialog event → skip-warn.",
+  },
+  {
+    event: "PostToolUseFailure",
+    align: "claude-only",
+    note:
+      "Claude has PostToolUseFailure 1:1 (context-only — the tool already failed); Kilo has no failure event (errors only surface on the session bus) → skip-warn.",
+  },
+  {
+    event: "SubagentStart",
+    align: "claude-only",
+    note:
+      "Claude has SubagentStart 1:1 (context injected into the subagent's conversation); Kilo's subagents run as child sessions with no dedicated hook → skip-warn.",
+  },
+  {
+    event: "SubagentStop",
+    align: "claude-only",
+    note:
+      "Claude has SubagentStop 1:1 (deny = top-level block that keeps the subagent running); Kilo has no equivalent → skip-warn.",
+  },
 ];
 
 const alignStyle: Record<
@@ -652,7 +676,7 @@ function ClaudeVsKilo() {
         <C>agent-connector hook &lt;platform&gt; PreToolUse --connector &lt;id&gt;</C>
         ). They line up on PreToolUse / PostToolUse / SessionStart; they diverge
         on output-rewrite (Kilo can rewrite tool output, Claude can&apos;t) and on
-        the four lifecycle events Kilo&apos;s plugin surface simply doesn&apos;t
+        the nine lifecycle events Kilo&apos;s plugin surface simply doesn&apos;t
         expose.
       </Callout>
     </div>
@@ -707,7 +731,7 @@ export function HooksGuideSection() {
       <H3 id="single-wrapper">The single-wrapper hook API</H3>
       <P>
         In <C>defineConnector(&#123; hooks &#125;)</C> you declare one{" "}
-        <C>handler</C> per normalized event (the 8 canonical events). The
+        <C>handler</C> per normalized event (the 12 canonical events). The
         framework looks at each detected host&apos;s paradigm and synthesizes the
         right delivery; a universal home-bin <C>hook</C> entrypoint dispatches the
         payload into your one handler and formats the reply back into the
@@ -765,7 +789,7 @@ export function HooksGuideSection() {
       {/* b. the big mapping matrix */}
       <H3 id="mapping-matrix">The mapping matrix</H3>
       <P>
-        Rows are the 8 canonical events; columns are the platforms, grouped by
+        Rows are the 12 canonical events; columns are the platforms, grouped by
         paradigm. A cell shows the <strong>native event name</strong> the
         connector writes for that host, or a muted <C>—</C> when the host has no
         equivalent (graceful skip-warn). The first column is sticky; scroll
@@ -816,11 +840,13 @@ export function HooksGuideSection() {
           (<C>canModifyOutput: false</C>).
         </LI>
         <LI>
-          <strong>Differ — lifecycle coverage:</strong> Claude maps all 8 events
-          1:1; Kilo&apos;s plugin surface only exposes the two tool events plus a{" "}
-          SessionStart surrogate, so <C>SessionEnd</C>,{" "}
-          <C>UserPromptSubmit</C>, <C>PreCompact</C>, <C>Stop</C> and{" "}
-          <C>Notification</C> skip-warn on Kilo.
+          <strong>Differ — lifecycle coverage:</strong> Claude maps all 12
+          events 1:1; Kilo&apos;s plugin surface only exposes the two tool
+          events plus a SessionStart surrogate, so <C>SessionEnd</C>,{" "}
+          <C>UserPromptSubmit</C>, <C>PreCompact</C>, <C>Stop</C>,{" "}
+          <C>Notification</C> and the four newer events (
+          <C>PermissionRequest</C>, <C>PostToolUseFailure</C>,{" "}
+          <C>SubagentStart</C>, <C>SubagentStop</C>) skip-warn on Kilo.
         </LI>
       </List>
     </DocSection>

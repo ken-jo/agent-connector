@@ -45,6 +45,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
+  PostToolUseFailureEvent,
   PreCompactEvent,
   PreToolUseEvent,
   SessionEndEvent,
@@ -71,9 +72,10 @@ const MCP_ROOT_KEY = "extensions";
  * Map each normalized hook event to the matching capability flag on this
  * adapter. The adapter's own `capabilities` literal is the single source of
  * truth for what Goose's Open-Plugins runtime delivers (PreToolUse/PostToolUse/
- * SessionStart); installHooks filters declared events through this map so an
- * unsupported event (e.g. UserPromptSubmit) is never written verbatim into
- * hooks.json — it is reported as a graceful warn/skip instead.
+ * SessionStart/PostToolUseFailure); installHooks filters declared events
+ * through this map so an unsupported event (e.g. UserPromptSubmit) is never
+ * written verbatim into hooks.json — it is reported as a graceful warn/skip
+ * instead.
  */
 const EVENT_CAPABILITY: Record<HookEventName, keyof PlatformCapabilities> = {
   SessionStart: "sessionStart",
@@ -84,6 +86,13 @@ const EVENT_CAPABILITY: Record<HookEventName, keyof PlatformCapabilities> = {
   PreCompact: "preCompact",
   Stop: "stop",
   Notification: "notification",
+  // Newer events. Goose's hooks system ships a dedicated PostToolUseFailure;
+  // it has NO permission-dialog or subagent lifecycle events, so those three
+  // flags stay unset on `capabilities` and warn-skip at install.
+  PermissionRequest: "permissionRequest",
+  PostToolUseFailure: "postToolUseFailure",
+  SubagentStart: "subagentStart",
+  SubagentStop: "subagentStop",
 };
 
 /**
@@ -133,6 +142,11 @@ interface GooseWireInput {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   tool_response?: unknown;
+  // PostToolUseFailure (Claude-compatible failure fields)
+  tool_use_id?: string;
+  error?: string;
+  is_interrupt?: boolean;
+  duration_ms?: number;
   source?: string;
   reason?: string;
   prompt?: string;
@@ -158,6 +172,12 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: Goose ships a dedicated PostToolUseFailure hook (feedback
+    // beside the error; the failure itself is not blockable). Goose has no
+    // permission-dialog event and no subagent lifecycle hooks, so
+    // permissionRequest / subagentStart / subagentStop stay unset — install
+    // reports the standard skip-warn for them.
+    postToolUseFailure: true,
     // Open Plugins documents PreToolUse/PostToolUse/SessionStart; argument
     // rewrite is not guaranteed across versions, so default to the safe value.
     canModifyArgs: false,
@@ -610,6 +630,32 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "PostToolUseFailure": {
+        const ev: PostToolUseFailureEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error: typeof input.error === "string" ? input.error : "",
+          ...(typeof input.tool_use_id === "string"
+            ? { toolUseId: input.tool_use_id }
+            : {}),
+          ...(typeof input.is_interrupt === "boolean"
+            ? { isInterrupt: input.is_interrupt }
+            : {}),
+          ...(typeof input.duration_ms === "number"
+            ? { durationMs: input.duration_ms }
+            : {}),
+        };
+        return ev;
+      }
+      case "PermissionRequest":
+      case "SubagentStart":
+      case "SubagentStop": {
+        // No Goose analog (no permission-dialog event, no subagent lifecycle
+        // hooks). Install already skip-warns these via EVENT_CAPABILITY; a
+        // runtime dispatch is a mis-route — fail loudly.
+        throw new Error(`unsupported goose hook event: ${String(event)}`);
+      }
       default: {
         const _never: never = event;
         throw new Error(`unsupported goose hook event: ${String(_never)}`);
@@ -619,8 +665,23 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
 
   // ── Runtime: normalized response → Goose native hook reply (Claude-shaped) ─
 
-  formatReply(_event: HookEventName, response: HookResponse): HookReply {
+  formatReply(event: HookEventName, response: HookResponse): HookReply {
     const decision = response.decision ?? "allow";
+
+    // PostToolUseFailure is feedback-only (the tool already failed, nothing is
+    // blockable): "context" injects additionalContext beside the error, and a
+    // "deny" DEGRADES to the same shape carrying the reason — it must never
+    // render as `{ decision: "block" }`.
+    if (event === "PostToolUseFailure") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) return this.stdout({ additionalContext: context });
+      return { exitCode: 0 };
+    }
 
     // deny → Goose blocks via `{ decision: "block", reason }` on stdout JSON
     // (NOT Claude's hookSpecificOutput.permissionDecision shape).

@@ -18,8 +18,10 @@
  *        { hooks: { <Event>: [ { matcher?, hooks:[{ type:"command", command }] } ] } }
  *
  * Supported events (Claude-compatible): PreToolUse, PostToolUse,
- * UserPromptSubmit, Stop. Droid exposes no PreCompact / SessionStart /
- * SessionEnd / Notification, so those degrade to a warn/skip at install time.
+ * UserPromptSubmit, Stop, SubagentStop (stop-only — no SubagentStart). Droid
+ * exposes no PreCompact / SessionStart / SessionEnd / Notification /
+ * PermissionRequest / PostToolUseFailure / SubagentStart, so those degrade to
+ * a warn/skip at install time.
  *
  * Reply protocol is Claude-shaped JSON on stdout (exit 0 + `hookSpecificOutput`
  * with permissionDecision allow|deny|ask, plus additionalContext). Droid cannot
@@ -50,6 +52,7 @@ import type {
   PreToolUseEvent,
   ServerDef,
   StopEvent,
+  SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -69,12 +72,18 @@ const MCP_ROOT_KEY = "mcpServers";
  * Claude-identical (PascalCase), so the canonical name is registered directly.
  * PreCompact / SessionStart / SessionEnd / Notification have no Droid equivalent
  * and are reported as a warn/skip at install time.
+ *
+ * Droid is a STOP-ONLY subagent host: its live hooks-reference lists
+ * SubagentStop but NO SubagentStart, and it has no permission-dialog
+ * (PermissionRequest) or tool-failure (PostToolUseFailure) events — those
+ * three warn/skip as well.
  */
 const SUPPORTED_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
   "PreToolUse",
   "PostToolUse",
   "UserPromptSubmit",
   "Stop",
+  "SubagentStop",
 ]);
 
 /**
@@ -118,7 +127,14 @@ interface DroidWireInput {
   tool_input?: Record<string, unknown>;
   tool_response?: unknown;
   prompt?: string;
+  /** Stop / SubagentStop loop guard. */
   stop_hook_active?: boolean;
+  // SubagentStop — Claude-compatible snake_case fields. agent_type is
+  // unreliable on SubagentStop across hosts; treat both as optional.
+  agent_id?: string;
+  agent_type?: string;
+  agent_transcript_path?: string;
+  last_assistant_message?: string;
   /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
   connector?: unknown;
 }
@@ -137,6 +153,10 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: true,
     stop: true,
     notification: false,
+    // Newer events: Droid ships SubagentStop (stop-only — no SubagentStart).
+    // permissionRequest / postToolUseFailure / subagentStart stay unset (no
+    // Droid analog); install reports the standard skip-warn for them.
+    subagentStop: true,
     // Droid's PreToolUse can deny/ask (Claude-shaped), but it cannot rewrite
     // already-emitted tool output. canModifyArgs left false until confirmed.
     canModifyArgs: false,
@@ -548,10 +568,32 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "SubagentStop": {
+        // agent_id/agent_type stay optional — hosts do not reliably populate
+        // agent_type on SubagentStop (Claude-compatible quirk).
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+          ...(typeof input.agent_transcript_path === "string"
+            ? { agentTranscriptPath: input.agent_transcript_path }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
       default: {
         // Droid never delivers PreCompact / SessionStart / SessionEnd /
-        // Notification (no native equivalent). If the runtime dispatches one
-        // anyway, surface it loudly rather than silently mis-parse.
+        // Notification / PermissionRequest / PostToolUseFailure / SubagentStart
+        // (no native equivalent). If the runtime dispatches one anyway, surface
+        // it loudly rather than silently mis-parse.
         throw new Error(`unsupported droid hook event: ${String(event)}`);
       }
     }
@@ -565,6 +607,16 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
 
     // deny → block the action with a reason (exit 0; JSON carries the decision).
     if (decision === "deny") {
+      // SubagentStop deny carries Stop semantics — it keeps the subagent
+      // running with `reason` as its next instruction — and (Claude-compatible)
+      // is honored only as the TOP-LEVEL {"decision":"block","reason"}, not as
+      // a permissionDecision envelope.
+      if (event === "SubagentStop") {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
       return this.stdout({
         hookSpecificOutput: {
           hookEventName,

@@ -10,18 +10,26 @@
  *   {
  *     session_id, transcript_path, cwd, hook_event_name,
  *     tool_name, tool_input, tool_response,            // tool events
+ *     permission_suggestions,                          // PermissionRequest
+ *     tool_use_id, error, is_interrupt, duration_ms,   // PostToolUseFailure
+ *     agent_id, agent_type,                            // SubagentStart/Stop
+ *     agent_transcript_path, last_assistant_message,   // SubagentStop
  *     source,                                          // SessionStart
  *     reason,                                          // SessionEnd
  *     prompt,                                          // UserPromptSubmit
  *     trigger,                                         // PreCompact
- *     stop_hook_active,                                // Stop
+ *     stop_hook_active,                                // Stop / SubagentStop
  *     message                                          // Notification
  *   }
  *
  * Stdout (canonical reply): a `hookSpecificOutput` object keyed by
  * `hookEventName`, carrying `permissionDecision` (allow|deny|ask) +
  * `permissionDecisionReason`, `additionalContext`, and (PreToolUse)
- * `updatedInput`. Exit 0 = proceed; the JSON refines the decision.
+ * `updatedInput`; PermissionRequest instead takes a nested
+ * `decision: { behavior: "allow"|"deny", ... }`; Stop-class blocks
+ * (Stop / SubagentStop / UserPromptSubmit / PostToolUse) take the TOP-LEVEL
+ * `{"decision":"block","reason"}`. Exit 0 = proceed; the JSON refines the
+ * decision.
  */
 
 /** Canonical Claude Code hook event names (the values of `hook_event_name`). */
@@ -34,6 +42,10 @@ export const CLAUDE_HOOK_EVENTS = [
   "UserPromptSubmit",
   "Stop",
   "Notification",
+  "PermissionRequest",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "SubagentStop",
 ] as const;
 
 export type ClaudeHookEvent = (typeof CLAUDE_HOOK_EVENTS)[number];
@@ -56,6 +68,25 @@ export interface ClaudeWireInput {
   /** PostToolUse result payload (string or structured). */
   tool_response?: unknown;
 
+  // PermissionRequest — permission-update entries the dialog would offer.
+  // NOTE: the docs explicitly state PermissionRequest has NO tool_use_id.
+  permission_suggestions?: unknown[];
+
+  // PostToolUseFailure
+  tool_use_id?: string;
+  error?: string;
+  is_interrupt?: boolean;
+  duration_ms?: number;
+
+  // SubagentStart / SubagentStop — agent_type is unreliable on SubagentStop
+  // (the SDK may not populate it); treat both as optional everywhere.
+  agent_id?: string;
+  agent_type?: string;
+  // SubagentStop — the subagent's OWN transcript (transcript_path stays the
+  // parent session's) + the text of its final response.
+  agent_transcript_path?: string;
+  last_assistant_message?: string;
+
   // SessionStart
   source?: string;
   // SessionEnd
@@ -64,7 +95,7 @@ export interface ClaudeWireInput {
   prompt?: string;
   // PreCompact
   trigger?: string;
-  // Stop
+  // Stop / SubagentStop
   stop_hook_active?: boolean;
   // Notification
   message?: string;

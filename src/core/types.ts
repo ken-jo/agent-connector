@@ -142,7 +142,14 @@ export interface ServerDef {
 // Normalized lifecycle events + responses
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Canonical, platform-agnostic lifecycle event names. */
+/**
+ * Canonical, platform-agnostic lifecycle event names.
+ *
+ * The last four (PermissionRequest / PostToolUseFailure / SubagentStart /
+ * SubagentStop) are newer additions with cross-host analogs; hosts without a
+ * native analog mark them unsupported in capabilities and the install reports
+ * a skip-warn — an event is never silently dropped.
+ */
 export type HookEventName =
   | "SessionStart"
   | "SessionEnd"
@@ -151,7 +158,11 @@ export type HookEventName =
   | "PostToolUse"
   | "PreCompact"
   | "Stop"
-  | "Notification";
+  | "Notification"
+  | "PermissionRequest"
+  | "PostToolUseFailure"
+  | "SubagentStart"
+  | "SubagentStop";
 
 interface BaseEvent {
   /** Which host produced this event (from runtime detection). */
@@ -203,6 +214,75 @@ export interface NotificationEvent extends BaseEvent {
   message: string;
 }
 
+/**
+ * PermissionRequest — the host is about to show a permission dialog for a tool
+ * call (unlike PreToolUse, which fires before EVERY execution regardless of
+ * permission status). Decision semantics differ from the other tool events:
+ *   - "allow" is an ACTIVE grant that suppresses the dialog (it does NOT
+ *     override host-side deny rules); `updatedInput` may replace the input.
+ *   - "deny" rejects the request; `reason` is shown to the model.
+ *   - "ask" / void / no decision falls through to the host's native dialog.
+ * Matchers match the tool name, like PreToolUse.
+ */
+export interface PermissionRequestEvent extends BaseEvent {
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  /**
+   * Permission-update entries the host's dialog would offer (e.g. Claude's
+   * addRules/behavior/destination records). Host-specific shapes — passthrough.
+   */
+  permissionSuggestions?: unknown[];
+}
+
+/**
+ * PostToolUseFailure — a tool call failed (error thrown or failure result).
+ * Feedback-only: the tool already failed, so nothing is blockable here.
+ * "context" injects `additionalContext` beside the error; a "deny" degrades to
+ * the same context shape carrying the reason. Matchers match the tool name.
+ */
+export interface PostToolUseFailureEvent extends BaseEvent {
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  /** Host correlation id for the failed tool call, when provided. */
+  toolUseId?: string;
+  /** The failure/error message the host captured. */
+  error: string;
+  /** True when a user interruption caused the failure. */
+  isInterrupt?: boolean;
+  /** Tool execution duration in milliseconds, when the host reports it. */
+  durationMs?: number;
+}
+
+/**
+ * SubagentStart — a subagent was spawned. Observe/context-only: "context"
+ * injects `additionalContext` into the SUBAGENT's conversation before its first
+ * prompt; there is no decision control. Matchers match the agent type.
+ */
+export interface SubagentStartEvent extends BaseEvent {
+  /** Unique subagent id, when the host provides one. */
+  agentId?: string;
+  /** Agent type (built-in name or a custom subagent's declared name). */
+  agentType?: string;
+}
+
+/**
+ * SubagentStop — a subagent finished responding. Stop semantics: "deny" keeps
+ * the subagent running with `reason` as its next instruction; "context" injects
+ * `additionalContext`. Matchers match the agent type. NOTE: `agentId` and
+ * `agentType` are optional because some hosts (including Claude Code) do not
+ * reliably populate agent_type on stop — never depend on them being present.
+ */
+export interface SubagentStopEvent extends BaseEvent {
+  agentId?: string;
+  agentType?: string;
+  /** The subagent's OWN transcript path (distinct from the parent session's). */
+  agentTranscriptPath?: string;
+  /** Text of the subagent's final response, when the host provides it. */
+  lastAssistantMessage?: string;
+  /** True when the stop hook is already continuing this subagent (loop guard). */
+  stopHookActive?: boolean;
+}
+
 /** Map of event name → its normalized payload type. */
 export interface EventPayloadMap {
   SessionStart: SessionStartEvent;
@@ -213,6 +293,10 @@ export interface EventPayloadMap {
   PreCompact: PreCompactEvent;
   Stop: StopEvent;
   Notification: NotificationEvent;
+  PermissionRequest: PermissionRequestEvent;
+  PostToolUseFailure: PostToolUseFailureEvent;
+  SubagentStart: SubagentStartEvent;
+  SubagentStop: SubagentStopEvent;
 }
 
 /**
@@ -223,11 +307,19 @@ export interface EventPayloadMap {
  */
 export interface HookResponse {
   /**
-   *  - "allow":   pass through (default when handler returns void)
-   *  - "deny":    block tool execution / stop the action
-   *  - "modify":  replace tool input (PreToolUse) with `updatedInput`
+   *  - "allow":   pass through. On PermissionRequest ONLY, an EXPLICIT "allow"
+   *               is an active grant that suppresses the host's permission
+   *               dialog (a void/decision-less return falls through to the
+   *               native dialog instead — an active grant is never implied).
+   *  - "deny":    block tool execution / stop the action. On SubagentStop this
+   *               keeps the subagent running (Stop semantics); on feedback-only
+   *               events (PostToolUseFailure / SubagentStart) it degrades to
+   *               context carrying the reason.
+   *  - "modify":  replace tool input (PreToolUse / PermissionRequest) with
+   *               `updatedInput`
    *  - "context": inject `additionalContext` as soft guidance
-   *  - "ask":     prompt the user to confirm
+   *  - "ask":     prompt the user to confirm (on PermissionRequest: fall
+   *               through to the native dialog — the dialog IS the ask)
    */
   decision?: "allow" | "deny" | "modify" | "context" | "ask";
   /** Shown to the model/user; required in spirit for deny/ask. */
@@ -243,9 +335,11 @@ export interface HookResponse {
 /** A handler bound to one event, optionally filtered by a tool matcher. */
 export interface HookDefinition<E extends HookEventName = HookEventName> {
   /**
-   * Regex string matched against the tool name (tool events only). Empty/omitted
-   * matches all. Rendered into each host's native matcher syntax where supported,
-   * else evaluated by the universal entrypoint at runtime.
+   * Regex string matched against the tool name (tool events, including
+   * PermissionRequest / PostToolUseFailure) or the agent type (SubagentStart /
+   * SubagentStop). Empty/omitted matches all. Rendered into each host's native
+   * matcher syntax where supported, else evaluated by the universal entrypoint
+   * at runtime.
    */
   matcher?: string;
   handler(
@@ -263,6 +357,10 @@ export interface HooksConfig {
   PreCompact?: HookDefinition<"PreCompact">;
   Stop?: HookDefinition<"Stop">;
   Notification?: HookDefinition<"Notification">;
+  PermissionRequest?: HookDefinition<"PermissionRequest">;
+  PostToolUseFailure?: HookDefinition<"PostToolUseFailure">;
+  SubagentStart?: HookDefinition<"SubagentStart">;
+  SubagentStop?: HookDefinition<"SubagentStop">;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -279,6 +377,16 @@ export interface PlatformCapabilities {
   userPromptSubmit: boolean;
   stop: boolean;
   notification: boolean;
+  /**
+   * Newer per-event flags (OPTIONAL so existing adapter capability literals
+   * compile unchanged; read as `?? false`, mirroring the supportsCommands
+   * precedent below). A host that leaves a flag unset does not support the
+   * event natively — install reports the standard skip-warn for it.
+   */
+  permissionRequest?: boolean;
+  postToolUseFailure?: boolean;
+  subagentStart?: boolean;
+  subagentStop?: boolean;
   /** Can a PreToolUse hook rewrite tool arguments? */
   canModifyArgs: boolean;
   /** Can a PostToolUse hook rewrite tool output? */

@@ -27,6 +27,10 @@ const HOOK_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
   "PreCompact",
   "Stop",
   "Notification",
+  "PermissionRequest",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "SubagentStop",
 ]);
 
 /** Read all of a readable stream to a UTF-8 string. */

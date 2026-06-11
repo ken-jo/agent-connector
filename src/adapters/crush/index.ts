@@ -66,6 +66,20 @@ const STDIO_TIMEOUT_SECONDS = 120;
 const CRUSH_HOOK_EVENTS = ["PreToolUse"] as const;
 type CrushHookEventName = (typeof CRUSH_HOOK_EVENTS)[number];
 
+/**
+ * Newer canonical events with NO Crush analog: there is no permission-dialog,
+ * tool-failure, or subagent lifecycle hook. Declared hooks for these warn-skip
+ * at install so the degradation is reported, never silent. (The legacy silent
+ * drop of the other unwired events — SessionStart, Stop, … — predates this
+ * convention and is deliberately left untouched.)
+ */
+const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set([
+  "PermissionRequest",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "SubagentStop",
+]);
+
 // ─────────────────────────────────────────────────────────────────────────
 // Native config shapes (only the parts we touch; rest preserved verbatim)
 // ─────────────────────────────────────────────────────────────────────────
@@ -128,6 +142,10 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: Crush honors PreToolUse ONLY — no permission-dialog,
+    // tool-failure, or subagent lifecycle events exist, so permissionRequest /
+    // postToolUseFailure / subagentStart / subagentStop stay unset — install
+    // reports the standard skip-warn for them.
     // Crush is deny-only: it cannot rewrite tool args/output nor inject context.
     canModifyArgs: false,
     canModifyOutput: false,
@@ -326,9 +344,10 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     }
 
     const events = this.effectiveHookEvents(ctx);
+    const dropped = this.warnSkipHookEvents(ctx);
     const path = this.getHookConfigPath(ctx);
 
-    if (events.length === 0) {
+    if (events.length === 0 && dropped.length === 0) {
       return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
     }
 
@@ -337,6 +356,16 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
 
     const changes: ChangeRecord[] = [];
     let mutated = false;
+
+    // Declared events Crush cannot fire are reported, never silently dropped.
+    for (const event of dropped) {
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        path,
+        detail: `${event} has no Crush hook equivalent — skipped`,
+      });
+    }
 
     for (const event of events) {
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
@@ -421,6 +450,12 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
   private effectiveHookEvents(ctx: InstallContext): CrushHookEventName[] {
     if (ctx.connector.platforms[HOST]?.hooks === false) return [];
     return CRUSH_HOOK_EVENTS.filter((e) => ctx.connector.hookEvents.includes(e));
+  }
+
+  /** Declared events Crush has no analog for — install reports a warn-skip. */
+  private warnSkipHookEvents(ctx: InstallContext): HookEventName[] {
+    if (ctx.connector.platforms[HOST]?.hooks === false) return [];
+    return ctx.connector.hookEvents.filter((e) => WARN_SKIP_EVENTS.has(e));
   }
 
   /**

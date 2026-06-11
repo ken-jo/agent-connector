@@ -7,7 +7,13 @@
  *
  *   - Hook event names are PascalCase, identical to Claude Code:
  *       PreToolUse, PostToolUse, PreCompact, SessionStart, SessionEnd,
- *       UserPromptSubmit, Stop, Notification.
+ *       UserPromptSubmit, Stop, Notification — plus the E1 extension events
+ *       PermissionRequest, PostToolUseFailure, SubagentStart and SubagentStop,
+ *       all Qwen-native (verified against the upstream
+ *       docs/users/features/hooks.md: PermissionRequest takes the nested
+ *       hookSpecificOutput.decision{behavior} envelope, PostToolUseFailure /
+ *       SubagentStart are additionalContext feedback, SubagentStop blocks via
+ *       the TOP-LEVEL {"decision":"block","reason"} Stop shape).
  *     (NOT Gemini's BeforeTool/AfterTool/PreCompress vocabulary.)
  *   - Hook stdin JSON carries snake_case fields: session_id, transcript_path,
  *     cwd, tool_name, tool_input, tool_response, source, reason, prompt,
@@ -55,9 +61,11 @@ import type {
   HookParadigm,
   HookResponse,
   NotificationEvent,
+  PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
+  PostToolUseFailureEvent,
   PreCompactEvent,
   PreToolUseEvent,
   ServerDef,
@@ -65,6 +73,8 @@ import type {
   SessionStartEvent,
   StopEvent,
   SubagentDef,
+  SubagentStartEvent,
+  SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -129,6 +139,23 @@ interface QwenWireInput {
   /** PostToolUse result payload (string or structured). */
   tool_response?: unknown;
 
+  // PermissionRequest — suggested permission entries the dialog would offer.
+  permission_suggestions?: unknown[];
+
+  // PostToolUseFailure (Qwen documents tool_use_id/error/is_interrupt; there is
+  // no duration_ms on this host's payload).
+  tool_use_id?: string;
+  error?: string;
+  is_interrupt?: boolean;
+
+  // SubagentStart / SubagentStop — treat both as optional everywhere (the
+  // Claude-family quirk: agent_type is not reliably populated on stop).
+  agent_id?: string;
+  agent_type?: string;
+  // SubagentStop — the subagent's OWN transcript + its final message.
+  agent_transcript_path?: string;
+  last_assistant_message?: string;
+
   // SessionStart
   source?: string;
   // SessionEnd
@@ -160,6 +187,12 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: true,
     stop: true,
     notification: true,
+    // E1 events — all four are Qwen-native (its 16-event surface is strictly
+    // wider than the canonical union).
+    permissionRequest: true,
+    postToolUseFailure: true,
+    subagentStart: true,
+    subagentStop: true,
     // Qwen's PreToolUse can rewrite input (updatedInput). It CANNOT rewrite
     // already-emitted tool output — `updatedMCPToolOutput` does not exist in
     // qwen 0.17.1, so canModifyOutput is false (like the Claude-family hosts).
@@ -351,7 +384,10 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
 
     for (const event of connector.hookEvents) {
       // Qwen's hook event names are Claude-identical (PascalCase) — register the
-      // canonical event name directly.
+      // canonical event name directly. Write-all is AUDITED here: every canonical
+      // event (incl. PermissionRequest / PostToolUseFailure / SubagentStart /
+      // SubagentStop) exists natively on Qwen, whose 16-event surface is strictly
+      // wider than the canonical union.
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
       const matcher = connector.hooks[event]?.matcher ?? "";
       const entry: QwenHookEntry = {
@@ -710,6 +746,64 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "PermissionRequest": {
+        const ev: PermissionRequestEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(Array.isArray(input.permission_suggestions)
+            ? { permissionSuggestions: input.permission_suggestions }
+            : {}),
+        };
+        return ev;
+      }
+      case "PostToolUseFailure": {
+        // durationMs stays unset — Qwen's failure payload has no duration_ms.
+        const ev: PostToolUseFailureEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error: typeof input.error === "string" ? input.error : "",
+          ...(typeof input.tool_use_id === "string"
+            ? { toolUseId: input.tool_use_id }
+            : {}),
+          ...(typeof input.is_interrupt === "boolean"
+            ? { isInterrupt: input.is_interrupt }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStart": {
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        // agent_id/agent_type stay optional — the Claude-family SDK does not
+        // reliably populate agent_type on stop.
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+          ...(typeof input.agent_transcript_path === "string"
+            ? { agentTranscriptPath: input.agent_transcript_path }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
       default: {
         // Exhaustive guard — every HookEventName is handled above.
         const _never: never = event;
@@ -723,6 +817,76 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
   formatReply(event: HookEventName, response: HookResponse): HookReply {
     const hookEventName = event;
     const decision = response.decision ?? "allow";
+
+    // PermissionRequest uses Qwen's nested decision{behavior} envelope (Claude-
+    // identical) and is the ONE event where an EXPLICIT "allow" is an ACTIVE
+    // grant that suppresses the permission dialog:
+    //   allow            → decision{behavior:"allow"} (+updatedInput when set —
+    //                      Qwen honors input rewrite, canModifyArgs above);
+    //   modify           → an allow grant carrying updatedInput;
+    //   deny             → decision{behavior:"deny", message};
+    //   ask/context/void → NO decision output: fall through to the native
+    //                      dialog (the dialog IS the ask).
+    if (event === "PermissionRequest") {
+      if (response.decision === "deny") {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: {
+              behavior: "deny",
+              message: response.reason ?? "Blocked by hook",
+            },
+          },
+        });
+      }
+      if (
+        response.decision === "allow" ||
+        (response.decision === "modify" && response.updatedInput)
+      ) {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: {
+              behavior: "allow",
+              ...(response.updatedInput
+                ? { updatedInput: response.updatedInput }
+                : {}),
+            },
+          },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
+    // PostToolUseFailure (feedback beside the error) and SubagentStart (context
+    // injected into the SUBAGENT's conversation) are observe/context-only on
+    // Qwen: "context" emits additionalContext, and a "deny" DEGRADES to the
+    // same shape carrying the reason (the tool already failed / the spawn is
+    // not blockable).
+    if (event === "PostToolUseFailure" || event === "SubagentStart") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) {
+        return this.stdout({
+          hookSpecificOutput: { hookEventName, additionalContext: context },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
+    // SubagentStop deny = Stop semantics: Qwen documents the TOP-LEVEL
+    // {"decision":"block","reason"} shape (keeps the subagent running with
+    // `reason` as its next instruction).
+    if (decision === "deny" && event === "SubagentStop") {
+      return this.stdout({
+        decision: "block",
+        reason: response.reason ?? "Blocked by hook",
+      });
+    }
 
     // deny → block the action with a reason (exit 0; JSON carries the decision).
     if (decision === "deny") {

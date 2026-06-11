@@ -30,9 +30,11 @@ import type {
   HookParadigm,
   HookResponse,
   NotificationEvent,
+  PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
+  PostToolUseFailureEvent,
   PreCompactEvent,
   PreToolUseEvent,
   SessionEndEvent,
@@ -41,6 +43,8 @@ import type {
   SkillDef,
   StopEvent,
   SubagentDef,
+  SubagentStartEvent,
+  SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -96,6 +100,11 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: true,
     stop: true,
     notification: true,
+    // Newer events — Claude Code is the reference host for all four.
+    permissionRequest: true,
+    postToolUseFailure: true,
+    subagentStart: true,
+    subagentStop: true,
     // Claude Code can rewrite PreToolUse input (updatedInput) but does NOT let a
     // PostToolUse hook rewrite already-emitted tool output.
     canModifyArgs: true,
@@ -713,6 +722,66 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "PermissionRequest": {
+        const ev: PermissionRequestEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(Array.isArray(input.permission_suggestions)
+            ? { permissionSuggestions: input.permission_suggestions }
+            : {}),
+        };
+        return ev;
+      }
+      case "PostToolUseFailure": {
+        const ev: PostToolUseFailureEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error: typeof input.error === "string" ? input.error : "",
+          ...(typeof input.tool_use_id === "string"
+            ? { toolUseId: input.tool_use_id }
+            : {}),
+          ...(typeof input.is_interrupt === "boolean"
+            ? { isInterrupt: input.is_interrupt }
+            : {}),
+          ...(typeof input.duration_ms === "number"
+            ? { durationMs: input.duration_ms }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStart": {
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        // agent_id/agent_type stay optional — the SDK does not reliably
+        // populate agent_type on SubagentStop (real-world quirk).
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+          ...(typeof input.agent_transcript_path === "string"
+            ? { agentTranscriptPath: input.agent_transcript_path }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
       default: {
         // Exhaustive guard — every HookEventName is handled above.
         const _never: never = event;
@@ -727,16 +796,80 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const hookEventName = event as ClaudeHookEvent;
     const decision = response.decision ?? "allow";
 
+    // PermissionRequest replies use Claude's nested decision{behavior} envelope
+    // and are the ONE event where an EXPLICIT "allow" is an ACTIVE grant (it
+    // suppresses the permission dialog) rather than passthrough:
+    //   allow            → decision{behavior:"allow"} (+updatedInput when set);
+    //                      Claude still enforces its own deny rules — an allow
+    //                      never overrides a matching deny rule (host-enforced).
+    //   modify           → an allow grant carrying updatedInput.
+    //   deny             → decision{behavior:"deny", message} (shown to Claude).
+    //   ask/context/void → NO decision output: fall through to the native
+    //                      dialog (the dialog IS the ask).
+    if (event === "PermissionRequest") {
+      if (response.decision === "deny") {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: {
+              behavior: "deny",
+              message: response.reason ?? "Blocked by hook",
+            },
+          },
+        });
+      }
+      if (
+        response.decision === "allow" ||
+        (response.decision === "modify" && response.updatedInput)
+      ) {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: {
+              behavior: "allow",
+              ...(response.updatedInput
+                ? { updatedInput: response.updatedInput }
+                : {}),
+            },
+          },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
+    // PostToolUseFailure (feedback beside the error) and SubagentStart (context
+    // injected at the start of the SUBAGENT's conversation) are observe/context-
+    // only on Claude: "context" emits additionalContext, and a "deny" DEGRADES
+    // to the same shape carrying the reason (the tool already failed / the
+    // spawn is not blockable). Everything else passes through.
+    if (event === "PostToolUseFailure" || event === "SubagentStart") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) {
+        return this.stdout({
+          hookSpecificOutput: { hookEventName, additionalContext: context },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
     // deny → block the action with a reason (exit 0; JSON carries the decision).
     // Claude's deny shape is EVENT-SPECIFIC: PreToolUse uses
-    // hookSpecificOutput.permissionDecision, but Stop / UserPromptSubmit /
-    // PostToolUse honor only the TOP-LEVEL {"decision":"block","reason"} —
-    // rendering those as permissionDecision is silently ignored by Claude
-    // (found porting oh-my-claudecode: its ralph persistence loop denies the
-    // Stop event, which never blocked through the old shape).
+    // hookSpecificOutput.permissionDecision, but Stop / SubagentStop /
+    // UserPromptSubmit / PostToolUse honor only the TOP-LEVEL
+    // {"decision":"block","reason"} — rendering those as permissionDecision is
+    // silently ignored by Claude (found porting oh-my-claudecode: its ralph
+    // persistence loop denies the Stop event, which never blocked through the
+    // old shape). A SubagentStop block keeps the subagent running with `reason`
+    // as its next instruction (Stop semantics).
     if (decision === "deny") {
       if (
         event === "Stop" ||
+        event === "SubagentStop" ||
         event === "UserPromptSubmit" ||
         event === "PostToolUse"
       ) {

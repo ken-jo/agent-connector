@@ -58,6 +58,8 @@ import type {
   SkillDef,
   StopEvent,
   SubagentDef,
+  SubagentStartEvent,
+  SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -86,12 +88,19 @@ const VSCODE_HOOKS_VERSION = 1;
  * identical to Claude Code. Only the events VS Code actually delivers are
  * registered; everything else has no Copilot equivalent and is reported as a
  * warn/skip at install time.
+ *
+ * SubagentStart / SubagentStop are in VS Code's live Preview event list
+ * (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop,
+ * SubagentStart, SubagentStop, PreCompact). PermissionRequest and
+ * PostToolUseFailure are NOT — they have no VS Code analog and skip-warn.
  */
 const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PreToolUse: "PreToolUse",
   PostToolUse: "PostToolUse",
   PreCompact: "PreCompact",
   SessionStart: "SessionStart",
+  SubagentStart: "SubagentStart",
+  SubagentStop: "SubagentStop",
 };
 
 /** A single VS Code Copilot native hook entry — a flat command object. */
@@ -143,10 +152,18 @@ interface VSCodeWireInput {
   prompt?: string;
   // PreCompact
   trigger?: string;
-  // Stop
+  // Stop / SubagentStop
   stop_hook_active?: boolean;
   // Notification
   message?: string;
+
+  // SubagentStart / SubagentStop — Claude-compatible snake_case fields.
+  // agent_type is unreliable on SubagentStop; treat both as optional.
+  agent_id?: string;
+  agent_type?: string;
+  // SubagentStop — the subagent's OWN transcript + its final response text.
+  agent_transcript_path?: string;
+  last_assistant_message?: string;
 
   /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
   connector?: string;
@@ -168,6 +185,11 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: VS Code's Preview hooks runtime delivers SubagentStart /
+    // SubagentStop (Claude-compatible). permissionRequest / postToolUseFailure
+    // stay unset — no VS Code analog exists; install reports the skip-warn.
+    subagentStart: true,
+    subagentStop: true,
     // PreToolUse can rewrite tool input (updatedInput) but a PostToolUse hook
     // cannot rewrite already-emitted tool output — same as Claude/Cursor.
     canModifyArgs: true,
@@ -862,10 +884,48 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "SubagentStart": {
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        // agent_id/agent_type stay optional — hosts do not reliably populate
+        // agent_type on SubagentStop (Claude-compatible quirk).
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+          ...(typeof input.agent_transcript_path === "string"
+            ? { agentTranscriptPath: input.agent_transcript_path }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      case "PermissionRequest":
+      case "PostToolUseFailure": {
+        // No VS Code Copilot analog (its Preview event list has neither a
+        // permission-dialog event nor a tool-failure event). Install already
+        // skip-warns these; a runtime dispatch is a mis-route — fail loudly.
+        throw new Error(`unsupported vscode-copilot hook event: ${String(event)}`);
+      }
       default: {
         // Exhaustive guard — every HookEventName is handled above. (VS Code only
-        // delivers the four it declares; the rest are handled defensively so a
-        // mis-dispatch stays inert rather than crashing.)
+        // delivers the events in EVENT_MAP; the rest are handled defensively so
+        // a mis-dispatch stays inert rather than crashing.)
         const _never: never = event;
         throw new Error(`unsupported vscode-copilot hook event: ${String(_never)}`);
       }
@@ -883,10 +943,38 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     const hookEventName = event;
     const decision = response.decision ?? "allow";
 
+    // SubagentStart is observe/context-only (the spawn is not blockable):
+    // "context" injects additionalContext at the start of the SUBAGENT's
+    // conversation, and a "deny" DEGRADES to the same shape carrying the
+    // reason. Everything else passes through.
+    if (event === "SubagentStart") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) {
+        return this.stdout({
+          hookSpecificOutput: { hookEventName, additionalContext: context },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
     // deny → block the action with a reason (exit 0; JSON carries the decision).
     // VS Code Copilot is Claude-compatible: the decision lives inside
-    // `hookSpecificOutput`, keyed by the PascalCase event name.
+    // `hookSpecificOutput`, keyed by the PascalCase event name — EXCEPT
+    // SubagentStop, which (like Claude's Stop class) honors only the TOP-LEVEL
+    // {"decision":"block","reason"}: the block keeps the subagent running with
+    // `reason` as its next instruction (Stop semantics).
     if (decision === "deny") {
+      if (event === "SubagentStop") {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
       return this.stdout({
         hookSpecificOutput: {
           hookEventName,

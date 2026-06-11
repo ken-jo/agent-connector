@@ -16,8 +16,9 @@
  *     resolved to literals at install time.
  *
  *   - Hooks: a top-level `hooks` map keyed by Hermes' NATIVE snake_case event
- *     names (pre_tool_call / post_tool_call / on_session_start / on_session_end —
- *     NOT the canonical PascalCase names; see EVENT_TO_HERMES). Each value is a
+ *     names (pre_tool_call / post_tool_call / on_session_start / on_session_end /
+ *     subagent_stop — NOT the canonical PascalCase names; see EVENT_TO_HERMES).
+ *     Each value is a
  *     list of shell-hook entries { matcher, command:"<homeBin> hook …", timeout }.
  *     The command keeps the canonical event token so the runtime dispatcher
  *     (parseEvent/formatReply) stays consistent. Hermes shell hooks pipe the
@@ -54,6 +55,7 @@ import type {
   SessionStartEvent,
   ServerDef,
   StopEvent,
+  SubagentStopEvent,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { readYaml, writeYaml } from "../../core/yaml.js";
@@ -86,6 +88,13 @@ const EVENT_TO_HERMES: Partial<Record<HookEventName, string>> = {
   PostToolUse: "post_tool_call",
   SessionStart: "on_session_start",
   SessionEnd: "on_session_end",
+  // Hermes is a STOP-ONLY subagent host: subagent_stop fires when a
+  // delegate_task child exits (child_status ∈ completed/failed/interrupted/
+  // error); there is NO subagent_start analog. PermissionRequest is also
+  // deliberately ABSENT: Hermes' pre_approval_request/post_approval_response
+  // hooks OBSERVE the approval prompt but carry no decision control, so a
+  // PermissionRequest handler could never be honored — install skip-warns it.
+  SubagentStop: "subagent_stop",
 };
 
 /** Hermes stdio MCP entry — portable field names (command/args/env). */
@@ -124,6 +133,14 @@ interface HermesWireInput {
   stop_hook_active?: boolean;
   message?: string;
   is_error?: boolean;
+  // subagent_stop — fires when a delegate_task child exits. agent_* are the
+  // Claude-compatible names, child_* the Hermes-native ones (child_status ∈
+  // completed/failed/interrupted/error stays accessible via `raw`).
+  agent_id?: string;
+  agent_type?: string;
+  child_id?: string;
+  child_status?: string;
+  last_assistant_message?: string;
   /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
   connector?: string;
 }
@@ -143,6 +160,12 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: Hermes ships subagent_stop (stop-only — no subagent_start
+    // analog). permissionRequest stays unset because pre_approval_request is
+    // observe-only (no decision control); postToolUseFailure stays unset (a
+    // tool failure arrives merged into post_tool_call's result, not as a
+    // dedicated event). Install reports the standard skip-warn for those.
+    subagentStop: true,
     // Shell hooks cannot rewrite tool args/output in-process.
     canModifyArgs: false,
     canModifyOutput: false,
@@ -551,6 +574,35 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "SubagentStop": {
+        // agent_id/agent_type stay optional (some hosts never populate them);
+        // Hermes' native child_id is accepted as the id fallback. child_status
+        // is host-specific and stays accessible via `raw`.
+        const agentId = input.agent_id ?? input.child_id;
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof agentId === "string" ? { agentId } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      case "PermissionRequest":
+      case "PostToolUseFailure":
+      case "SubagentStart": {
+        // No Hermes analog: pre_approval_request is observe-only (no decision
+        // control), tool failures arrive merged into post_tool_call, and there
+        // is no subagent_start. Install already skip-warns these; a runtime
+        // dispatch is a mis-route — fail loudly.
+        throw new Error(`unsupported hermes hook event: ${String(event)}`);
+      }
       default: {
         const _never: never = event;
         throw new Error(`unsupported hermes hook event: ${String(_never)}`);
@@ -567,6 +619,16 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     const decision = response.decision ?? "allow";
 
     if (decision === "deny") {
+      // SubagentStop deny carries Stop semantics — it keeps the subagent
+      // running with `reason` as its next instruction — and (like Claude's
+      // Stop class) is honored only as the TOP-LEVEL {"decision":"block",
+      // "reason"}, not as a permissionDecision envelope.
+      if (event === "SubagentStop") {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
       return this.stdout({
         hookSpecificOutput: {
           hookEventName: event,

@@ -21,16 +21,29 @@
  * permissionDecision:"deny" + permissionDecisionReason — that is how Kimi's
  * runner blocks the pending tool call. An allow is exit 0 with empty stdout.
  *
+ * E1 extension events (verified against moonshotai.github.io/kimi-cli hooks):
+ *   - PostToolUseFailure — native (tool_name, tool_input, error; tool-name
+ *     matcher). Feedback-only: Kimi's exit-0 protocol adds non-empty stdout to
+ *     context, so "context" (and a degraded "deny") emit plain-text stdout.
+ *   - SubagentStart / SubagentStop — native, but with Kimi-specific wire
+ *     fields: agent_name (→ normalized agentType; there is no agent_id) plus
+ *     prompt (start) / response (stop → lastAssistantMessage). SubagentStop
+ *     deny uses Kimi's generic block protocol: EXIT 2 with the reason on
+ *     stderr (fed back to the model as correction).
+ *   - PermissionRequest — NO Kimi analog (the permission prompt is only
+ *     observable as a Notification); declared hooks for it warn-skip at
+ *     install and the capability flag stays unset.
+ *
  * Path confidence: the `~/.kimi` base + mcp.json (`mcpServers`) layout is
  * LIVE-CONFIRMED against the real Moonshot Kimi CLI (v1.46.0, `pip install
  * kimi-cli`) via a `kimi mcp` probe. We still install + doctor-report presence
  * so a future path move surfaces as a FAIL rather than silently misbehaving.
  *
- * FUTURE COVERAGE (non-functional note — no behavior change here): this adapter
- * intentionally wires only PreToolUse, but Kimi CLI actually supports a much
- * wider event surface — Stop, UserPromptSubmit, PostToolUse, SessionStart,
- * SessionEnd, PreCompact, Notification, and SubagentStart/SubagentStop. Kimi
- * also has a PLUGIN system (plugins live at
+ * FUTURE COVERAGE (non-functional note — no behavior change here): beyond the
+ * wired PreToolUse + PostToolUseFailure + SubagentStart/SubagentStop, Kimi CLI
+ * supports a wider event surface — Stop, StopFailure, UserPromptSubmit,
+ * PostToolUse, SessionStart, SessionEnd, PreCompact, PostCompact and
+ * Notification. Kimi also has a PLUGIN system (plugins live at
  * `<base>/plugins/<name>/kimi.plugin.json`) and a SKILLS surface
  * (`~/.kimi/skills/`). None of these are covered yet; they are flagged here
  * as candidates for a future events/plugins/skills expansion of the adapter.
@@ -52,15 +65,19 @@ import type {
   HookParadigm,
   HookResponse,
   NotificationEvent,
+  PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
+  PostToolUseFailureEvent,
   PreCompactEvent,
   PreToolUseEvent,
   SessionEndEvent,
   SessionStartEvent,
   ServerDef,
   StopEvent,
+  SubagentStartEvent,
+  SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -95,6 +112,12 @@ interface KimiHookInput {
   trigger?: string;
   message?: string;
   reason?: string;
+  // PostToolUseFailure — the failure message.
+  error?: string;
+  // SubagentStart / SubagentStop — Kimi sends agent_name (NOT agent_id /
+  // agent_type) plus prompt (start) / response (stop).
+  agent_name?: string;
+  response?: string;
   connector?: string;
 }
 
@@ -126,13 +149,29 @@ interface KimiHttpServer {
 }
 
 /**
- * Kimi CLI hook events agent-connector can register. Only PreToolUse carries a
- * meaningful (deny) decision; it is the single event we wire. The matcher below
- * is charset-clean (Rust-regex safe: no look-around) so Kimi's matcher accepts
- * it. Copied in spirit from the Codex/context-mode matchers.
+ * Kimi CLI hook events agent-connector registers: the PreToolUse deny gate plus
+ * the E1 extension events Kimi fires natively (PostToolUseFailure +
+ * SubagentStart/SubagentStop). The matcher below is charset-clean (Rust-regex
+ * safe: no look-around) so Kimi's matcher accepts it. Copied in spirit from the
+ * Codex/context-mode matchers.
  */
-const KIMI_HOOK_EVENTS = ["PreToolUse"] as const;
+const KIMI_HOOK_EVENTS = [
+  "PreToolUse",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "SubagentStop",
+] as const;
 type KimiHookEventName = (typeof KIMI_HOOK_EVENTS)[number];
+
+/**
+ * Newer canonical events with NO Kimi analog: there is no permission-dialog
+ * hook (the prompt is only observable via Notification). Declared hooks for
+ * these warn-skip at install so the degradation is reported, never silent.
+ * (The legacy silent drop of host-supported-but-unwired events — SessionStart,
+ * Stop, … — predates this convention and is deliberately left untouched; see
+ * the FUTURE COVERAGE header note.)
+ */
+const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set(["PermissionRequest"]);
 
 const PRE_TOOL_USE_MATCHER =
   "Bash|Shell|shell|exec_command|Read|Edit|Write|WebFetch|Agent|mcp__";
@@ -156,6 +195,11 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // E1 events Kimi fires natively. permissionRequest stays unset — Kimi has
+    // no permission-dialog hook, so a declared hook for it warn-skips at install.
+    postToolUseFailure: true,
+    subagentStart: true,
+    subagentStop: true,
     // Kimi cannot rewrite args/output nor inject session context — deny-only.
     canModifyArgs: false,
     canModifyOutput: false,
@@ -326,9 +370,10 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     }
 
     const events = this.effectiveHookEvents(ctx);
+    const dropped = this.warnSkipHookEvents(ctx);
     const path = this.getHookConfigPath(ctx);
 
-    if (events.length === 0) {
+    if (events.length === 0 && dropped.length === 0) {
       return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
     }
 
@@ -337,9 +382,21 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
+    // Declared events Kimi cannot fire are reported, never silently dropped.
+    for (const event of dropped) {
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        path,
+        detail: `${event} has no Kimi CLI hook equivalent — skipped`,
+      });
+    }
+
     for (const event of events) {
       const desired = this.renderHook(ctx, event);
-      const idx = hooks.findIndex((h) => this.isOurHook(ctx, h));
+      // Match our entry FOR THIS EVENT — isOurHook alone would find whichever
+      // of our entries comes first and clobber a sibling event's registration.
+      const idx = hooks.findIndex((h) => this.isOurHook(ctx, h) && h?.event === event);
       if (idx < 0) {
         hooks.push(desired);
         changes.push({ platform: this.id, action: "create", path, detail: `hooks.${event}` });
@@ -515,6 +572,50 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "PermissionRequest": {
+        // No Kimi analog — never fired natively (install warn-skips it). Parsed
+        // generically so a manual dispatch still normalizes instead of throwing.
+        const ev: PermissionRequestEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+        };
+        return ev;
+      }
+      case "PostToolUseFailure": {
+        // Kimi documents tool_name/tool_input/error only (no tool_use_id /
+        // is_interrupt / duration_ms) — the optionals stay unset.
+        const ev: PostToolUseFailureEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error: typeof input.error === "string" ? input.error : "",
+        };
+        return ev;
+      }
+      case "SubagentStart": {
+        // Kimi sends agent_name (the matcher subject) — normalize it as
+        // agentType; there is no agent_id. The start prompt rides in `raw`.
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(typeof input.agent_name === "string"
+            ? { agentType: input.agent_name }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof input.agent_name === "string"
+            ? { agentType: input.agent_name }
+            : {}),
+          ...(typeof input.response === "string"
+            ? { lastAssistantMessage: input.response }
+            : {}),
+        };
+        return ev;
+      }
       default: {
         const _never: never = event;
         throw new Error(`unsupported kimi hook event: ${String(_never)}`);
@@ -544,6 +645,35 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       };
     }
 
+    // PostToolUseFailure (feedback beside the error) and SubagentStart (context
+    // for the subagent) are observe/context-only: Kimi's documented protocol
+    // adds non-empty stdout on exit 0 to context, so "context" emits the text
+    // PLAIN (no JSON envelope) and a "deny" DEGRADES to the same shape carrying
+    // the reason (the tool already failed / the spawn is not blockable).
+    if (event === "PostToolUseFailure" || event === "SubagentStart") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) return { exitCode: 0, stdout: context };
+      return { exitCode: 0 };
+    }
+
+    // SubagentStop = Stop semantics via Kimi's generic block protocol: EXIT 2
+    // with the reason on stderr keeps the subagent going (stderr is fed back to
+    // the model as correction). "context" rides the exit-0 stdout channel.
+    if (event === "SubagentStop") {
+      if (decision === "deny") {
+        return { exitCode: 2, stderr: response.reason ?? "Blocked by hook" };
+      }
+      if (decision === "context" && response.additionalContext) {
+        return { exitCode: 0, stdout: response.additionalContext };
+      }
+      return { exitCode: 0 };
+    }
+
     // allow / modify / context / ask / unsupported-event → passthrough (exit 0,
     // empty stdout). Kimi cannot rewrite args/output or inject context, so those
     // are dropped.
@@ -558,7 +688,18 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     return KIMI_HOOK_EVENTS.filter((e) => ctx.connector.hookEvents.includes(e));
   }
 
-  /** Render one `[[hooks]]` entry pointing at the stable home binary. */
+  /** Declared events Kimi has no analog for — install reports a warn-skip. */
+  private warnSkipHookEvents(ctx: InstallContext): HookEventName[] {
+    if (ctx.connector.platforms[HOST]?.hooks === false) return [];
+    return ctx.connector.hookEvents.filter((e) => WARN_SKIP_EVENTS.has(e));
+  }
+
+  /**
+   * Render one `[[hooks]]` entry pointing at the stable home binary. Only the
+   * PreToolUse deny gate carries the native tool matcher; the E1 events register
+   * "" (match every tool failure / agent name) and the universal entrypoint
+   * applies the connector's own matcher at runtime.
+   */
   private renderHook(ctx: InstallContext, event: KimiHookEventName): KimiTomlHook {
     const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, ctx.connector.id);
     return {

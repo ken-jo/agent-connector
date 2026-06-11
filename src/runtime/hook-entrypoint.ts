@@ -14,8 +14,9 @@
  *
  * Fail-open is the safety contract: ANY error degrades to exit 0 ("allow") so a
  * framework or handler bug can never wedge a host's tool call — EXCEPT when the
- * event is PreToolUse and the handler explicitly denied, in which case the deny
- * (a deliberate security decision) is preserved rather than swallowed.
+ * event is PreToolUse or PermissionRequest and the handler explicitly denied,
+ * in which case the deny (a deliberate security decision) is preserved rather
+ * than swallowed.
  */
 
 import type {
@@ -55,10 +56,21 @@ export interface RunHookResult {
 /** A pass-through "allow" reply with exit 0 and no payload. */
 const ALLOW: RunHookResult = { exitCode: 0 };
 
-/** Does a normalized event carry a tool name (only tool events do)? */
-function eventToolName(evt: NormalizedEvent): string | undefined {
+/**
+ * The string a connector matcher filters on, when the event carries one:
+ * tool events (PreToolUse / PostToolUse / PermissionRequest /
+ * PostToolUseFailure) expose `toolName`; subagent events expose `agentType`.
+ * Returns undefined when the event has neither (no filtering) — including a
+ * SubagentStop arriving WITHOUT agent_type, which some hosts fail to populate;
+ * filtering out such an event would silently drop a real stop, so we run the
+ * handler instead (fail-open).
+ */
+function eventMatcherSubject(evt: NormalizedEvent): string | undefined {
   const name = (evt as { toolName?: unknown }).toolName;
-  return typeof name === "string" ? name : undefined;
+  if (typeof name === "string") return name;
+  const agentType = (evt as { agentType?: unknown }).agentType;
+  if (typeof agentType === "string") return agentType;
+  return undefined;
 }
 
 /**
@@ -90,9 +102,16 @@ function compileMatcher(matcher: string | undefined): RegExp | null {
   }
 }
 
-/** Normalize a handler return (void → allow) into a concrete HookResponse. */
+/**
+ * Normalize a handler return into a concrete HookResponse. A void/non-object
+ * return becomes `{}` — NO decision — which every adapter formats as
+ * pass-through allow (`response.decision ?? "allow"`). Deliberately NOT
+ * `{decision:"allow"}`: on PermissionRequest an explicit "allow" is an ACTIVE
+ * grant that suppresses the host's permission dialog, and a handler that
+ * returns nothing must fall through to the dialog, never silently grant.
+ */
 function normalizeResponse(value: HookResponse | void): HookResponse {
-  if (value == null || typeof value !== "object") return { decision: "allow" };
+  if (value == null || typeof value !== "object") return {};
   return value;
 }
 
@@ -219,12 +238,13 @@ export async function runHook(opts: RunHookOptions): Promise<RunHookResult> {
       return ALLOW;
     }
 
-    // Tool-event matcher: if set and the event's tool name does not match, allow
-    // (the hook is simply not interested in this tool).
-    const toolName = eventToolName(evt);
-    if (toolName !== undefined) {
+    // Matcher: if set and the event's subject (tool name, or agent type for
+    // Subagent* events) does not match, allow (the hook is simply not
+    // interested in this tool/agent).
+    const subject = eventMatcherSubject(evt);
+    if (subject !== undefined) {
       const re = compileMatcher(definition.matcher);
-      if (re && !re.test(toolName)) return ALLOW;
+      if (re && !re.test(subject)) return ALLOW;
     }
 
     // Run the handler. Its return is normalized (void → allow) and handed to the
@@ -248,9 +268,9 @@ export async function runHook(opts: RunHookOptions): Promise<RunHookResult> {
     };
   } catch (err) {
     // Fail-open: a framework/handler error must not wedge the host's tool call.
-    // The ONE exception is a PreToolUse deny — a deliberate block we honor even
-    // if a later step threw. We re-derive that decision defensively from the
-    // adapter so a throw AFTER the deny still surfaces it.
+    // The ONE exception is a PreToolUse / PermissionRequest deny — a deliberate
+    // block we honor even if a later step threw. We re-derive that decision
+    // defensively from the adapter so a throw AFTER the deny still surfaces it.
     const message = err instanceof Error ? err.message : String(err);
     log.error(`hook ${platformId}/${event} (${connectorId}) failed:`, message);
     return failOpenOrPreserveDeny(opts, message);
@@ -258,9 +278,21 @@ export async function runHook(opts: RunHookOptions): Promise<RunHookResult> {
 }
 
 /**
- * Error path. Returns fail-open allow, UNLESS this is a PreToolUse event whose
- * handler explicitly denied — in which case the deny is reconstructed and
- * preserved (a security decision is never silently downgraded to allow).
+ * Events whose explicit deny survives the fail-open error path. Both are
+ * permission gates — a deny there is a deliberate security decision that must
+ * never be silently downgraded to allow. (Stop-class denies are persistence
+ * conveniences, not security boundaries, so they stay fail-open.)
+ */
+const DENY_PRESERVE_EVENTS: ReadonlySet<HookEventName> = new Set([
+  "PreToolUse",
+  "PermissionRequest",
+]);
+
+/**
+ * Error path. Returns fail-open allow, UNLESS this is a deny-preserving event
+ * (PreToolUse / PermissionRequest) whose handler explicitly denied — in which
+ * case the deny is reconstructed and preserved (a security decision is never
+ * silently downgraded to allow).
  *
  * Best-effort: if anything in the deny reconstruction itself throws, we fall
  * back to allow (we never escalate an error into a spurious block).
@@ -269,29 +301,29 @@ async function failOpenOrPreserveDeny(
   opts: RunHookOptions,
   errorMessage: string,
 ): Promise<RunHookResult> {
-  if (opts.event !== "PreToolUse") return ALLOW;
+  if (!DENY_PRESERVE_EVENTS.has(opts.event)) return ALLOW;
   try {
     const connector = await loadRegisteredConnector(opts.connectorId);
     const adapter = await loadAdapter(opts.platformId);
     if (!adapter?.parseEvent || !adapter.formatReply) return ALLOW;
 
-    const definition = connector.hooks.PreToolUse;
+    const definition = connector.hooks[opts.event];
     if (!definition || typeof definition.handler !== "function") return ALLOW;
 
     const raw = parseStdin(opts.stdin);
-    const evt = adapter.parseEvent("PreToolUse", raw);
+    const evt = adapter.parseEvent(opts.event, raw);
     evt.connectorId = opts.connectorId;
 
-    const toolName = eventToolName(evt);
-    if (toolName !== undefined) {
+    const subject = eventMatcherSubject(evt);
+    if (subject !== undefined) {
       const re = compileMatcher(definition.matcher);
-      if (re && !re.test(toolName)) return ALLOW;
+      if (re && !re.test(subject)) return ALLOW;
     }
 
     const response = normalizeResponse(await definition.handler(evt as never));
     if (response.decision !== "deny") return ALLOW;
 
-    const reply = adapter.formatReply("PreToolUse", response);
+    const reply = adapter.formatReply(opts.event, response);
     return {
       exitCode: reply.exitCode,
       ...(reply.stdout !== undefined ? { stdout: reply.stdout } : {}),

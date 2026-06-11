@@ -207,18 +207,24 @@ supports native interpolation the reference is translated rather than baked in.
 
 ```ts
 interface HooksConfig {
-  SessionStart?:     HookDefinition<"SessionStart">;
-  SessionEnd?:       HookDefinition<"SessionEnd">;
-  UserPromptSubmit?: HookDefinition<"UserPromptSubmit">;
-  PreToolUse?:       HookDefinition<"PreToolUse">;
-  PostToolUse?:      HookDefinition<"PostToolUse">;
-  PreCompact?:       HookDefinition<"PreCompact">;
-  Stop?:             HookDefinition<"Stop">;
-  Notification?:     HookDefinition<"Notification">;
+  SessionStart?:       HookDefinition<"SessionStart">;
+  SessionEnd?:         HookDefinition<"SessionEnd">;
+  UserPromptSubmit?:   HookDefinition<"UserPromptSubmit">;
+  PreToolUse?:         HookDefinition<"PreToolUse">;
+  PostToolUse?:        HookDefinition<"PostToolUse">;
+  PreCompact?:         HookDefinition<"PreCompact">;
+  Stop?:               HookDefinition<"Stop">;
+  Notification?:       HookDefinition<"Notification">;
+  PermissionRequest?:  HookDefinition<"PermissionRequest">;
+  PostToolUseFailure?: HookDefinition<"PostToolUseFailure">;
+  SubagentStart?:      HookDefinition<"SubagentStart">;
+  SubagentStop?:       HookDefinition<"SubagentStop">;
 }
 
 interface HookDefinition<E> {
-  matcher?: string;  // regex on tool name (tool events); empty/omitted = match all
+  matcher?: string;  // regex on tool name (tool events, incl. PermissionRequest /
+                     // PostToolUseFailure) or on agent type (SubagentStart /
+                     // SubagentStop); empty/omitted = match all
   handler(event: EventPayloadMap[E]): HookResponse | void | Promise<HookResponse | void>;
 }
 ```
@@ -240,6 +246,10 @@ when the host provides none; `raw` is the verbatim host payload for escape-hatch
 | `PreCompact` | `trigger?: "auto" \| "manual"` |
 | `Stop` | `stopHookActive?: boolean` |
 | `Notification` | `message: string` |
+| `PermissionRequest` | `toolName`, `toolInput`, `permissionSuggestions?: unknown[]` (host dialog suggestions, passthrough) |
+| `PostToolUseFailure` | `toolName`, `toolInput`, `toolUseId?`, `error: string`, `isInterrupt?: boolean`, `durationMs?: number` |
+| `SubagentStart` | `agentId?: string`, `agentType?: string` |
+| `SubagentStop` | `agentId?`, `agentType?` (both optional — hosts don't reliably populate them on stop), `agentTranscriptPath?`, `lastAssistantMessage?`, `stopHookActive?` |
 
 **Normalized `HookResponse`** (return a subset; the adapter formats it into the
 host's native reply — exit codes / JSON / control fields — and **drops fields the host
@@ -249,18 +259,26 @@ can't honor**, reporting the degradation):
 interface HookResponse {
   decision?: "allow" | "deny" | "modify" | "context" | "ask";
   reason?: string;                          // shown to model/user; expected for deny/ask
-  updatedInput?: Record<string, unknown>;   // only with "modify" (PreToolUse)
+  updatedInput?: Record<string, unknown>;   // only with "modify" (PreToolUse / PermissionRequest)
   additionalContext?: string;               // with "context" or on SessionStart
   updatedOutput?: string;                   // PostToolUse only, where the host supports it
 }
 ```
 
 Decision semantics:
-- `allow` — pass through (default when the handler returns void).
-- `deny` — block the tool call / stop the action.
-- `modify` — replace tool input with `updatedInput` (PreToolUse).
-- `context` — inject `additionalContext` as soft guidance.
-- `ask` — prompt the user to confirm.
+- `allow` — pass through (default when the handler returns void). On
+  `PermissionRequest` ONLY, an EXPLICIT `allow` is an ACTIVE grant that
+  suppresses the host's permission dialog (a void/decision-less return falls
+  through to the native dialog; an allow never overrides host deny rules).
+- `deny` — block the tool call / stop the action. On `SubagentStop` this keeps
+  the subagent running with `reason` as its next instruction (Stop semantics);
+  on the feedback-only events (`PostToolUseFailure`, `SubagentStart`) it
+  degrades to context carrying the reason — nothing is blockable there.
+- `modify` — replace tool input with `updatedInput` (PreToolUse / PermissionRequest).
+- `context` — inject `additionalContext` as soft guidance (on `SubagentStart`
+  it lands in the SUBAGENT's conversation, before its first prompt).
+- `ask` — prompt the user to confirm. On `PermissionRequest` this falls through
+  to the native dialog (the dialog IS the ask).
 
 **Per-paradigm synthesis** (the framework picks the right one from the host's
 detected paradigm):

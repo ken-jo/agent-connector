@@ -18,6 +18,18 @@
  * Known Codex limitations (upstream): PreToolUse deny works but updatedInput is
  * not yet honored (openai/codex#18491); PostToolUse updatedMCPToolOutput is
  * parsed-but-unsupported — hence canModifyArgs / canModifyOutput are false.
+ *
+ * E1 extension events (verified against developers.openai.com/codex/hooks):
+ *   - PermissionRequest — native, decision-capable via the nested
+ *     hookSpecificOutput.decision{behavior:"allow"|"deny", message?} envelope.
+ *     Codex docs: updatedInput / updatedPermissions / interrupt FAIL CLOSED on
+ *     this event, so they are never emitted here.
+ *   - SubagentStart — native; hookSpecificOutput.additionalContext is injected
+ *     as developer context for the subagent (not blockable).
+ *   - SubagentStop — native; the documented continuation shape is the TOP-LEVEL
+ *     {"decision":"block","reason"} (Stop semantics: keeps the subagent going).
+ *   - PostToolUseFailure — NO Codex analog (PostToolUse only); declared hooks
+ *     for it warn-skip at install and the capability flag stays unset.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -73,6 +85,15 @@ interface CodexHookInput {
   stop_hook_active?: boolean;
   trigger?: string;
   message?: string;
+  // PostToolUseFailure-style failure field. Codex has NO failure event today;
+  // parsed defensively only (the Claude-compatible wire would carry it).
+  error?: string;
+  // SubagentStart / SubagentStop (agent_type is the matcher subject).
+  agent_id?: string;
+  agent_type?: string;
+  // SubagentStop only — the subagent's own transcript + final message.
+  agent_transcript_path?: string;
+  last_assistant_message?: string;
 }
 
 /** One hook entry inside hooks.json (Claude-compatible). */
@@ -105,9 +126,21 @@ const CODEX_HOOK_EVENTS = [
   "PreCompact",
   "UserPromptSubmit",
   "Stop",
+  "PermissionRequest",
+  "SubagentStart",
+  "SubagentStop",
 ] as const;
 
 type CodexHookEventName = (typeof CODEX_HOOK_EVENTS)[number];
+
+/**
+ * Newer canonical events with NO Codex analog: Codex ships PostToolUse only —
+ * there is no failure event on the live hooks page. Declared hooks for these
+ * warn-skip at install so the degradation is reported, never silent. (The
+ * legacy SessionEnd / Notification silent filter predates this convention and
+ * is deliberately left untouched.)
+ */
+const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set(["PostToolUseFailure"]);
 
 /**
  * PreToolUse matcher — canonical Codex tool names + bare MCP tool names +
@@ -136,6 +169,12 @@ export class CodexAdapter extends BaseAdapter {
     userPromptSubmit: true,
     stop: true,
     notification: false,
+    // E1 events: PermissionRequest (decision-capable) + SubagentStart/Stop are
+    // Codex-native. postToolUseFailure stays unset — Codex has no failure event,
+    // so a declared hook for it warn-skips at install.
+    permissionRequest: true,
+    subagentStart: true,
+    subagentStop: true,
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: true,
@@ -295,14 +334,25 @@ export class CodexAdapter extends BaseAdapter {
     const { connector, dryRun } = ctx;
     const path = this.getHookConfigPath(ctx);
     const events = this.effectiveHookEvents(ctx);
+    const dropped = this.warnSkipHookEvents(ctx);
 
-    if (events.length === 0) {
+    if (events.length === 0 && dropped.length === 0) {
       return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
     }
 
     const file = this.readHooksFile(path);
     const hooks = (file.hooks ??= {});
     const changes: ChangeRecord[] = [];
+
+    // Declared events Codex cannot fire are reported, never silently dropped.
+    for (const event of dropped) {
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        path,
+        detail: `${event} has no Codex hook equivalent — skipped`,
+      });
+    }
 
     for (const event of events) {
       const desired = this.renderHookEntry(ctx, event);
@@ -319,7 +369,9 @@ export class CodexAdapter extends BaseAdapter {
       }
     }
 
-    if (changes.some((c) => c.action !== "skip")) {
+    // Only a real entry mutation rewrites the file (a warn-skip must not
+    // create/touch hooks.json by itself).
+    if (changes.some((c) => c.action === "create" || c.action === "update")) {
       this.writeJson(path, file, dryRun);
     }
     return changes;
@@ -642,12 +694,115 @@ export class CodexAdapter extends BaseAdapter {
         return { ...base, stopHookActive: input.stop_hook_active ?? false };
       case "Notification":
         return { ...base, message: input.message ?? "" };
+      case "PermissionRequest":
+        // Codex documents tool_name/tool_input (+tool_input.description); it has
+        // no permission_suggestions field, so the normalized optional stays unset.
+        return {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+        };
+      case "PostToolUseFailure":
+        // No Codex analog — never fired natively. Parsed defensively (Claude-
+        // compatible wire) so a manual `hook codex PostToolUseFailure` invocation
+        // still normalizes instead of throwing.
+        return {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error: input.error ?? "",
+        };
+      case "SubagentStart":
+        return {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string" ? { agentType: input.agent_type } : {}),
+        };
+      case "SubagentStop":
+        // agent_id/agent_type stay optional — never depend on hosts populating
+        // them on stop (the Claude-family SDK quirk).
+        return {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string" ? { agentType: input.agent_type } : {}),
+          ...(typeof input.agent_transcript_path === "string"
+            ? { agentTranscriptPath: input.agent_transcript_path }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
     }
   }
 
   formatReply(event: HookEventName, response: HookResponse): HookReply {
     // Codex (like Claude Code) reads a `hookSpecificOutput` JSON wrapper from
     // stdout; exit code 0 = allow. Fields the host cannot honor are dropped.
+
+    // PermissionRequest uses Codex's nested decision{behavior} envelope and is
+    // the ONE event where an EXPLICIT "allow" is an ACTIVE grant (suppresses the
+    // approval prompt). ask/context/void → NO decision output: fall through to
+    // the normal approval flow (the prompt IS the ask). Codex docs: updatedInput
+    // / updatedPermissions / interrupt FAIL CLOSED on this event, so "modify"
+    // also falls through — emitting a bare allow would grant the ORIGINAL input
+    // the handler wanted rewritten.
+    if (event === "PermissionRequest") {
+      if (response.decision === "deny") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PermissionRequest",
+              decision: {
+                behavior: "deny",
+                message: response.reason ?? "Blocked by hook",
+              },
+            },
+          }),
+        };
+      }
+      if (response.decision === "allow") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PermissionRequest",
+              decision: { behavior: "allow" },
+            },
+          }),
+        };
+      }
+      return { exitCode: 0 };
+    }
+
+    // SubagentStart is observe/context-only on Codex (continue:false is parsed
+    // but does not stop the subagent): "context" injects additionalContext as
+    // developer context for the SUBAGENT, and a "deny" DEGRADES to the same
+    // shape carrying the reason.
+    if (event === "SubagentStart") {
+      const context =
+        response.decision === "context"
+          ? response.additionalContext
+          : response.decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "SubagentStart",
+              additionalContext: context,
+            },
+          }),
+        };
+      }
+      return { exitCode: 0 };
+    }
+
     if (response.decision === "deny") {
       // PreToolUse deny is honored; other events fail-open to allow.
       if (event === "PreToolUse") {
@@ -662,10 +817,23 @@ export class CodexAdapter extends BaseAdapter {
           }),
         };
       }
+      // SubagentStop deny = Stop semantics: the documented continuation shape is
+      // the TOP-LEVEL {"decision":"block","reason"} (keeps the subagent going
+      // with `reason` as its next instruction).
+      if (event === "SubagentStop") {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            decision: "block",
+            reason: response.reason ?? "Blocked by hook",
+          }),
+        };
+      }
       return { exitCode: 0 };
     }
 
     // Context injection: honored on SessionStart and PostToolUse (additionalContext).
+    // (SubagentStop accepts only the common output fields — no additionalContext.)
     if (response.additionalContext && (event === "SessionStart" || event === "PostToolUse")) {
       return {
         exitCode: 0,
@@ -698,6 +866,13 @@ export class CodexAdapter extends BaseAdapter {
     const override = ctx.connector.platforms[this.id]?.hooks;
     if (override === false) return [];
     return CODEX_HOOK_EVENTS.filter((e) => ctx.connector.hookEvents.includes(e));
+  }
+
+  /** Declared events Codex has no analog for — install reports a warn-skip. */
+  private warnSkipHookEvents(ctx: InstallContext): HookEventName[] {
+    const override = ctx.connector.platforms[this.id]?.hooks;
+    if (override === false) return [];
+    return ctx.connector.hookEvents.filter((e) => WARN_SKIP_EVENTS.has(e));
   }
 
   /**
@@ -741,8 +916,13 @@ export class CodexAdapter extends BaseAdapter {
       ctx.connector.id,
     );
     const entry: CodexHookEntry = { hooks: [{ type: "command", command }] };
-    if (event === "PreToolUse") entry.matcher = PRE_TOOL_USE_MATCHER;
-    else entry.matcher = "";
+    // PermissionRequest matches tool names exactly like PreToolUse (Bash,
+    // apply_patch aliases, mcp__* names), so it carries the same charset-clean
+    // matcher. Subagent* match agent_type — register "" (all agents) and let the
+    // universal entrypoint apply the connector's own matcher at runtime.
+    if (event === "PreToolUse" || event === "PermissionRequest") {
+      entry.matcher = PRE_TOOL_USE_MATCHER;
+    } else entry.matcher = "";
     return entry;
   }
 

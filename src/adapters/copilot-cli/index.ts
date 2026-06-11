@@ -57,9 +57,11 @@ import type {
   HookParadigm,
   HookResponse,
   NotificationEvent,
+  PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
+  PostToolUseFailureEvent,
   PreCompactEvent,
   PreToolUseEvent,
   ServerDef,
@@ -68,6 +70,8 @@ import type {
   SkillDef,
   StopEvent,
   SubagentDef,
+  SubagentStartEvent,
+  SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -87,9 +91,14 @@ const COPILOT_HOOKS_VERSION = 1;
 
 /**
  * Copilot CLI accepts both camelCase and PascalCase hook event names; PascalCase
- * is the portable, Claude/VS Code-compatible form, so we emit it directly. Our
- * normalized HookEventName values are already PascalCase and match 1:1, hence no
- * rename table — every declared event has a native equivalent.
+ * is the portable, Claude/VS Code-compatible form (and selects the snake_case
+ * payload dialect), so we emit it directly. Our normalized HookEventName values
+ * are already PascalCase and match 1:1, hence no rename table — every declared
+ * event has a native equivalent, including the newer four: subagentStart
+ * (additionalContext only, matcher on agent name), subagentStop (can block and
+ * force continuation), permissionRequest (decision control), and
+ * postToolUseFailure (recovery guidance; the host also has a broader
+ * errorOccurred event we do not register).
  */
 type CopilotHookEvent = HookEventName;
 
@@ -143,10 +152,27 @@ interface CopilotWireInput {
   prompt?: string;
   // PreCompact
   trigger?: string;
-  // Stop
+  // Stop / SubagentStop
   stop_hook_active?: boolean;
   // Notification
   message?: string;
+
+  // PermissionRequest — permission-update entries the dialog would offer.
+  permission_suggestions?: unknown[];
+
+  // PostToolUseFailure
+  tool_use_id?: string;
+  error?: string;
+  is_interrupt?: boolean;
+  duration_ms?: number;
+
+  // SubagentStart / SubagentStop — agent_type is unreliable on SubagentStop
+  // (Claude-compatible quirk); treat both as optional everywhere.
+  agent_id?: string;
+  agent_type?: string;
+  // SubagentStop — the subagent's OWN transcript + its final response text.
+  agent_transcript_path?: string;
+  last_assistant_message?: string;
 }
 
 export class CopilotCliAdapter extends BaseAdapter implements Adapter {
@@ -164,6 +190,13 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: true,
     stop: true,
     notification: true,
+    // Newer events — Copilot CLI has native analogs for all four:
+    // permissionRequest (decision control), postToolUseFailure (recovery
+    // guidance), subagentStart (context-only), subagentStop (blockable).
+    permissionRequest: true,
+    postToolUseFailure: true,
+    subagentStart: true,
+    subagentStop: true,
     // PreToolUse is fail-closed and can rewrite tool input (updatedInput); a
     // PostToolUse hook cannot rewrite already-emitted tool output.
     canModifyArgs: true,
@@ -761,6 +794,66 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "PermissionRequest": {
+        const ev: PermissionRequestEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(Array.isArray(input.permission_suggestions)
+            ? { permissionSuggestions: input.permission_suggestions }
+            : {}),
+        };
+        return ev;
+      }
+      case "PostToolUseFailure": {
+        const ev: PostToolUseFailureEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error: typeof input.error === "string" ? input.error : "",
+          ...(typeof input.tool_use_id === "string"
+            ? { toolUseId: input.tool_use_id }
+            : {}),
+          ...(typeof input.is_interrupt === "boolean"
+            ? { isInterrupt: input.is_interrupt }
+            : {}),
+          ...(typeof input.duration_ms === "number"
+            ? { durationMs: input.duration_ms }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStart": {
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        // agent_id/agent_type stay optional — hosts do not reliably populate
+        // agent_type on SubagentStop (Claude-compatible quirk).
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string"
+            ? { agentType: input.agent_type }
+            : {}),
+          ...(typeof input.agent_transcript_path === "string"
+            ? { agentTranscriptPath: input.agent_transcript_path }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
       default: {
         // Exhaustive guard — every HookEventName is handled above.
         const _never: never = event;
@@ -775,8 +868,79 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     const hookEventName = event;
     const decision = response.decision ?? "allow";
 
+    // PermissionRequest replies use the Claude-compatible nested
+    // decision{behavior} envelope and are the ONE event where an EXPLICIT
+    // "allow" is an ACTIVE grant (it suppresses the permission dialog) rather
+    // than passthrough:
+    //   allow            → decision{behavior:"allow"} (+updatedInput when set);
+    //                      the host still enforces its own deny rules.
+    //   modify           → an allow grant carrying updatedInput.
+    //   deny             → decision{behavior:"deny", message}.
+    //   ask/context/void → NO decision output: fall through to the native
+    //                      dialog (the dialog IS the ask).
+    if (event === "PermissionRequest") {
+      if (response.decision === "deny") {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: {
+              behavior: "deny",
+              message: response.reason ?? "Blocked by hook",
+            },
+          },
+        });
+      }
+      if (
+        response.decision === "allow" ||
+        (response.decision === "modify" && response.updatedInput)
+      ) {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: {
+              behavior: "allow",
+              ...(response.updatedInput
+                ? { updatedInput: response.updatedInput }
+                : {}),
+            },
+          },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
+    // PostToolUseFailure (recovery guidance beside the error) and SubagentStart
+    // (context prepended to the SUBAGENT's conversation — creation is not
+    // blockable on Copilot CLI) are observe/context-only: "context" emits
+    // additionalContext, and a "deny" DEGRADES to the same shape carrying the
+    // reason. Everything else passes through.
+    if (event === "PostToolUseFailure" || event === "SubagentStart") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) {
+        return this.stdout({
+          hookSpecificOutput: { hookEventName, additionalContext: context },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
     // deny → block the action with a reason (exit 0; JSON carries the decision).
+    // SubagentStop is the Stop-semantics exception: like Claude, the block is
+    // the TOP-LEVEL {"decision":"block","reason"} — it keeps the subagent
+    // running with `reason` as its next instruction (the host "can block and
+    // force continuation").
     if (decision === "deny") {
+      if (event === "SubagentStop") {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
       return this.stdout({
         hookSpecificOutput: {
           hookEventName,

@@ -29,7 +29,7 @@ The one accuracy-critical boundary: if you BUILD an MCP integration, agent-conne
 ## Surfaces (declare once, deploy everywhere)
 
 - `server` — one transport-polymorphic MCP server (stdio | http | sse | ws).
-- `hooks` — normalized lifecycle hooks (SessionStart, PreToolUse, PostToolUse, …).
+- `hooks` — normalized lifecycle hooks, 12 canonical events (SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop, Notification, PermissionRequest, PostToolUseFailure, SubagentStart, SubagentStop).
 - `commands` — slash commands (content files).
 - `skills` — Agent Skills (SKILL.md folders + resources).
 - `subagents` — named subagents (system prompt + tool/model scoping).
@@ -71,7 +71,7 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 
 - `id` (required, kebab-case), `displayName`, `version`.
 - `server?: ServerDef` — `transport`, `command`/`args`/`env`/`cwd` (stdio) or `url`/`headers`/`auth` (remote), `tools`, `timeoutMs`, `enabled`, `wrapForTelemetry`.
-- `hooks?: HooksConfig` — per event: `{ matcher?, handler(evt) }`; handler returns `{ decision: allow|deny|modify|context|ask, reason?, updatedInput?, additionalContext?, updatedOutput? }` or void.
+- `hooks?: HooksConfig` — per event: `{ matcher?, handler(evt) }` (matcher = tool name on tool events incl. PermissionRequest/PostToolUseFailure; agent type on SubagentStart/SubagentStop); handler returns `{ decision: allow|deny|modify|context|ask, reason?, updatedInput?, additionalContext?, updatedOutput? }` or void.
 - `commands?`, `skills?`, `subagents?` — content-only surfaces.
 - `telemetry?: TelemetryConfig` — `enabled` (default true), `modelFamilyHint`, `measureToolDefs`, `hostNativeUsage`, `store`, `calibration`.
 - `platforms?` — per-platform overrides / escape hatch (`extra`, disable a surface, force scope).

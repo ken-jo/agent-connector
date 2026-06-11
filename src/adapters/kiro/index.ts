@@ -164,6 +164,11 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: true,
     stop: true,
     notification: false,
+    // Newer events: Kiro's native set (agentSpawn / userPromptSubmit /
+    // preToolUse / postToolUse / stop) has no permission-dialog, tool-failure,
+    // or subagent lifecycle events, so permissionRequest / postToolUseFailure /
+    // subagentStart / subagentStop stay unset — install reports the standard
+    // skip-warn for them.
     // Kiro's hook protocol is exit-code only — a hook can allow (0), block (2),
     // or inject agentSpawn context, but it CANNOT rewrite tool args or output.
     canModifyArgs: false,
@@ -592,9 +597,10 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       default: {
-        // Kiro never delivers PreCompact / SessionEnd / Notification (no native
-        // equivalent). If the runtime dispatches one anyway, surface it loudly
-        // rather than silently mis-parse.
+        // Kiro never delivers PreCompact / SessionEnd / Notification nor the
+        // newer PermissionRequest / PostToolUseFailure / SubagentStart /
+        // SubagentStop (no native equivalents). If the runtime dispatches one
+        // anyway, surface it loudly rather than silently mis-parse.
         throw new Error(`unsupported kiro hook event: ${String(event)}`);
       }
     }

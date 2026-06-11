@@ -28,6 +28,8 @@ const SURFACE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** Max length of a skill description (Agent Skills open standard). */
 const SKILL_DESCRIPTION_MAX = 1024;
 
+// NOTE: canonical ordering — append new events at the END (hookEvents ordering
+// is pinned by tests and feeds install-file ordering).
 const ALL_EVENTS: HookEventName[] = [
   "SessionStart",
   "SessionEnd",
@@ -37,6 +39,10 @@ const ALL_EVENTS: HookEventName[] = [
   "PreCompact",
   "Stop",
   "Notification",
+  "PermissionRequest",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "SubagentStop",
 ];
 
 /** Thrown on an invalid connector configuration. */

@@ -46,6 +46,9 @@
  *     before_prompt_build → inject SessionStart additionalContext via
  *                        { appendSystemContext } (the verified context-injection
  *                        point; session_start itself returns no context payload).
+ *     subagent_spawned / subagent_ended → observe the subagent lifecycle
+ *                        (SubagentStart / SubagentStop; observe-only — no
+ *                        decision or context payload).
  *   api.on() is the correct API for typed lifecycle hooks; api.registerHook() is
  *   for generic command hooks. We register defensively (api.on present check).
  *
@@ -74,7 +77,8 @@
  * next reload (or restart) picks up our entries/servers/module.
  *
  * Capabilities (per OpenClaw hook API):
- *   preToolUse / postToolUse / sessionStart true; transports ["stdio"].
+ *   preToolUse / postToolUse / sessionStart / subagentStart / subagentStop
+ *   true; transports ["stdio"].
  *   before_tool_call mutates event.params → canModifyArgs true.
  *   after_tool_call cannot rewrite the tool result → canModifyOutput false.
  *   before_prompt_build injects context → canInjectSessionContext true.
@@ -112,6 +116,8 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
+  SubagentStartEvent,
+  SubagentStopEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { parseJsonc } from "../../core/jsonc.js";
@@ -153,6 +159,14 @@ const EVENT_TO_OPENCLAW: Partial<Record<HookEventName, string>> = {
   PreToolUse: "before_tool_call",
   PostToolUse: "after_tool_call",
   SessionStart: "session_start",
+  // Subagent lifecycle: OpenClaw observes launch + completion (no decision
+  // control on either). PermissionRequest is deliberately ABSENT — OpenClaw's
+  // permission gate is the requireApproval RETURN VALUE of before_tool_call,
+  // not an observable event; PostToolUseFailure is ABSENT too (a failure
+  // arrives merged into after_tool_call, already surfaced as PostToolUse
+  // isError). Unmapped declared events are reported as "unsupported here".
+  SubagentStart: "subagent_spawned",
+  SubagentStop: "subagent_ended",
 };
 
 /** Raw payload the generated plugin posts to the universal hook entrypoint. */
@@ -164,6 +178,11 @@ interface OpenClawBridgePayload {
   sessionId?: string;
   source?: string;
   projectDir?: string;
+  // subagent_spawned / subagent_ended (the generated plugin normalizes the
+  // host's field-name variants before posting; empty strings are omitted).
+  agentId?: string;
+  agentType?: string;
+  lastAssistantMessage?: string;
 }
 
 /**
@@ -216,6 +235,15 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: OpenClaw observes the full subagent lifecycle via
+    // subagent_spawned / subagent_ended (observe-only — no decision control,
+    // so a SubagentStop "deny" cannot keep the subagent running here).
+    // permissionRequest / postToolUseFailure stay unset: the permission gate
+    // is a RETURN VALUE of before_tool_call (not an event) and tool failures
+    // arrive merged into after_tool_call. Install reports the standard
+    // "unsupported here" for unmapped declared events.
+    subagentStart: true,
+    subagentStop: true,
     // before_tool_call mutates event.params in place → input rewrite supported.
     canModifyArgs: true,
     // after_tool_call observes but cannot rewrite the tool result upstream.
@@ -820,7 +848,8 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       ";\n\n" +
       "/**\n" +
       " * Invoke the universal hook entrypoint for one canonical event.\n" +
-      " * @param {string} event canonical event name (PreToolUse|PostToolUse|SessionStart)\n" +
+      " * @param {string} event canonical event name\n" +
+      " *   (PreToolUse|PostToolUse|SessionStart|SubagentStart|SubagentStop)\n" +
       " * @param {object} payload OpenClaw-shaped payload posted on stdin\n" +
       " * @returns {object|null} normalized HookResponse, or null on any failure\n" +
       " */\n" +
@@ -916,6 +945,49 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
           "        toolInput: e.params || {},\n" +
           "        toolOutput,\n" +
           "        isError: Boolean(e.error || e.isError),\n" +
+          "        sessionId: SESSION_ID,\n" +
+          "        projectDir: PROJECT_DIR,\n" +
+          "      });\n" +
+          "      return undefined;\n" +
+          "    });\n",
+      );
+    }
+
+    if (has("SubagentStart")) {
+      reg.push(
+        "\n" +
+          "    // SubagentStart → subagent_spawned: observe-only (OpenClaw exposes no\n" +
+          "    // decision or context-injection payload for subagent launches). Field\n" +
+          "    // names vary across builds, so the common variants are normalized;\n" +
+          "    // empty values are omitted so the dispatcher never matcher-filters on\n" +
+          '    // an empty agent type (fail-open).\n' +
+          '    on("subagent_spawned", async (event) => {\n' +
+          "      const e = event || {};\n" +
+          "      bridge(\"SubagentStart\", {\n" +
+          "        agentId: e.agentId || e.subagentId || undefined,\n" +
+          "        agentType: e.agentType || e.subagentType || e.agent || undefined,\n" +
+          "        sessionId: SESSION_ID,\n" +
+          "        projectDir: PROJECT_DIR,\n" +
+          "      });\n" +
+          "      return undefined;\n" +
+          "    });\n",
+      );
+    }
+
+    if (has("SubagentStop")) {
+      reg.push(
+        "\n" +
+          "    // SubagentStop → subagent_ended: observe-only completion. A normalized\n" +
+          "    // 'deny' cannot keep the subagent running on OpenClaw, so the bridge\n" +
+          "    // reply is intentionally ignored.\n" +
+          '    on("subagent_ended", async (event) => {\n' +
+          "      const e = event || {};\n" +
+          "      const rawResult = e.result !== undefined ? e.result : e.output;\n" +
+          "      bridge(\"SubagentStop\", {\n" +
+          "        agentId: e.agentId || e.subagentId || undefined,\n" +
+          "        agentType: e.agentType || e.subagentType || e.agent || undefined,\n" +
+          "        lastAssistantMessage:\n" +
+          '          typeof rawResult === "string" && rawResult !== "" ? rawResult : undefined,\n' +
           "        sessionId: SESSION_ID,\n" +
           "        projectDir: PROJECT_DIR,\n" +
           "      });\n" +
@@ -1027,6 +1099,31 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
                 ? "clear"
                 : "startup";
         const ev: SessionStartEvent = { ...base, source };
+        return ev;
+      }
+      case "SubagentStart": {
+        // Empty strings are dropped so the runtime matcher never filters a
+        // real spawn on an unknown agent type (fail-open, per the dispatcher).
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(isNonEmptyString(input.agentId) ? { agentId: input.agentId } : {}),
+          ...(isNonEmptyString(input.agentType)
+            ? { agentType: input.agentType }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(isNonEmptyString(input.agentId) ? { agentId: input.agentId } : {}),
+          ...(isNonEmptyString(input.agentType)
+            ? { agentType: input.agentType }
+            : {}),
+          ...(isNonEmptyString(input.lastAssistantMessage)
+            ? { lastAssistantMessage: input.lastAssistantMessage }
+            : {}),
+        };
         return ev;
       }
       default:
@@ -1199,6 +1296,11 @@ function resolveOpenClawConfigPath(env: NodeJS.ProcessEnv = process.env): string
 /** Create a directory (recursive) if it does not already exist. */
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
+/** Narrow to a non-empty string (the bridge omits empties, but stay defensive). */
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
 }
 
 export const adapter = new OpenClawAdapter();

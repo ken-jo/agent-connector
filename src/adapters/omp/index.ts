@@ -140,6 +140,13 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: false,
     notification: false,
+    // Newer events: OMP's agent_start/agent_end/turn_* hooks are the MAIN loop
+    // (no subagent lifecycle events), there is no permission/approval surface,
+    // and tool failure is merged into tool_result (isError) rather than a
+    // dedicated event. None are wired, so permissionRequest /
+    // postToolUseFailure / subagentStart / subagentStop stay unset — the
+    // generated bridge never references them and install reports them as
+    // "unsupported here".
     // OMP tool_call gates via { block, reason } only — it does not hand the
     // handler a mutable args object, so input rewrite is unsupported.
     canModifyArgs: false,

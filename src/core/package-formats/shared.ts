@@ -131,6 +131,10 @@ export const CLAUDE_MAPPED_EVENTS: ReadonlySet<HookEventName> =
     "UserPromptSubmit",
     "Stop",
     "Notification",
+    "PermissionRequest",
+    "PostToolUseFailure",
+    "SubagentStart",
+    "SubagentStop",
   ]);
 
 /** A single hooks.json entry (identical in shape to a settings.json hooks block). */

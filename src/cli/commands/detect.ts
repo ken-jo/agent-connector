@@ -24,6 +24,11 @@ function capabilitySummary(caps: PlatformCapabilities): string {
   if (caps.preCompact) events.push("PreCompact");
   if (caps.stop) events.push("Stop");
   if (caps.notification) events.push("Notification");
+  // Newer optional per-event flags (absent ⇒ unsupported, read as `?? false`).
+  if (caps.permissionRequest ?? false) events.push("PermissionRequest");
+  if (caps.postToolUseFailure ?? false) events.push("PostToolUseFailure");
+  if (caps.subagentStart ?? false) events.push("SubagentStart");
+  if (caps.subagentStop ?? false) events.push("SubagentStop");
 
   const extras: string[] = [];
   if (caps.canModifyArgs) extras.push("modifyArgs");

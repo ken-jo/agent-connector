@@ -200,6 +200,13 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: true,
     stop: false,
     notification: true,
+    // Newer events: Gemini has no subagent lifecycle hooks, its permission
+    // surface is observe-only (Notification with notification_type
+    // "ToolPermission" — no decision control), and tool failure is merged into
+    // AfterTool's tool_response.error rather than a dedicated event. None of
+    // those analogs are wired, so permissionRequest / postToolUseFailure /
+    // subagentStart / subagentStop stay unset — install reports the standard
+    // skip-warn for them.
     // BeforeTool can rewrite tool input (hookSpecificOutput.tool_input); unlike
     // the Claude-family hosts, AfterTool CAN replace already-emitted tool output
     // (via a deny + reason), so output modification is supported here.
@@ -902,9 +909,11 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       default: {
-        // Gemini never delivers `Stop` (no native equivalent). If the runtime
-        // dispatches one anyway, surface it as an explicit unsupported error so
-        // the mismatch is loud rather than silently mis-parsed.
+        // Gemini never delivers `Stop`, `PermissionRequest`, `PostToolUseFailure`,
+        // `SubagentStart`, or `SubagentStop` (no native equivalents wired). If
+        // the runtime dispatches one anyway, surface it as an explicit
+        // unsupported error so the mismatch is loud rather than silently
+        // mis-parsed.
         throw new Error(`unsupported gemini-cli hook event: ${String(event)}`);
       }
     }

@@ -37,12 +37,15 @@ import type {
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
+  PostToolUseFailureEvent,
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
   SkillDef,
   StopEvent,
   SubagentDef,
+  SubagentStartEvent,
+  SubagentStopEvent,
   Transport,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
@@ -61,25 +64,39 @@ const CURSOR_HOOKS_VERSION = 1;
 
 /**
  * Cursor-native hook event names, in the lower-camel form Cursor reads from
- * hooks.json. These are the events the proven context-mode adapter registers.
+ * hooks.json. The first four are the events the proven context-mode adapter
+ * registers; postToolUseFailure / subagentStart / subagentStop are Cursor's
+ * documented "Subagent (Task tool) lifecycle" + tool-failure hooks.
  */
 const CURSOR_EVENT = {
   PreToolUse: "preToolUse",
   PostToolUse: "postToolUse",
   SessionStart: "sessionStart",
   Stop: "stop",
+  PostToolUseFailure: "postToolUseFailure",
+  SubagentStart: "subagentStart",
+  SubagentStop: "subagentStop",
 } as const;
 
 /**
  * Map our normalized event names to Cursor's native hook event names. Only the
  * events Cursor actually supports are present; everything else has no Cursor
  * equivalent and is reported as a skip/warn at install time.
+ *
+ * PermissionRequest is deliberately ABSENT: Cursor has no permission-dialog
+ * event — its permission gate is the OUTPUT field `permission: "allow"|"deny"|
+ * "ask"` of the before* hooks (beforeShellExecution / beforeMCPExecution /
+ * beforeReadFile / preToolUse), not an observable event. Install reports the
+ * standard skip-warn for it.
  */
 const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PreToolUse: CURSOR_EVENT.PreToolUse,
   PostToolUse: CURSOR_EVENT.PostToolUse,
   SessionStart: CURSOR_EVENT.SessionStart,
   Stop: CURSOR_EVENT.Stop,
+  PostToolUseFailure: CURSOR_EVENT.PostToolUseFailure,
+  SubagentStart: CURSOR_EVENT.SubagentStart,
+  SubagentStop: CURSOR_EVENT.SubagentStop,
 };
 
 /** A single Cursor native hook entry — a flat command object. */
@@ -123,6 +140,21 @@ interface CursorWireInput {
   status?: string;
   loop_count?: number;
   stop_hook_active?: boolean;
+
+  // postToolUseFailure — Cursor's existing error vocabulary is error_message;
+  // the Claude-compatible names are accepted defensively (unverified wire).
+  error?: string;
+  tool_use_id?: string;
+  is_interrupt?: boolean;
+  duration_ms?: number;
+
+  // subagentStart / subagentStop (Task-tool lifecycle). Both name families are
+  // parsed defensively: agent_* (Claude-compatible) and subagent_* (Cursor-ish).
+  agent_id?: string;
+  agent_type?: string;
+  subagent_id?: string;
+  subagent_type?: string;
+  last_assistant_message?: string;
 }
 
 export class CursorAdapter extends BaseAdapter implements Adapter {
@@ -140,6 +172,13 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     userPromptSubmit: false,
     stop: true,
     notification: false,
+    // Newer events: Cursor has dedicated postToolUseFailure + subagentStart/
+    // subagentStop hooks. permissionRequest stays unset — Cursor's permission
+    // gate is an OUTPUT field of its before* hooks, not an observable event
+    // (see the EVENT_MAP note).
+    postToolUseFailure: true,
+    subagentStart: true,
+    subagentStop: true,
     // Cursor's preToolUse can rewrite tool input (updated_input) but cannot
     // rewrite already-emitted tool output.
     canModifyArgs: true,
@@ -727,10 +766,58 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "PostToolUseFailure": {
+        // Cursor's established error field is error_message; fall back to the
+        // Claude-compatible `error` defensively.
+        const error = input.error_message ?? input.error ?? "";
+        const ev: PostToolUseFailureEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error,
+          ...(typeof input.tool_use_id === "string"
+            ? { toolUseId: input.tool_use_id }
+            : {}),
+          ...(typeof input.is_interrupt === "boolean"
+            ? { isInterrupt: input.is_interrupt }
+            : {}),
+          ...(typeof input.duration_ms === "number"
+            ? { durationMs: input.duration_ms }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStart": {
+        const agentId = input.agent_id ?? input.subagent_id;
+        const agentType = input.agent_type ?? input.subagent_type;
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(typeof agentId === "string" ? { agentId } : {}),
+          ...(typeof agentType === "string" ? { agentType } : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        const agentId = input.agent_id ?? input.subagent_id;
+        const agentType = input.agent_type ?? input.subagent_type;
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof agentId === "string" ? { agentId } : {}),
+          ...(typeof agentType === "string" ? { agentType } : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
       default: {
         // Cursor never delivers SessionEnd / UserPromptSubmit / PreCompact /
-        // Notification (no native equivalent). If the runtime dispatches one
-        // anyway, surface a base event of the requested kind so it stays inert.
+        // Notification / PermissionRequest (no native equivalent — permission
+        // is an OUTPUT field of its before* hooks, not an event). If the
+        // runtime dispatches one anyway, fail loudly.
         throw new Error(`unsupported cursor hook event: ${String(event)}`);
       }
     }
@@ -745,7 +832,24 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
   formatReply(event: HookEventName, response: HookResponse): HookReply {
     const decision = response.decision ?? "allow";
 
-    // deny → block the action with a user-facing message.
+    // postToolUseFailure (feedback beside the error) and subagentStart (context
+    // injected into the SUBAGENT's conversation) are observe/context-only on
+    // Cursor: "context" emits additional_context, and a "deny" DEGRADES to the
+    // same shape carrying the reason (the tool already failed / the spawn is
+    // not blockable). Everything else is a minimal no-op payload (Cursor
+    // rejects empty stdout as "no valid response").
+    if (event === "PostToolUseFailure" || event === "SubagentStart") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      return this.stdout({ additional_context: context ?? "" });
+    }
+
+    // deny → block the action with a user-facing message. (On SubagentStop
+    // this follows the adapter's Stop idiom — the deny carries Stop semantics.)
     if (decision === "deny") {
       return this.stdout({
         permission: "deny",

@@ -191,6 +191,11 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
     sessionEnd: false,
     userPromptSubmit: false,
     notification: false,
+    // Newer events: no documented permission-dialog, tool-failure, or subagent
+    // lifecycle hooks on Antigravity (IDE or `agy` CLI — the CLI adapter
+    // inherits this surface), so permissionRequest / postToolUseFailure /
+    // subagentStart / subagentStop stay unset — install reports the standard
+    // skip-warn for them.
     // Transform-category hooks can rewrite tool input and tool output; the
     // SessionStart hook can inject additional context.
     canModifyArgs: true,
