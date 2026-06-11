@@ -34,7 +34,7 @@
  * fresh mkdtemp project dir, HOME redirected into it.
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -162,7 +162,10 @@ function restore(key: string, value: string | undefined): void {
 
 /** Fresh temp project dir + redirect HOME/data-root there so nothing escapes. */
 function freshProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ac-ext-events2-"));
+  // realpathSync.native expands the Windows 8.3 short tmpdir (C:\Users\RUNNER~1\…)
+  // so the later pathToFileURL() import of the generated bridge doesn't break on
+  // the "~" (round-trips as %7E and fails to load) — same guard as phase3/wave4.
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "ac-ext-events2-")));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
