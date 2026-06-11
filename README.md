@@ -307,6 +307,14 @@ export default defineConnector({
 });
 ```
 
+> **Native hooks escape hatch.** The normalized `hooks` API covers the 12
+> cross-platform events. For host-only events — Claude Code alone ships 30
+> (`TaskCompleted`, `TeammateIdle`, `WorktreeCreate`, …) — declare
+> `platforms: { "claude-code": { nativeHooks: { TaskCompleted: { handler } } } }`:
+> the handler receives the host's **raw** payload and whatever it returns is the
+> **verbatim** JSON reply (exit 0 only — exit-2 blocking isn't modeled). Claude
+> Code only for now; other hosts skip-warn, never silently.
+
 `agent-connector install` turns that into, e.g.:
 
 | Host | What gets written |

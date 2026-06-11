@@ -321,6 +321,23 @@ export const hookHandlerSnippet = `hooks: {
   },
 }`;
 
+export const nativeHooksSnippet = `platforms: {
+  "claude-code": {
+    nativeHooks: {
+      // key = the HOST's event name, VERBATIM — any of Claude's 30 events
+      TaskCompleted: {
+        async handler(evt) {
+          // evt: { event, hostPlatform, sessionId, projectDir?, raw }
+          // evt.raw = Claude's stdin JSON, untouched (snake_case and all)
+          // return value = the VERBATIM stdout JSON reply (exit 0);
+          // void = exit 0 with no output
+          return { continue: false, stopReason: "All tasks done — wrap up." };
+        },
+      },
+    },
+  },
+}`;
+
 export const commandSnippet = `commands: [
   {
     name: "deploy",

@@ -23,6 +23,8 @@ export type {
   HookDefinition,
   HookEventName,
   HookResponse,
+  NativeHookDef,
+  NativeHookEvent,
   EventPayloadMap,
   PreToolUseEvent,
   PostToolUseEvent,

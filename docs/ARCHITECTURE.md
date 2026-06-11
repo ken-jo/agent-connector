@@ -133,7 +133,13 @@ Distilled from the union of platform behaviors (report §3).
   (`PreToolUse`↔`BeforeTool`↔`tool.execute.before`↔`pre_tool_call`). Normalized
   payload `{ toolName, toolInput, toolOutput?, isError?, sessionId, projectDir?,
   raw }`; normalized response `{ decision: allow|deny|modify|context|ask, reason?,
-  updatedInput?, additionalContext?, updatedOutput? }`.
+  updatedInput?, additionalContext?, updatedOutput? }`. The union is a floor, not
+  a ceiling: host-only events (Claude Code alone ships 30) are reachable per
+  platform via the `platforms.<id>.nativeHooks` passthrough — raw payload in,
+  verbatim JSON reply out, exit 0 only; claude-code-only today
+  (`supportsNativeHooks`), others skip-warn. An event is promoted into the union
+  once ≥3 hosts ship a native analog (TaskCreated/TaskCompleted first candidates).
+  Full contract: `llms-full.txt` §2.3.
 - **Hook I/O paradigm taxonomy** (the deepest divergence — exactly three):
   - **`json-stdio`** (16) — Claude Code, Codex, Cursor, VS Code Copilot,
     JetBrains Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose,

@@ -82,6 +82,7 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "hook-events", title: "Normalized events" },
     { id: "hook-response", title: "HookResponse" },
     { id: "paradigms", title: "Three paradigms" },
+    { id: "native-hooks", title: "Native hooks passthrough" },
   ],
   "hooks-guide": [
     { id: "single-wrapper", title: "The single-wrapper hook API" },

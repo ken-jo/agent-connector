@@ -74,9 +74,23 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const hasCommands = Array.isArray(config.commands) && config.commands.length > 0;
   const hasSkills = Array.isArray(config.skills) && config.skills.length > 0;
   const hasSubagents = Array.isArray(config.subagents) && config.subagents.length > 0;
-  if (!config.server && !config.hooks && !hasCommands && !hasSkills && !hasSubagents) {
+  // A platform-scoped nativeHooks declaration is a legitimate sole payload
+  // (a hooks-only connector wired entirely through native passthrough events).
+  const hasNativeHooks = Object.values(config.platforms ?? {}).some(
+    (override) =>
+      override?.nativeHooks != null && Object.keys(override.nativeHooks).length > 0,
+  );
+  if (
+    !config.server &&
+    !config.hooks &&
+    !hasCommands &&
+    !hasSkills &&
+    !hasSubagents &&
+    !hasNativeHooks
+  ) {
     throw new ConnectorConfigError(
-      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, or `subagents`",
+      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, " +
+        "or a per-platform `nativeHooks` declaration",
     );
   }
 
@@ -106,6 +120,12 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
       }
     }
   }
+
+  // Validate per-platform native passthrough hooks (handlers live in this same
+  // config module, exactly like normalized hooks — the resolved connector keeps
+  // `platforms` verbatim, so live handlers survive resolution and are recovered
+  // at runtime by re-importing the module via the registry's modulePath).
+  validateNativeHooks(config.platforms);
 
   const commands = normalizeCommands(config.commands);
   const skills = normalizeSkills(config.skills);
@@ -141,6 +161,48 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   };
 
   return resolved;
+}
+
+/** The 12 normalized event names, for the nativeHooks collision check. */
+const NORMALIZED_EVENT_SET: ReadonlySet<string> = new Set(ALL_EVENTS);
+
+/**
+ * Validate every `platforms[<id>].nativeHooks` declaration:
+ *   - the value must be an object keyed by HOST-NATIVE event name;
+ *   - an event name must NOT collide with the normalized {@link HookEventName}
+ *     union (those belong in the cross-platform `hooks` API, which gets
+ *     normalization, matcher evaluation, and HookResponse mapping);
+ *   - each handler must be a function (it is re-imported from the config module
+ *     at runtime, like normalized hook handlers);
+ *   - `matcher`, when present, must be a string (written verbatim into the
+ *     host's hook config — the host evaluates it).
+ */
+function validateNativeHooks(platforms: ConnectorConfig["platforms"]): void {
+  if (platforms == null) return;
+  for (const [platformId, override] of Object.entries(platforms)) {
+    const native = override?.nativeHooks;
+    if (native == null) continue;
+    const where = `platforms.${platformId}.nativeHooks`;
+    if (typeof native !== "object" || Array.isArray(native)) {
+      throw new ConnectorConfigError(
+        `${where} must be an object keyed by host-native event name`,
+      );
+    }
+    for (const [event, def] of Object.entries(native)) {
+      if (NORMALIZED_EVENT_SET.has(event)) {
+        throw new ConnectorConfigError(
+          `${where}.${event} collides with the normalized hook event "${event}"; ` +
+            `declare it under \`hooks.${event}\` (the normalized, cross-platform hooks API) instead`,
+        );
+      }
+      if (def == null || typeof def !== "object" || typeof def.handler !== "function") {
+        throw new ConnectorConfigError(`${where}.${event}.handler must be a function`);
+      }
+      if (def.matcher !== undefined && typeof def.matcher !== "string") {
+        throw new ConnectorConfigError(`${where}.${event}.matcher must be a string`);
+      }
+    }
+  }
 }
 
 /**

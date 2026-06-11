@@ -22,6 +22,8 @@
 import type {
   HookEventName,
   HookResponse,
+  NativeHookDef,
+  NativeHookEvent,
   PlatformId,
   ResolvedConnector,
 } from "../core/types.js";
@@ -125,7 +127,7 @@ function normalizeResponse(value: HookResponse | void): HookResponse {
  */
 function resolveHookHostPlatform(
   platformId: string,
-  evt: NormalizedEvent,
+  evt: NormalizedEvent | NativeHookEvent,
 ): PlatformId {
   const override = process.env.AGENT_CONNECTOR_HOST;
   if (
@@ -150,10 +152,11 @@ function resolveHookHostPlatform(
 /**
  * Record one RUNTIME hook dispatch as a `hook` developer-axis telemetry row.
  *
- * input  = the inbound normalized event payload the handler reads;
- * output = the normalized {@link HookResponse} the handler returned (the part
- *          that becomes host context/decision: additionalContext/updatedInput/
- *          reason/…). Tokenized with the SAME tokenizer the proxy uses.
+ * input  = the inbound event payload the handler reads (normalized event, or
+ *          the {@link NativeHookEvent} envelope for native passthrough hooks);
+ * output = what the handler returned (a normalized {@link HookResponse}, or the
+ *          verbatim native reply object). Tokenized with the SAME tokenizer the
+ *          proxy uses. For a native hook `opts.event` is the host-native name.
  *
  * MUST be fail-open (the hook runtime is fail-open by contract): any error here
  * is swallowed so a measurement bug can NEVER break a host's hook. Honors the
@@ -161,10 +164,10 @@ function resolveHookHostPlatform(
  * already a no-op under it, but we also skip the tokenize work).
  */
 function recordHookTelemetry(
-  opts: RunHookOptions,
+  opts: { platformId: string; event: string; connectorId: string },
   connector: ResolvedConnector,
-  evt: NormalizedEvent,
-  response: HookResponse,
+  evt: NormalizedEvent | NativeHookEvent,
+  response: unknown,
 ): void {
   if (process.env.AGENT_CONNECTOR_TELEMETRY === "0") return;
   try {
@@ -333,6 +336,116 @@ async function failOpenOrPreserveDeny(
     };
   } catch {
     // Reconstruction failed — never escalate an internal error into a block.
+    return ALLOW;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Native (passthrough) hooks — host events OUTSIDE the normalized union
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Flags + stdin for {@link runNativeHook}. `event` is HOST-NATIVE (non-union). */
+export interface RunNativeHookOptions {
+  /** Host platform id from the hook command (`hook <platformId> ...`). */
+  platformId: string;
+  /** Host-native event name, verbatim (e.g. "TaskCreated"). */
+  event: string;
+  /** Connector id from `--connector <id>`. */
+  connectorId: string;
+  /** Raw stdin payload (host-native JSON). Empty string is tolerated → `{}`. */
+  stdin: string;
+}
+
+/** The connector's native hook definition for `platformId`/`event`, if any. */
+function nativeHookDef(
+  connector: ResolvedConnector,
+  platformId: string,
+  event: string,
+): NativeHookDef | undefined {
+  return connector.platforms[platformId as PlatformId]?.nativeHooks?.[event];
+}
+
+/**
+ * True when the registered connector declares `event` under
+ * `platforms[platformId].nativeHooks` with a live handler. Used by the hook CLI
+ * to decide whether a non-union event name is accepted (declared → dispatch via
+ * {@link runNativeHook}) or rejected with the strict unknown-event error.
+ * Fail-safe: any load error reads as "not declared".
+ */
+export async function isNativeHookDeclared(
+  platformId: string,
+  event: string,
+  connectorId: string,
+): Promise<boolean> {
+  try {
+    const connector = await loadRegisteredConnector(connectorId);
+    return typeof nativeHookDef(connector, platformId, event)?.handler === "function";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Dispatch one NATIVE (passthrough) hook invocation. No normalized parse, no
+ * HookResponse mapping, no runtime matcher evaluation (the host's own matcher
+ * already filtered — the def's matcher string was written verbatim into the
+ * host config at install):
+ *
+ *   stdin JSON → NativeHookEvent{raw} → handler → VERBATIM JSON stdout (exit 0).
+ *
+ * void/undefined return → exit 0 with no output. Fail-open: ANY throw degrades
+ * to exit 0 with no output — exit-2 blocking semantics are not modeled in v1.
+ * Telemetry: records the same scope:"hook" developer-axis row as normalized
+ * hooks, with the NATIVE event name as the per-item name.
+ */
+export async function runNativeHook(
+  opts: RunNativeHookOptions,
+): Promise<RunHookResult> {
+  const { platformId, event, connectorId, stdin } = opts;
+  try {
+    const connector = await loadRegisteredConnector(connectorId);
+    const def = nativeHookDef(connector, platformId, event);
+    if (!def || typeof def.handler !== "function") {
+      // Not declared for this platform — nothing to do, allow.
+      return ALLOW;
+    }
+
+    const raw = parseStdin(stdin);
+    // Best-effort session/project extraction from the json-stdio common shape
+    // (Claude Code: session_id / cwd). Everything else stays in `raw` untouched.
+    const sessionId =
+      typeof (raw as { session_id?: unknown })?.session_id === "string"
+        ? (raw as { session_id: string }).session_id
+        : "";
+    const cwd = (raw as { cwd?: unknown })?.cwd;
+    const evt: NativeHookEvent = {
+      event,
+      hostPlatform: REGISTERED_PLATFORM_IDS.has(platformId as PlatformId)
+        ? (platformId as PlatformId)
+        : "unknown",
+      sessionId,
+      ...(typeof cwd === "string" && cwd !== "" ? { projectDir: cwd } : {}),
+      raw,
+    };
+
+    const result = await def.handler(evt);
+
+    // Same scope:"hook" telemetry row as normalized hooks (fail-open inside).
+    recordHookTelemetry(opts, connector, evt, result === undefined ? {} : result);
+
+    if (result === undefined) return ALLOW; // void → exit 0, no output
+    const json = JSON.stringify(result);
+    // Non-JSON-serializable returns (functions/symbols) degrade to silence.
+    if (json === undefined) return ALLOW;
+    return { exitCode: 0, stdout: json };
+  } catch (err) {
+    // Fail-open, unconditionally: native hooks have no deny-preserve carve-out
+    // (there is no normalized decision to reconstruct).
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(
+      `native hook ${platformId}/${event} (${connectorId}) failed:`,
+      message,
+    );
     return ALLOW;
   }
 }

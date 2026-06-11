@@ -161,6 +161,22 @@ export async function installConnector(
       pushAll(result.changes, adapter.installHooks(ctx));
     });
 
+    // Native passthrough hooks declared for THIS platform but not supported by
+    // its adapter: the standard skip-warn ChangeRecord (never silent), mirroring
+    // BaseAdapter.unsupportedSurface. nativeHooks is per-platform-keyed, so a
+    // declaration only ever concerns the platform it was declared under; the
+    // supporting adapters (capabilities.supportsNativeHooks) install the entries
+    // themselves inside installHooks.
+    const nativeHooks = connector.platforms[id]?.nativeHooks;
+    const nativeCount = nativeHooks ? Object.keys(nativeHooks).length : 0;
+    if (nativeCount > 0 && !(adapter.capabilities.supportsNativeHooks ?? false)) {
+      result.changes.push({
+        platform: id,
+        action: "warn",
+        detail: `nativeHooks not supported on ${id}; ${nativeCount} skipped`,
+      });
+    }
+
     // Content surfaces: guarded by declaration so undeclared surfaces add no
     // noise. BaseAdapter defines all six, so the `!` is safe; per-step
     // try/catch (runStep) turns any adapter failure into a warn, never aborting.

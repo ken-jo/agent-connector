@@ -15,7 +15,8 @@
 import { parseArgs } from "node:util";
 
 import type { HookEventName } from "../../core/types.js";
-import { runHook } from "../../runtime/index.js";
+import { isNativeHookDeclared, runHook, runNativeHook } from "../../runtime/index.js";
+import type { RunHookResult } from "../../runtime/index.js";
 import { fail } from "../app.js";
 
 const HOOK_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
@@ -56,12 +57,22 @@ export async function run(argv: string[]): Promise<number> {
   if (!platformId || !event) {
     return fail("usage: agent-connector hook <platform> <event> --connector <id>");
   }
-  if (!HOOK_EVENTS.has(event)) {
-    return fail(`unknown hook event "${event}"`);
-  }
   const connectorId = values.connector;
   if (!connectorId || connectorId.trim() === "") {
     return fail("hook requires --connector <id>");
+  }
+
+  // NATIVE PASSTHROUGH: a non-union event name is accepted ONLY when the
+  // resolved connector declares it under platforms[<platform>].nativeHooks —
+  // dispatch then bypasses the normalized parse/format entirely (raw stdin →
+  // handler → verbatim JSON stdout). Undeclared names keep the strict error.
+  if (!HOOK_EVENTS.has(event)) {
+    if (!(await isNativeHookDeclared(platformId, event, connectorId))) {
+      return fail(`unknown hook event "${event}"`);
+    }
+    const stdin = await readAll(process.stdin);
+    const reply = await runNativeHook({ platformId, event, connectorId, stdin });
+    return exitWithReply(reply);
   }
 
   // Read the entire host payload before dispatching.
@@ -74,12 +85,16 @@ export async function run(argv: string[]): Promise<number> {
     stdin,
   });
 
+  return exitWithReply(reply);
+}
+
+/** Write a hook reply's stdout/stderr and exit with its code. */
+function exitWithReply(reply: RunHookResult): never {
   if (reply.stdout !== undefined && reply.stdout !== "") {
     process.stdout.write(reply.stdout);
   }
   if (reply.stderr !== undefined && reply.stderr !== "") {
     process.stderr.write(reply.stderr.endsWith("\n") ? reply.stderr : `${reply.stderr}\n`);
   }
-
   process.exit(reply.exitCode);
 }

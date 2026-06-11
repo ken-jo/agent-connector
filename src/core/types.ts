@@ -364,6 +364,69 @@ export interface HooksConfig {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Native (passthrough) hooks — platform-scoped escape hatch
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * The payload a NATIVE (passthrough) hook handler receives. Unlike the
+ * normalized {@link EventPayloadMap} events there is NO field mapping: `raw` is
+ * the host's stdin JSON exactly as it arrived, so the handler reads the host's
+ * own contract (e.g. Claude's snake_case `task_id` / `teammate_name` fields)
+ * with full native fidelity.
+ */
+export interface NativeHookEvent {
+  /** Host-native event name, VERBATIM (e.g. "TaskCreated", "WorktreeRemove"). */
+  event: string;
+  /** Which host produced this event. */
+  hostPlatform: PlatformId;
+  /** Host session id when the payload carries one ("" when it provides none). */
+  sessionId: string;
+  /** Project directory when the host reports one (Claude Code: `cwd`). */
+  projectDir?: string;
+  /** The host's RAW stdin payload, UNTOUCHED — no normalization whatsoever. */
+  raw: unknown;
+}
+
+/**
+ * One native passthrough hook: a handler bound to a HOST-NATIVE event name that
+ * is not part of the normalized {@link HookEventName} union.
+ *
+ * Contract (deliberately minimal — full native fidelity, zero translation):
+ *   - The handler receives the host's RAW stdin payload ({@link NativeHookEvent}.raw).
+ *   - Whatever the handler RETURNS is serialized VERBATIM as the stdout JSON
+ *     reply with exit 0. There is no {@link HookResponse} mapping — the return
+ *     value must already be the host's native reply shape. Examples from Claude
+ *     Code's contracts: a TaskCreated/TaskCompleted handler returns
+ *     `{continue: false, stopReason: "…"}` to stop the teammate entirely; a
+ *     MessageDisplay handler returns
+ *     `{hookSpecificOutput: {hookEventName: "MessageDisplay", displayContent}}`
+ *     to rewrite the rendered text; an Elicitation handler returns
+ *     `{hookSpecificOutput: {hookEventName: "Elicitation", action: "accept", content}}`
+ *     to answer an MCP user-input request programmatically. For output-ignored
+ *     events (e.g. StopFailure, InstructionsLoaded) the handler is
+ *     logging/alerting-only and should return void.
+ *   - void/undefined → exit 0 with NO output.
+ *   - Fail-open: any throw degrades to exit 0 with no output.
+ *
+ * LIMITATION (v1): exit-2 blocking semantics are NOT modeled — a native handler
+ * always exits 0. JSON-on-exit-0 decision control covers Claude Code's events
+ * (e.g. `{continue:false, stopReason}` on TaskCreated/TaskCompleted/TeammateIdle),
+ * but contracts that REQUIRE a non-zero exit (e.g. WorktreeCreate fails creation
+ * on any non-zero exit and wants the path on stdout — which a returned string
+ * cannot express as bare text) may not be fully drivable.
+ */
+export interface NativeHookDef {
+  /**
+   * Host-native matcher string, written VERBATIM into the host's hook config
+   * entry (e.g. Claude's tool-name / agent-type / trigger matchers). The
+   * framework does not evaluate it at runtime — the host filters.
+   */
+  matcher?: string;
+  /** Receives the raw host payload; its return is the verbatim stdout reply. */
+  handler(evt: NativeHookEvent): unknown | Promise<unknown>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Platform capabilities
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -395,6 +458,15 @@ export interface PlatformCapabilities {
   canInjectSessionContext: boolean;
   /** MCP transports this host can register. */
   transports: Transport[];
+  /**
+   * Native (passthrough) hooks support — can this adapter install
+   * {@link PlatformOverride.nativeHooks} entries verbatim into the host's hook
+   * config? OPTIONAL, read as `?? false` (supportsCommands precedent). Only
+   * claude-code opts in today; an adapter that leaves this unset and receives a
+   * nativeHooks declaration gets the standard skip-warn ChangeRecord from the
+   * installer (never silent).
+   */
+  supportsNativeHooks?: boolean;
   /**
    * Content-surface support (all OPTIONAL so existing adapter capability
    * literals compile unchanged; read as `?? false`). Only surface-supporting
@@ -501,8 +573,33 @@ export interface TelemetryConfig {
 
 /** Per-platform override / escape hatch (report §3.2). */
 export interface PlatformOverride {
-  /** false → do not install hooks on this platform; object → merge/replace hooks. */
+  /**
+   * false → do not install the NORMALIZED hooks on this platform; object →
+   * merge/replace hooks. Does not affect `nativeHooks` below (a sibling,
+   * explicitly platform-scoped declaration).
+   */
   hooks?: boolean | Partial<HooksConfig>;
+  /**
+   * NATIVE HOOKS PASSTHROUGH — wire ANY host hook event that is not in the
+   * normalized {@link HookEventName} union, keyed by the host's event name
+   * VERBATIM. This immediately covers all 30 current Claude Code events (e.g.
+   * TaskCreated, TaskCompleted, TeammateIdle, StopFailure, MessageDisplay,
+   * WorktreeCreate/WorktreeRemove, Elicitation/ElicitationResult,
+   * InstructionsLoaded, ConfigChange, FileChanged, PostCompact, …) and any
+   * future event a host adds — with zero agent-connector releases.
+   *
+   * Scoping: per-platform-keyed, so a declaration only ever applies to the
+   * platform it is declared under. Adapters without
+   * {@link PlatformCapabilities.supportsNativeHooks} report a skip-warn
+   * ChangeRecord at install (never silent). Declaring one of the 12 normalized
+   * event names here is a ConnectorConfigError — use the normalized `hooks`
+   * API for those.
+   *
+   * PROMOTION CRITERIA: an event graduates from nativeHooks to the normalized
+   * union when ≥3 hosts ship a native analog (per the living cross-host
+   * matrix); TaskCreated/TaskCompleted are the named first candidates.
+   */
+  nativeHooks?: Record<string, NativeHookDef>;
   /** false → do not register the MCP server here; object → shallow-merge into ServerDef. */
   server?: Partial<ServerDef> | false;
   /** Force a specific scope for this platform. */

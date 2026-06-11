@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Check, X, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { CodeBlock } from "@/components/ui/code-block";
@@ -735,7 +736,16 @@ export function HooksGuideSection() {
         framework looks at each detected host&apos;s paradigm and synthesizes the
         right delivery; a universal home-bin <C>hook</C> entrypoint dispatches the
         payload into your one handler and formats the reply back into the
-        host&apos;s native control surface.
+        host&apos;s native control surface. The union is the cross-platform{" "}
+        <em>floor</em>, not a ceiling — host-only events (Claude Code alone
+        ships 30) are reachable per platform via the{" "}
+        <Link
+          className="underline hover:text-foreground"
+          to="/docs/dev/hooks#native-hooks"
+        >
+          <C>nativeHooks</C> passthrough
+        </Link>
+        .
       </P>
       <div className="not-prose my-6 grid gap-3 md:grid-cols-3">
         {paradigmOrder.map((paradigm) => (

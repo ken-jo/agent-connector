@@ -558,6 +558,33 @@ export function HooksSection() {
         The hook entrypoint never rejects, so a framework or handler bug
         can&apos;t wedge a host&apos;s tool call.
       </Callout>
+
+      <H3 id="native-hooks">Native hooks passthrough</H3>
+      <P>
+        The normalized union stays small on purpose — hosts ship far more events
+        than 12 (Claude Code alone has <strong>30</strong>). For host-only
+        events, <C>platforms.&lt;id&gt;.nativeHooks</C> wires{" "}
+        <strong>any</strong> native event by its verbatim name — including
+        events a host adds in the future — with zero agent-connector releases:
+      </P>
+      <CodeBlock
+        code={S.nativeHooksSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+      <Callout title="Raw in, verbatim out — and exit 0 only">
+        No normalization and no <C>HookResponse</C> mapping: the handler reads
+        the host&apos;s raw stdin payload (<C>evt.raw</C>) and its return value
+        is the verbatim stdout JSON reply. <C>void</C> → exit 0 with no output;
+        any throw fails open. Exit-2 blocking semantics are{" "}
+        <strong>not modeled</strong> in v1 — JSON-on-exit-0 decision control
+        covers Claude Code&apos;s events. Declaring one of the 12 normalized
+        event names here is a <C>ConnectorConfigError</C> (use <C>hooks</C> for
+        those). Only claude-code sets <C>supportsNativeHooks</C> today; other
+        adapters skip-warn, never silently. An event is promoted into the
+        normalized union once ≥3 hosts ship a native analog —{" "}
+        <C>TaskCreated</C> / <C>TaskCompleted</C> are the first candidates.
+      </Callout>
     </DocSection>
   );
 }

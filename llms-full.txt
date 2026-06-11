@@ -293,6 +293,76 @@ detected paradigm):
 Fail-open is the runtime contract: the hook entrypoint never rejects, so a framework
 or handler bug can't wedge a host's tool call.
 
+**Native hooks passthrough (`platforms.<id>.nativeHooks`)** — the platform-scoped
+escape hatch for host hook events OUTSIDE the normalized 12-event union. Hosts ship
+far more events than the union normalizes: Claude Code alone has **30** hook events,
+18 of them with no normalized analog (Setup, UserPromptExpansion, PermissionDenied,
+PostToolBatch, MessageDisplay, TaskCreated, TaskCompleted, StopFailure, TeammateIdle,
+InstructionsLoaded, ConfigChange, CwdChanged, FileChanged, WorktreeCreate,
+WorktreeRemove, PostCompact, Elicitation, ElicitationResult). `nativeHooks` wires any
+of them — and any future event a host adds — with zero agent-connector releases:
+
+```ts
+// PlatformOverride (§2.6) gains:
+nativeHooks?: Record<string, NativeHookDef>;  // key = HOST event name, VERBATIM
+
+interface NativeHookDef {
+  matcher?: string;   // host-native matcher, written verbatim — the HOST filters
+  handler(evt: NativeHookEvent): unknown | Promise<unknown>;
+}
+
+interface NativeHookEvent {
+  event: string;            // host-native event name, verbatim (e.g. "TaskCompleted")
+  hostPlatform: PlatformId;
+  sessionId: string;        // "" when the host provides none
+  projectDir?: string;      // Claude Code: `cwd`
+  raw: unknown;             // the host's RAW stdin payload, UNTOUCHED
+}
+```
+
+Contract — **raw in, verbatim out** (full native fidelity, zero translation):
+- The handler receives the host's RAW stdin payload (`raw`) — no normalization, no
+  field mapping; you read the host's own contract (snake_case and all).
+- Whatever the handler RETURNS is serialized VERBATIM as the stdout JSON reply with
+  exit 0 — no `HookResponse` mapping; the return value must already be the host's
+  native reply shape. Claude examples: `{continue: false, stopReason}` on
+  TaskCreated / TaskCompleted / TeammateIdle stops the teammate;
+  `{hookSpecificOutput: {hookEventName: "MessageDisplay", displayContent}}` rewrites
+  the rendered text; `{hookSpecificOutput: {hookEventName: "Elicitation", action:
+  "accept" | "decline" | "cancel", …}}` answers an MCP user-input request.
+- `void`/`undefined` → exit 0 with NO output (right for output-ignored events like
+  StopFailure / InstructionsLoaded — logging/alerting only).
+- Fail-open: any throw degrades to exit 0 with no output.
+
+**LIMITATION (v1): exit-2 blocking is NOT modeled** — a native handler always exits
+0. JSON-on-exit-0 decision control covers Claude Code's events, but a contract that
+REQUIRES a non-zero exit or bare (non-JSON) stdout — e.g. WorktreeCreate fails
+worktree creation on any non-zero exit and reads a bare path from stdout — may not
+be fully drivable.
+
+Validation (`define-connector.ts`): each handler must be a function; `matcher`, when
+present, must be a string; a key that collides with one of the 12 normalized
+`HookEventName` values throws `ConnectorConfigError` — use the normalized `hooks`
+API for those (it gets normalization, matcher evaluation, and HookResponse mapping).
+A connector whose ONLY payload is a `nativeHooks` declaration is valid.
+
+Support is opt-in per adapter via `PlatformCapabilities.supportsNativeHooks`
+(optional, read `?? false`) — **only claude-code sets it today** (settings.json hook
+keys are free-form event names, so entries install verbatim: event-name key, the
+def's matcher, the same home-bin command shape; uninstall removes them; doctor
+counts them only when declared). `nativeHooks` is keyed per platform, so a
+declaration only ever applies to the platform it sits under; an adapter without the
+capability reports the standard skip-warn ChangeRecord (never silent). At runtime
+the hook CLI accepts the non-union event name when the resolved connector declares
+it (`agent-connector hook claude-code TaskCompleted --connector <id>`), bypassing
+normalized parse/format entirely: stdin JSON → `NativeHookEvent{raw}` → handler →
+verbatim JSON stdout. Telemetry records the dispatch as a normal `scope: hook`
+developer-axis row under the host-native event name.
+
+**Promotion criteria:** an event graduates from `nativeHooks` into the normalized
+union when ≥3 hosts ship a native analog (tracked in the living cross-host matrix);
+`TaskCreated` / `TaskCompleted` are the named first candidates.
+
 ### 2.4 Content surfaces — `CommandDef`, `SkillDef`, `SubagentDef`
 
 These are **content-only** (markdown / TOML files): no runtime dispatch, no telemetry
@@ -390,7 +460,8 @@ interface TelemetryConfig {
 
 ```ts
 interface PlatformOverride {
-  hooks?: boolean | Partial<HooksConfig>;   // false → no hooks here; object → merge/replace
+  hooks?: boolean | Partial<HooksConfig>;   // false → no NORMALIZED hooks here; object → merge/replace
+  nativeHooks?: Record<string, NativeHookDef>; // native-event passthrough (§2.3); claude-code only today
   server?: Partial<ServerDef> | false;      // false → don't register server here; object → shallow-merge
   scope?: InstallScope;                     // force a scope for this platform
   commands?: boolean;                       // false → skip command files here

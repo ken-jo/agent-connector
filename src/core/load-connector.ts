@@ -147,7 +147,11 @@ export async function loadConnectorFromPath(
  * Strip any function-valued `hooks` from per-platform overrides so the result
  * is JSON-serializable. A boolean `hooks` override is preserved; an object
  * override is dropped (it can only carry handler functions, which are not
- * serializable). Everything else on the override is kept verbatim.
+ * serializable). `nativeHooks` declarations are persisted HANDLER-LESS (event
+ * name + matcher only) so meta-based inspection (doctor / health checks / the
+ * hook CLI) can still see WHICH native events were declared — the live handlers
+ * are re-imported from `modulePath` at runtime, exactly like normalized hooks.
+ * Everything else on the override is kept verbatim.
  */
 function serializablePlatforms(
   platforms: Partial<Record<PlatformId, PlatformOverride>>,
@@ -158,10 +162,20 @@ function serializablePlatforms(
     PlatformOverride | undefined,
   ][]) {
     if (!override) continue;
-    const { hooks, ...rest } = override;
+    const { hooks, nativeHooks, ...rest } = override;
     const clean: PlatformOverride = { ...rest };
     // Keep only a boolean hooks flag; object hooks carry handler functions.
     if (typeof hooks === "boolean") clean.hooks = hooks;
+    if (nativeHooks && typeof nativeHooks === "object") {
+      const stripped: Record<string, { matcher?: string }> = {};
+      for (const [event, def] of Object.entries(nativeHooks)) {
+        stripped[event] =
+          typeof def?.matcher === "string" ? { matcher: def.matcher } : {};
+      }
+      // Cast: the persisted record deliberately omits the (non-serializable)
+      // handler; consumers of meta-derived connectors never dispatch handlers.
+      clean.nativeHooks = stripped as PlatformOverride["nativeHooks"];
+    }
     out[id] = clean;
   }
   return out;

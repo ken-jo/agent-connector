@@ -220,7 +220,7 @@ export const sectionDescription: Record<string, string> = {
   server:
     "ServerDef — a normalized, transport-polymorphic MCP server descriptor declared once and rendered into each host's native dialect.",
   hooks:
-    "Declare lifecycle hooks once against the 12 normalized events (incl. PermissionRequest, PostToolUseFailure, SubagentStart, SubagentStop); the framework synthesizes the right shape per host paradigm and formats your reply.",
+    "Declare lifecycle hooks once against the 12 normalized events (incl. PermissionRequest, PostToolUseFailure, SubagentStart, SubagentStop); the framework synthesizes the right shape per host paradigm and formats your reply. Host-only events outside the union (Claude Code alone ships 30) are reachable via the per-platform nativeHooks passthrough — raw payload in, verbatim JSON reply out.",
   "hooks-guide":
     "The precise, visible cross-platform hook map: 12 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
@@ -834,7 +834,13 @@ export const platformOverrideFields: FieldRow[] = [
   {
     name: "hooks",
     type: "boolean | Partial<HooksConfig>",
-    notes: "false → no hooks here; object → merge / replace.",
+    notes: "false → no NORMALIZED hooks here; object → merge / replace.",
+  },
+  {
+    name: "nativeHooks",
+    type: "Record<string, NativeHookDef>",
+    notes:
+      "Native passthrough — wire ANY host hook event outside the 12 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). claude-code only today; other adapters skip-warn.",
   },
   {
     name: "server",

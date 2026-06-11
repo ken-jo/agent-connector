@@ -5,6 +5,9 @@
  *     at (via the single stable home binary). Takes the parsed hook flags + the
  *     raw stdin string; the CLI is responsible for reading stdin (these
  *     entrypoints accept it as a parameter and do no IO of their own here).
+ *     runNativeHook is its passthrough sibling for host-native (non-union)
+ *     events declared under platforms[<id>].nativeHooks — raw stdin → handler →
+ *     verbatim JSON stdout, no normalization.
  *   • runServe — the telemetry-wrapping MCP stdio proxy launcher used when a
  *     stdio server opts into transparent per-tool token telemetry.
  *
@@ -12,8 +15,12 @@
  * the package expose a stable `agent-connector/runtime` subpath.
  */
 
-export { runHook } from "./hook-entrypoint.js";
-export type { RunHookOptions, RunHookResult } from "./hook-entrypoint.js";
+export { runHook, runNativeHook, isNativeHookDeclared } from "./hook-entrypoint.js";
+export type {
+  RunHookOptions,
+  RunHookResult,
+  RunNativeHookOptions,
+} from "./hook-entrypoint.js";
 
 export { runServe } from "./serve.js";
 export type { RunServeOptions } from "./serve.js";

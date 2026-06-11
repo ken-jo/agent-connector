@@ -220,6 +220,43 @@ describe("claude-code adapter render/round-trip", () => {
     expect(cfg.hooks.SessionStart).toHaveLength(1);
   });
 
+  it("nativeHooks passthrough: capability flag + verbatim event-name keys beside normalized hooks", () => {
+    expect(claudeAdapter.capabilities.supportsNativeHooks).toBe(true);
+
+    const connector = defineConnector({
+      id: CONNECTOR_ID,
+      hooks: {
+        PreToolUse: { matcher: "acme_query", handler: () => ({ decision: "allow" }) },
+      },
+      platforms: {
+        "claude-code": {
+          nativeHooks: {
+            TaskCreated: {
+              handler: () => ({ continue: false, stopReason: "no new tasks" }),
+            },
+            StopFailure: { matcher: "rate_limit", handler: () => {} },
+          },
+        },
+      },
+    });
+    const nativeCtx = buildCtx(projectDir, connector);
+
+    claudeAdapter.installHooks(nativeCtx);
+    const cfg = readJson(join(projectDir, ".claude", "settings.json"));
+    // Normalized + native entries coexist; native keys are written VERBATIM.
+    expect(cfg.hooks.PreToolUse[0].hooks[0].command).toContain(
+      "hook claude-code PreToolUse",
+    );
+    expect(cfg.hooks.TaskCreated[0].hooks[0].command).toContain(
+      "hook claude-code TaskCreated",
+    );
+    expect(cfg.hooks.StopFailure[0].matcher).toBe("rate_limit");
+
+    claudeAdapter.uninstallHooks(nativeCtx);
+    const after = readJson(join(projectDir, ".claude", "settings.json"));
+    expect(JSON.stringify(after.hooks ?? {})).not.toContain(HOME_BIN);
+  });
+
   it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
     claudeAdapter.installServer(ctx);
     claudeAdapter.installHooks(ctx);

@@ -110,6 +110,10 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: true,
     canModifyOutput: false,
     canInjectSessionContext: true,
+    // Native passthrough hooks: settings.json hook keys are free-form event
+    // names, so any host event (TaskCreated, TeammateIdle, WorktreeCreate, …)
+    // declared under platforms["claude-code"].nativeHooks installs verbatim.
+    supportsNativeHooks: true,
     transports: ["stdio", "http"],
     // Content surfaces: Claude Code is the reference implementation for all three.
     supportsCommands: true,
@@ -269,14 +273,25 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
-    if (connector.platforms[HOST]?.hooks === false) {
+    const override = connector.platforms[HOST];
+
+    // `hooks: false` disables only the NORMALIZED hooks. nativeHooks is a
+    // sibling, explicitly claude-code-scoped declaration on the same override —
+    // it installs regardless (the dev wrote both keys on the same object).
+    const normalizedEvents = override?.hooks === false ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
+    if (normalizedEvents.length === 0 && nativeEvents.length === 0) {
       return [
-        { platform: this.id, action: "skip", detail: "hooks disabled for claude-code" },
-      ];
-    }
-    if (connector.hookEvents.length === 0) {
-      return [
-        { platform: this.id, action: "skip", detail: "connector declares no hooks" },
+        {
+          platform: this.id,
+          action: "skip",
+          detail:
+            override?.hooks === false
+              ? "hooks disabled for claude-code"
+              : "connector declares no hooks",
+        },
       ];
     }
 
@@ -287,9 +302,23 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
-    for (const event of connector.hookEvents) {
+    // One pass over normalized + NATIVE events: native event-name keys are
+    // written VERBATIM (e.g. "TaskCreated"), matcher from the def, and the
+    // exact same home-bin command shape — so uninstall/doctor/telemetry treat
+    // both identically.
+    const pending: Array<{ event: string; matcher: string }> = [
+      ...normalizedEvents.map((event) => ({
+        event: event as string,
+        matcher: connector.hooks[event]?.matcher ?? "",
+      })),
+      ...nativeEvents.map((event) => ({
+        event,
+        matcher: nativeHooks[event]?.matcher ?? "",
+      })),
+    ];
+
+    for (const { event, matcher } of pending) {
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const matcher = connector.hooks[event]?.matcher ?? "";
       const entry: ClaudeHookEntry = {
         matcher,
         hooks: [{ type: "command", command }],
@@ -568,6 +597,12 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const connectorId = ctx.connector.id;
     const homeBin = ctx.homeBinPath;
     const hookEvents = ctx.connector.hookEvents;
+    // Native passthrough hooks count toward "declares hooks" ONLY when declared
+    // for this platform (the serialized meta keeps the event-name keys, so this
+    // works for doctor's handler-less meta-derived connectors too).
+    const declaredHookCount =
+      hookEvents.length +
+      Object.keys(ctx.connector.platforms[HOST]?.nativeHooks ?? {}).length;
     const checks: HealthCheck[] = [
       {
         name: `${this.name}: settings.json present`,
@@ -575,7 +610,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           // Same "only assert what the connector declares" rule as the
           // content-surface checks below: a hookless connector never writes
           // hooks into settings.json, so its absence is healthy, not a failure.
-          if (hookEvents.length === 0) {
+          if (declaredHookCount === 0) {
             return { status: "OK", detail: "no hooks declared" };
           }
           return existsSync(settingsPath)
@@ -586,7 +621,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
       {
         name: `${this.name}: hook command registered`,
         check: () => {
-          if (hookEvents.length === 0) {
+          if (declaredHookCount === 0) {
             return { status: "OK", detail: "no hooks declared" };
           }
           const settings = this.readJson<{ hooks?: Record<string, ClaudeHookEntry[]> }>(
