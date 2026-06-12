@@ -1042,9 +1042,9 @@ export const cliCommands: CliCommand[] = [
   {
     name: "install",
     signature:
-      "agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]",
+      "agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]",
     summary:
-      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
+      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --method marketplace (v1: claude-code) drives the host's own plugin flow instead — stage the bundle, register a local marketplace, `claude plugin install` — with a guard refusing a double install by both methods; `uninstall --method auto` reverses whichever is present. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
   },
   {
     name: "upgrade",

@@ -18,6 +18,7 @@ import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-conn
 import {
   ALL_FORMATS,
   FEASIBLE_FORMATS,
+  installInstructions,
   isPackageFormat,
   packageConnector,
   packageConnectorAll,
@@ -63,65 +64,14 @@ function printFormatResult(
   for (const line of installInstructions(format, connectorId, outDir)) {
     print(`    ${line}`);
   }
-  print("");
-}
-
-/** Per-format install commands (the accurate two-step add+install where applicable). */
-function installInstructions(
-  format: PackageFormat,
-  id: string,
-  outDir: string,
-): string[] {
-  switch (format) {
-    case "claude-plugin":
-      return [
-        `/plugin marketplace add ${outDir}`,
-        `/plugin install ${id}@agent-connector`,
-        `(CLI: claude plugin marketplace add ${outDir} && claude plugin install ${id}@agent-connector)`,
-      ];
-    case "codex-plugin":
-      return [
-        `codex plugin marketplace add ${outDir}`,
-        `codex plugin add ${id}@agent-connector`,
-      ];
-    case "factory-plugin":
-      return [
-        `droid plugin marketplace add ${outDir}`,
-        `droid plugin install ${id}@agent-connector`,
-      ];
-    case "gemini-extension":
-      return [`gemini extensions install ${join(outDir, id)}`];
-    case "qwen-extension":
-      return [`qwen extensions install ${join(outDir, id)}`];
-    case "agy-plugin":
-      return [
-        `agy plugin install ${join(outDir, id)}`,
-        `(validate: agy plugin validate ${join(outDir, id)})`,
-      ];
-    case "cursor-plugin":
-      return [
-        `link ${join(outDir, id)} into ~/.cursor/plugins/local/${id}/ then Developer: Reload Window`,
-        `(or publish ${outDir} as a Cursor marketplace repo)`,
-      ];
-    case "kimi-plugin":
-      return [`kimi plugin install ${join(outDir, id)}`];
-    case "npm-plugin":
-      return [
-        `npm publish ${join(outDir, id)}  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)`,
-      ];
-    case "mcp-server-json":
-      return [
-        `mcp-publisher login <github|dns|http>   (prove ownership of your namespace once)`,
-        `cd ${outDir} && mcp-publisher publish   (uploads server.json to the official MCP Registry)`,
-      ];
-    case "mcpb":
-      return [
-        `vendor your built server under ${join(outDir, "server")}/ (see the emitted README)`,
-        `npx @anthropic-ai/mcpb pack ${outDir}   (then optionally: mcpb sign)`,
-      ];
-    default:
-      return [];
+  // `package` stays a pure emitter (no host CLIs spawned) — but for hosts whose
+  // marketplace flow agent-connector can DRIVE, point at the lifecycle verb.
+  if (format === "claude-plugin") {
+    print(
+      "    (or let agent-connector drive it: agent-connector install --method marketplace --targets claude-code)",
+    );
   }
+  print("");
 }
 
 export async function run(argv: string[]): Promise<number> {

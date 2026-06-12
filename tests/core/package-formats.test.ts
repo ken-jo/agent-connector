@@ -172,9 +172,12 @@ describe("packageConnector — codex-plugin", () => {
     expect(existsSync(join(res.pluginDir, "skills", "pdf-tools", "SKILL.md"))).toBe(true);
   });
 
-  it("emits a .codex-plugin/marketplace.json catalog, hooks (--host codex), and serve-wrapped .mcp.json", () => {
+  it("emits an .agents/plugins/marketplace.json catalog, hooks (--host codex), and serve-wrapped .mcp.json", () => {
     const res = packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN });
-    expect(res.marketplacePath).toBe(join(outDir, ".codex-plugin", "marketplace.json"));
+    // codex's documented catalog location — `codex plugin marketplace add`
+    // REJECTS a .codex-plugin/ catalog ("marketplace root does not contain a
+    // supported manifest"; live-verified against codex-cli 0.139.0).
+    expect(res.marketplacePath).toBe(join(outDir, ".agents", "plugins", "marketplace.json"));
     const mkt = readJson(res.marketplacePath!);
     expect(mkt.owner).toEqual({ name: "Acme Inc" }); // publish.author attributes the catalog to the dev
 

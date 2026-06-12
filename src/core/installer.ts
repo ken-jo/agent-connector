@@ -49,6 +49,11 @@ import {
 } from "./paths.js";
 import { configPatchManualEdit } from "./config-patch-ledger.js";
 import { hasMemoryLedger } from "./managed-block.js";
+import {
+  anyMarketplaceRecordsRemain,
+  connectorHasMarketplaceRecords,
+  marketplaceEvidence,
+} from "./marketplace-state.js";
 import { log } from "./logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -142,6 +147,23 @@ export async function installConnector(
   }
 
   for (const id of targets) {
+    // Double-install guard (inverse direction): a connector present BOTH
+    // directly and as a host plugin duplicates hooks + the MCP server and
+    // corrupts telemetry — exactly one method per (connector, host, scope).
+    // The probe is state-file-first then read-only host fs (it also catches
+    // installs the user performed manually from `package`'s instructions) and
+    // refuses ONLY on positive evidence; unreadable/unknown proceeds.
+    const evidence = marketplaceEvidence(connector.id, id);
+    if (evidence) {
+      const detail =
+        `"${connector.id}" is already installed via MARKETPLACE on ${id} (${evidence}) — ` +
+        `refusing the direct install. Run \`agent-connector uninstall --method marketplace ` +
+        `--targets ${id}\` first, or keep the marketplace install.`;
+      result.changes.push({ platform: id, action: "warn", detail });
+      result.warnings.push(detail);
+      continue;
+    }
+
     const adapter = await tryLoadAdapter(id, result);
     if (!adapter) continue;
 
@@ -353,8 +375,18 @@ export async function uninstallConnector(
  *   2. When no connector records remain, remove the shared home-bin launcher.
  * All steps are guarded/best-effort and respect dryRun — on a dry run nothing is
  * mutated, but the would-be `remove` changes are still reported.
+ *
+ * MARKETPLACE guard: an installed host plugin's hooks exec the home-bin OUTSIDE
+ * any adapter-managed config, and the connector record (which contains
+ * marketplace-installs.json) is what lets that install be reversed later. So a
+ * purge REFUSES to remove this connector's record while it still records
+ * marketplace installs, and refuses to remove the home-bin while ANY
+ * connector's marketplace installs survive.
+ *
+ * Exported for the uninstall command's marketplace path (which needs the
+ * framework purge when no direct targets remain to run uninstallConnector for).
  */
-function purgeFrameworkState(
+export function purgeFrameworkState(
   connectorId: string,
   dryRun: boolean,
   result: InstallResult,
@@ -363,6 +395,17 @@ function purgeFrameworkState(
   // types `platform` as the closed PlatformId union, so label them with the
   // connector id (cast once) — there is no real host platform to attribute.
   const platform = connectorId as PlatformId;
+
+  // Marketplace survivors → refuse the purge for this connector (the remedy is
+  // a one-command marketplace uninstall; the failure mode is orphaned plugins).
+  if (connectorHasMarketplaceRecords(connectorId)) {
+    const detail =
+      `--purge skipped: "${connectorId}" still records marketplace installs — ` +
+      `run \`agent-connector uninstall --method marketplace\` first`;
+    result.changes.push({ platform, action: "warn", detail });
+    result.warnings.push(detail);
+    return;
+  }
 
   // 1. Deregister the connector record directory.
   const recordDir = connectorDir(connectorId);
@@ -383,7 +426,12 @@ function purgeFrameworkState(
     });
   }
 
-  // 2. If no connector records remain, remove the shared home-bin launcher.
+  // 2. If no connector records remain, remove the shared home-bin launcher —
+  // unless another connector's marketplace installs survive (their installed
+  // plugin hooks exec this launcher; removing it would silently kill them).
+  if (anyMarketplaceRecordsRemain(connectorId)) {
+    return;
+  }
   if (noConnectorsRemain(connectorId, dryRun, recordExisted)) {
     const binPath = homeBinPath();
     if (existsSync(binPath)) {
@@ -470,8 +518,12 @@ export function resolveCliEntry(): string {
  *
  * Precedence: explicit `flagTargets` → connector's `targets` array → auto-detect
  * installed hosts. "auto" connector targets also fall through to detection.
+ *
+ * Exported for the marketplace orchestration (core/marketplace.ts), which
+ * resolves targets EXACTLY like the direct install before mapping each platform
+ * to its bundle format.
  */
-async function resolveTargets(
+export async function resolveTargets(
   flagTargets: PlatformId[] | undefined,
   connectorTargets: ResolvedConnector["targets"],
   projectDir: string,
@@ -571,6 +623,22 @@ function runStep(
     result.changes.push({ platform: id, action: "warn", detail });
     result.warnings.push(detail);
   }
+}
+
+/**
+ * Resolve the target platforms an uninstall of `connectorId` would touch —
+ * the exact resolution {@link uninstallConnector} performs internally, exposed
+ * so the CLI's `--method auto` can PARTITION targets (marketplace-evidence →
+ * host plugin uninstall; everything else → the direct adapter strip) before
+ * dispatching to the two orchestrations.
+ */
+export async function resolveUninstallTargets(
+  connectorId: string,
+  flagTargets: PlatformId[] | undefined,
+  projectDir: string,
+): Promise<PlatformId[]> {
+  const connector = await loadConnectorForUninstall(connectorId);
+  return resolveTargets(flagTargets, connector.targets, projectDir);
 }
 
 /**

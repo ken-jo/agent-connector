@@ -840,7 +840,18 @@ reason, and a one-line capabilities summary (events, transports, modifyArgs /
 modifyOutput / injectContext). `--json` emits the raw `DetectedPlatform[]`.
 
 ### install
-`agent-connector install [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]`
+`agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]`
+`--method marketplace` (v1: claude-code only) drives the HOST's plugin flow
+instead of writing config directly: stage the `claude-plugin` bundle under
+`<dataRoot>/marketplace/claude/`, regenerate the shared local-marketplace
+catalog, `claude plugin marketplace add` (once, by reference), then
+`claude plugin install <id>@agent-connector` — headless and idempotent; if the
+`claude` CLI is absent it degrades to printing the exact commands. A guard
+refuses installing the same connector by BOTH methods (duplicated hooks +
+server); `uninstall --method auto` reverses whichever method is present, and
+removing the last staged plugin also removes the shared marketplace
+registration. State: `<dataRoot>/marketplace/marketplace-installs.json`.
+The default `--method direct`:
 Resolves the connector, then per target: backup settings → render server config into
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
 config + set the exec bit → write any command/skill/subagent files → upsert any

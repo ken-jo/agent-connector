@@ -183,11 +183,11 @@ export const DEFAULT_PROGRAM_NAME = "agent-connector";
 const COMMAND_USAGE: Record<string, string> = {
   detect: "detect [--json] [--project <dir>]",
   install:
-    "install [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force]",
+    "install [--method direct|marketplace] [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force]",
   uninstall:
-    "uninstall [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge]",
+    "uninstall [--method auto|direct|marketplace] [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge]",
   upgrade:
-    "upgrade [--channel stable|latest] [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run]",
+    "upgrade [--method direct|marketplace] [--channel stable|latest] [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run]",
   sync: "sync — alias of upgrade (see `upgrade --help`)",
   update: "update — alias of upgrade (see `upgrade --help`)",
   package:
@@ -217,8 +217,8 @@ usage: ${programName} <command> [flags]
 
 commands:
   detect       List the AI-agent platforms installed on this machine.
-  install      Deploy a connector across its target platforms.
-  uninstall    Remove a connector's MCP + hook registrations.
+  install      Deploy a connector across its target platforms (--method direct writes host config; --method marketplace drives the host's plugin install).
+  uninstall    Remove a connector's registrations (--method auto reverses whichever method is actually installed).
   upgrade      Bring everything current: re-render host config + heal the home pointer + managed update guidance (alias: update, sync).
   package      Emit a marketplace/extension bundle (9 host formats, or the standard artifacts mcp-server-json | mcpb).
   doctor       Health-check every detected platform; non-zero exit on any failure.

@@ -54,9 +54,12 @@ interface ClaudeFamilySpec {
   alwaysAuthor?: boolean;
   /**
    * Where to write the marketplace catalog, relative to outDir, and which shape.
-   * "claude": <outDir>/.claude-plugin/marketplace.json (object owner).
-   * "codex":  <outDir>/.codex-plugin/marketplace.json  (same object-owner catalog).
-   * "factory":<outDir>/marketplace.json                (git-repo catalog at the repo root).
+   * "claude": <outDir>/.claude-plugin/marketplace.json    (object owner).
+   * "codex":  <outDir>/.agents/plugins/marketplace.json   (same object-owner
+   *           catalog; codex's documented location — `codex plugin marketplace
+   *           add` REJECTS a `.codex-plugin/` catalog with "marketplace root
+   *           does not contain a supported manifest"; live-verified 0.139.0).
+   * "factory":<outDir>/marketplace.json                   (git-repo catalog at the repo root).
    */
   marketplace: { dir: string | null; file: string; shape: "claude" | "factory" };
 }
@@ -75,7 +78,11 @@ const SPECS: Record<string, ClaudeFamilySpec> = {
     manifestDir: ".codex-plugin",
     subagentDir: "agents",
     mcpFile: ".mcp.json",
-    marketplace: { dir: ".codex-plugin", file: "marketplace.json", shape: "claude" },
+    marketplace: {
+      dir: join(".agents", "plugins"),
+      file: "marketplace.json",
+      shape: "claude",
+    },
   },
   "factory-plugin": {
     platformId: "droid",

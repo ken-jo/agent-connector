@@ -260,6 +260,12 @@ Same one definition, your choice of distribution:
 
 - **Direct install** (above) — `install` writes each host's native MCP + plugin/
   extension config in place; no per-platform marketplace submission or review.
+- **Marketplace install** — `install --method marketplace` drives the host's own
+  plugin flow end-to-end (v1: Claude Code — stages the bundle, registers a local
+  marketplace via `claude plugin marketplace add`, then `claude plugin install`;
+  headless, idempotent). `uninstall --method auto` reverses whichever method is
+  actually installed, a guard refuses installing the same connector by BOTH
+  methods (duplicated hooks/servers), and `doctor` checks registration drift.
 - **Marketplace package** — `agent-connector package` turns the connector into a
   marketplace/extension bundle (manifest + bundled commands, agents, skills,
   hooks, MCP) for **9 host formats** (plus 2 official MCP standard artifacts —

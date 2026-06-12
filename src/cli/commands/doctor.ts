@@ -26,6 +26,7 @@ import {
   listRegisteredConnectors,
   loadConnectorFromPath,
 } from "../../core/load-connector.js";
+import { marketplaceDoctorChecks } from "../../core/marketplace.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { probeStdioServer } from "../../runtime/probe.js";
 import { fail, parseScope, parseTargets, print } from "../app.js";
@@ -188,6 +189,26 @@ export async function run(argv: string[]): Promise<number> {
     }
     if (results.some((d) => d.status === "fail")) anyFail = true;
     byPlatform.push({ platform: id, results });
+  }
+
+  // ── Marketplace-method checks (framework-level, read-only fs — they run in
+  // isolated homes without spawning a host CLI): duplicate-registration,
+  // registration intact, state↔host drift, staleness, the embedded home-bin
+  // launcher, missing host binary. Silent for connectors with no marketplace
+  // state at all. Results merge into the platform's bucket (appended when the
+  // platform was not otherwise targeted, e.g. a recorded install whose host
+  // binary disappeared).
+  for (const connector of connectors) {
+    const groups = await marketplaceDoctorChecks(connector, scope, projectDir);
+    for (const group of groups) {
+      const tagged = multi
+        ? group.results.map((d) => ({ ...d, check: `(${connector.id}) ${d.check}` }))
+        : group.results;
+      if (tagged.some((d) => d.status === "fail")) anyFail = true;
+      const bucket = byPlatform.find((b) => b.platform === group.platform);
+      if (bucket) bucket.results.push(...tagged);
+      else byPlatform.push({ platform: group.platform, results: tagged });
+    }
   }
 
   // ── Live MCP probe (--probe): connector-scoped, not platform-scoped ──────

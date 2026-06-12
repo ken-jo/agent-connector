@@ -26,7 +26,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { ResolvedConnector } from "./types.js";
 import { homeBinPath as defaultHomeBinPath } from "./paths.js";
@@ -212,6 +212,69 @@ export function packageConnectorAll(
       dryRun,
     }),
   }));
+}
+
+/**
+ * Per-format MANUAL install commands (the accurate two-step add+install where
+ * applicable). Lives in core (not the CLI) so both `package`'s printed
+ * instructions and the marketplace method's skip-warn records for non-drivable
+ * hosts quote the SAME commands — one copy, no drift.
+ */
+export function installInstructions(
+  format: PackageFormat,
+  id: string,
+  outDir: string,
+): string[] {
+  switch (format) {
+    case "claude-plugin":
+      return [
+        `/plugin marketplace add ${outDir}`,
+        `/plugin install ${id}@agent-connector`,
+        `(CLI: claude plugin marketplace add ${outDir} && claude plugin install ${id}@agent-connector)`,
+      ];
+    case "codex-plugin":
+      return [
+        `codex plugin marketplace add ${outDir}`,
+        `codex plugin add ${id}@agent-connector`,
+      ];
+    case "factory-plugin":
+      return [
+        `droid plugin marketplace add ${outDir}`,
+        `droid plugin install ${id}@agent-connector`,
+      ];
+    case "gemini-extension":
+      return [`gemini extensions install ${join(outDir, id)}`];
+    case "qwen-extension":
+      return [`qwen extensions install ${join(outDir, id)}`];
+    case "agy-plugin":
+      return [
+        `agy plugin install ${join(outDir, id)}`,
+        `(validate: agy plugin validate ${join(outDir, id)})`,
+      ];
+    case "cursor-plugin":
+      return [
+        `link ${join(outDir, id)} into ~/.cursor/plugins/local/${id}/ then Developer: Reload Window`,
+        `(or publish ${outDir} as a Cursor marketplace repo)`,
+      ];
+    case "kimi-plugin":
+      return [`kimi plugin install ${join(outDir, id)}`];
+    case "npm-plugin":
+      return [
+        `npm publish ${join(outDir, id)}  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)`,
+      ];
+    case "mcp-server-json":
+      return [
+        `mcp-publisher login <github|dns|http>   (prove ownership of your namespace once)`,
+        `cd ${outDir} && mcp-publisher publish   (uploads server.json to the official MCP Registry)`,
+      ];
+    case "mcpb":
+      return [
+        `vendor your built server under ${join(outDir, "server")}/ (see the emitted README)`,
+        `npx @anthropic-ai/mcpb pack ${outDir}   (then optionally: mcpb sign)`,
+      ];
+    default:
+      return [];
+  }
 }
 
 /** Read + parse a JSON file (used by callers/tests). Returns null on absence/parse error. */

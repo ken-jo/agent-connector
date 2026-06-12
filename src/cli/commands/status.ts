@@ -28,6 +28,7 @@ import {
   listRegisteredConnectors,
   loadConnectorFromPath,
 } from "../../core/load-connector.js";
+import { marketplaceEvidence } from "../../core/marketplace-state.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { fail, parseScope, print } from "../app.js";
 
@@ -82,6 +83,13 @@ interface ConnStatus {
   id: string;
   serverPresent: boolean;
   hooksPresent: boolean;
+  /**
+   * Delivery method actually present on this host: `direct` (managed entries in
+   * the host config), `marketplace` (the host's own plugin state / our install
+   * record), `both` (the double-install invariant is VIOLATED — doctor FAILs
+   * it), or null when absent.
+   */
+  method: "direct" | "marketplace" | "both" | null;
 }
 interface StatusRow {
   platform: PlatformId;
@@ -127,10 +135,23 @@ export async function run(argv: string[]): Promise<number> {
       } catch {
         /* adapter has no hook config path */
       }
+      const serverPresent = serverPath
+        ? fileMentions(serverPath, connector.id)
+        : false;
+      const hooksPresent = hookPath ? fileMentions(hookPath, connector.id) : false;
+      const direct = serverPresent || hooksPresent;
+      const viaMarketplace = marketplaceEvidence(connector.id, p.id) != null;
       return {
         id: connector.id,
-        serverPresent: serverPath ? fileMentions(serverPath, connector.id) : false,
-        hooksPresent: hookPath ? fileMentions(hookPath, connector.id) : false,
+        serverPresent,
+        hooksPresent,
+        method: direct && viaMarketplace
+          ? ("both" as const)
+          : direct
+            ? ("direct" as const)
+            : viaMarketplace
+              ? ("marketplace" as const)
+              : null,
       };
     });
     rows.push({
@@ -160,10 +181,14 @@ export async function run(argv: string[]): Promise<number> {
       print("  (no connectors to check)");
     } else {
       for (const c of r.connectors) {
-        const mark = c.serverPresent || c.hooksPresent ? "[installed]" : "[absent   ]";
+        const mark = c.method != null ? "[installed]" : "[absent   ]";
         const server = c.serverPresent ? "server ✓" : "server ·";
         const hooks = c.hooksPresent ? "hooks ✓" : "hooks ·";
-        print(`  ${mark} ${c.id}  ${server}  ${hooks}`);
+        // `both(!)` flags a violated one-method-per-host invariant — doctor's
+        // duplicate-registration check FAILs it with the fix.
+        const method =
+          c.method == null ? "" : c.method === "both" ? "  (both!)" : `  (${c.method})`;
+        print(`  ${mark} ${c.id}  ${server}  ${hooks}${method}`);
       }
     }
     print("");
