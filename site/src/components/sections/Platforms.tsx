@@ -94,15 +94,16 @@ function AgentEntry({ platform }: { platform: Platform }) {
 export function Platforms() {
   return (
     <Section id="platforms">
-      {/* TODO(owner): mascot slot — drop the character image at site/public/mascot.png
-          and uncomment. Sits above the section heading, centered.
+      {/* The agent-connector worker: pixel art renders crisp with `pixelated`;
+          loading=lazy since the section sits below the fold. */}
       <img
         src="/mascot.png"
-        alt=""
-        aria-hidden="true"
-        className="mx-auto mb-6 h-24 w-auto"
+        alt="agent-connector mascot — a pixel-art lobster worker wearing a tool belt"
+        loading="lazy"
+        width={922}
+        height={985}
+        className="mx-auto mb-6 h-32 w-auto [image-rendering:pixelated] sm:h-40"
       />
-      */}
       <SectionHeading
         eyebrow="Coverage"
         title={
