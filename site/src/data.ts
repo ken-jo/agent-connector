@@ -15,7 +15,9 @@ export const INSTALL_CMD = "npm install @ken-jo/agent-connector";
 /* Hook paradigms                                                      */
 /* ------------------------------------------------------------------ */
 
-export type ParadigmId = "json-stdio" | "mcp-only" | "ts-plugin";
+import type { ParadigmId } from "./platform-data";
+
+export type { ParadigmId };
 
 export interface Paradigm {
   id: ParadigmId;
@@ -54,50 +56,12 @@ export const paradigms: Paradigm[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (29)                                                      */
+/* Platforms (29) — single-sourced in ./platform-data (registry order, */
+/* per-host surface profiles, drift-tested against the adapters).      */
 /* ------------------------------------------------------------------ */
 
-export interface Platform {
-  name: string;
-  paradigm: ParadigmId;
-}
-
-export const platforms: Platform[] = [
-  // json-stdio
-  { name: "Claude Code", paradigm: "json-stdio" },
-  { name: "Codex", paradigm: "json-stdio" },
-  { name: "Cursor", paradigm: "json-stdio" },
-  { name: "VS Code Copilot", paradigm: "json-stdio" },
-  { name: "JetBrains Copilot", paradigm: "json-stdio" },
-  { name: "Copilot CLI", paradigm: "json-stdio" },
-  { name: "Gemini CLI", paradigm: "json-stdio" },
-  { name: "Qwen", paradigm: "json-stdio" },
-  { name: "Kiro", paradigm: "json-stdio" },
-  { name: "Kimi", paradigm: "json-stdio" },
-  { name: "Crush", paradigm: "json-stdio" },
-  { name: "Goose", paradigm: "json-stdio" },
-  { name: "Hermes", paradigm: "json-stdio" },
-  { name: "Antigravity", paradigm: "json-stdio" },
-  { name: "Antigravity CLI", paradigm: "json-stdio" },
-  { name: "Droid", paradigm: "json-stdio" },
-  // mcp-only
-  { name: "Warp", paradigm: "mcp-only" },
-  { name: "Kilo", paradigm: "mcp-only" },
-  { name: "Roo Code", paradigm: "mcp-only" },
-  { name: "Trae", paradigm: "mcp-only" },
-  { name: "Zed", paradigm: "mcp-only" },
-  { name: "Amp", paradigm: "mcp-only" },
-  { name: "Codebuff", paradigm: "mcp-only" },
-  { name: "Mux", paradigm: "mcp-only" },
-  { name: "Pi", paradigm: "mcp-only" },
-  // ts-plugin
-  { name: "OpenCode", paradigm: "ts-plugin" },
-  { name: "Kilo CLI", paradigm: "ts-plugin" },
-  { name: "OMP", paradigm: "ts-plugin" },
-  { name: "OpenClaw", paradigm: "ts-plugin" },
-];
-
-export const platformCount = platforms.length;
+export { platforms, platformCount, surfaceChips } from "./platform-data";
+export type { Platform, PlatformSurfaces, SurfaceChip } from "./platform-data";
 
 /* ------------------------------------------------------------------ */
 /* Two pillars                                                         */

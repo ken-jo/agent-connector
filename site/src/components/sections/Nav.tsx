@@ -9,7 +9,7 @@ const links = [
   { href: "#audiences", label: "Who it's for" },
   { href: "#pillars", label: "Pillars" },
   { href: "#surfaces", label: "Surfaces" },
-  { href: "#platforms", label: "Platforms" },
+  { href: "#platforms", label: "Agents" },
   { href: "#dialects", label: "Dialects" },
   { href: "#telemetry", label: "Telemetry" },
 ];
