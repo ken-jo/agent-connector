@@ -60,8 +60,8 @@ export const paradigms: Paradigm[] = [
 /* per-host surface profiles, drift-tested against the adapters).      */
 /* ------------------------------------------------------------------ */
 
-export { platforms, platformCount, surfaceChips } from "./platform-data";
-export type { Platform, PlatformSurfaces, SurfaceChip } from "./platform-data";
+export { platforms, platformCount, surfaceChips, surfaceState } from "./platform-data";
+export type { Platform, PlatformSurfaces, SurfaceChip, SurfaceState } from "./platform-data";
 
 /* ------------------------------------------------------------------ */
 /* Two pillars                                                         */

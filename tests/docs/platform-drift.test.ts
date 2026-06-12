@@ -10,7 +10,8 @@
  *
  * Guarded surfaces: site docs-data paradigm lists (exact id sets), site
  * landing platform-data.ts (exact id set + per-host name/paradigm/surface
- * flags vs each loaded adapter's capabilities), llms.txt paradigm bullets
+ * flags vs each loaded adapter's capabilities, plus the ours ⊆ hostNative
+ * invariant behind the wall's 3-state chips), llms.txt paradigm bullets
  * (exact id sets), llms heading counts, README platform badge + Droid's
  * paradigm row.
  */
@@ -89,6 +90,24 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
           memory: caps.supportsMemory ?? false,
         },
       });
+    }
+  });
+
+  it("hostNative is a superset of our support (we cannot install what the host lacks)", () => {
+    // The landing wall renders three chip states from (surfaces, hostNative):
+    // supported / host-has-it-we-don't / host-doesn't-offer-it. The pair is
+    // only coherent under ours ⊆ hostNative — a surface we install MUST be one
+    // the host natively offers. A violation means platform-data's hostNative
+    // research or the adapter's capabilities are wrong: investigate the data,
+    // never weaken this assertion.
+    for (const platform of landingPlatforms) {
+      for (const key of Object.keys(platform.surfaces) as (keyof typeof platform.surfaces)[]) {
+        expect(
+          platform.hostNative[key] || !platform.surfaces[key],
+          `"${platform.id}".${key}: ourSupport=true but hostNative=false — ` +
+            "either the hostNative cell in site/src/platform-data.ts or the adapter's capabilities are wrong",
+        ).toBe(true);
+      }
     }
   });
 
