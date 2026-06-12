@@ -19,8 +19,17 @@ export function Hero() {
         className="pointer-events-none absolute inset-x-0 -top-40 -z-10 h-[40rem] glow"
       />
 
-      <div className="mx-auto max-w-6xl px-6 pb-20 pt-20 sm:pt-28">
+      <div className="mx-auto max-w-6xl px-6 pb-20 pt-14 sm:pt-20">
         <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
+          {/* The agent-connector worker — pixel art stays crisp via `pixelated`.
+              Above the fold, so eager-load with explicit dimensions (no CLS). */}
+          <img
+            src="/mascot.png"
+            alt="agent-connector mascot — a pixel-art lobster worker wearing a tool belt"
+            width={922}
+            height={985}
+            className="animate-fade-up mb-5 h-28 w-auto [image-rendering:pixelated] sm:h-36"
+          />
           <Badge
             variant="outline"
             className="animate-fade-up gap-2 border-border/80 bg-card/60 py-1 backdrop-blur"

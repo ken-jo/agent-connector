@@ -21,9 +21,10 @@ export function Landing() {
         <Hero />
         <Audiences />
         <Efficiency />
+        {/* Owner: the supported-platform wall sits directly under the 99% story. */}
+        <Platforms />
         <Pillars />
         <Surfaces />
-        <Platforms />
         <WriteOnceTabs />
         <Telemetry />
         <Cli />
