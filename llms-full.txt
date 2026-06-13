@@ -1142,13 +1142,12 @@ One universal hook entrypoint binary handles all of them.
 | Antigravity (IDE) | `antigravity` | `~/.gemini/antigravity/mcp_config.json` → `mcpServers` (hooks.json) |
 | Antigravity CLI (`agy`) | `antigravity-cli` | shares `~/.gemini/antigravity/` |
 
-### `mcp-only` — MCP registration only, no hook layer (9)
+### `mcp-only` — MCP registration only, no hook layer (8)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
 |---|---|---|
 | Warp | `warp` | `.warp` → `mcp` |
-| Kilo | `kilo` | `.kilocode` mcp config |
 | Roo Code | `roo-code` | mcp config |
 | Trae | `trae` | mcp config |
 | Zed | `zed` | host config |
@@ -1157,12 +1156,13 @@ Detection surfaces "hooks unavailable here."
 | Mux | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 
-### `ts-plugin` — framework-generated bridge module (4)
+### `ts-plugin` — framework-generated bridge module (5)
 
 | Platform | id | Mechanism |
 |---|---|---|
 | OpenCode | `opencode` | generated exported plugin module importing your handler |
 | Kilo CLI | `kilo-cli` | generated `@kilocode/plugin` module registered in kilo.jsonc's `plugin` array |
+| Kilo Code | `kilo` | generated plugin module in `.kilo/plugin/` (7.x extension shares the Kilo CLI backend) |
 | OMP | `omp` | generated plugin module |
 | OpenClaw | `openclaw` | generated plugin module |
 

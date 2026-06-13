@@ -742,20 +742,21 @@ export const platforms: PlatformHookEntry[] = [
   {
     platform: "kilo",
     displayName: "Kilo Code",
-    paradigm: "mcp-only",
-    hasHooks: false,
-    configPath: "—",
+    paradigm: "ts-plugin",
+    hasHooks: true,
+    configPath:
+      '~/.config/kilo/plugin/<connector-id>.js + kilo.json "plugin"[] (project <projectDir>/.kilo/plugin)',
     capabilities: {
-      canModifyArgs: false,
-      canModifyOutput: false,
-      canInjectSessionContext: false,
+      canModifyArgs: true,
+      canModifyOutput: true,
+      canInjectSessionContext: true,
     },
     events: {
-      SessionStart: null,
+      SessionStart: "experimental.chat.system.transform",
       SessionEnd: null,
       UserPromptSubmit: null,
-      PreToolUse: null,
-      PostToolUse: null,
+      PreToolUse: "tool.execute.before",
+      PostToolUse: "tool.execute.after",
       PreCompact: null,
       Stop: null,
       Notification: null,
@@ -765,7 +766,7 @@ export const platforms: PlatformHookEntry[] = [
       SubagentStop: null,
     },
     notes:
-      "Kilo Code VS Code extension (DISTINCT from kilo-cli). mcp-only: no hook system; installHooks 'skip' ('hooks unavailable (Kilo Code is mcp-only)'); all events null. MCP delegated to kilo backend: ~/.config/kilo/kilo.json (root 'mcp', entry type 'local' command ARRAY + environment). Authors COMMANDS + SUBAGENTS under .kilocode/ (no skills) but those are content surfaces, not hooks. All hook capabilities false.",
+      "Kilo Code VS Code extension (DISTINCT from kilo-cli, but the 7.x line is rebuilt ON the Kilo CLI server, so it shares the ts-plugin hook layer). EVENT_TO_KILO identical to OpenCode/kilo-cli: PreToolUse->tool.execute.before, PostToolUse->tool.execute.after, SessionStart->experimental.chat.system.transform; rest — including all four newer events — null. installHooks writes the generated plugin module to .kilo/plugin/<id>.js (project) / ~/.config/kilo/plugin/<id>.js (user) AND registers the path in kilo.json's top-level 'plugin' array (mirrors kilo-cli). MCP shares the kilo backend: ~/.config/kilo/kilo.json (root 'mcp', entry type 'local' command ARRAY + environment) — kilo.json and kilo-cli's kilo.jsonc MERGE. Also authors COMMANDS + SUBAGENTS under .kilocode/ and SKILLS under .kilo/skills/. Bridge shells to <homeBin> hook kilo <event> --connector <id>; formatReply emits the NORMALIZED HookResponse. ask degrades to thrown block.",
   },
   {
     platform: "mux",

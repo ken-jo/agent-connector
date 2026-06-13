@@ -356,7 +356,7 @@ describe("kilo-cli adapter (ts-plugin) render", () => {
 // Kilo Code (VS Code extension, mcp-only) — Roo/Cline-fork dialect
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("kilo adapter (Kilo Code VS Code extension, mcp-only) render", () => {
+describe("kilo adapter (Kilo Code VS Code extension, ts-plugin) render", () => {
   let projectDir: string;
   let ctx: InstallContext;
 
@@ -368,7 +368,8 @@ describe("kilo adapter (Kilo Code VS Code extension, mcp-only) render", () => {
   it("has the extension identity (id kilo / name Kilo Code)", () => {
     expect(kiloAdapter.id).toBe("kilo");
     expect(kiloAdapter.name).toBe("Kilo Code");
-    expect(kiloAdapter.paradigm).toBe("mcp-only");
+    // 7.x rebuilt on the Kilo CLI server → shares the ts-plugin hook layer.
+    expect(kiloAdapter.paradigm).toBe("ts-plugin");
   });
 
   it("installServer writes .kilo/kilo.json under 'mcp' with type 'local' and a command ARRAY (delegated kilo backend), NOT the legacy 'mcpServers'", () => {
@@ -405,13 +406,14 @@ describe("kilo adapter (Kilo Code VS Code extension, mcp-only) render", () => {
     expect(cfg.mcp?.[CONNECTOR_ID]).toBeUndefined();
   });
 
-  it("installHooks returns exactly ONE skip ChangeRecord and writes NO hook file", () => {
+  it("installHooks writes the ts-plugin module (.kilo/plugin/<id>.js), distinct from the server config", () => {
     const changes = kiloAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
+    expect(changes.some((c) => c.action === "create")).toBe(true);
     const hooksPath = kiloAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(kiloAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
+    // Hooks now have their OWN path — no longer aliased to the server config.
+    expect(hooksPath).toBe(join(projectDir, ".kilo", "plugin", `${CONNECTOR_ID}.js`));
+    expect(hooksPath).not.toBe(kiloAdapter.getServerConfigPath(ctx));
+    expect(existsSync(hooksPath)).toBe(true);
   });
 
   it("does NOT collide with kilo-cli: same dir + 'mcp' key but DISTINCT filenames for the same connector", () => {

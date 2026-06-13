@@ -245,9 +245,12 @@ export const platforms: Platform[] = [
     id: "warp",
     name: "Warp",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true),
-    // GAPS: commands (skills-as-/{skill-name}), skills (full Agent Skills).
-    // N/A: hooks (FR #7834), subagents (profiles ≠ subagents; FR #9107).
+    surfaces: s(true, false, false, true, false, true),
+    // skills now wired (.agents/skills/<name>/SKILL.md, project scope — Warp Drive
+    // is cloud-managed so there is no documented user-scope dir; skills double as
+    // /{skill-name} slash commands in Warp's UI).
+    // GAP: commands (skills-as-/{skill-name}). N/A: hooks (FR #7834),
+    // subagents (profiles ≠ subagents; FR #9107).
     hostNative: s(true, false, true, true, false, true),
   },
   {
@@ -261,8 +264,9 @@ export const platforms: Platform[] = [
     id: "kilo-cli",
     name: "Kilo CLI",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, false, false, false, true),
-    // GAPS: commands (.kilocode/commands), skills, subagents (kilo agent create).
+    surfaces: s(true, true, true, true, true, true),
+    // OpenCode fork — all six surfaces now wired (commands → .kilo/command/,
+    // skills → .kilo/skills/, subagents → .kilo/agent/ mode:subagent).
     hostNative: s(true, true, true, true, true, true),
   },
   {
@@ -284,10 +288,12 @@ export const platforms: Platform[] = [
   {
     id: "kilo",
     name: "Kilo Code",
-    paradigm: "mcp-only",
-    surfaces: s(true, false, true, false, true, true),
-    // GAP: skills (kilo.ai/docs/customize/skills). N/A: hooks.
-    hostNative: s(true, false, true, true, true, true),
+    paradigm: "ts-plugin",
+    surfaces: s(true, true, true, true, true, true),
+    // 7.x rebuilt on the Kilo CLI server: hooks (ts-plugin, .kilo/plugin/) and
+    // skills (.kilo/skills/) are now wired — all six surfaces supported. The ext
+    // shares one config backend with kilo-cli (kilo.json + kilo.jsonc merge).
+    hostNative: s(true, true, true, true, true, true),
   },
   {
     id: "trae",
@@ -317,8 +323,9 @@ export const platforms: Platform[] = [
     id: "zed",
     name: "Zed",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true),
-    // GAP: skills (.agents/skills, Skills Manager). N/A: hooks, commands, subagents.
+    surfaces: s(true, false, false, true, false, true),
+    // skills now wired (.agents/skills project, ~/.agents/skills user).
+    // N/A: hooks, commands, subagents.
     hostNative: s(true, false, false, true, false, true),
   },
   {
@@ -345,14 +352,16 @@ export const platforms: Platform[] = [
     surfaces: s(true, false, false, false, false, true),
     hostNative: s(true, false, false, false, false, true),
   },
-  // pi has NO writable MCP config (transports: []) — skills + memory host.
+  // pi has NO writable MCP config (transports: []) — commands + skills + memory.
   {
     id: "pi",
     name: "Pi",
     paradigm: "mcp-only",
-    surfaces: s(false, false, false, true, false, true),
+    surfaces: s(false, false, true, true, false, true),
     // mcp: N/A — pi offers no MCP surface at all (deliberate host design).
-    hostNative: s(false, false, false, true, false, true),
+    // commands now wired (prompt templates: .pi/prompts/ project,
+    // ~/.pi/agent/prompts/ user); skills fixed to ~/.pi/agent/skills/ (user).
+    hostNative: s(false, false, true, true, false, true),
   },
   {
     id: "jetbrains-copilot",
@@ -365,24 +374,24 @@ export const platforms: Platform[] = [
     id: "qwen-code",
     name: "Qwen CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, false, true, true),
-    // GAP: skills (.qwen/skills — official Agent Skills docs).
+    surfaces: s(true, true, true, true, true, true),
+    // skills now wired (.qwen/skills project, ~/.qwen/skills user) — all six.
     hostNative: s(true, true, true, true, true, true),
   },
   {
     id: "kiro",
     name: "Kiro",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true),
-    // GAP: skills (.kiro/skills + ~/.kiro/skills, kiro.dev/docs/skills).
+    surfaces: s(true, true, false, true, false, true),
+    // skills now wired (.kiro/skills project, ~/.kiro/skills user).
     hostNative: s(true, true, false, true, false, true),
   },
   {
     id: "kimi",
     name: "Kimi CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true),
-    // GAP: skills (~/.kimi/skills — flagged in our own adapter header).
+    surfaces: s(true, true, false, true, false, true),
+    // skills now wired (.kimi/skills project, ~/.kimi/skills user).
     hostNative: s(true, true, false, true, false, true),
   },
   {

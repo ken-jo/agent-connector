@@ -61,10 +61,12 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
+  SkillDef,
   StopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
+import { renderSkillMd } from "../claude-code/render.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
@@ -180,6 +182,9 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
     // agentSpawn returns additionalContext via JSON stdout.
     canInjectSessionContext: true,
     transports: ["stdio", "http"],
+    // Skills: Kiro reads SKILL.md from .kiro/skills/<name>/SKILL.md (project)
+    // and ~/.kiro/skills/<name>/SKILL.md (user).
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -354,6 +359,74 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
   ): Record<string, string> | undefined {
     if (!env || Object.keys(env).length === 0) return undefined;
     return resolveEnvRefsDeep({ ...env });
+  }
+
+  // ── Skills surface ───────────────────────────────────────────────────────
+  // Kiro reads SKILL.md from:
+  //   project scope → <projectDir>/.kiro/skills/<name>/SKILL.md
+  //   user scope    → ~/.kiro/skills/<name>/SKILL.md
+
+  private skillsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".kiro", "skills")
+      : join(homedir(), ".kiro", "skills");
+  }
+
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for kiro" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  private renderSkill(skill: SkillDef): string {
+    return renderSkillMd(skill);
   }
 
   // ── Hook install / uninstall (merge into the agent file) ─────────────────

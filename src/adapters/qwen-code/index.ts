@@ -71,6 +71,7 @@ import type {
   ServerDef,
   SessionEndEvent,
   SessionStartEvent,
+  SkillDef,
   StopEvent,
   SubagentDef,
   SubagentStartEvent,
@@ -78,6 +79,7 @@ import type {
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
+import { renderSkillMd } from "../claude-code/render.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { writeTomlString } from "../../core/toml.js";
 import {
@@ -205,10 +207,12 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "sse", "http"],
-    // Content surfaces: Qwen ships native slash commands (TOML) and subagents
-    // (md+frontmatter). It has no Agent-Skills surface, so supportsSkills stays
-    // false and the BaseAdapter skip/warn default handles any declared skills.
+    // Content surfaces: Qwen ships native slash commands (TOML), subagents
+    // (md+frontmatter), and skills (SKILL.md under .qwen/skills/<name>/).
+    // Confirmed dir: .qwen/skills/ (project), ~/.qwen/skills/ (user scope).
+    // Ground truth: kilo-pi-ground-truth.md § "Already-known skills gaps".
     supportsCommands: true,
+    supportsSkills: true,
     supportsSubagents: true,
   };
 
@@ -535,6 +539,9 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
   private commandsDir(ctx: InstallContext): string {
     return join(this.getConfigDir(ctx), "commands");
   }
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "skills");
+  }
   private agentsDir(ctx: InstallContext): string {
     return join(this.getConfigDir(ctx), "agents");
   }
@@ -542,6 +549,10 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
   /** Native command file path: <qwenDir>/commands/<name>.toml. */
   private commandPath(ctx: InstallContext, name: string): string {
     return join(this.commandsDir(ctx), `${name}.toml`);
+  }
+  /** Native skill dir: <qwenDir>/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
   }
   /** Native subagent file path: <qwenDir>/agents/<name>.md. */
   private subagentPath(ctx: InstallContext, name: string): string {
@@ -583,6 +594,65 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     if (cmd.description !== undefined) obj.description = cmd.description;
     obj.prompt = cmd.prompt;
     return writeTomlString(obj);
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+  // Qwen reads SKILL.md from <qwenDir>/skills/<name>/SKILL.md.
+  // Project dir: <projectDir>/.qwen/skills/<name>/SKILL.md
+  // User dir:    ~/.qwen/skills/<name>/SKILL.md
+  // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps" (.qwen/skills).
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for qwen-code" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  private renderSkill(skill: SkillDef): string {
+    return renderSkillMd(skill);
   }
 
   // ── Subagents ──────────────────────────────────────────────────────────────
@@ -665,13 +735,20 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
       },
     ];
 
-    // Content-surface checks: only assert presence of the files this connector
-    // declares for the surfaces Qwen supports (commands + subagents). Skills are
-    // unsupported here, so they are intentionally not checked.
+    // Content-surface checks: assert presence of all three content surfaces
+    // (commands, skills, subagents) this connector declares.
     for (const cmd of ctx.connector.commands) {
       const p = this.commandPath(ctx, cmd.name);
       checks.push({
         name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
         check: () =>
           existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
       });

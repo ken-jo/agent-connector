@@ -75,12 +75,14 @@ import type {
   SessionEndEvent,
   SessionStartEvent,
   ServerDef,
+  SkillDef,
   StopEvent,
   SubagentStartEvent,
   SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
+import { renderSkillMd } from "../claude-code/render.js";
 import { ensureDir } from "../../core/paths.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
@@ -208,6 +210,10 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: false,
     transports: ["stdio", "http"],
+    // Skills surface: Kimi reads SKILL.md from ~/.kimi/skills/<name>/SKILL.md
+    // (user scope) and .kimi/skills/<name>/SKILL.md (project scope).
+    // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -364,6 +370,75 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     return out;
   }
 
+  // ── Skills surface ────────────────────────────────────────────────────────
+  // Kimi reads SKILL.md from <baseDir>/skills/<name>/SKILL.md.
+  //   user scope:    ~/.kimi/skills/<name>/SKILL.md
+  //   project scope: <projectDir>/.kimi/skills/<name>/SKILL.md
+  // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
+
+  private skillsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".kimi", "skills")
+      : join(this.baseDir(), "skills");
+  }
+
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for kimi" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  private renderSkill(skill: SkillDef): string {
+    return renderSkillMd(skill);
+  }
+
   // ── Hook install / uninstall (config.toml → [[hooks]]) ───────────────────
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
@@ -448,7 +523,7 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     const connectorId = ctx.connector.id;
     const homeBin = ctx.homeBinPath;
     const hookEvents = this.effectiveHookEvents(ctx);
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: mcp.json present`,
         check: () =>
@@ -490,6 +565,15 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   // ── Runtime: parse Kimi stdin JSON → normalized event ────────────────────

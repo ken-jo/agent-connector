@@ -31,6 +31,10 @@
  * Zed documents no native ${env:VAR} interpolation token for context_servers,
  * so env refs are resolved to literals at install time (the no-native-token
  * path, same as Warp).
+ *
+ * Skills surface: Zed reads SKILL.md files from:
+ *   project scope → <projectDir>/.agents/skills/<name>/SKILL.md
+ *   user scope    → ~/.agents/skills/<name>/SKILL.md
  */
 
 import { existsSync } from "node:fs";
@@ -47,6 +51,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -54,6 +59,7 @@ import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import { renderSkillMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "zed";
 const MCP_ROOT_KEY = "context_servers";
@@ -98,6 +104,9 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Zed registers stdio context servers; remote URLs are also accepted.
     transports: ["stdio", "sse", "http"],
+    // Skills: Zed reads SKILL.md from .agents/skills/<name>/SKILL.md (project)
+    // and ~/.agents/skills/<name>/SKILL.md (user).
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -306,6 +315,74 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
   ): Record<string, string> | undefined {
     if (!env || Object.keys(env).length === 0) return undefined;
     return resolveEnvRefsDeep({ ...env });
+  }
+
+  // ── Skills surface ───────────────────────────────────────────────────────
+  // Zed reads SKILL.md files from:
+  //   project scope → <projectDir>/.agents/skills/<name>/SKILL.md
+  //   user scope    → ~/.agents/skills/<name>/SKILL.md
+
+  private skillsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".agents", "skills")
+      : join(homedir(), ".agents", "skills");
+  }
+
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for zed" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  private renderSkill(skill: SkillDef): string {
+    return renderSkillMd(skill);
   }
 
   // ── Hooks (unavailable — Zed is mcp-only) ────────────────────────────────

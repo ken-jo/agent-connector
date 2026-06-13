@@ -476,10 +476,10 @@ describe("kilo adapter — content surfaces", () => {
     ctx = buildCtx(projectDir, buildConnector({ commands: true, subagents: true }));
   });
 
-  it("declares commands + subagents but NOT skills", () => {
+  it("declares commands + subagents + skills (OpenCode-fork backend)", () => {
     expect(kiloAdapter.capabilities.supportsCommands).toBe(true);
     expect(kiloAdapter.capabilities.supportsSubagents).toBe(true);
-    expect(kiloAdapter.capabilities.supportsSkills).toBe(false);
+    expect(kiloAdapter.capabilities.supportsSkills).toBe(true);
   });
 
   it("installCommands writes md+fm command at .kilocode/commands/<n>.md", () => {
@@ -512,14 +512,17 @@ describe("kilo adapter — content surfaces", () => {
     expect(body.trim()).toBe(SUBAGENT.prompt);
   });
 
-  it("installSkills routes through BaseAdapter (unsupported) and writes nothing", () => {
+  it("installSkills writes uniform SKILL.md at .kilo/skills/<n>/SKILL.md", () => {
     const withSkill = buildCtx(
       projectDir,
       buildConnector({ commands: true, skills: true, subagents: true }),
     );
     const changes = kiloAdapter.installSkills!(withSkill);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.action).toBe("create");
+    const skillMd = join(projectDir, ".kilo", "skills", "pdf-tools", "SKILL.md");
+    expect(changes[0]?.path).toBe(skillMd);
+    expect(existsSync(skillMd)).toBe(true);
+    // NOT the legacy .kilocode tree (commands/subagents live there; skills do not).
     expect(existsSync(join(projectDir, ".kilocode", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
   });
 
@@ -553,9 +556,9 @@ describe("pi adapter — content surfaces", () => {
     ctx = buildCtx(projectDir, buildConnector({ skills: true }));
   });
 
-  it("declares skills only (no commands, no subagents)", () => {
+  it("declares commands + skills (prompt templates + Agent Skills), no subagents", () => {
     expect(piAdapter.capabilities.supportsSkills).toBe(true);
-    expect(piAdapter.capabilities.supportsCommands).toBe(false);
+    expect(piAdapter.capabilities.supportsCommands).toBe(true);
     expect(piAdapter.capabilities.supportsSubagents).toBe(false);
   });
 
@@ -576,10 +579,12 @@ describe("pi adapter — content surfaces", () => {
     expect(body).toContain("# PDF Tools");
   });
 
-  it("installCommands and installSubagents are unsupported → skip (none declared), no files", () => {
+  it("installCommands skips when none declared; installSubagents (unsupported) skips — no files", () => {
+    // ctx declares only skills, so commands resolve to a skip ("none declared");
+    // subagents are unsupported on pi and also skip. Neither writes a file.
     expect(piAdapter.installCommands!(ctx)[0]?.action).toBe("skip");
     expect(piAdapter.installSubagents!(ctx)[0]?.action).toBe("skip");
-    expect(existsSync(join(projectDir, ".pi", "commands"))).toBe(false);
+    expect(existsSync(join(projectDir, ".pi", "prompts"))).toBe(false);
     expect(existsSync(join(projectDir, ".pi", "agents"))).toBe(false);
   });
 

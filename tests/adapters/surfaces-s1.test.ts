@@ -259,12 +259,10 @@ describe("qwen-code adapter — content surfaces", () => {
     ctx = buildCtx(projectDir, buildConnector());
   });
 
-  it("declares commands + subagents but NOT skills", () => {
+  it("declares commands + skills + subagents", () => {
     expect(qwenAdapter.capabilities.supportsCommands).toBe(true);
+    expect(qwenAdapter.capabilities.supportsSkills).toBe(true);
     expect(qwenAdapter.capabilities.supportsSubagents).toBe(true);
-    // supportsSkills is optional on PlatformCapabilities; qwen leaves it unset
-    // (absent === unsupported), so assert falsiness rather than a strict `false`.
-    expect(qwenAdapter.capabilities.supportsSkills).toBeFalsy();
   });
 
   it("installCommands writes a TOML command (description + prompt)", () => {
@@ -291,12 +289,27 @@ describe("qwen-code adapter — content surfaces", () => {
     expect(body.trim()).toBe(SUBAGENT.prompt);
   });
 
-  it("installSkills routes through BaseAdapter warn (unsupported) and writes nothing", () => {
-    // Skills declared (length 1) but unsupported → BaseAdapter.unsupportedSurface
-    // returns a single warn; no skill files are created.
+  it("installSkills writes SKILL.md under .qwen/skills/<name>/SKILL.md", () => {
     const changes = qwenAdapter.installSkills!(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.action).toBe("create");
+    const skillMd = join(projectDir, ".qwen", "skills", "pdf-tools", "SKILL.md");
+    expect(existsSync(skillMd)).toBe(true);
+    const { frontmatter, body } = splitFrontmatter(readFileSync(skillMd, "utf8"));
+    expect(frontmatter.name).toBe("pdf-tools");
+    expect(frontmatter.description).toBe(SKILL.description);
+    expect(frontmatter.model).toBe("haiku");
+    expect(frontmatter["allowed-tools"]).toBe("Bash");
+    expect(body).toContain("# PDF Tools");
+  });
+
+  it("installSkills is idempotent — second install yields skip", () => {
+    qwenAdapter.installSkills!(ctx);
+    expect(qwenAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
+  });
+
+  it("uninstallSkills removes SKILL.md", () => {
+    qwenAdapter.installSkills!(ctx);
+    qwenAdapter.uninstallSkills!(ctx);
     expect(existsSync(join(projectDir, ".qwen", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
   });
 

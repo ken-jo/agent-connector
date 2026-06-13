@@ -18,6 +18,11 @@
  *
  * Warp documents no native `${env:VAR}` interpolation token, so env/header/url
  * refs are resolved to literals at install time (the no-native-token path).
+ *
+ * Skills surface: Warp reads SKILL.md files from `.agents/skills/<name>/SKILL.md`
+ * (project scope). Skills double as slash-commands in Warp's UI — a skill named
+ * "pdf-tools" is invocable as `/pdf-tools`. No user-scope skills dir is
+ * documented for Warp; user-scope install reports a skip-warn.
  */
 
 import { existsSync } from "node:fs";
@@ -34,6 +39,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -42,6 +48,7 @@ import {
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import { renderSkillMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "warp";
 const MCP_ROOT_KEY = "mcpServers";
@@ -85,6 +92,9 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Warp registers stdio, SSE, and Streamable HTTP MCP servers.
     transports: ["stdio", "sse", "http"],
+    // Skills: Warp reads SKILL.md from .agents/skills/<name>/SKILL.md (project
+    // scope only; user-scope skills dir is not documented for Warp).
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -241,6 +251,85 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
   ): Record<string, string> | undefined {
     if (!env || Object.keys(env).length === 0) return undefined;
     return resolveEnvRefsDeep({ ...env });
+  }
+
+  // ── Skills surface ───────────────────────────────────────────────────────
+  // Warp reads SKILL.md files from `.agents/skills/<name>/SKILL.md`.
+  // Skills double as slash-commands in Warp's UI (/name).
+  // Only project scope is documented; user-scope install skips with a warn
+  // (Warp Drive manages user rules in the cloud — no local user skills dir).
+
+  private skillsDir(ctx: InstallContext): string {
+    return join(ctx.projectDir, ".agents", "skills");
+  }
+
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for warp" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    if (ctx.scope !== "project") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail: "warp skills are project-scoped only (no documented user-scope skills dir); skipped",
+        },
+      ];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    if (ctx.scope !== "project") {
+      return [{ platform: this.id, action: "skip", detail: "warp skills are project-scoped only" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  private renderSkill(skill: SkillDef): string {
+    return renderSkillMd(skill);
   }
 
   // ── Hooks (unavailable — Warp is mcp-only) ───────────────────────────────

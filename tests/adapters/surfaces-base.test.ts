@@ -33,10 +33,11 @@ function buildCtx(connector: ResolvedConnector): InstallContext {
 }
 
 describe("BaseAdapter — unsupported content surfaces (warp)", () => {
-  it("does not declare support for any content surface", () => {
-    // Optional flags read as `?? false` — warp never sets them.
+  it("declares skills (Agent Skills) but NOT commands or subagents", () => {
+    // Warp ships Agent Skills (.agents/skills); commands + subagents remain
+    // unsupported, so they exercise BaseAdapter's warn/skip fallback below.
+    expect(warpAdapter.capabilities.supportsSkills ?? false).toBe(true);
     expect(warpAdapter.capabilities.supportsCommands ?? false).toBe(false);
-    expect(warpAdapter.capabilities.supportsSkills ?? false).toBe(false);
     expect(warpAdapter.capabilities.supportsSubagents ?? false).toBe(false);
   });
 
@@ -74,22 +75,15 @@ describe("BaseAdapter — unsupported content surfaces (warp)", () => {
     expect(changes[0]?.detail).toContain("declares no commands");
   });
 
-  it("warns for skills + subagents the same way (install and uninstall)", () => {
+  it("warns for subagents the same way (install and uninstall)", () => {
+    // skills are now supported on warp; subagents remain the unsupported
+    // content surface that exercises BaseAdapter's warn path.
     const connector = defineConnector({
       id: "acme-rich",
-      skills: [{ name: "s", description: "d", body: "b" }],
       subagents: [{ name: "a", description: "d", prompt: "p" }],
     });
     const ctx = buildCtx(connector);
 
-    for (const fn of [
-      warpAdapter.installSkills!,
-      warpAdapter.uninstallSkills!,
-    ]) {
-      const changes = fn.call(warpAdapter, ctx);
-      expect(changes[0]?.action).toBe("warn");
-      expect(changes[0]?.detail).toContain("skills not supported on warp");
-    }
     for (const fn of [
       warpAdapter.installSubagents!,
       warpAdapter.uninstallSubagents!,

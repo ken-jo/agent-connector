@@ -1,20 +1,26 @@
 /**
  * adapters/pi — Pi platform adapter for agent-connector.
  *
- * Pi is an **mcp-only** host with NO writable MCP config that agent-connector
- * can target, and no lifecycle hook system. Its one extensibility surface that
- * this connector drives is **Agent Skills**: folder-per-skill `SKILL.md` files
- * (md+frontmatter, the Agent Skills open standard) under `<piDir>/skills/`.
+ * Pi is a file-based-skills host with NO writable MCP config and a native
+ * prompt-template (slash command) surface. It has no lifecycle hook system in
+ * the json-stdio or ts-plugin sense. Its extensibility surfaces are:
  *
- * So this adapter deliberately implements ONLY the skills content surface:
- *   - server  → single "skip" (Pi has no writable MCP config).
- *   - hooks   → single "skip" (Pi is mcp-only; no lifecycle hooks).
- *   - skills  → write `<piDir>/skills/<name>/SKILL.md` (+ declared resources).
- *   - commands / subagents → inherit BaseAdapter skip/warn (unsupported).
+ *   - server    → single "skip" (Pi has no writable MCP config).
+ *   - hooks     → single "skip" (no json-stdio / ts-plugin hook layer).
+ *   - commands  → write prompt templates under <piPromptsDir>/<name>.md.
+ *                   project scope → <projectDir>/.pi/prompts/<name>.md
+ *                   user scope    → ~/.pi/agent/prompts/<name>.md
+ *   - skills    → write <piSkillsDir>/<name>/SKILL.md (+ declared resources).
+ *                   project scope → <projectDir>/.pi/skills/<name>/SKILL.md
+ *                   user scope    → ~/.pi/agent/skills/<name>/SKILL.md
+ *   - subagents → unsupported (BaseAdapter skip/warn).
  *
- * Config dir (skills home):
- *   - user scope    → ~/.pi
- *   - project scope → <projectDir>/.pi
+ * Ground-truth refs (docs/research/kilo-pi-ground-truth.md):
+ *   - prompt templates: docs/prompt-templates.md → ~/.pi/agent/prompts/*.md
+ *     and .pi/prompts/*.md, invoked as /name.
+ *   - global skills: ~/.pi/agent/skills/<n>/SKILL.md (NOT ~/.pi/skills/).
+ *   - project skills: .pi/skills/<n>/SKILL.md (unchanged).
+ *   - allowed-tools: space-delimited (NOT comma-delimited).
  */
 
 import { existsSync } from "node:fs";
@@ -25,6 +31,7 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookParadigm,
@@ -38,13 +45,19 @@ const HOST: PlatformId = "pi";
 export class PiAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
   readonly name = "Pi";
+  /**
+   * Pi has no MCP surface at all — the paradigm label "mcp-only" is backwards
+   * for a host with NO writable MCP config. Pi is purely a content-surface host
+   * (skills + prompt templates). Use "mcp-only" only because the HookParadigm
+   * union has no "no-mcp" variant; MCP is explicitly unsupported below.
+   */
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
     // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
-    // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
+    // (user scope: ~/.pi/agent/AGENTS.md per base.ts AGENTS_MD_USER_PATHS).
     supportsMemory: true,
-    // Pi has no lifecycle hook system — every hook capability is false.
+    // Pi has no json-stdio / ts-plugin lifecycle hook system.
     preToolUse: false,
     postToolUse: false,
     preCompact: false,
@@ -56,10 +69,10 @@ export class PiAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: false,
-    // No writable MCP config we can register a server into.
+    // No writable MCP config.
     transports: [],
-    // Content surfaces: skills ONLY.
-    supportsCommands: false,
+    // Content surfaces: prompt-template commands + skills.
+    supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: false,
   };
@@ -93,6 +106,10 @@ export class PiAdapter extends BaseAdapter implements Adapter {
 
   // ── Native paths ─────────────────────────────────────────────────────────
 
+  /**
+   * Base config dir (used for server/hook doctor paths only; content surfaces
+   * use dedicated helpers below so the scope split is explicit).
+   */
   getConfigDir(ctx: InstallContext): string {
     return ctx.scope === "project"
       ? join(ctx.projectDir, ".pi")
@@ -100,9 +117,8 @@ export class PiAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Pi has no writable MCP config that agent-connector targets. Returning the
-   * config dir keeps the generic doctor/backup sensible while installServer
-   * itself always skips.
+   * Pi has no writable MCP config. Returning the config dir keeps the generic
+   * doctor/backup sensible while installServer always skips.
    */
   getServerConfigPath(ctx: InstallContext): string {
     return this.getConfigDir(ctx);
@@ -111,6 +127,35 @@ export class PiAdapter extends BaseAdapter implements Adapter {
   /** Pi has no hook file — point at the config dir for generic doctor/backup. */
   getHookConfigPath(ctx: InstallContext): string {
     return this.getConfigDir(ctx);
+  }
+
+  /**
+   * Prompt-templates dir (slash commands):
+   *   project scope → <projectDir>/.pi/prompts/
+   *   user scope    → ~/.pi/agent/prompts/
+   * (ground truth: docs/prompt-templates.md)
+   */
+  private promptsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".pi", "prompts")
+      : join(homedir(), ".pi", "agent", "prompts");
+  }
+
+  /**
+   * Skills dir:
+   *   project scope → <projectDir>/.pi/skills/
+   *   user scope    → ~/.pi/agent/skills/
+   * (ground truth: ~/.pi/agent/skills/ is what Pi actually reads for global skills)
+   */
+  private skillsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".pi", "skills")
+      : join(homedir(), ".pi", "agent", "skills");
+  }
+
+  /** Native skill dir: <skillsDir>/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
   }
 
   // ── MCP server (unavailable — Pi has no writable MCP config) ─────────────
@@ -135,14 +180,14 @@ export class PiAdapter extends BaseAdapter implements Adapter {
     ];
   }
 
-  // ── Hooks (unavailable — Pi is mcp-only) ─────────────────────────────────
+  // ── Hooks (unavailable — Pi has no json-stdio/ts-plugin hook layer) ───────
 
   installHooks(_ctx: InstallContext): ChangeRecord[] {
     return [
       {
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Pi is mcp-only)",
+        detail: "hooks unavailable (Pi has no hook layer)",
       },
     ];
   }
@@ -152,24 +197,66 @@ export class PiAdapter extends BaseAdapter implements Adapter {
       {
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Pi is mcp-only)",
+        detail: "hooks unavailable (Pi has no hook layer)",
       },
     ];
   }
 
+  // ── Content surface: commands (prompt templates) ─────────────────────────
+  // Pi slash commands are prompt template files: <promptsDir>/<name>.md.
+  // Idempotent (byte-identical → skip) via BaseAdapter.writeContentFile and
+  // reversible via removeContentFile. Honors platforms["pi"].commands === false.
+
+  /** Native prompt-template file path: <promptsDir>/<name>.md. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.promptsDir(ctx), `${name}.md`);
+  }
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for pi" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        this.renderCommand(cmd),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a command as a Pi prompt template (md+frontmatter).
+   * Pi's format mirrors the generic command render: description, optional model,
+   * optional argument-hint. The body is the prompt template text.
+   */
+  private renderCommand(cmd: CommandDef): string {
+    const frontmatter: Record<string, unknown> = {};
+    if (cmd.description !== undefined) frontmatter.description = cmd.description;
+    if (cmd.model !== undefined) frontmatter.model = cmd.model;
+    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
+    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
+    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+  }
+
   // ── Content surface: skills ──────────────────────────────────────────────
-  // CONTENT-ONLY: pure native-file writer under <configDir>/skills/<name>.
+  // CONTENT-ONLY: pure native-file writer under <skillsDir>/<name>.
   // Idempotent (byte-identical → skip) via BaseAdapter.writeContentFile and
   // reversible via removeContentFile. Honors platforms["pi"].skills === false.
-
-  private skillsDir(ctx: InstallContext): string {
-    return join(this.getConfigDir(ctx), "skills");
-  }
-
-  /** Native skill dir: <configDir>/skills/<name>. */
-  private skillDir(ctx: InstallContext, name: string): string {
-    return join(this.skillsDir(ctx), name);
-  }
 
   override installSkills(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
@@ -186,8 +273,7 @@ export class PiAdapter extends BaseAdapter implements Adapter {
         this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
       );
       // Bundle any resource files beside SKILL.md (relative path → contents).
-      // Defense-in-depth: skip+warn on any key that escapes the skill dir
-      // (config-time validation already rejects these, but never trust input).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir.
       for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
         const target = this.resolveWithin(dir, rel);
         if (target === null) {
@@ -212,24 +298,23 @@ export class PiAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     for (const skill of connector.skills) {
       const dir = this.skillDir(ctx, skill.name);
-      // Remove only the files we wrote (SKILL.md + declared resources), then the
-      // skill dir itself when we own its full contents.
       changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
       for (const rel of Object.keys(skill.resources ?? {})) {
         const target = this.resolveWithin(dir, rel);
-        if (target === null) continue; // never delete outside the skill dir
+        if (target === null) continue;
         changes.push(this.removeContentFile(target, ctx.dryRun));
       }
-      // Only remove the skill dir when WE own its full contents — never rm -rf a
-      // dir that still holds user-added / sibling-tool / shared files.
+      // Only remove the skill dir when WE own its full contents.
       changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
     }
     return changes;
   }
 
   /**
-   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
-   * allowed-tools, disable-model-invocation) + body.
+   * Render a skill's SKILL.md.
+   *
+   * Pi's allowed-tools field is SPACE-delimited (not comma-delimited).
+   * Every other field follows the uniform SKILL.md convention.
    */
   private renderSkill(skill: SkillDef): string {
     const frontmatter: Record<string, unknown> = {
@@ -238,7 +323,8 @@ export class PiAdapter extends BaseAdapter implements Adapter {
     };
     if (skill.model !== undefined) frontmatter.model = skill.model;
     const allow = skill.tools?.allow;
-    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    // Pi reads allowed-tools as space-separated — NOT the ", " used by other hosts.
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(" ");
     if (skill.disableModelInvocation !== undefined) {
       frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
     }
@@ -250,8 +336,20 @@ export class PiAdapter extends BaseAdapter implements Adapter {
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const checks: HealthCheck[] = [];
-    // Skill-surface checks: only assert presence of the SKILL.md files this
-    // connector declares (skip silently when none are declared).
+
+    // Command (prompt-template) checks.
+    for (const cmd of ctx.connector.commands) {
+      const p = this.commandPath(ctx, cmd.name);
+      checks.push({
+        name: `${this.name}: command ${cmd.name} present`,
+        check: () =>
+          existsSync(p)
+            ? { status: "OK", detail: p }
+            : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+
+    // Skill-surface checks.
     for (const skill of ctx.connector.skills) {
       const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
       checks.push({

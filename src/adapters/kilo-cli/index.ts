@@ -26,12 +26,12 @@
  *   feeding the event payload on stdin and JSON.parsing the normalized
  *   HookResponse back from stdout. Fail-open: any bridge error → no-op.
  *
- * Registration (the key difference from OpenCode):
- *   OpenCode auto-discovers every file in its plugin dir, so writing the file is
- *   enough. This fork does NOT auto-discover by directory — it reads an explicit
- *   `plugin` ARRAY in kilo.jsonc (module file paths). So installHooks must BOTH
- *   synthesize the module AND register its path in that `plugin` array; uninstall
- *   reverses both.
+ * Registration (hooks — array + auto-discovery both work):
+ *   Since kilo v7.3.16 the fork auto-discovers every file in its plugin dir
+ *   (.kilo/plugin/*.js, ~/.config/kilo/plugin/*.js), so writing the file is
+ *   sufficient for discovery. We ALSO register the path in kilo.jsonc's `plugin`
+ *   array because both loading mechanisms coexist and the array write is harmless
+ *   (idempotent); older versions relied on it exclusively.
  *
  * Plugin module location (project | user):
  *   user    → ~/.config/kilo/plugin/<id>.js
@@ -52,9 +52,10 @@
  * The Kilo CLI documents no native `${env:VAR}` interpolation token, so env/url
  * refs are resolved to literals at install time (the no-native-token path).
  *
- * Content surfaces: the Kilo CLI exposes no confirmed writable command/skill/
- * subagent dir (the `.kilocode/` tree belongs to the VS Code extension, served
- * by the "kilo" adapter), so those inherit the BaseAdapter warn/skip.
+ * Content surfaces (live-confirmed, kilo v7.3.16):
+ *   - commands  → .kilo/command/<name>.md  (user ~/.config/kilo/command/)
+ *   - skills    → .kilo/skills/<name>/SKILL.md  (user ~/.config/kilo/skills/ or ~/.agents/skills)
+ *   - subagents → .kilo/agent/<name>.md with frontmatter mode:subagent
  *
  * Capability degradations (documented, never thrown):
  *   - The fork has no "ask" gate. A decision of "ask" degrades to a block (throw
@@ -73,6 +74,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
+import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
 import type {
   Adapter,
   GeneratedPluginFile,
@@ -189,10 +191,10 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // The Kilo CLI registers stdio (local), SSE, and Streamable HTTP MCP servers.
     transports: ["stdio", "sse", "http"],
-    // No confirmed CLI content surface — these inherit the BaseAdapter warn/skip.
-    supportsCommands: false,
-    supportsSkills: false,
-    supportsSubagents: false,
+    // Content surfaces: live-confirmed on kilo v7.3.16 (see header).
+    supportsCommands: true,
+    supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -556,6 +558,168 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
       : [];
     cfg[PLUGIN_ARRAY_KEY] = plugins;
     return plugins;
+  }
+
+  // ── Content surfaces: commands / skills / subagents ─────────────────────
+  // CONTENT-ONLY: pure native-file writers under the kilo config dir.
+  // No runtime dispatch, no home-bin pointer, no telemetry wrap. Each method
+  // is idempotent (byte-identical → skip) via BaseAdapter.writeContentFile and
+  // reversible via removeContentFile. Honors platforms["kilo-cli"] per-surface
+  // false opt-outs.
+  //
+  // Dirs (live-confirmed kilo v7.3.16 — kilo-pi-ground-truth.md):
+  //   commands  → <kiloDir>/command/<name>.md
+  //   skills    → <kiloDir>/skills/<name>/SKILL.md
+  //   subagents → <kiloDir>/agent/<name>.md   (frontmatter mode:subagent)
+  //
+  // <kiloDir>:
+  //   project scope → <projectDir>/.kilo
+  //   user scope    → ~/.config/kilo
+
+  private commandsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "command");
+  }
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "skills");
+  }
+  private agentDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "agent");
+  }
+
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.commandsDir(ctx), `${name}.md`);
+  }
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.agentDir(ctx), `${name}.md`);
+  }
+
+  // ── Commands ───────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for kilo-cli" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(this.commandPath(ctx, cmd.name), renderCommandMd(cmd), ctx.dryRun),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  // ── Skills ─────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for kilo-cli" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), renderSkillMd(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  // ── Subagents ──────────────────────────────────────────────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for kilo-cli" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderKiloSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a subagent to md+frontmatter for kilo-cli.
+   * Kilo's shape is (description, mode:"subagent", model, permission) with the
+   * system prompt as the body — mirrors the opencode adapter's renderSubagent.
+   * `name` is NOT a frontmatter field — it comes from the filename.
+   * `permission` is derived from the coarse `readonly` knob.
+   */
+  private renderKiloSubagent(agent: import("../../core/types.js").SubagentDef): string {
+    const frontmatter: Record<string, unknown> = {
+      description: agent.description,
+      mode: "subagent",
+    };
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.readonly === true) {
+      frontmatter.permission = { edit: "deny", bash: "deny" };
+    }
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    // renderFrontmatterMd is inherited from BaseAdapter (delegates to render.ts).
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
   }
 
   // ── ts-plugin synthesis ────────────────────────────────────────────────
