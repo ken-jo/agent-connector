@@ -323,7 +323,10 @@ describe("packageConnector — agy-plugin", () => {
     expect(existsSync(join(res.pluginDir, "skills", "pdf-tools", "SKILL.md"))).toBe(true);
     expect(existsSync(join(res.pluginDir, "agents", "reviewer.md"))).toBe(true);
     expect(existsSync(join(res.pluginDir, "commands", "deploy.md"))).toBe(true);
-    const hooks = readJson(join(res.pluginDir, "hooks", "hooks.json")).hooks as Record<
+    // hooks.json MUST sit at the bundle ROOT: agy 1.0.7 silently ignores
+    // hooks/hooks.json ("hooks: skipped (not found)") — root was fix-proven live.
+    expect(existsSync(join(res.pluginDir, "hooks", "hooks.json"))).toBe(false);
+    const hooks = readJson(join(res.pluginDir, "hooks.json")).hooks as Record<
       string,
       Array<{ hooks: Array<{ command: string }> }>
     >;

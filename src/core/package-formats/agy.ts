@@ -8,7 +8,10 @@
  *   • MCP MUST be a SEPARATE `mcp_config.json` { mcpServers:{...} } — an inline
  *     `mcpServers` in plugin.json is NOT picked up. (This is the one structural
  *     difference from the Claude family.)
- *   • hooks/hooks.json keyed { hooks:{ <Event>:[{matcher,hooks:[{type,command}]}] } }.
+ *   • hooks.json at the BUNDLE ROOT keyed { hooks:{ <Event>:[{matcher,hooks:[{type,command}]}] } }
+ *     — agy 1.0.7 NEVER reads hooks/hooks.json: validate+install report
+ *     "hooks: skipped (not found)" and copy the file unprocessed. The root
+ *     location was fix-proven live ("hooks: 1 processed", components +hooks).
  *   • skills/<n>/SKILL.md, agents/<n>.md, commands/<n>.md (commands are converted
  *     to skills on validate — still emitted as Markdown command files).
  *
@@ -83,9 +86,9 @@ export const emitAgyPlugin: FormatEmitter = (
     }
   }
 
-  // ── hooks/hooks.json ──────────────────────────────────────────────────────
+  // ── hooks.json (bundle ROOT — agy silently ignores hooks/hooks.json) ──────
   const hooksJson = buildClaudeHooksJson(connector, ctx.homeBinPath, PLATFORM);
-  if (hooksJson) emit(join(pluginDir, "hooks", "hooks.json"), json(hooksJson));
+  if (hooksJson) emit(join(pluginDir, "hooks.json"), json(hooksJson));
 
   // ── mcp_config.json (SEPARATE file — inline mcpServers is NOT read by agy) ─
   const mcp = buildMcpEntry(connector, ctx.homeBinPath, PLATFORM);

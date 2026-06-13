@@ -59,6 +59,10 @@ dirs were removed. Real homes were never touched.
   AND correct the stale doc-comment at line 11 which claims
   `hooks/hooks.json` is the live-confirmed location (the prior research result
   that read "hooks 1 processed" evidently used the root layout).
+- **STATUS: FIXED** (same day) — emitter + doc-comment + test updated, and the
+  FIXED emitter's own output re-validated live against agy 1.0.7 in a sandbox
+  HOME: `agy plugin validate` → `hooks: 1 processed` (plus skills 1,
+  commands 1 → skills, mcpServers 1).
 
 ### Previously-found bug, now confirmed FIXED (no action)
 
