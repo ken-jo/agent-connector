@@ -203,6 +203,10 @@ export const emitNpmPlugin: FormatEmitter = (
     join(pluginDir, "README.md"),
     `# ${connector.displayName}\n\nOpenCode / Kilo / Pi plugin package emitted by agent-connector.\n\n` +
       "Install with `opencode plugin install <pkg>` / `kilo plugin <pkg>` / `pi install <pkg>`.\n\n" +
+      "Local install (no npm publish needed — live-verified on opencode 1.17.0 / kilo 7.3.16):\n" +
+      "`opencode plugin --global file:///<abs-dir>` or `kilo plugin --global file:///<abs-dir>`\n" +
+      "(bare absolute paths work too; the entry lands in the config `plugin` array —\n" +
+      "there is no uninstall verb, remove it by editing that array).\n\n" +
       "## Prerequisite\n\n" +
       "Hooks shell out to the `agent-connector` CLI resolved from the consumer's PATH —\n" +
       "the consumer machine needs `npm i -g @ken-jo/agent-connector` (hooks silently no-op,\n" +
