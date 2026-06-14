@@ -302,29 +302,50 @@ export function codexMarketplaceSource(name: string): string | null {
 // agy (Antigravity) host-state readers (~/.gemini/config/plugins, NO env)
 // ─────────────────────────────────────────────────────────────────────────
 
-/** agy's plugins dir: ~/.gemini/config/plugins (NO dedicated env — HOME isolation). */
-export function agyPluginsDir(): string {
-  return join(homedir(), ".gemini", "config", "plugins");
+/** agy's config dir: ~/.gemini/config (NO dedicated env — HOME isolation). */
+export function agyConfigDir(): string {
+  return join(homedir(), ".gemini", "config");
 }
 
-/** Path of agy's import manifest: ~/.gemini/config/plugins/import_manifest.json. */
+/** agy's plugins dir: ~/.gemini/config/plugins. */
+export function agyPluginsDir(): string {
+  return join(agyConfigDir(), "plugins");
+}
+
+/**
+ * Candidate `import_manifest.json` locations. agy 1.0.7 records the manifest at
+ * `<config>/plugins/import_manifest.json` on POSIX but at
+ * `<config>/import_manifest.json` on Windows (live-confirmed on the my-window
+ * box) — both are probed, then the copied plugin dir is the final fallback.
+ */
+export function agyImportManifestPaths(): string[] {
+  return [
+    join(agyConfigDir(), "import_manifest.json"), // win32 location
+    join(agyPluginsDir(), "import_manifest.json"), // posix location
+  ];
+}
+
+/** @deprecated single-location accessor — prefer {@link agyImportManifestPaths}. */
 export function agyImportManifestPath(): string {
   return join(agyPluginsDir(), "import_manifest.json");
 }
 
 /**
- * True when `id` is installed per agy's import manifest (`imports[].name`), with
- * a fallback probe of the copied plugin dir's plugin.json. agy's uninstall sets
- * `imports` to null, so the manifest is the definitive signal.
+ * True when `id` is installed per agy's import manifest (`imports[].name`),
+ * checking BOTH the win32 and posix manifest locations, with a fallback probe of
+ * the copied plugin dir's plugin.json. agy's uninstall removes the plugin dir
+ * and clears the manifest entry (live-verified on Windows: install → dir +
+ * manifest present, uninstall → both gone, re-install idempotent).
  */
 export function agyPluginInstalled(connectorId: string): boolean {
-  try {
-    const parsed = JSON.parse(
-      readFileSync(agyImportManifestPath(), "utf8"),
-    ) as { imports?: unknown };
-    const imports = parsed.imports;
-    if (Array.isArray(imports)) {
+  for (const manifest of agyImportManifestPaths()) {
+    try {
+      const parsed = JSON.parse(readFileSync(manifest, "utf8")) as {
+        imports?: unknown;
+      };
+      const imports = parsed.imports;
       if (
+        Array.isArray(imports) &&
         imports.some(
           (e) =>
             e != null &&
@@ -334,9 +355,9 @@ export function agyPluginInstalled(connectorId: string): boolean {
       ) {
         return true;
       }
+    } catch {
+      /* absent / unreadable manifest → try the next candidate */
     }
-  } catch {
-    /* absent / unreadable manifest → fall through to the dir probe */
   }
   return existsSync(join(agyPluginsDir(), connectorId, "plugin.json"));
 }

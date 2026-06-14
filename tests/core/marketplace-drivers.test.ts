@@ -708,6 +708,42 @@ async function writeDirectHookMarker(
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// agyPluginInstalled — manifest location robustness. agy 1.0.7 records the
+// import manifest at <config>/plugins/import_manifest.json on POSIX but at
+// <config>/import_manifest.json on Windows (live-confirmed) — both must be read.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("agyPluginInstalled (cross-platform manifest locations)", () => {
+  const writeManifest = (rel: string[], name: string) => {
+    const p = join(tmpHome, ".gemini", "config", ...rel);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify({ imports: [{ name, source: "x", components: ["installed"] }] }), "utf8");
+  };
+
+  it("detects the install from the POSIX manifest (config/plugins/import_manifest.json)", () => {
+    writeManifest(["plugins", "import_manifest.json"], "acme-db");
+    expect(agyPluginInstalled("acme-db")).toBe(true);
+    expect(agyPluginInstalled("other")).toBe(false);
+  });
+
+  it("detects the install from the WIN32 manifest (config/import_manifest.json)", () => {
+    writeManifest(["import_manifest.json"], "acme-db");
+    expect(agyPluginInstalled("acme-db")).toBe(true);
+  });
+
+  it("falls back to the copied plugin dir when no manifest lists it", () => {
+    const pj = join(tmpHome, ".gemini", "config", "plugins", "acme-db", "plugin.json");
+    mkdirSync(dirname(pj), { recursive: true });
+    writeFileSync(pj, JSON.stringify({ name: "acme-db", version: "1.0.0" }), "utf8");
+    expect(agyPluginInstalled("acme-db")).toBe(true);
+  });
+
+  it("is false when neither manifest nor plugin dir exists", () => {
+    expect(agyPluginInstalled("acme-db")).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // samePath — host-recorded path vs the path WE built (Windows \\?\ canonical
 // form regression: live-confirmed codex stores `\\?\C:\…` on win32).
 // ─────────────────────────────────────────────────────────────────────────
