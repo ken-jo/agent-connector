@@ -181,9 +181,46 @@ export const surfaces: Surface[] = [
 /* CLI commands                                                        */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Two install methods (direct + marketplace)                          */
+/* ------------------------------------------------------------------ */
+
+export interface InstallMethod {
+  id: string;
+  flag: string;
+  title: string;
+  summary: string;
+  scope: string;
+}
+
+/**
+ * The two delivery methods `install` supports. Marketplace is now an officially
+ * supported, end-to-end-driven path for the catalog/plugin hosts (claude-code,
+ * codex, agy/Antigravity) — live-verified on Linux AND native Windows — not just
+ * a bundle the user installs by hand.
+ */
+export const installMethods: InstallMethod[] = [
+  {
+    id: "direct",
+    flag: "--method direct",
+    title: "Direct config-write",
+    summary:
+      "Writes each host's native MCP + hook/plugin config in place — idempotent, reversible, no submission or review.",
+    scope: "All 29 platforms",
+  },
+  {
+    id: "marketplace",
+    flag: "--method marketplace",
+    title: "Marketplace / plugin flow",
+    summary:
+      "Drives the host's OWN plugin install end-to-end — stage the bundle, register a local marketplace where the host has one, run its install verb. Double-install-guarded; doctor-checked. Other marketplace formats print exact manual commands.",
+    scope: "Driven: Claude Code · Codex · Antigravity — live-verified on Linux + Windows",
+  },
+];
+
 export const cliCommands: { cmd: string; purpose: string }[] = [
   { cmd: "detect", purpose: "List installed platforms, scopes, capabilities & paradigm." },
-  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets; user-edited managed blocks are left alone unless --force (backs the file up first)." },
+  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets (--method direct), OR drive the host's own marketplace/plugin flow for Claude Code, Codex & Antigravity (--method marketplace); user-edited managed blocks are left alone unless --force (backs the file up first)." },
   { cmd: "uninstall", purpose: "Full inverse — removes everything we wrote." },
   { cmd: "upgrade", purpose: "Bring all current: re-render config, heal pointers, managed update (alias: update, sync)." },
   { cmd: "package", purpose: "One connector → 9 marketplace/extension formats via --format all, plus opt-in official mcp-server-json / mcpb artifacts." },
