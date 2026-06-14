@@ -1,5 +1,59 @@
 # Changelog
 
+## Unreleased
+
+Everything below was dogfooded and verified in isolated-home installs — and,
+for the marketplace drivers, end-to-end against the real host CLIs on both Linux
+and native Windows.
+
+### Marketplace install — now drives codex + agy, not just Claude Code
+
+- **`install --method marketplace` drivers for codex and agy/Antigravity.** A new
+  `MarketplaceDriver` abstraction (Claude Code refactored onto it, behavior
+  unchanged) lets the marketplace method DRIVE each host's own plugin flow
+  end-to-end. Drivable hosts: `claude-code`, `codex`, `antigravity`,
+  `antigravity-cli`. codex mirrors the catalog flow (`codex plugin marketplace
+  add` + `plugin add <id>@agent-connector`, state in `config.toml`); agy is a
+  direct install-by-path driver (`agy plugin install <dir>` + `plugin uninstall
+  <id>`, fully idempotent). `uninstall --method auto` reverses whichever is
+  present; the bidirectional double-install guard and `doctor` cover all three.
+  Mechanics confirmed live (codex-cli 0.139.0, agy 1.0.7) and re-verified on
+  native Windows.
+- **Windows fixes for the codex + agy drivers** (caught by native-Windows E2E):
+  codex canonicalizes its config.toml marketplace `source` to the extended-length
+  `\\?\C:\…` form — the registration probe now compares paths with a `\\?\`-aware
+  `samePath()` instead of exact string equality. agy records its import manifest
+  at `~/.gemini/config/import_manifest.json` on Windows vs `…/config/plugins/` on
+  POSIX — the probe now reads both, with a plugin-dir fallback.
+- **`doctor` no longer false-FAILs a marketplace-installed connector.** A
+  marketplace install delivers its surfaces via the host's plugin, not the direct
+  config the adapter's `doctor` inspects; doctor now skips the direct checks when
+  a connector is marketplace-installed and reports health via per-host marketplace
+  checks (generalized from claude-code to codex/agy). Fixes a pre-existing
+  false-FAIL that affected Claude Code too.
+
+### Host-native surfaces — closed the adapter gaps
+
+- **kilo-cli** (an OpenCode fork) now wires `commands` (`.kilo/command/`),
+  `skills` (`.kilo/skills/`), and `subagents` (`.kilo/agent/`, `mode:subagent`) —
+  previously hooks-only.
+- **kilo (Kilo Code VS Code ext)** 7.x is rebuilt on the Kilo CLI server: paradigm
+  changed `mcp-only → ts-plugin`, adding `hooks` (`.kilo/plugin/`) and `skills`.
+- **pi** gains a `commands` surface (prompt templates: `.pi/prompts/`,
+  `~/.pi/agent/prompts/`) and a fixed user-scope skills path (`~/.pi/agent/skills/`,
+  was the dead `~/.pi/skills/`); allowed-tools render space-delimited.
+- **skills surface** wired for `warp`, `kiro`, `zed`, `qwen-code`, `kimi`.
+- **agy-plugin** emits `hooks.json` at the bundle ROOT (agy 1.0.7 silently ignores
+  `hooks/hooks.json`).
+- **npm-plugin** README documents the live-verified local install path
+  (`opencode plugin --global file:///<dir>` / `kilo …`).
+
+### Site + SEO
+
+- "Works with 29 agents" wall with 3-state per-surface chips (supported /
+  host-has-it-we-don't / host-doesn't-offer-it), drift-guarded; mascot in the
+  hero; SEO prerender (200 routes, sitemap, robots, per-route meta, og).
+
 ## 0.2.0 — 2026-06-11
 
 The "every surface, every hook, standards-first" release. Everything below was

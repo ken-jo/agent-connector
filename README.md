@@ -14,7 +14,7 @@
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-1263%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-1438%20passing-22c55e)
 
 ## Who this is for
 
@@ -102,7 +102,7 @@ installed into an isolated environment for every adapter and inspected on disk:
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **1263 tests passing** · `tsc` clean · build green.
+- **1438 tests passing** · `tsc` clean · build green.
 
 The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
 `configPatch` — went through the same bar: dogfooded against real connector
@@ -261,11 +261,12 @@ Same one definition, your choice of distribution:
 - **Direct install** (above) — `install` writes each host's native MCP + plugin/
   extension config in place; no per-platform marketplace submission or review.
 - **Marketplace install** — `install --method marketplace` drives the host's own
-  plugin flow end-to-end (v1: Claude Code — stages the bundle, registers a local
-  marketplace via `claude plugin marketplace add`, then `claude plugin install`;
-  headless, idempotent). `uninstall --method auto` reverses whichever method is
-  actually installed, a guard refuses installing the same connector by BOTH
-  methods (duplicated hooks/servers), and `doctor` checks registration drift.
+  plugin flow end-to-end for **Claude Code, codex, and agy/Antigravity** (stages
+  the bundle, registers a local marketplace where the host has one, then runs the
+  host's plugin-install verb; headless, idempotent — verified live on Linux and
+  native Windows). `uninstall --method auto` reverses whichever method is actually
+  installed, a guard refuses installing the same connector by BOTH methods
+  (duplicated hooks/servers), and `doctor` checks registration drift.
 - **Marketplace package** — `agent-connector package` turns the connector into a
   marketplace/extension bundle (manifest + bundled commands, agents, skills,
   hooks, MCP) for **9 host formats** (plus 2 official MCP standard artifacts —

@@ -1044,7 +1044,7 @@ export const cliCommands: CliCommand[] = [
     signature:
       "agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]",
     summary:
-      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --method marketplace (v1: claude-code) drives the host's own plugin flow instead — stage the bundle, register a local marketplace, `claude plugin install` — with a guard refusing a double install by both methods; `uninstall --method auto` reverses whichever is present. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
+      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --method marketplace (drivable: claude-code, codex, antigravity, antigravity-cli) drives the host's own plugin flow instead — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (claude/codex `plugin install`/`add`, `agy plugin install`) — with a guard refusing a double install by both methods; `uninstall --method auto` reverses whichever is present. Live-verified on Linux + native Windows; other marketplace-format hosts print manual commands. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
   },
   {
     name: "upgrade",
@@ -1396,9 +1396,9 @@ export const packageFormatRows: PackageFormatRow[] = [
   {
     format: "codex-plugin",
     targets: "Codex CLI",
-    manifest: ".codex-plugin/plugin.json + .codex-plugin/marketplace.json (same component tree as claude-plugin; .mcp.json)",
-    install: "codex plugin marketplace add <out> · codex plugin add <id>@agent-connector",
-    note: "A manifest-dir rename of claude-plugin (.codex-plugin/ instead of .claude-plugin/).",
+    manifest: ".codex-plugin/plugin.json + .agents/plugins/marketplace.json catalog (same component tree as claude-plugin; .mcp.json)",
+    install: "codex plugin marketplace add <out> · codex plugin add <id>@agent-connector (driven end-to-end by `install --method marketplace --targets codex`)",
+    note: "Manifest dir is .codex-plugin/, but the marketplace CATALOG must live at .agents/plugins/marketplace.json — codex rejects a catalog under .codex-plugin/ (live-confirmed).",
   },
   {
     format: "factory-plugin",
@@ -1424,9 +1424,9 @@ export const packageFormatRows: PackageFormatRow[] = [
   {
     format: "agy-plugin",
     targets: "Antigravity CLI / IDE",
-    manifest: "plugin.json (root marker) + mcp_config.json (SEPARATE) + commands/, agents/, skills/, hooks/hooks.json",
-    install: "agy plugin install <out>/<id>  (validate: agy plugin validate <out>/<id>)",
-    note: "MCP MUST be a separate mcp_config.json — an inline mcpServers in plugin.json is NOT read. No marketplace catalog ships.",
+    manifest: "plugin.json (root marker) + mcp_config.json (SEPARATE) + commands/, agents/, skills/, hooks.json (bundle ROOT)",
+    install: "agy plugin install <out>/<id>  (validate: agy plugin validate <out>/<id>; driven by `install --method marketplace --targets antigravity[-cli]`)",
+    note: "MCP MUST be a separate mcp_config.json — an inline mcpServers in plugin.json is NOT read. hooks.json sits at the bundle ROOT (agy 1.0.7 ignores hooks/hooks.json). No marketplace catalog ships.",
   },
   {
     format: "cursor-plugin",

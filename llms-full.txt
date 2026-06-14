@@ -841,16 +841,23 @@ modifyOutput / injectContext). `--json` emits the raw `DetectedPlatform[]`.
 
 ### install
 `agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]`
-`--method marketplace` (v1: claude-code only) drives the HOST's plugin flow
-instead of writing config directly: stage the `claude-plugin` bundle under
-`<dataRoot>/marketplace/claude/`, regenerate the shared local-marketplace
-catalog, `claude plugin marketplace add` (once, by reference), then
-`claude plugin install <id>@agent-connector` — headless and idempotent; if the
-`claude` CLI is absent it degrades to printing the exact commands. A guard
-refuses installing the same connector by BOTH methods (duplicated hooks +
-server); `uninstall --method auto` reverses whichever method is present, and
-removing the last staged plugin also removes the shared marketplace
-registration. State: `<dataRoot>/marketplace/marketplace-installs.json`.
+`--method marketplace` drives the HOST's own plugin flow instead of writing
+config directly. Drivable hosts: `claude-code`, `codex`, `antigravity`,
+`antigravity-cli` (a `MarketplaceDriver` per host; live-verified on Linux AND
+native Windows). Catalog hosts (claude, codex) stage the bundle under
+`<dataRoot>/marketplace/<host>/`, regenerate the shared local-marketplace
+catalog, register it once by reference (`claude/codex plugin marketplace add`),
+then run the install verb (`claude plugin install` / `codex plugin add`
+`<id>@agent-connector`); agy is a direct install-by-path driver
+(`agy plugin install <bundleDir>` + `plugin uninstall <id>`, no marketplace
+registration). Probe-first + headless; if the host CLI is absent it degrades to
+printing the exact commands; other marketplace-format hosts (gemini, cursor, …)
+still print manual commands. Windows specifics handled: codex's `\\?\` source
+path canonicalization and agy's win32 manifest location. A guard refuses
+installing the same connector by BOTH methods (duplicated hooks + server);
+`uninstall --method auto` reverses whichever method is present, and removing the
+last staged plugin also removes the shared marketplace registration. State:
+`<dataRoot>/marketplace/marketplace-installs.json`.
 The default `--method direct`:
 Resolves the connector, then per target: backup settings → render server config into
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
