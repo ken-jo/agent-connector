@@ -11,7 +11,11 @@
 import type { PlatformId } from "../types.js";
 import { claudeDriver } from "./claude.js";
 import { codexDriver } from "./codex.js";
+import { droidDriver } from "./droid.js";
 import { makeAgyDriver } from "./agy.js";
+import { geminiDriver } from "./gemini.js";
+import { makeNpmLocalDriver } from "./npm-local.js";
+import { qwenDriver } from "./qwen.js";
 import type { MarketplaceDriver } from "./types.js";
 
 // Memoize the per-id agy drivers (stable identity; one instance per platform).
@@ -21,6 +25,26 @@ function agyDriver(platform: PlatformId): MarketplaceDriver {
   if (!driver) {
     driver = makeAgyDriver(platform);
     agyDrivers.set(platform, driver);
+  }
+  return driver;
+}
+
+// Memoize the per-id npm-local drivers (one instance per platform). The CLI
+// binary is `opencode` for opencode and `kilo` for both kilo and kilo-cli (the
+// kilo-cli alias shares the kilo binary; live-verified).
+const NPM_LOCAL_BINARIES: Partial<Record<PlatformId, string>> = {
+  opencode: "opencode",
+  kilo: "kilo",
+  "kilo-cli": "kilo",
+};
+const npmLocalDrivers = new Map<PlatformId, MarketplaceDriver>();
+function npmLocalDriver(platform: PlatformId): MarketplaceDriver {
+  let driver = npmLocalDrivers.get(platform);
+  if (!driver) {
+    driver = makeNpmLocalDriver(platform, {
+      binaryName: NPM_LOCAL_BINARIES[platform] ?? platform,
+    });
+    npmLocalDrivers.set(platform, driver);
   }
   return driver;
 }
@@ -35,6 +59,16 @@ export function getMarketplaceDriver(platform: PlatformId): MarketplaceDriver | 
     case "antigravity":
     case "antigravity-cli":
       return agyDriver(platform);
+    case "gemini-cli":
+      return geminiDriver;
+    case "qwen-code":
+      return qwenDriver;
+    case "droid":
+      return droidDriver;
+    case "opencode":
+    case "kilo":
+    case "kilo-cli":
+      return npmLocalDriver(platform);
     default:
       return null;
   }

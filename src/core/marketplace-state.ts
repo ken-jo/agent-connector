@@ -154,6 +154,31 @@ export function agyStagingRoot(): string {
   return join(marketplaceRoot(), "agy");
 }
 
+/** Shared Gemini-CLI staging root: <dataRoot>/marketplace/gemini. */
+export function geminiStagingRoot(): string {
+  return join(marketplaceRoot(), "gemini");
+}
+
+/** Shared Qwen-Code staging root: <dataRoot>/marketplace/qwen. */
+export function qwenStagingRoot(): string {
+  return join(marketplaceRoot(), "qwen");
+}
+
+/** Shared droid (Factory) staging root: <dataRoot>/marketplace/droid. */
+export function droidStagingRoot(): string {
+  return join(marketplaceRoot(), "droid");
+}
+
+/**
+ * Shared npm-local staging root: <dataRoot>/marketplace/npm. Every npm-plugin
+ * host (opencode / kilo / kilo-cli) stages here; the host config's `plugin`
+ * array references the bundle by `file://<this>/<id>`, so it MUST live under the
+ * stable data-root (it survives cwd changes and `rm -rf dist-plugin`).
+ */
+export function npmStagingRoot(): string {
+  return join(marketplaceRoot(), "npm");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Claude Code host-state readers ($CLAUDE_CONFIG_DIR || ~/.claude)
 // ─────────────────────────────────────────────────────────────────────────
@@ -299,6 +324,80 @@ export function codexMarketplaceSource(name: string): string | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// droid (Factory) host-state readers (~/.factory/settings.json, JSON, NO env)
+//
+// DOCS-ONLY: no droid binary is present on this box. The settings.json key
+// shapes below (`enabledPlugins["<id>@agent-connector"] === true` +
+// `extraKnownMarketplaces["agent-connector"].source`) follow the documented
+// factory plugin model — confirm the exact JSON shapes live when a droid binary
+// is available. Both readers read defensively (refuse only on positive evidence).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Factory's settings file: ~/.factory/settings.json (NO dedicated env). */
+export function factorySettingsPath(): string {
+  return join(homedir(), ".factory", "settings.json");
+}
+
+/** The settings.json key our marketplace install creates for `id` (== codex's). */
+export function droidPluginKey(connectorId: string): string {
+  return `${connectorId}@${MARKETPLACE_NAME}`;
+}
+
+/** The `enabledPlugins` map from droid's settings.json (null when unreadable). */
+function readDroidEnabledPlugins(): Record<string, unknown> | null {
+  const parsed = readJsonFile(factorySettingsPath());
+  const plugins = parsed?.enabledPlugins;
+  if (plugins && typeof plugins === "object" && !Array.isArray(plugins)) {
+    return plugins as Record<string, unknown>;
+  }
+  return null;
+}
+
+/**
+ * True when droid's settings.json carries
+ * `enabledPlugins["<id>@agent-connector"] === true`. DOCS-only: the strict
+ * `=== true` value shape is unverified live (a future droid may store an object).
+ */
+export function droidPluginInstalled(connectorId: string): boolean {
+  const plugins = readDroidEnabledPlugins();
+  if (!plugins) return false;
+  return plugins[droidPluginKey(connectorId)] === true;
+}
+
+/** True when ANY `*@agent-connector` plugin remains enabled in droid's settings. */
+export function anyDroidAgentConnectorPlugins(): boolean {
+  const plugins = readDroidEnabledPlugins();
+  if (!plugins) return false;
+  return Object.entries(plugins).some(
+    ([key, value]) => key.endsWith(`@${MARKETPLACE_NAME}`) && value === true,
+  );
+}
+
+/**
+ * The directory droid's settings.json records as
+ * `extraKnownMarketplaces["<name>"].source`, or null when not registered /
+ * unreadable. Both a presence probe and the NAME-COLLISION check (a registration
+ * pointing somewhere other than our staging root belongs to the user). DOCS-only:
+ * the local-path `source` field shape is undocumented, so this reads defensively
+ * — accepts either a bare string source or an object carrying a `path`/`source`
+ * string, and NORMALIZES to a single string for the samePath compare.
+ */
+export function droidMarketplaceSource(name: string): string | null {
+  const parsed = readJsonFile(factorySettingsPath());
+  const known = parsed?.extraKnownMarketplaces;
+  if (!known || typeof known !== "object" || Array.isArray(known)) return null;
+  const entry = (known as Record<string, unknown>)[name];
+  if (entry == null) return null;
+  if (typeof entry === "string") return entry;
+  if (typeof entry === "object" && !Array.isArray(entry)) {
+    const e = entry as { source?: unknown; path?: unknown };
+    if (typeof e.source === "string") return e.source;
+    if (typeof e.path === "string") return e.path;
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // agy (Antigravity) host-state readers (~/.gemini/config/plugins, NO env)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -363,6 +462,257 @@ export function agyPluginInstalled(connectorId: string): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Gemini CLI host-state readers (~/.gemini/extensions, NO env — HOME isolation)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Gemini CLI's config dir: ~/.gemini (NO dedicated config-dir env — isolation is
+ * via HOME, live-confirmed on gemini 0.36.0). DISTINCT from agy's ~/.gemini/config
+ * tree: gemini extensions land under ~/.gemini/extensions/<id>/.
+ */
+export function geminiConfigDir(): string {
+  return join(homedir(), ".gemini");
+}
+
+/**
+ * True when `id` is installed per Gemini's own extension store: the marker file
+ * ~/.gemini/extensions/<id>/gemini-extension.json exists. Gemini exits 0 even on
+ * a logical failure, so this fs probe — not the exit code — is the source of
+ * truth (the driver re-probes after every spawn).
+ */
+export function geminiExtensionInstalled(connectorId: string): boolean {
+  return existsSync(
+    join(geminiConfigDir(), "extensions", connectorId, "gemini-extension.json"),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Qwen Code host-state readers (~/.qwen/extensions, NO env — HOME isolation)
+//
+// DOCS-ONLY: no qwen binary is present on this box. qwen-code is a gemini-cli
+// fork, so the extension store SHAPE (~/.qwen/extensions/<id>/qwen-extension.json)
+// mirrors gemini's — confirm the marker filename live when a qwen binary lands.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Qwen Code's config dir: ~/.qwen (NO dedicated config-dir env — isolation is
+ * via HOME, like its gemini-cli parent). DOCS-only: confirm live when a qwen
+ * binary is available. DISTINCT from ~/.gemini (the gemini-cli store).
+ */
+export function qwenConfigDir(): string {
+  return join(homedir(), ".qwen");
+}
+
+/**
+ * True when `id` is installed per Qwen's own extension store: the marker file
+ * ~/.qwen/extensions/<id>/qwen-extension.json exists. Mirrors gemini's fs probe
+ * (qwen is a gemini fork); the driver re-probes after every spawn. DOCS-only:
+ * the marker filename (`qwen-extension.json`) is unverified live.
+ */
+export function qwenExtensionInstalled(connectorId: string): boolean {
+  return existsSync(
+    join(qwenConfigDir(), "extensions", connectorId, "qwen-extension.json"),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// npm-local host-state readers (opencode / kilo / kilo-cli — XDG_CONFIG_HOME)
+//
+// These hosts have NO uninstall verb; installs are recorded as `file://<dir>`
+// entries in a `plugin` array inside an opencode-style config file, which the
+// driver EDITS to remove. This module is a spawn/shared-free LEAF, so a tiny
+// posix-resolve path comparison is inlined here rather than importing
+// shared.ts's samePath (and samePath does not strip the `file://` scheme).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** $XDG_CONFIG_HOME when set & non-empty, else ~/.config (matches the adapters). */
+function xdgConfigHome(): string {
+  const xdg = process.env.XDG_CONFIG_HOME;
+  return xdg && xdg.trim() !== "" ? resolve(xdg) : join(homedir(), ".config");
+}
+
+/** opencode's config dir: $XDG_CONFIG_HOME/opencode (or ~/.config/opencode). */
+export function opencodeConfigDir(): string {
+  return join(xdgConfigHome(), "opencode");
+}
+
+/** kilo / kilo-cli's config dir: $XDG_CONFIG_HOME/kilo (or ~/.config/kilo). */
+export function kiloConfigDir(): string {
+  return join(xdgConfigHome(), "kilo");
+}
+
+/**
+ * Candidate config filenames per npm-local host, most-preferred first. opencode
+ * accepts opencode.jsonc / opencode.json / config.json (JSONC — comments
+ * tolerated); kilo / kilo-cli use opencode.json (plain JSON).
+ */
+function npmConfigCandidates(platform: PlatformId): string[] {
+  return platform === "opencode"
+    ? ["opencode.jsonc", "opencode.json", "config.json"]
+    : ["opencode.json"];
+}
+
+/** The config DIR for an npm-local host (opencode vs kilo/kilo-cli). */
+function npmConfigDir(platform: PlatformId): string {
+  return platform === "opencode" ? opencodeConfigDir() : kiloConfigDir();
+}
+
+/**
+ * The config FILE path for `platform`: the first existing candidate, else the
+ * most-preferred candidate (the path a fresh install would write). Never throws.
+ */
+export function npmConfigFilePath(platform: PlatformId): string {
+  const dir = npmConfigDir(platform);
+  const candidates = npmConfigCandidates(platform);
+  for (const name of candidates) {
+    if (existsSync(join(dir, name))) return join(dir, name);
+  }
+  return join(dir, candidates[0]!);
+}
+
+/** Strip a single leading `file://` (and `file://localhost/`) scheme prefix. */
+export function stripFileScheme(entry: string): string {
+  let s = entry;
+  if (s.startsWith("file://localhost/")) s = s.slice("file://localhost".length);
+  else if (s.startsWith("file://")) s = s.slice("file://".length);
+  return s;
+}
+
+/**
+ * Strip `//` line and `/* *​/` block comments from JSONC, STRING-AWARE: a `//`
+ * or `/*` inside a JSON string literal (e.g. the `file://` in a plugin entry) is
+ * left intact. Scans char-by-char tracking string + escape state — a naive
+ * regex would corrupt `"file:///dir"` by eating from the embedded `//`.
+ */
+function stripJsoncComments(text: string): string {
+  let out = "";
+  let inString = false;
+  let inLine = false;
+  let inBlock = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    const next = i + 1 < text.length ? text[i + 1]! : "";
+    if (inLine) {
+      if (c === "\n") {
+        inLine = false;
+        out += c;
+      }
+      continue;
+    }
+    if (inBlock) {
+      if (c === "*" && next === "/") {
+        inBlock = false;
+        i++;
+      }
+      continue;
+    }
+    if (inString) {
+      out += c;
+      if (c === "\\") {
+        // Copy the escaped char verbatim (covers \" and \\).
+        if (next !== "") {
+          out += next;
+          i++;
+        }
+      } else if (c === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      inLine = true;
+      i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      inBlock = true;
+      i++;
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+/** Tolerant JSONC → object: strip // line and block comments, then JSON.parse. */
+function parseJsonc(text: string): Record<string, unknown> | null {
+  // A parse failure degrades to null (the "refuse only on positive evidence"
+  // convention) rather than throwing.
+  try {
+    const parsed = JSON.parse(stripJsoncComments(text)) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* unreadable / not JSONC → null */
+  }
+  return null;
+}
+
+/** Read + parse an npm-local host's config file ({}-shaped or null). Never throws. */
+export function readNpmConfig(platform: PlatformId): Record<string, unknown> | null {
+  const file = npmConfigFilePath(platform);
+  try {
+    return parseJsonc(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Posix-resolve path equality for the npm probe: normalize `..`/`.`/trailing
+ * slashes without touching the filesystem. Inlined here (leaf module) rather
+ * than importing shared.ts's samePath. The caller strips `file://` first.
+ */
+function posixPathEquals(a: string, b: string): boolean {
+  const norm = (p: string): string => {
+    const isAbs = p.startsWith("/");
+    const out: string[] = [];
+    for (const seg of p.split("/")) {
+      if (seg === "" || seg === ".") continue;
+      if (seg === "..") {
+        if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
+        else if (!isAbs) out.push("..");
+      } else out.push(seg);
+    }
+    return (isAbs ? "/" : "") + out.join("/");
+  };
+  return norm(a) === norm(b);
+}
+
+/**
+ * The `plugin`-array ENTRY (the raw string, including any `file://`) whose value
+ * — after stripping a leading `file://` — path-equals `id`'s staged bundle dir,
+ * or null when no entry references it. Used both as the install probe and to
+ * locate the exact entry the uninstall edit must drop.
+ */
+export function npmPluginArrayEntry(
+  platform: PlatformId,
+  connectorId: string,
+): string | null {
+  const cfg = readNpmConfig(platform);
+  if (!cfg) return null;
+  const arr = cfg["plugin"];
+  if (!Array.isArray(arr)) return null;
+  const target = join(npmStagingRoot(), connectorId);
+  for (const raw of arr) {
+    if (typeof raw !== "string") continue;
+    if (posixPathEquals(stripFileScheme(raw), target)) return raw;
+  }
+  return null;
+}
+
+/** True when `platform`'s config `plugin` array references `id`'s staged bundle. */
+export function npmPluginInstalled(platform: PlatformId, connectorId: string): boolean {
+  return npmPluginArrayEntry(platform, connectorId) != null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Cross-host marketplace-install EVIDENCE (the double-install guard's probe)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -385,15 +735,29 @@ export function marketplaceEvidence(
         return `${claudePluginKey(connectorId)} listed in Claude's installed_plugins.json`;
       }
       return null;
-    case "gemini-cli": {
-      const dir = join(homedir(), ".gemini", "extensions", connectorId);
-      return existsSync(dir) ? `extension dir ${dir} exists` : null;
-    }
+    case "gemini-cli":
+      return geminiExtensionInstalled(connectorId)
+        ? `extension ${connectorId} listed in Gemini's extensions store`
+        : null;
+    case "qwen-code":
+      return qwenExtensionInstalled(connectorId)
+        ? `extension ${connectorId} listed in Qwen's extensions store`
+        : null;
+    case "droid":
+      return droidPluginInstalled(connectorId)
+        ? `${droidPluginKey(connectorId)} enabled in droid's settings.json`
+        : null;
     case "antigravity":
     case "antigravity-cli": {
       const dir = join(homedir(), ".gemini", "config", "plugins", connectorId);
       return existsSync(dir) ? `plugin dir ${dir} exists` : null;
     }
+    case "opencode":
+    case "kilo":
+    case "kilo-cli":
+      return npmPluginInstalled(platform, connectorId)
+        ? `${connectorId} listed in ${platform}'s config plugin array`
+        : null;
     case "codex": {
       const codexHome =
         process.env.CODEX_HOME && process.env.CODEX_HOME.trim() !== ""

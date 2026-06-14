@@ -58,6 +58,7 @@ import {
   claudeStagingRoot,
   hashDirectory,
   marketplaceRoot,
+  npmConfigFilePath,
   readMarketplaceInstalls,
   writeMarketplaceInstalls,
   type MarketplaceInstallRecord,
@@ -125,6 +126,12 @@ export const DRIVABLE_MARKETPLACE_PLATFORMS: ReadonlySet<PlatformId> = new Set([
   "codex",
   "antigravity",
   "antigravity-cli",
+  "gemini-cli",
+  "qwen-code",
+  "droid",
+  "opencode",
+  "kilo",
+  "kilo-cli",
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -658,12 +665,22 @@ export async function marketplaceDoctorChecks(
   // return the same stagingRoot, which uniquely identifies the host store.
   const seenHosts = new Set<string>();
   const candidates = (
-    ["codex", "antigravity", "antigravity-cli"] as PlatformId[]
+    [
+      "codex",
+      "droid",
+      "antigravity",
+      "antigravity-cli",
+      "gemini-cli",
+      "qwen-code",
+      "opencode",
+      "kilo",
+      "kilo-cli",
+    ] as PlatformId[]
   ).sort((a, b) => recordRank(connector.id, a) - recordRank(connector.id, b));
   for (const platform of candidates) {
     const driver = getMarketplaceDriver(platform);
     if (!driver) continue;
-    const hostKey = driver.stagingRoot();
+    const hostKey = doctorHostKey(platform, driver.stagingRoot());
     if (seenHosts.has(hostKey)) continue;
     const group = await genericMarketplaceGroup(connector, platform, scope, projectDir);
     if (group) {
@@ -678,15 +695,41 @@ export async function marketplaceDoctorChecks(
   return groups;
 }
 
+/**
+ * Dedup key identifying ONE physical host store, so sibling PlatformIds that
+ * share a store collapse into a single doctor group. agy (antigravity +
+ * antigravity-cli) and codex/gemini each have a unique staging root, so the root
+ * IS the key. The npm-local hosts SHARE one staging root across three DISTINCT
+ * hosts (opencode vs kilo) — but kilo and kilo-cli share the same config file —
+ * so the key is the host's CONFIG file path there, not the staging root.
+ */
+function doctorHostKey(platform: PlatformId, stagingRoot: string): string {
+  if (platform === "opencode" || platform === "kilo" || platform === "kilo-cli") {
+    return npmConfigFilePath(platform);
+  }
+  return stagingRoot;
+}
+
 /** Sort key so a platform that HAS a marketplace record is preferred as the
  * representative id for a shared driver (the user's actual target id wins). */
 function recordRank(connectorId: string, platform: PlatformId): number {
   return readMarketplaceInstalls(connectorId)[platform] ? 0 : 1;
 }
 
-/** Doctor group ordering: claude, codex, then the agy host (stable + intuitive). */
+/** Doctor group ordering: claude, codex, agy, gemini, then the npm hosts. */
 function platformDoctorRank(platform: PlatformId): number {
-  const order: PlatformId[] = ["claude-code", "codex", "antigravity", "antigravity-cli"];
+  const order: PlatformId[] = [
+    "claude-code",
+    "codex",
+    "droid",
+    "antigravity",
+    "antigravity-cli",
+    "gemini-cli",
+    "qwen-code",
+    "opencode",
+    "kilo",
+    "kilo-cli",
+  ];
   const i = order.indexOf(platform);
   return i === -1 ? order.length : i;
 }

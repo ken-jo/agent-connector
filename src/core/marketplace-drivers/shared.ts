@@ -60,16 +60,40 @@ export function findOnPath(command: string): string | null {
   return null;
 }
 
+/** Per-spawn options for {@link runHostCommand}. */
+export interface RunHostCommandOptions {
+  /** Hard timeout (ms) before the child is SIGKILLed. */
+  timeoutMs?: number;
+  /**
+   * Working directory for the spawned child. Omit to INHERIT the parent's cwd
+   * (the historical behavior — claude/codex/agy pass none and are unaffected).
+   * The npm-local driver passes a NEUTRAL dir so the host CLI does not pollute
+   * a project-local `./.opencode/opencode.json`.
+   */
+  cwd?: string;
+}
+
 /**
  * Run one host CLI command headlessly: direct spawn (no shell on POSIX;
  * spawnChild handles the Windows .cmd launcher), stdin ignored, output
  * captured, hard timeout kill. Resolves ALWAYS — failure shapes are data.
+ *
+ * The third argument is BACKWARD-COMPATIBLE: a bare number is the legacy
+ * `timeoutMs` positional (kept so existing callers need no change), an options
+ * object carries `{ timeoutMs?, cwd? }`. No `cwd` → the child inherits the
+ * parent's cwd exactly as before.
  */
 export function runHostCommand(
   command: string,
   args: string[],
-  timeoutMs: number = HOST_COMMAND_TIMEOUT_MS,
+  optionsOrTimeout: number | RunHostCommandOptions = HOST_COMMAND_TIMEOUT_MS,
 ): Promise<HostCommandResult> {
+  const opts: RunHostCommandOptions =
+    typeof optionsOrTimeout === "number"
+      ? { timeoutMs: optionsOrTimeout }
+      : optionsOrTimeout;
+  const timeoutMs = opts.timeoutMs ?? HOST_COMMAND_TIMEOUT_MS;
+  const cwd = opts.cwd;
   return new Promise((resolvePromise) => {
     let stdout = "";
     let stderr = "";
@@ -88,6 +112,9 @@ export function runHostCommand(
       child = spawnChild(command, args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: process.env,
+        // Only set cwd when a caller asked for it — omitting the key inherits
+        // the parent's cwd, keeping claude/codex/agy spawns byte-identical.
+        ...(cwd != null ? { cwd } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
