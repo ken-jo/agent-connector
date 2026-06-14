@@ -10,7 +10,7 @@
  * key decisions off presence probes first and treat command failure as a warn.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 
 import { spawnChild } from "../spawn-child.js";
@@ -174,13 +174,17 @@ export function firstLine(text: string): string {
 
 /**
  * Path equivalence for comparing a path WE built (e.g. a staging root) against a
- * path a HOST CLI recorded in its own state. A plain `===` is wrong on Windows:
- * codex canonicalizes the marketplace `source` to the extended-length form
- * `\\?\C:\…` (live-confirmed on codex-cli 0.139.0), which never string-equals our
- * `path.join` result. Normalize both: strip the `\\?\` / `\\?\UNC\` prefix,
- * `resolve()`, and case-fold on win32 (NTFS is case-insensitive). On POSIX this
- * is just `resolve(a) === resolve(b)`, so existing exact-match behavior is
- * preserved (an exact match always stays a match — samePath only widens).
+ * path a HOST CLI recorded in its own state. A plain `===` breaks on every OS
+ * because hosts CANONICALIZE the path they store, differently per platform:
+ *   • Windows — codex writes the extended-length form `\\?\C:\…` (codex 0.139.0);
+ *   • macOS  — codex writes the realpath `/private/var/…` for a `/var/folders/…`
+ *     staging dir (`/var`→`/private/var` is a symlink; codex 0.139.0 on arm64);
+ *   • any OS — symlinked HOME / 8.3 short paths.
+ * So normalize BOTH sides: strip the win32 `\\?\`/`\\?\UNC\` prefix, then resolve
+ * symlinks with `realpathSync.native` when the path exists (this is what catches
+ * the macOS /var case AND win32 8.3), falling back to lexical `resolve()` when it
+ * does not, and case-fold on win32. An exact match always stays a match —
+ * samePath only widens.
  */
 export function samePath(
   a: string | null | undefined,
@@ -192,7 +196,11 @@ export function samePath(
     if (process.platform === "win32") {
       s = s.replace(/^\\\\\?\\UNC\\/, "\\\\").replace(/^\\\\\?\\/, "");
     }
-    s = resolve(s);
+    try {
+      s = realpathSync.native(s);
+    } catch {
+      s = resolve(s); // path does not exist → lexical normalization
+    }
     return process.platform === "win32" ? s.toLowerCase() : s;
   };
   return norm(a) === norm(b);

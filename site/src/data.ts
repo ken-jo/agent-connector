@@ -215,7 +215,7 @@ export const installMethods: InstallMethod[] = [
     summary:
       "Drives the host's OWN plugin install end-to-end — stage the bundle, register a local marketplace where the host has one, run its install verb. Double-install-guarded; doctor-checked. Other marketplace formats print exact manual commands.",
     scope:
-      "Drives 10 hosts: Claude Code · Codex · Gemini CLI · OpenCode · Kilo (CLI + ext) · Antigravity (CLI + IDE) live-verified, + Droid · Qwen Code driver shipped",
+      "Drives 10 hosts: Claude Code · Codex · OpenCode · Kilo (CLI + ext) · Antigravity (CLI + IDE) live-verified, + Droid · Qwen Code driver shipped, + Gemini CLI (legacy — sunsetting toward Antigravity)",
   },
 ];
 

@@ -1,6 +1,10 @@
 /**
  * core/marketplace-drivers/gemini — the Gemini CLI marketplace driver.
  *
+ * LEGACY: Gemini CLI is sunsetting toward Google Antigravity (driven by agy.ts).
+ * This driver is kept for the many machines that still have gemini-cli installed;
+ * new deployments should prefer the `antigravity` / `antigravity-cli` targets.
+ *
  * A DIRECT install-by-path driver (NO marketplace, NO catalog), modeled on
  * agy.ts but speaking the single `gemini-cli` PlatformId. Live-verified against
  * gemini 0.36.0:

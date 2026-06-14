@@ -54,3 +54,32 @@ the absent ones). Goal: expand `install --method marketplace` driving beyond
 
 ## Not worth driving (leave manual-hint, honest)
 cursor (GUI reload only), pi (registry-only npm + no hook layer to load it), vscode-copilot/openclaw/omp (no plugin CLI; the claude-plugin format-map entry is emit-only and arguably misleading — consider making those emit direct-only), kimi (no confirmed uninstall/list verb — promote to a direct driver once a binary verifies reversal).
+
+## Cross-OS live verification (Linux + native Windows + macOS)
+
+Drivers were driven end-to-end through OUR CLI against the REAL host binaries on
+all three OSes (isolated HOME/CODEX_HOME sandboxes; install → host-state
+recognition → doctor → uninstall, zero residue):
+
+| Host | Linux | Windows | macOS |
+|---|---|---|---|
+| claude-code | ✓ | ✓ | ✓ |
+| codex | ✓ | ✓ | ✓ |
+| antigravity / -cli (agy) | ✓ | ✓ | ✓ |
+| opencode (npm-local) | ✓ | ✓ | (binary absent) |
+| kilo / kilo-cli (npm-local) | ✓ | (absent) | (absent) |
+| gemini-cli (legacy) | ✓ (0.36.0) | warn (0.41 trust gate) | warn (0.41 trust gate) |
+| droid / qwen-code | docs-only (no binary on any box) |
+
+**Path-canonicalization bugs the cross-OS sweep caught (all the same class — a
+host stores a CANONICALIZED path that never string-equals our staging path):**
+- **Windows** — codex writes the extended-length `\\?\C:\…`; npm-local hosts
+  write `file:///C:/…` (drive + forward slashes).
+- **macOS** — codex writes the realpath `/private/var/folders/…` for a
+  `/var/folders/…` staging dir (`/var`→`/private/var` is a symlink); the spawned
+  child's `process.cwd()` is realpath'd too.
+The fix is unified: `samePath` (shared.ts) and the npm probe (marketplace-state.ts)
+strip the win32 `\\?\` prefix, decode `file://` via `fileURLToPath`, then normalize
+BOTH sides with `realpathSync.native` (symlink + 8.3 + case), falling back to
+lexical `resolve()` when the path does not exist. An exact match always stays a
+match — the normalization only widens.

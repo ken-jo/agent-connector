@@ -26,6 +26,7 @@ import {
   existsSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -685,17 +686,23 @@ function npmEntryToPath(entry: string): string {
 }
 
 /**
- * Path equality for the npm probe: `resolve()` both sides (normalizes
- * `..`/`.`/trailing slashes AND `/` vs `\` separators) and case-fold on win32
- * (NTFS is case-insensitive). Inlined here (leaf module) rather than importing
- * shared.ts's samePath, which pulls in the spawn layer.
+ * Path equality for the npm probe. Resolve symlinks with `realpathSync.native`
+ * when the path exists (catches macOS `/var/folders`→`/private/var/folders` and
+ * win32 8.3 short paths — the host records the realpath, we hold the symlink),
+ * else lexical `resolve()`; case-fold on win32. Inlined here (leaf module)
+ * rather than importing shared.ts's samePath, which pulls in the spawn layer.
  */
 function npmPathEquals(a: string, b: string): boolean {
-  const ra = resolve(a);
-  const rb = resolve(b);
-  return process.platform === "win32"
-    ? ra.toLowerCase() === rb.toLowerCase()
-    : ra === rb;
+  const norm = (p: string): string => {
+    let s: string;
+    try {
+      s = realpathSync.native(p);
+    } catch {
+      s = resolve(p);
+    }
+    return process.platform === "win32" ? s.toLowerCase() : s;
+  };
+  return norm(a) === norm(b);
 }
 
 /**
