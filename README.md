@@ -14,7 +14,7 @@
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-1438%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-1483%20passing-22c55e)
 
 ## Who this is for
 
@@ -102,7 +102,7 @@ installed into an isolated environment for every adapter and inspected on disk:
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **1438 tests passing** · `tsc` clean · build green.
+- **1483 tests passing** · `tsc` clean · build green.
 
 The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
 `configPatch` — went through the same bar: dogfooded against real connector

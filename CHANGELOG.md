@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.1 — 2026-06-14
+
+Marketplace/plugin driver expansion — and the cross-OS hardening that came with
+verifying it live on Linux, native Windows, AND macOS.
+
+### Marketplace install — 4 → 10 drivable hosts (3 driver shapes)
+
+- A `MarketplaceDriver` abstraction with three shapes drives each host's own
+  plugin flow end-to-end: CATALOG (`claude-code`, `codex`, `droid`), DIRECT
+  install-by-path (`antigravity`/`-cli`, `gemini-cli`, `qwen-code`), and the new
+  NPM-LOCAL `file://` config-array entry (`opencode`, `kilo`, `kilo-cli`).
+- **Live-verified end-to-end** against the real host binaries: claude-code,
+  codex, antigravity on Linux + Windows + macOS; opencode (npm-local) on Linux +
+  Windows; gemini-cli on Linux. `droid` + `qwen-code` ship the driver with
+  mock-CLI tests, pending a live host (auto-promote when the binary is present).
+- Left as honest manual-hint (not headless-drivable): cursor (GUI), pi
+  (registry-only, no hook layer), vscode-copilot / openclaw / omp (no plugin CLI).
+
+### Cross-OS path-canonicalization fixes (found by the Windows + macOS sweep)
+
+- Hosts canonicalize the path they record differently per OS — none string-equal
+  our staging path. **Windows**: codex's `\\?\C:\…` source + npm-local's
+  `file:///C:/…` entries. **macOS**: codex's `/private/var/…` realpath for a
+  `/var/folders/…` staging dir. Unified fix: `samePath` + the npm probe strip
+  the win32 `\\?\` prefix, decode `file://` via `fileURLToPath`, then normalize
+  both sides with `realpathSync.native` (symlink + 8.3 + case), lexical
+  `resolve()` fallback. The `agy` import manifest is read at both its win32 and
+  posix locations; `agy` hooks.json moved to the bundle root.
+- `doctor` no longer false-FAILs a marketplace-installed connector (the surfaces
+  are delivered via the plugin, not the direct config) — generalized to all
+  drivable hosts.
+
+### Gemini CLI marked legacy
+
+- Gemini CLI is sunsetting toward Google Antigravity; the driver is KEPT for
+  existing installs but labeled legacy throughout. gemini ≥ 0.41 adds a
+  folder-trust prompt `--consent` doesn't cover — the driver degrades to an
+  actionable warn (no hang), pointing at the one-time trust or the
+  `security.folderTrust.enabled` setting.
+
 ## 0.3.0 — 2026-06-14
 
 Everything below was dogfooded and verified in isolated-home installs — and,
