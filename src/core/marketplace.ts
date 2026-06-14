@@ -6,9 +6,15 @@
  * bundle under the data-root and drives the HOST's own plugin/marketplace
  * install flow, emitting the same ChangeRecords the direct method renders.
  *
- * v1 ships ONE live driver — claude-code (marketplace-drivers/claude.ts) — with
- * every other marketplace-capable host degrading to a never-silent skip/warn
- * record carrying the exact manual commands from `package`'s instructions.
+ * Every host-specific detail lives behind a {@link MarketplaceDriver}
+ * (marketplace-drivers/*), resolved per target via the registry; this module
+ * keeps only the generic policy (target resolution, the double-install guard,
+ * dry-run rendering, state-record bookkeeping) and dispatches through the
+ * driver. Live drivers: claude-code + codex (catalog drivers — shared root +
+ * one "agent-connector" catalog + a registered local marketplace) and
+ * antigravity / antigravity-cli (the agy direct install-by-path driver, no
+ * catalog). Every other marketplace-capable host degrades to a never-silent
+ * skip/warn record carrying the exact manual commands from `package`.
  *
  * Cross-cutting rules (mirrors docs/ARCHITECTURE.md principles):
  *   • Probe-first idempotency: re-runs report `=` skips, never errors.
@@ -16,19 +22,19 @@
  *     a direct install on the host REFUSES the marketplace install (and the
  *     installer refuses the inverse), because a doubled connector duplicates
  *     hooks + the MCP server and corrupts telemetry. No --force escape.
- *   • By-reference staging: claude references the bundle IN PLACE, so bundles
- *     stage under <dataRoot>/marketplace/claude/ (stable across cwd changes),
- *     with ONE shared catalog named "agent-connector" listing every staged
- *     connector (regenerated content-stably on install/uninstall).
+ *   • By-reference staging: catalog drivers reference the bundle IN PLACE, so
+ *     bundles stage under <dataRoot>/marketplace/<family>/ (stable across cwd
+ *     changes), with ONE shared catalog named "agent-connector" listing every
+ *     staged connector (regenerated content-stably on install/uninstall). The
+ *     agy driver installs by path; the host copies the bundle into its store.
  *   • --dry-run prints the staged file tree and the exact host commands as
  *     ChangeRecords without writing or spawning.
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
 import type {
-  ChangeRecord,
   DiagnosticResult,
   InstallResult,
   InstallScope,
@@ -37,7 +43,7 @@ import type {
 } from "./types.js";
 import { loadAdapter } from "../adapters/registry.js";
 import { registerConnector } from "./load-connector.js";
-import { dataRoot, ensureDir, ensureHomeBin, homeBinPath } from "./paths.js";
+import { dataRoot, ensureHomeBin, homeBinPath } from "./paths.js";
 import { resolveCliEntry, resolveTargets } from "./installer.js";
 import {
   installInstructions,
@@ -46,7 +52,6 @@ import {
 } from "./package.js";
 import {
   MARKETPLACE_NAME,
-  anyClaudeAgentConnectorPlugins,
   claudeKnownMarketplacePath,
   claudePluginInstalled,
   claudePluginKey,
@@ -57,13 +62,8 @@ import {
   writeMarketplaceInstalls,
   type MarketplaceInstallRecord,
 } from "./marketplace-state.js";
-import {
-  claudeBinary,
-  claudeDriveInstall,
-  claudeDriveMarketplaceRemove,
-  claudeDriveUninstall,
-  claudeDriveUpdate,
-} from "./marketplace-drivers/claude.js";
+import { claudeBinary } from "./marketplace-drivers/claude.js";
+import { getMarketplaceDriver } from "./marketplace-drivers/registry.js";
 import { log } from "./logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -119,9 +119,12 @@ export const MARKETPLACE_FORMAT_BY_PLATFORM: Partial<
   omp: "claude-plugin",
 };
 
-/** The platforms a v1 driver can actually DRIVE end-to-end. */
+/** The platforms a driver can actually DRIVE end-to-end. */
 export const DRIVABLE_MARKETPLACE_PLATFORMS: ReadonlySet<PlatformId> = new Set([
   "claude-code",
+  "codex",
+  "antigravity",
+  "antigravity-cli",
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -200,91 +203,6 @@ async function directInstallPresent(
   } catch {
     return false;
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Claude staging: bundle emit + shared-catalog regeneration
-// ─────────────────────────────────────────────────────────────────────────
-
-/** Staged plugin dirs (those carrying a .claude-plugin/plugin.json manifest). */
-function stagedClaudePlugins(stagingRoot: string): string[] {
-  if (!existsSync(stagingRoot)) return [];
-  try {
-    return readdirSync(stagingRoot)
-      .filter((name) =>
-        existsSync(join(stagingRoot, name, ".claude-plugin", "plugin.json")),
-      )
-      .sort();
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Regenerate the ONE shared catalog listing every staged connector (solves the
- * multi-connector marketplace-name collision a per-bundle catalog would cause).
- * Content-stable: rewritten only when the serialized catalog actually changed.
- */
-function regenerateClaudeCatalog(
-  stagingRoot: string,
-  changes: ChangeRecord[],
-): void {
-  const catalogPath = join(stagingRoot, ".claude-plugin", "marketplace.json");
-  const plugins = stagedClaudePlugins(stagingRoot).map((name) => {
-    let description = `${name} — connector emitted by agent-connector`;
-    try {
-      const manifest = JSON.parse(
-        readFileSync(join(stagingRoot, name, ".claude-plugin", "plugin.json"), "utf8"),
-      ) as { description?: string };
-      if (typeof manifest.description === "string") description = manifest.description;
-    } catch {
-      /* keep the default description */
-    }
-    return { name, source: `./${name}`, description };
-  });
-  const catalog = {
-    name: MARKETPLACE_NAME,
-    owner: { name: MARKETPLACE_NAME },
-    plugins,
-  };
-  const serialized = `${JSON.stringify(catalog, null, 2)}\n`;
-  let existing: string | null = null;
-  try {
-    existing = readFileSync(catalogPath, "utf8");
-  } catch {
-    /* absent */
-  }
-  if (existing === serialized) return; // content-stable: no record, no write
-  ensureDir(dirname(catalogPath));
-  writeFileSync(catalogPath, serialized, "utf8");
-  changes.push({
-    platform: "claude-code",
-    action: existing == null ? "create" : "update",
-    path: catalogPath,
-    detail: `regenerated shared marketplace catalog (${plugins.length} plugin(s))`,
-  });
-}
-
-/** Stage (or re-stage) the connector's claude-plugin bundle in the shared root. */
-function stageClaudeBundle(
-  connector: ResolvedConnector,
-  changes: ChangeRecord[],
-): { pluginDir: string; contentHash: string } {
-  const stagingRoot = claudeStagingRoot();
-  const pluginDir = join(stagingRoot, connector.id);
-  const existed = existsSync(pluginDir);
-  const result = packageConnector(connector, {
-    outDir: stagingRoot,
-    format: "claude-plugin",
-  });
-  changes.push({
-    platform: "claude-code",
-    action: existed ? "update" : "create",
-    path: pluginDir,
-    detail: `staged marketplace bundle (${result.files.length} files, claude-plugin)`,
-  });
-  regenerateClaudeCatalog(stagingRoot, changes);
-  return { pluginDir, contentHash: hashDirectory(pluginDir) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -369,7 +287,19 @@ export async function installViaMarketplace(
       continue;
     }
 
-    // ── claude-code (the v1 driver) ────────────────────────────────────────
+    // ── drivable host (dispatch through the driver) ────────────────────────
+    const driver = getMarketplaceDriver(id);
+    if (!driver) {
+      // DRIVABLE_MARKETPLACE_PLATFORMS and the registry are kept in sync; this
+      // is a never-silent guard for an out-of-sync set rather than a real path.
+      result.changes.push({
+        platform: id,
+        action: explicit ? "warn" : "skip",
+        detail: manualHint(id, format, connector.id),
+      });
+      continue;
+    }
+
     // Double-install guard: exactly one method per (connector, host, scope).
     if (await directInstallPresent(connector, id, scope, projectDir)) {
       result.changes.push({
@@ -383,12 +313,11 @@ export async function installViaMarketplace(
       continue;
     }
 
-    const stagingRoot = claudeStagingRoot();
-    const pluginDir = join(stagingRoot, connector.id);
+    const pluginDir = driver.pluginDir(connector.id);
 
     if (dryRun) {
       const planned = packageConnector(connector, {
-        outDir: stagingRoot,
+        outDir: driver.stagingRoot(),
         format,
         dryRun: true,
       });
@@ -400,30 +329,14 @@ export async function installViaMarketplace(
           detail: "stage bundle file",
         });
       }
-      const registeredAt = claudeKnownMarketplacePath(MARKETPLACE_NAME);
-      result.changes.push({
-        platform: id,
-        action: registeredAt === stagingRoot ? "skip" : "create",
-        path: stagingRoot,
-        detail:
-          registeredAt === stagingRoot
-            ? `marketplace "${MARKETPLACE_NAME}" already registered`
-            : `run: claude plugin marketplace add ${stagingRoot}`,
-      });
-      result.changes.push({
-        platform: id,
-        action: claudePluginInstalled(connector.id) ? "skip" : "create",
-        detail: claudePluginInstalled(connector.id)
-          ? `plugin ${claudePluginKey(connector.id)} already installed`
-          : `run: claude plugin install ${claudePluginKey(connector.id)}`,
-      });
+      driver.planInstall(connector, result.changes);
       continue;
     }
 
-    const { contentHash } = stageClaudeBundle(connector, result.changes);
-    const outcome = await claudeDriveInstall(connector.id, stagingRoot, pluginDir);
+    const contentHash = driver.stage(connector, result.changes);
+    const outcome = await driver.driveInstall(connector.id);
     result.changes.push(...outcome.changes);
-    if (outcome.installed) {
+    if (outcome.ok) {
       const installs = readMarketplaceInstalls(connector.id);
       const record: MarketplaceInstallRecord = {
         format,
@@ -481,10 +394,13 @@ export async function uninstallViaMarketplace(
   if (opts.targets && opts.targets.length > 0) {
     targets = [...new Set(opts.targets)];
   } else {
-    const recorded = Object.keys(readMarketplaceInstalls(connectorId)) as PlatformId[];
-    targets = recorded;
-    if (!targets.includes("claude-code") && claudePluginInstalled(connectorId)) {
-      targets = [...targets, "claude-code"];
+    // Union recorded platforms with live host evidence for every drivable host
+    // (a host whose probe-able state shows our plugin but whose record was lost).
+    targets = Object.keys(readMarketplaceInstalls(connectorId)) as PlatformId[];
+    for (const id of DRIVABLE_MARKETPLACE_PLATFORMS) {
+      if (targets.includes(id)) continue;
+      const driver = getMarketplaceDriver(id);
+      if (driver?.installed(connectorId)) targets = [...targets, id];
     }
   }
   if (targets.length === 0) {
@@ -495,7 +411,10 @@ export async function uninstallViaMarketplace(
   }
 
   for (const id of targets) {
-    if (id !== "claude-code") {
+    const driver = getMarketplaceDriver(id);
+    if (!driver) {
+      // Non-drivable host: keep the manual hint + the record until the user
+      // reverses it by hand (never silently drop a recorded install).
       const manual = MANUAL_UNINSTALL[id];
       const recorded = readMarketplaceInstalls(connectorId)[id] != null;
       result.changes.push({
@@ -509,79 +428,21 @@ export async function uninstallViaMarketplace(
       continue;
     }
 
-    const stagingRoot = claudeStagingRoot();
-    const pluginDir = join(stagingRoot, connectorId);
-    const pluginKey = claudePluginKey(connectorId);
-
     if (dryRun) {
-      result.changes.push({
-        platform: id,
-        action: claudePluginInstalled(connectorId) ? "remove" : "skip",
-        detail: claudePluginInstalled(connectorId)
-          ? `run: claude plugin uninstall ${pluginKey}`
-          : `plugin ${pluginKey} not installed on claude-code`,
-      });
-      if (existsSync(pluginDir)) {
-        result.changes.push({
-          platform: id,
-          action: "remove",
-          path: pluginDir,
-          detail: "remove staged marketplace bundle",
-        });
-      }
-      const othersStaged = stagedClaudePlugins(stagingRoot).some((n) => n !== connectorId);
-      if (!othersStaged && claudeKnownMarketplacePath(MARKETPLACE_NAME) === stagingRoot) {
-        result.changes.push({
-          platform: id,
-          action: "remove",
-          path: stagingRoot,
-          detail: `run: claude plugin marketplace remove ${MARKETPLACE_NAME} (when no plugins remain)`,
-        });
-      }
+      driver.planUninstall(connectorId, result.changes);
       continue;
     }
 
-    // 1+2. Presence probe + drive the host uninstall.
-    const outcome = await claudeDriveUninstall(connectorId);
+    // 1. Presence probe + drive the host uninstall.
+    const outcome = await driver.driveUninstall(connectorId);
     result.changes.push(...outcome.changes);
-    if (!outcome.removed) continue; // host still references the bundle — keep everything
+    if (!outcome.ok) continue; // host still references the bundle — keep everything
 
-    // 4 (bundle part). Remove the staged bundle dir, then regenerate the catalog
-    // without this connector (content-stable write).
-    if (existsSync(pluginDir)) {
-      try {
-        rmSync(pluginDir, { recursive: true, force: true });
-        result.changes.push({
-          platform: id,
-          action: "remove",
-          path: pluginDir,
-          detail: "removed staged marketplace bundle",
-        });
-      } catch (err) {
-        result.changes.push({
-          platform: id,
-          action: "warn",
-          path: pluginDir,
-          detail: `could not remove staged bundle: ${errMessage(err)}`,
-        });
-      }
-    }
-    if (existsSync(stagingRoot)) regenerateClaudeCatalog(stagingRoot, result.changes);
+    // 2. Driver-specific cleanup: staged-bundle removal, catalog regen, and
+    // (catalog drivers) marketplace de-registration when nothing of ours remains.
+    await driver.finishUninstall(connectorId, result.changes);
 
-    // 3. De-register OUR marketplace only when nothing of ours remains anywhere
-    // (safe ordering: plugins are gone first, so Claude's "removing a
-    // marketplace uninstalls its plugins" behavior cannot bite a survivor) and
-    // ONLY when the registration actually points at our staging root.
-    const nothingStaged = stagedClaudePlugins(stagingRoot).length === 0;
-    if (
-      nothingStaged &&
-      !anyClaudeAgentConnectorPlugins() &&
-      claudeKnownMarketplacePath(MARKETPLACE_NAME) === stagingRoot
-    ) {
-      result.changes.push(...(await claudeDriveMarketplaceRemove(stagingRoot)));
-    }
-
-    // 4 (state part). Drop the platform entry from the state record.
+    // 3. Drop the platform entry from the state record.
     const installs = readMarketplaceInstalls(connectorId);
     if (installs[id]) {
       delete installs[id];
@@ -595,16 +456,32 @@ export async function uninstallViaMarketplace(
     }
   }
 
-  // --purge: additionally remove the shared staging roots once empty.
+  // --purge: additionally remove every drivable host's shared staging root once
+  // it holds no staged bundle of ours, then the marketplace root when empty.
   if (purge && !dryRun) {
-    const claudeRoot = claudeStagingRoot();
-    if (existsSync(claudeRoot) && stagedClaudePlugins(claudeRoot).length === 0) {
+    const seenRoots = new Set<string>();
+    for (const id of DRIVABLE_MARKETPLACE_PLATFORMS) {
+      const driver = getMarketplaceDriver(id);
+      if (!driver) continue;
+      const root = driver.stagingRoot();
+      if (seenRoots.has(root)) continue;
+      seenRoots.add(root);
+      if (!existsSync(root)) continue;
+      // Only remove a staging root with no bundle dirs left (a bundle dir is any
+      // direct child dir; the catalog dir is dot-prefixed and never a bundle).
+      let bundleDirs: string[];
       try {
-        rmSync(claudeRoot, { recursive: true, force: true });
+        bundleDirs = readdirSync(root).filter((n) => !n.startsWith("."));
+      } catch {
+        bundleDirs = [];
+      }
+      if (bundleDirs.length > 0) continue;
+      try {
+        rmSync(root, { recursive: true, force: true });
         result.changes.push({
-          platform: "claude-code",
+          platform: id,
           action: "remove",
-          path: claudeRoot,
+          path: root,
           detail: "removed empty marketplace staging root (--purge)",
         });
       } catch (err) {
@@ -630,15 +507,16 @@ export async function uninstallViaMarketplace(
 
 /**
  * Bring a marketplace install current: re-stage the bundle + catalog in place,
- * then drive the host's update verb (claude: `plugin update`, falling back to a
- * recorded uninstall+install pair on CLIs without it). Warns when
- * connector.version is unchanged since the recorded install — Claude caches a
- * versioned COPY, so a same-version update silently no-ops.
+ * then drive the host's update flow through the driver (claude: `plugin update`,
+ * falling back to uninstall+install; codex/agy: re-stage + the install verb,
+ * which is an idempotent overwrite). Warns when connector.version is unchanged
+ * since the recorded install — hosts cache a versioned COPY, so a same-version
+ * update silently no-ops.
  */
 export async function upgradeViaMarketplace(
   opts: MarketplaceInstallOptions,
 ): Promise<InstallResult> {
-  const { connector, scope, projectDir, dryRun } = opts;
+  const { connector, scope, dryRun } = opts;
   const result = newResult(connector.id, dryRun);
 
   if (scope !== "user") {
@@ -653,8 +531,10 @@ export async function upgradeViaMarketplace(
     targets = [...new Set(opts.targets)];
   } else {
     targets = Object.keys(readMarketplaceInstalls(connector.id)) as PlatformId[];
-    if (!targets.includes("claude-code") && claudePluginInstalled(connector.id)) {
-      targets = [...targets, "claude-code"];
+    for (const id of DRIVABLE_MARKETPLACE_PLATFORMS) {
+      if (targets.includes(id)) continue;
+      const driver = getMarketplaceDriver(id);
+      if (driver?.installed(connector.id)) targets = [...targets, id];
     }
   }
   if (targets.length === 0) {
@@ -666,7 +546,8 @@ export async function upgradeViaMarketplace(
   }
 
   for (const id of targets) {
-    if (id !== "claude-code") {
+    const driver = getMarketplaceDriver(id);
+    if (!driver) {
       result.changes.push({
         platform: id,
         action: "warn",
@@ -676,7 +557,7 @@ export async function upgradeViaMarketplace(
     }
 
     const record = readMarketplaceInstalls(connector.id)[id];
-    if (!record && !claudePluginInstalled(connector.id)) {
+    if (!record && !driver.installed(connector.id)) {
       result.changes.push({
         platform: id,
         action: "warn",
@@ -693,12 +574,11 @@ export async function upgradeViaMarketplace(
         action: "warn",
         detail:
           `connector.version is unchanged since the recorded install (${record.version}) — ` +
-          `Claude caches a versioned copy, so bump connector.version for the update to take effect`,
+          `${id} caches a versioned copy, so bump connector.version for the update to take effect`,
       });
     }
 
-    const stagingRoot = claudeStagingRoot();
-    const pluginDir = join(stagingRoot, connector.id);
+    const pluginDir = driver.pluginDir(connector.id);
     if (dryRun) {
       result.changes.push({
         platform: id,
@@ -709,18 +589,18 @@ export async function upgradeViaMarketplace(
       result.changes.push({
         platform: id,
         action: "update",
-        detail: `run: claude plugin update ${claudePluginKey(connector.id)}`,
+        detail: `drive the ${id} host update flow`,
       });
       continue;
     }
 
-    const { contentHash } = stageClaudeBundle(connector, result.changes);
-    const outcome = await claudeDriveUpdate(connector.id, stagingRoot, pluginDir);
+    const contentHash = driver.stage(connector, result.changes);
+    const outcome = await driver.driveUpdate(connector.id);
     result.changes.push(...outcome.changes);
-    if (outcome.installed) {
+    if (outcome.ok) {
       const installs = readMarketplaceInstalls(connector.id);
       installs[id] = {
-        format: record?.format ?? "claude-plugin",
+        format: record?.format ?? driver.format,
         bundleDir: pluginDir,
         marketplace: MARKETPLACE_NAME,
         scope,
@@ -750,17 +630,82 @@ export interface MarketplaceDoctorGroup {
  * registration, registration intact, state↔host drift, staleness, the embedded
  * home-bin launcher, and a missing host binary. Pure fs reads, so they run in
  * isolated homes without spawning. Empty when the connector has no marketplace
- * state at all (no noise for direct-only users).
+ * state on ANY drivable host (no noise for direct-only users).
+ *
+ * Claude's group (the original, richest check set) comes first and is BYTE-
+ * IDENTICAL to the pre-driver behavior — emitted only when claude has state.
+ * Each other drivable host (codex, antigravity, antigravity-cli) contributes a
+ * driver-based group, emitted only when THAT host has state, in registry order.
  */
 export async function marketplaceDoctorChecks(
   connector: ResolvedConnector,
   scope: InstallScope,
   projectDir: string,
 ): Promise<MarketplaceDoctorGroup[]> {
+  const groups: MarketplaceDoctorGroup[] = [];
+
+  const claude = await claudeMarketplaceGroup(connector, scope, projectDir);
+  if (claude) groups.push(claude);
+
+  // The other drivable hosts share one generic, driver-based group builder.
+  // antigravity + antigravity-cli are the SAME physical host behind one shared
+  // agy driver (identical host-state probe), so emitting one group per id would
+  // double-count: a record under antigravity-cli makes `installed()` true for
+  // antigravity too, yielding a spurious drift group for the sibling id. Dedupe
+  // by shared HOST identity, with the id that HAS the record preferred as the
+  // representative (sorted first). The agy registry memoizes a SEPARATE driver
+  // instance per id, so we cannot dedupe by instance identity — both agy ids
+  // return the same stagingRoot, which uniquely identifies the host store.
+  const seenHosts = new Set<string>();
+  const candidates = (
+    ["codex", "antigravity", "antigravity-cli"] as PlatformId[]
+  ).sort((a, b) => recordRank(connector.id, a) - recordRank(connector.id, b));
+  for (const platform of candidates) {
+    const driver = getMarketplaceDriver(platform);
+    if (!driver) continue;
+    const hostKey = driver.stagingRoot();
+    if (seenHosts.has(hostKey)) continue;
+    const group = await genericMarketplaceGroup(connector, platform, scope, projectDir);
+    if (group) {
+      groups.push(group);
+      seenHosts.add(hostKey);
+    }
+  }
+
+  // Stable, intuitive order: claude first, then codex, then the agy host.
+  groups.sort((a, b) => platformDoctorRank(a.platform) - platformDoctorRank(b.platform));
+
+  return groups;
+}
+
+/** Sort key so a platform that HAS a marketplace record is preferred as the
+ * representative id for a shared driver (the user's actual target id wins). */
+function recordRank(connectorId: string, platform: PlatformId): number {
+  return readMarketplaceInstalls(connectorId)[platform] ? 0 : 1;
+}
+
+/** Doctor group ordering: claude, codex, then the agy host (stable + intuitive). */
+function platformDoctorRank(platform: PlatformId): number {
+  const order: PlatformId[] = ["claude-code", "codex", "antigravity", "antigravity-cli"];
+  const i = order.indexOf(platform);
+  return i === -1 ? order.length : i;
+}
+
+/**
+ * Claude's marketplace doctor group — the original checks 1–6, unchanged. Kept
+ * verbatim (only the `id`/`record`/`pluginPresent` preamble and the
+ * early-return-to-null differ) so claude's output stays byte-identical. Returns
+ * null when claude has no marketplace state (the original "silent" path).
+ */
+async function claudeMarketplaceGroup(
+  connector: ResolvedConnector,
+  scope: InstallScope,
+  projectDir: string,
+): Promise<MarketplaceDoctorGroup | null> {
   const id = connector.id;
   const record = readMarketplaceInstalls(id)["claude-code"];
   const pluginPresent = claudePluginInstalled(id);
-  if (!record && !pluginPresent) return [];
+  if (!record && !pluginPresent) return null;
 
   const results: DiagnosticResult[] = [];
   const stagingRoot = claudeStagingRoot();
@@ -877,7 +822,117 @@ export async function marketplaceDoctorChecks(
     });
   }
 
-  return [{ platform: "claude-code", results }];
+  return { platform: "claude-code", results };
+}
+
+/**
+ * The generic driver-based marketplace doctor group for a NON-claude drivable
+ * host (codex, antigravity, antigravity-cli). It mirrors claude's checks via the
+ * platform's {@link MarketplaceDriver} state probes, omitting only the
+ * claude-specific catalog-registration check (the registration shape differs per
+ * host and is covered by the host's own install path). Returns null when the
+ * host has no marketplace state at all (record absent AND not host-installed) —
+ * matching claude's "silent when no state" behavior, so direct-only and
+ * claude-only users see no new groups.
+ */
+async function genericMarketplaceGroup(
+  connector: ResolvedConnector,
+  platform: PlatformId,
+  scope: InstallScope,
+  projectDir: string,
+): Promise<MarketplaceDoctorGroup | null> {
+  const driver = getMarketplaceDriver(platform);
+  if (!driver) return null;
+
+  const id = connector.id;
+  const record = readMarketplaceInstalls(id)[platform];
+  const installed = driver.installed(id);
+  if (!record && !installed) return null;
+
+  const results: DiagnosticResult[] = [];
+
+  // 1. duplicate-registration (the double-install invariant, after the fact).
+  const direct = await directInstallPresent(connector, platform, scope, projectDir);
+  if (direct && installed) {
+    results.push({
+      check: `${id}: marketplace duplicate-registration`,
+      status: "fail",
+      message: `installed BOTH directly and as a marketplace plugin on ${platform} — hooks + MCP server are duplicated`,
+      fix: `uninstall one method: \`agent-connector uninstall --method marketplace --targets ${platform}\` or \`agent-connector uninstall --targets ${platform}\``,
+    });
+  }
+
+  // 2. state ↔ host drift (both directions).
+  if (record && !installed) {
+    results.push({
+      check: `${id}: marketplace state drift`,
+      status: "warn",
+      message: `recorded as marketplace-installed but ${platform}'s state shows the plugin absent`,
+      fix: `re-run \`agent-connector install --method marketplace --targets ${platform}\` or \`agent-connector uninstall --method marketplace --targets ${platform}\` to reconcile`,
+    });
+  } else if (!record && installed) {
+    results.push({
+      check: `${id}: marketplace state drift`,
+      status: "warn",
+      message: `${platform} lists the plugin installed but agent-connector has no record of it (manual install?)`,
+      fix: `adopt it: \`agent-connector install --method marketplace --targets ${platform}\` (idempotent), or remove it via the host's plugin uninstall`,
+    });
+  }
+
+  // 3. staleness: connector changed since the recorded install (the host caches
+  // a versioned COPY, so edits do not reach it until an upgrade).
+  if (record) {
+    if (connector.version !== "0.0.0" && connector.version !== record.version) {
+      results.push({
+        check: `${id}: marketplace staleness`,
+        status: "warn",
+        message: `connector.version ${connector.version} ≠ installed ${record.version}`,
+        fix: `agent-connector upgrade --method marketplace --targets ${platform}`,
+      });
+    } else if (
+      existsSync(record.bundleDir) &&
+      record.contentHash !== "" &&
+      hashDirectory(record.bundleDir) !== record.contentHash
+    ) {
+      results.push({
+        check: `${id}: marketplace staleness`,
+        status: "warn",
+        message: `staged bundle changed since install — ${platform}'s cached copy is stale`,
+        fix: `agent-connector upgrade --method marketplace --targets ${platform}`,
+      });
+    }
+  }
+
+  // 4. embedded home-bin launcher: the installed plugin's hooks exec it OUTSIDE
+  // any adapter-managed config.
+  if (installed && !existsSync(homeBinPath())) {
+    results.push({
+      check: `${id}: marketplace home-bin`,
+      status: "fail",
+      message: `installed plugin hooks exec ${homeBinPath()} which does not exist`,
+      fix: "agent-connector upgrade",
+    });
+  }
+
+  // 5. host binary missing for a recorded marketplace install.
+  if (record && driver.binary() == null) {
+    results.push({
+      check: `${id}: marketplace host binary`,
+      status: "warn",
+      message: `${platform} CLI not found on PATH — the recorded marketplace install cannot be managed until it is reinstalled`,
+    });
+  }
+
+  // A green summary line when nothing above flagged.
+  if (results.every((r) => r.status === "pass")) {
+    results.push({
+      check: `${id}: marketplace install`,
+      status: "pass",
+      message: `${id} installed via marketplace on ${platform} (version ${record?.version ?? "unknown"})`,
+    });
+  }
+
+  return { platform, results };
 }
 
 // Re-exported so CLI surfaces can partition uninstall targets without importing

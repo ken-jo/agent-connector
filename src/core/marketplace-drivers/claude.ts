@@ -19,14 +19,23 @@
  * through to the host CLI naturally (the isolated-home test contract).
  */
 
-import type { ChangeRecord } from "../types.js";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import type { ChangeRecord, ResolvedConnector } from "../types.js";
 import {
   MARKETPLACE_NAME,
+  anyClaudeAgentConnectorPlugins,
   claudeKnownMarketplacePath,
   claudePluginInstalled,
   claudePluginKey,
+  claudeStagingRoot,
+  hashDirectory,
 } from "../marketplace-state.js";
+import { ensureDir } from "../paths.js";
+import { packageConnector } from "../package.js";
 import { findOnPath, firstLine, runHostCommand } from "./shared.js";
+import type { MarketplaceDriveOutcome, MarketplaceDriver } from "./types.js";
 
 const PLATFORM = "claude-code" as const;
 
@@ -327,3 +336,221 @@ export async function claudeDriveUpdate(
   changes.push(...re.changes);
   return { changes, installed: re.installed };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Staging: bundle emit + shared-catalog regeneration (moved here from the
+// orchestrator so all claude-specific logic lives behind the driver).
+// ─────────────────────────────────────────────────────────────────────────
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Staged plugin dirs (those carrying a .claude-plugin/plugin.json manifest). */
+export function stagedClaudePlugins(stagingRoot: string): string[] {
+  if (!existsSync(stagingRoot)) return [];
+  try {
+    return readdirSync(stagingRoot)
+      .filter((name) =>
+        existsSync(join(stagingRoot, name, ".claude-plugin", "plugin.json")),
+      )
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Regenerate the ONE shared catalog listing every staged connector (solves the
+ * multi-connector marketplace-name collision a per-bundle catalog would cause).
+ * Content-stable: rewritten only when the serialized catalog actually changed.
+ */
+export function regenerateClaudeCatalog(
+  stagingRoot: string,
+  changes: ChangeRecord[],
+): void {
+  const catalogPath = join(stagingRoot, ".claude-plugin", "marketplace.json");
+  const plugins = stagedClaudePlugins(stagingRoot).map((name) => {
+    let description = `${name} — connector emitted by agent-connector`;
+    try {
+      const manifest = JSON.parse(
+        readFileSync(join(stagingRoot, name, ".claude-plugin", "plugin.json"), "utf8"),
+      ) as { description?: string };
+      if (typeof manifest.description === "string") description = manifest.description;
+    } catch {
+      /* keep the default description */
+    }
+    return { name, source: `./${name}`, description };
+  });
+  const catalog = {
+    name: MARKETPLACE_NAME,
+    owner: { name: MARKETPLACE_NAME },
+    plugins,
+  };
+  const serialized = `${JSON.stringify(catalog, null, 2)}\n`;
+  let existing: string | null = null;
+  try {
+    existing = readFileSync(catalogPath, "utf8");
+  } catch {
+    /* absent */
+  }
+  if (existing === serialized) return; // content-stable: no record, no write
+  ensureDir(dirname(catalogPath));
+  writeFileSync(catalogPath, serialized, "utf8");
+  changes.push({
+    platform: PLATFORM,
+    action: existing == null ? "create" : "update",
+    path: catalogPath,
+    detail: `regenerated shared marketplace catalog (${plugins.length} plugin(s))`,
+  });
+}
+
+/** Stage (or re-stage) the connector's claude-plugin bundle in the shared root. */
+export function stageClaudeBundle(
+  connector: ResolvedConnector,
+  changes: ChangeRecord[],
+): { pluginDir: string; contentHash: string } {
+  const stagingRoot = claudeStagingRoot();
+  const pluginDir = join(stagingRoot, connector.id);
+  const existed = existsSync(pluginDir);
+  const result = packageConnector(connector, {
+    outDir: stagingRoot,
+    format: "claude-plugin",
+  });
+  changes.push({
+    platform: PLATFORM,
+    action: existed ? "update" : "create",
+    path: pluginDir,
+    detail: `staged marketplace bundle (${result.files.length} files, claude-plugin)`,
+  });
+  regenerateClaudeCatalog(stagingRoot, changes);
+  return { pluginDir, contentHash: hashDirectory(pluginDir) };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// claudeDriver: the MarketplaceDriver implementation the orchestrator dispatches
+// through. Wraps the functions above into the shared interface.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const claudeDriver: MarketplaceDriver = {
+  platform: PLATFORM,
+  format: "claude-plugin",
+
+  binary: claudeBinary,
+  stagingRoot: claudeStagingRoot,
+  pluginDir(id) {
+    return join(claudeStagingRoot(), id);
+  },
+  installed: claudePluginInstalled,
+
+  stage(connector, changes) {
+    return stageClaudeBundle(connector, changes).contentHash;
+  },
+
+  planInstall(connector, changes) {
+    const stagingRoot = claudeStagingRoot();
+    const registeredAt = claudeKnownMarketplacePath(MARKETPLACE_NAME);
+    changes.push({
+      platform: PLATFORM,
+      action: registeredAt === stagingRoot ? "skip" : "create",
+      path: stagingRoot,
+      detail:
+        registeredAt === stagingRoot
+          ? `marketplace "${MARKETPLACE_NAME}" already registered`
+          : `run: claude plugin marketplace add ${stagingRoot}`,
+    });
+    changes.push({
+      platform: PLATFORM,
+      action: claudePluginInstalled(connector.id) ? "skip" : "create",
+      detail: claudePluginInstalled(connector.id)
+        ? `plugin ${claudePluginKey(connector.id)} already installed`
+        : `run: claude plugin install ${claudePluginKey(connector.id)}`,
+    });
+  },
+
+  planUninstall(id, changes) {
+    const stagingRoot = claudeStagingRoot();
+    const pluginDir = join(stagingRoot, id);
+    const pluginKey = claudePluginKey(id);
+    changes.push({
+      platform: PLATFORM,
+      action: claudePluginInstalled(id) ? "remove" : "skip",
+      detail: claudePluginInstalled(id)
+        ? `run: claude plugin uninstall ${pluginKey}`
+        : `plugin ${pluginKey} not installed on claude-code`,
+    });
+    if (existsSync(pluginDir)) {
+      changes.push({
+        platform: PLATFORM,
+        action: "remove",
+        path: pluginDir,
+        detail: "remove staged marketplace bundle",
+      });
+    }
+    const othersStaged = stagedClaudePlugins(stagingRoot).some((n) => n !== id);
+    if (!othersStaged && claudeKnownMarketplacePath(MARKETPLACE_NAME) === stagingRoot) {
+      changes.push({
+        platform: PLATFORM,
+        action: "remove",
+        path: stagingRoot,
+        detail: `run: claude plugin marketplace remove ${MARKETPLACE_NAME} (when no plugins remain)`,
+      });
+    }
+  },
+
+  async driveInstall(id): Promise<MarketplaceDriveOutcome> {
+    const stagingRoot = claudeStagingRoot();
+    const out = await claudeDriveInstall(id, stagingRoot, join(stagingRoot, id));
+    return { changes: out.changes, ok: out.installed };
+  },
+
+  async driveUninstall(id): Promise<MarketplaceDriveOutcome> {
+    const out = await claudeDriveUninstall(id);
+    return { changes: out.changes, ok: out.removed };
+  },
+
+  async driveUpdate(id): Promise<MarketplaceDriveOutcome> {
+    const stagingRoot = claudeStagingRoot();
+    const out = await claudeDriveUpdate(id, stagingRoot, join(stagingRoot, id));
+    return { changes: out.changes, ok: out.installed };
+  },
+
+  async finishUninstall(id, changes): Promise<void> {
+    const stagingRoot = claudeStagingRoot();
+    const pluginDir = join(stagingRoot, id);
+
+    // Remove the staged bundle, then regenerate the catalog without this id.
+    if (existsSync(pluginDir)) {
+      try {
+        rmSync(pluginDir, { recursive: true, force: true });
+        changes.push({
+          platform: PLATFORM,
+          action: "remove",
+          path: pluginDir,
+          detail: "removed staged marketplace bundle",
+        });
+      } catch (err) {
+        changes.push({
+          platform: PLATFORM,
+          action: "warn",
+          path: pluginDir,
+          detail: `could not remove staged bundle: ${errMessage(err)}`,
+        });
+      }
+    }
+    if (existsSync(stagingRoot)) regenerateClaudeCatalog(stagingRoot, changes);
+
+    // De-register OUR marketplace only when nothing of ours remains anywhere
+    // (safe ordering: plugins are gone first, so Claude's "removing a
+    // marketplace uninstalls its plugins" behavior cannot bite a survivor) and
+    // ONLY when the registration actually points at our staging root.
+    const nothingStaged = stagedClaudePlugins(stagingRoot).length === 0;
+    if (
+      nothingStaged &&
+      !anyClaudeAgentConnectorPlugins() &&
+      claudeKnownMarketplacePath(MARKETPLACE_NAME) === stagingRoot
+    ) {
+      changes.push(...(await claudeDriveMarketplaceRemove(stagingRoot)));
+    }
+  },
+};

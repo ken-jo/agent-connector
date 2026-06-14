@@ -33,6 +33,8 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
+import TOML from "@iarna/toml";
+
 import type { InstallScope, PlatformId } from "./types.js";
 import type { PackageFormat } from "./package.js";
 import { connectorDir, connectorsDir, dataRoot, ensureDir } from "./paths.js";
@@ -142,6 +144,16 @@ export function claudeStagingRoot(): string {
   return join(marketplaceRoot(), "claude");
 }
 
+/** Shared Codex-family staging root: <dataRoot>/marketplace/codex. */
+export function codexStagingRoot(): string {
+  return join(marketplaceRoot(), "codex");
+}
+
+/** Shared agy (Antigravity) staging root: <dataRoot>/marketplace/agy. */
+export function agyStagingRoot(): string {
+  return join(marketplaceRoot(), "agy");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Claude Code host-state readers ($CLAUDE_CONFIG_DIR || ~/.claude)
 // ─────────────────────────────────────────────────────────────────────────
@@ -215,6 +227,118 @@ export function claudeKnownMarketplacePath(name: string): string | null {
   if (typeof e.installLocation === "string") return e.installLocation;
   const sourcePath = e.source?.path;
   return typeof sourcePath === "string" ? sourcePath : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Codex host-state readers ($CODEX_HOME || ~/.codex → config.toml)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Codex's config home, honoring the CODEX_HOME override (defaults to ~/.codex). */
+export function codexConfigHome(): string {
+  const env = process.env.CODEX_HOME;
+  if (env && env.trim() !== "") {
+    if (env.startsWith("~")) return join(homedir(), env.replace(/^~[/\\]?/, ""));
+    return resolve(env);
+  }
+  return join(homedir(), ".codex");
+}
+
+/** The config.toml key our marketplace install creates for `id` (== claude's). */
+export function codexPluginKey(connectorId: string): string {
+  return `${connectorId}@${MARKETPLACE_NAME}`;
+}
+
+/** Parse <CODEX_HOME>/config.toml ({} on absence/parse failure — never throws). */
+function readCodexConfig(): Record<string, unknown> {
+  const file = join(codexConfigHome(), "config.toml");
+  try {
+    return TOML.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * True when Codex's config.toml carries the `[plugins."<id>@agent-connector"]`
+ * table. The DEFINITIVE install probe — empty `plugins/cache/...` dirs linger
+ * after uninstall, so the cache dir must NOT be used (docs: codex quirk).
+ */
+export function codexPluginInstalled(connectorId: string): boolean {
+  const cfg = readCodexConfig();
+  const plugins = cfg["plugins"];
+  if (!plugins || typeof plugins !== "object" || Array.isArray(plugins)) return false;
+  return codexPluginKey(connectorId) in (plugins as Record<string, unknown>);
+}
+
+/** True when ANY `*@agent-connector` plugin remains in Codex's config.toml. */
+export function anyCodexAgentConnectorPlugins(): boolean {
+  const cfg = readCodexConfig();
+  const plugins = cfg["plugins"];
+  if (!plugins || typeof plugins !== "object" || Array.isArray(plugins)) return false;
+  return Object.keys(plugins as Record<string, unknown>).some((k) =>
+    k.endsWith(`@${MARKETPLACE_NAME}`),
+  );
+}
+
+/**
+ * The directory config.toml records as `[marketplaces.agent-connector].source`,
+ * or null when not registered / unreadable. Both a presence probe and the
+ * NAME-COLLISION check: a registration pointing somewhere other than our
+ * staging root belongs to the user and must never be touched.
+ */
+export function codexMarketplaceSource(name: string): string | null {
+  const cfg = readCodexConfig();
+  const marketplaces = cfg["marketplaces"];
+  if (!marketplaces || typeof marketplaces !== "object" || Array.isArray(marketplaces)) {
+    return null;
+  }
+  const entry = (marketplaces as Record<string, unknown>)[name];
+  if (!entry || typeof entry !== "object") return null;
+  const source = (entry as { source?: unknown }).source;
+  return typeof source === "string" ? source : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// agy (Antigravity) host-state readers (~/.gemini/config/plugins, NO env)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** agy's plugins dir: ~/.gemini/config/plugins (NO dedicated env — HOME isolation). */
+export function agyPluginsDir(): string {
+  return join(homedir(), ".gemini", "config", "plugins");
+}
+
+/** Path of agy's import manifest: ~/.gemini/config/plugins/import_manifest.json. */
+export function agyImportManifestPath(): string {
+  return join(agyPluginsDir(), "import_manifest.json");
+}
+
+/**
+ * True when `id` is installed per agy's import manifest (`imports[].name`), with
+ * a fallback probe of the copied plugin dir's plugin.json. agy's uninstall sets
+ * `imports` to null, so the manifest is the definitive signal.
+ */
+export function agyPluginInstalled(connectorId: string): boolean {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(agyImportManifestPath(), "utf8"),
+    ) as { imports?: unknown };
+    const imports = parsed.imports;
+    if (Array.isArray(imports)) {
+      if (
+        imports.some(
+          (e) =>
+            e != null &&
+            typeof e === "object" &&
+            (e as { name?: unknown }).name === connectorId,
+        )
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    /* absent / unreadable manifest → fall through to the dir probe */
+  }
+  return existsSync(join(agyPluginsDir(), connectorId, "plugin.json"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -27,6 +27,7 @@ import {
   loadConnectorFromPath,
 } from "../../core/load-connector.js";
 import { marketplaceDoctorChecks } from "../../core/marketplace.js";
+import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { probeStdioServer } from "../../runtime/probe.js";
 import { fail, parseScope, parseTargets, print } from "../app.js";
@@ -172,6 +173,22 @@ export async function run(argv: string[]): Promise<number> {
     for (const connector of connectors) {
       // A connector with an explicit target list is only checked on those hosts.
       if (connector.targets !== "auto" && !connector.targets.includes(id)) continue;
+
+      // MARKETPLACE-installed on this host: its surfaces are delivered via the
+      // host's plugin (in the plugin cache), NOT the direct-config locations the
+      // adapter's doctor() inspects — so the direct checks would falsely FAIL
+      // (mcp_servers/command/skill "not found"). Skip them; the marketplace-method
+      // checks below cover this install's real health.
+      if (readMarketplaceInstalls(connector.id)[id]) {
+        const note: DiagnosticResult = {
+          check: `${connector.id}: ${id} delivery`,
+          status: "pass",
+          message: "surfaces delivered via the marketplace plugin — see marketplace checks",
+        };
+        results.push(multi ? { ...note, check: `(${connector.id}) ${note.check}` } : note);
+        continue;
+      }
+
       const ctx = buildContext(connector, id, scope, projectDir);
       let r: DiagnosticResult[];
       try {
