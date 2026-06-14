@@ -32,6 +32,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import TOML from "@iarna/toml";
 
@@ -665,24 +666,36 @@ export function readNpmConfig(platform: PlatformId): Record<string, unknown> | n
 }
 
 /**
- * Posix-resolve path equality for the npm probe: normalize `..`/`.`/trailing
- * slashes without touching the filesystem. Inlined here (leaf module) rather
- * than importing shared.ts's samePath. The caller strips `file://` first.
+ * Convert an npm `plugin`-array entry to a native absolute path. opencode/kilo
+ * record a proper `file://` URL — on Windows that is `file:///C:/Users/…` (drive
+ * letter + forward slashes), which a textual `file://`-strip leaves as the broken
+ * `/C:/Users/…`. `fileURLToPath` does the correct cross-platform decode
+ * (`file:///C:/x`→`C:\x`, `file:///tmp/x`→`/tmp/x`). Bare-path entries (also
+ * accepted by the hosts) and any malformed URL fall back to a textual strip.
  */
-function posixPathEquals(a: string, b: string): boolean {
-  const norm = (p: string): string => {
-    const isAbs = p.startsWith("/");
-    const out: string[] = [];
-    for (const seg of p.split("/")) {
-      if (seg === "" || seg === ".") continue;
-      if (seg === "..") {
-        if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
-        else if (!isAbs) out.push("..");
-      } else out.push(seg);
+function npmEntryToPath(entry: string): string {
+  if (/^file:\/\//i.test(entry)) {
+    try {
+      return fileURLToPath(entry);
+    } catch {
+      /* malformed file URL (e.g. backslashes) → manual strip below */
     }
-    return (isAbs ? "/" : "") + out.join("/");
-  };
-  return norm(a) === norm(b);
+  }
+  return stripFileScheme(entry);
+}
+
+/**
+ * Path equality for the npm probe: `resolve()` both sides (normalizes
+ * `..`/`.`/trailing slashes AND `/` vs `\` separators) and case-fold on win32
+ * (NTFS is case-insensitive). Inlined here (leaf module) rather than importing
+ * shared.ts's samePath, which pulls in the spawn layer.
+ */
+function npmPathEquals(a: string, b: string): boolean {
+  const ra = resolve(a);
+  const rb = resolve(b);
+  return process.platform === "win32"
+    ? ra.toLowerCase() === rb.toLowerCase()
+    : ra === rb;
 }
 
 /**
@@ -702,7 +715,7 @@ export function npmPluginArrayEntry(
   const target = join(npmStagingRoot(), connectorId);
   for (const raw of arr) {
     if (typeof raw !== "string") continue;
-    if (posixPathEquals(stripFileScheme(raw), target)) return raw;
+    if (npmPathEquals(npmEntryToPath(raw), target)) return raw;
   }
   return null;
 }
