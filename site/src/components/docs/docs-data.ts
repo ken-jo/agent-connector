@@ -1411,8 +1411,8 @@ export const packageFormatRows: PackageFormatRow[] = [
     format: "gemini-extension",
     targets: "Gemini CLI",
     manifest: "gemini-extension.json (inline mcpServers + contextFileName) + commands/<n>.toml + agents/, skills/, hooks/hooks.json + GEMINI.md",
-    install: "gemini extensions install <out>/<id> --consent  (driven end-to-end by `install --method marketplace --targets gemini-cli`; live-verified)",
-    note: "MCP is declared INLINE in the manifest (no separate .mcp.json); commands are TOML. --consent is required non-interactively; re-install refuses (probe-first driver handles it).",
+    install: "gemini extensions install <out>/<id> --consent  (driven end-to-end by `install --method marketplace --targets gemini-cli`; live-verified on Linux/gemini 0.36.0)",
+    note: "MCP is declared INLINE in the manifest (no separate .mcp.json); commands are TOML. --consent is required non-interactively; re-install refuses (probe-first driver handles it). CAVEAT: gemini >= 0.41 (e.g. on Windows) gates a local install behind a 'trust this folder' prompt --consent doesn't cover — trust the folder once interactively, or set security.folderTrust.enabled:false; the driver degrades to an actionable warn (no hang).",
   },
   {
     format: "qwen-extension",

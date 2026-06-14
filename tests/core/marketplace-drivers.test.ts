@@ -241,6 +241,12 @@ switch (args[1]) {
   case "install": {
     const src = args[2];
     const id = basename(src);
+    if (process.env.FAKE_GEMINI_TRUST_GATED) {
+      // gemini >= 0.41: a SEPARATE folder-trust prompt --consent does not cover.
+      // With stdin ignored it EOF-aborts: prints the prompt, NO marker written.
+      process.stdout.write("Do you trust the files in this folder? [y/N]: ");
+      process.exit(1);
+    }
     if (existsSync(marker(id))) process.exit(1); // real gemini REFUSES re-install
     mkdirSync(extDir(id), { recursive: true });
     writeFileSync(marker(id), JSON.stringify({ name: id, version: "1.0.0" }));
@@ -1013,6 +1019,22 @@ describe("installViaMarketplace — gemini (mock)", () => {
     expect(record!.format).toBe("gemini-extension");
     expect(record!.bundleDir).toBe(geminiPluginDir());
     expect(record!.contentHash).not.toBe("");
+  });
+
+  it("folder-trust gate (gemini >= 0.41): degrades to an actionable warn, no install, no record", async () => {
+    process.env.FAKE_GEMINI_TRUST_GATED = "1";
+    try {
+      const result = await marketplaceInstall("gemini-cli");
+      const w = result.changes.find((c) => c.action === "warn");
+      expect(w).toBeDefined();
+      expect(w!.detail).toMatch(/folder-trust|trust the folder/i);
+      expect(w!.detail).toMatch(/folderTrust\.enabled/);
+      // the prompt EOF-aborted: nothing installed, nothing recorded.
+      expect(geminiExtensionInstalled(CONNECTOR_ID)).toBe(false);
+      expect(readMarketplaceInstalls(CONNECTOR_ID)["gemini-cli"]).toBeUndefined();
+    } finally {
+      delete process.env.FAKE_GEMINI_TRUST_GATED;
+    }
   });
 
   it("is idempotent: a re-run reports a `=` skip and never re-drives install (gemini refuses)", async () => {

@@ -21,6 +21,15 @@
  *      idempotent overwrite (agy overwrites). So driveInstall skips when already
  *      present, and driveUpdate must uninstall-THEN-install (there is no
  *      overwrite-install path).
+ *
+ * VERSION CAVEAT (live-found on gemini 0.41.2, native Windows): newer gemini
+ * gates a local-path `extensions install` behind a SEPARATE "trust this folder"
+ * prompt that `--consent` does NOT cover, and there is no install-subcommand flag
+ * to bypass it (`--skip-trust` is a global flag that does not compose with the
+ * subcommand). With stdin ignored the prompt EOF-aborts cleanly (no hang, no
+ * partial install). driveInstall detects this and emits an actionable warn (trust
+ * the folder once interactively, or set `security.folderTrust.enabled: false`).
+ * gemini 0.36.0 had no such gate, so the full lifecycle is live-verified there.
  */
 
 import { existsSync, rmSync } from "node:fs";
@@ -163,10 +172,24 @@ export const geminiDriver: MarketplaceDriver = {
     const install = await runHostCommand(bin, ["extensions", "install", pluginDir, "--consent"]);
     // gemini exits 0 even on a logical failure → trust the fs RE-PROBE, not the code.
     if (!geminiExtensionInstalled(id)) {
+      // gemini >= 0.41 gates a local-path install behind a separate "trust this
+      // folder" prompt that --consent does NOT cover; with stdin ignored it
+      // EOF-aborts (no hang, no partial install). There is no install-subcommand
+      // flag for it, so surface the supported one-time fix instead of failing blind.
+      const trustGated = /trust (the |this )?(files|folder)/i.test(
+        `${install.stdout}\n${install.stderr}`,
+      );
       changes.push(
         warn(
-          `extension install did not complete — ` +
-            failDetail(`gemini extensions install ${pluginDir} --consent`, install),
+          trustGated
+            ? `extension install blocked by gemini's folder-trust prompt (newer gemini gates ` +
+                `local-path installs and --consent does not bypass it). Trust the folder once, ` +
+                `then re-run: run \`gemini extensions install ${pluginDir} --consent\` interactively ` +
+                `(answer "y" to trust), or set \`security.folderTrust.enabled: false\` in ` +
+                `~/.gemini/settings.json. The bundle is staged and ready.`
+            : `extension install did not complete — ` +
+                failDetail(`gemini extensions install ${pluginDir} --consent`, install),
+          pluginDir,
         ),
       );
       return { changes, ok: false };
