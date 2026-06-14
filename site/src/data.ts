@@ -214,13 +214,14 @@ export const installMethods: InstallMethod[] = [
     title: "Marketplace / plugin flow",
     summary:
       "Drives the host's OWN plugin install end-to-end — stage the bundle, register a local marketplace where the host has one, run its install verb. Double-install-guarded; doctor-checked. Other marketplace formats print exact manual commands.",
-    scope: "Driven: Claude Code · Codex · Antigravity — live-verified on Linux + Windows",
+    scope:
+      "Drives 10 hosts: Claude Code · Codex · Gemini CLI · OpenCode · Kilo (CLI + ext) · Antigravity (CLI + IDE) live-verified, + Droid · Qwen Code driver shipped",
   },
 ];
 
 export const cliCommands: { cmd: string; purpose: string }[] = [
   { cmd: "detect", purpose: "List installed platforms, scopes, capabilities & paradigm." },
-  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets (--method direct), OR drive the host's own marketplace/plugin flow for Claude Code, Codex & Antigravity (--method marketplace); user-edited managed blocks are left alone unless --force (backs the file up first)." },
+  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets (--method direct), OR drive the host's own marketplace/plugin flow for 10 hosts incl. Claude Code, Codex, Gemini CLI, OpenCode, Kilo, Antigravity, Droid & Qwen (--method marketplace); user-edited managed blocks are left alone unless --force (backs the file up first)." },
   { cmd: "uninstall", purpose: "Full inverse — removes everything we wrote." },
   { cmd: "upgrade", purpose: "Bring all current: re-render config, heal pointers, managed update (alias: update, sync)." },
   { cmd: "package", purpose: "One connector → 9 marketplace/extension formats via --format all, plus opt-in official mcp-server-json / mcpb artifacts." },

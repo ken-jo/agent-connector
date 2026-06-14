@@ -226,7 +226,7 @@ export const sectionDescription: Record<string, string> = {
   surfaces:
     "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance upserted as a marker-fenced, hash-stamped managed block into the memory/rules file each host actually reads — AGENTS.md on 27 of 29 hosts (the open agents.md standard), CLAUDE.md for Claude Code, GEMINI.md for Gemini CLI.",
   packaging:
-    "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for Claude Code, Codex, and Antigravity — `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`, and live-verified on Linux AND native Windows. For every other host, `agent-connector package` emits any of 9 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
+    "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / Gemini CLI / OpenCode / Kilo / Antigravity are live-verified (claude/codex/agy also on native Windows); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 9 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
     "Agent-CLI users (no connector): `agent-connector usage` reads each agent CLI's own session logs read-only and reports whole-conversation token totals grouped by platform, model, project, session, or day. It does NOT itemize cost per MCP server or per tool — agent CLIs don't log per-tool token attribution. Per-MCP/per-tool numbers require the MCP-developer serve-proxy telemetry track.",
   "telemetry-overview":
@@ -1044,7 +1044,7 @@ export const cliCommands: CliCommand[] = [
     signature:
       "agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]",
     summary:
-      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --method marketplace (drivable: claude-code, codex, antigravity, antigravity-cli) drives the host's own plugin flow instead — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (claude/codex `plugin install`/`add`, `agy plugin install`) — with a guard refusing a double install by both methods; `uninstall --method auto` reverses whichever is present. Live-verified on Linux + native Windows; other marketplace-format hosts print manual commands. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
+      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --method marketplace (drivable: claude-code, codex, gemini-cli, opencode, kilo, kilo-cli, antigravity, antigravity-cli + droid, qwen-code) drives the host's own plugin flow instead — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (claude/codex `plugin install`/`add`, `gemini extensions install`, `agy plugin install`) or write a local `file://` entry for npm-plugin hosts (opencode/kilo) — with a guard refusing a double install by both methods; `uninstall --method auto` reverses whichever is present. claude/codex/gemini/opencode/kilo/agy live-verified (claude/codex/agy also native Windows); other marketplace-format hosts print manual commands. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
   },
   {
     name: "upgrade",
@@ -1404,21 +1404,21 @@ export const packageFormatRows: PackageFormatRow[] = [
     format: "factory-plugin",
     targets: "Droid (Factory)",
     manifest: ".factory-plugin/plugin.json + droids/ + mcp.json + marketplace.json (git-repo catalog at the repo root)",
-    install: "droid plugin marketplace add <out> · droid plugin install <id>@agent-connector",
-    note: "Subagents go in droids/ (not agents/); MCP filename is mcp.json; plugin.json pins version + author.",
+    install: "droid plugin marketplace add <out> · droid plugin install <id>@agent-connector (driven by `install --method marketplace --targets droid`; driver shipped, pending a live host)",
+    note: "Subagents go in droids/ (not agents/); MCP filename is mcp.json; plugin.json pins version + author. The marketplace catalog is marketplace.json at the bundle ROOT (factory shape).",
   },
   {
     format: "gemini-extension",
     targets: "Gemini CLI",
     manifest: "gemini-extension.json (inline mcpServers + contextFileName) + commands/<n>.toml + agents/, skills/, hooks/hooks.json + GEMINI.md",
-    install: "gemini extensions install <out>/<id>",
-    note: "MCP is declared INLINE in the manifest (no separate .mcp.json); commands are TOML.",
+    install: "gemini extensions install <out>/<id> --consent  (driven end-to-end by `install --method marketplace --targets gemini-cli`; live-verified)",
+    note: "MCP is declared INLINE in the manifest (no separate .mcp.json); commands are TOML. --consent is required non-interactively; re-install refuses (probe-first driver handles it).",
   },
   {
     format: "qwen-extension",
     targets: "Qwen Code",
     manifest: "qwen-extension.json (inline mcpServers) + commands/<n>.md + agents/, skills/, hooks/hooks.json + QWEN.md",
-    install: "qwen extensions install <out>/<id>",
+    install: "qwen extensions install <out>/<id>  (driven by `install --method marketplace --targets qwen-code`; driver shipped, pending a live host)",
     note: "A Gemini-CLI fork: commands are Markdown (not TOML) and the context file is QWEN.md.",
   },
   {
@@ -1444,9 +1444,9 @@ export const packageFormatRows: PackageFormatRow[] = [
   },
   {
     format: "npm-plugin",
-    targets: "OpenCode · Kilo CLI · Pi",
+    targets: "OpenCode · Kilo (CLI + ext) · Pi",
     manifest: "package.json (type:module, exports, keywords) + index.js (ESM bridge) + skills/<n>/SKILL.md + README.md",
-    install: "npm publish <out>/<id>  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)",
+    install: "LOCAL (no publish): opencode/kilo plugin --global file://<out>/<id> — driven end-to-end by `install --method marketplace --targets opencode|kilo` (live-verified; writes a file:// entry into the host config plugin array, removed by editing it back). Or publish: npm publish <out>/<id> then opencode/kilo plugin install <pkg>. (pi is registry-only with no hook layer → not drivable.)",
     note: "A publishable npm package whose default export is a plugin fn that shells each hook to the home-bin. Commands/subagents are native host dirs and MCP is a config key, so they are NOT bundled (notes record this).",
   },
   {

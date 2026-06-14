@@ -261,12 +261,15 @@ Same one definition, your choice of distribution:
 - **Direct install** (above) — `install` writes each host's native MCP + plugin/
   extension config in place; no per-platform marketplace submission or review.
 - **Marketplace install** — `install --method marketplace` drives the host's own
-  plugin flow end-to-end for **Claude Code, codex, and agy/Antigravity** (stages
-  the bundle, registers a local marketplace where the host has one, then runs the
-  host's plugin-install verb; headless, idempotent — verified live on Linux and
-  native Windows). `uninstall --method auto` reverses whichever method is actually
-  installed, a guard refuses installing the same connector by BOTH methods
-  (duplicated hooks/servers), and `doctor` checks registration drift.
+  plugin flow end-to-end for **10 hosts**: Claude Code, Codex, Gemini CLI,
+  OpenCode, Kilo (CLI + ext), Antigravity (CLI + IDE) — all live-verified — plus
+  Droid and Qwen Code (driver shipped, pending a live host). It stages the
+  bundle, registers a local marketplace where the host has one, then runs the
+  host's plugin-install verb (or, for npm-plugin hosts, writes a local
+  `file://` entry); headless and idempotent. `uninstall --method auto` reverses
+  whichever method is installed, a guard refuses installing the same connector by
+  BOTH methods, and `doctor` checks registration drift. Other marketplace-format
+  hosts print the exact manual commands.
 - **Marketplace package** — `agent-connector package` turns the connector into a
   marketplace/extension bundle (manifest + bundled commands, agents, skills,
   hooks, MCP) for **9 host formats** (plus 2 official MCP standard artifacts —

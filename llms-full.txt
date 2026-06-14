@@ -842,22 +842,28 @@ modifyOutput / injectContext). `--json` emits the raw `DetectedPlatform[]`.
 ### install
 `agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]`
 `--method marketplace` drives the HOST's own plugin flow instead of writing
-config directly. Drivable hosts: `claude-code`, `codex`, `antigravity`,
-`antigravity-cli` (a `MarketplaceDriver` per host; live-verified on Linux AND
-native Windows). Catalog hosts (claude, codex) stage the bundle under
-`<dataRoot>/marketplace/<host>/`, regenerate the shared local-marketplace
-catalog, register it once by reference (`claude/codex plugin marketplace add`),
-then run the install verb (`claude plugin install` / `codex plugin add`
-`<id>@agent-connector`); agy is a direct install-by-path driver
-(`agy plugin install <bundleDir>` + `plugin uninstall <id>`, no marketplace
-registration). Probe-first + headless; if the host CLI is absent it degrades to
-printing the exact commands; other marketplace-format hosts (gemini, cursor, …)
-still print manual commands. Windows specifics handled: codex's `\\?\` source
-path canonicalization and agy's win32 manifest location. A guard refuses
-installing the same connector by BOTH methods (duplicated hooks + server);
-`uninstall --method auto` reverses whichever method is present, and removing the
-last staged plugin also removes the shared marketplace registration. State:
-`<dataRoot>/marketplace/marketplace-installs.json`.
+config directly. Drivable hosts (10, a `MarketplaceDriver` per host, 3 shapes):
+`claude-code`, `codex`, `gemini-cli`, `opencode`, `kilo`, `kilo-cli`,
+`antigravity`, `antigravity-cli` (live-verified) + `droid`, `qwen-code` (driver
+shipped, pending a live host). Three shapes: (1) CATALOG — claude, codex, droid:
+stage under `<dataRoot>/marketplace/<host>/`, regenerate the shared local
+catalog, register once by reference (`<host> plugin marketplace add`), then the
+install verb (`claude plugin install` / `codex|droid plugin add|install`
+`<id>@agent-connector`). (2) DIRECT — agy, gemini-cli, qwen-code: install-by-path
+(`agy plugin install <dir>` / `gemini extensions install <dir> --consent` /
+`qwen extensions install <dir>`) + the host's uninstall verb, no marketplace
+registration. (3) NPM-LOCAL — opencode, kilo, kilo-cli: `<host> plugin --global
+file://<stagedDir>` writes a `file://` entry into the host config's `plugin`
+array (run from a neutral cwd); there is no host uninstall verb, so removal EDITS
+the config array back. Probe-first + headless; if the host CLI is absent it
+degrades to printing the exact commands; non-drivable marketplace-format hosts
+(cursor, pi, vscode-copilot, openclaw, omp, kimi) still print manual commands.
+Windows specifics handled: codex's `\\?\` source-path canonicalization and agy's
+win32 manifest location (claude/codex/agy native-Windows-verified). A guard
+refuses installing the same connector by BOTH methods (duplicated hooks +
+server); `uninstall --method auto` reverses whichever method is present, and
+removing the last staged plugin also removes the shared marketplace
+registration. State: `<dataRoot>/marketplace/marketplace-installs.json`.
 The default `--method direct`:
 Resolves the connector, then per target: backup settings → render server config into
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
