@@ -34,6 +34,7 @@ import { delimiter, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { loadAdapter } from "../../src/adapters/registry.js";
+import { samePath } from "../../src/core/marketplace-drivers/shared.js";
 import { dataRoot, homeBinPath } from "../../src/core/paths.js";
 import { defineConnector } from "../../src/core/define-connector.js";
 import { installConnector } from "../../src/core/installer.js";
@@ -705,3 +706,33 @@ async function writeDirectHookMarker(
     "utf8",
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// samePath — host-recorded path vs the path WE built (Windows \\?\ canonical
+// form regression: live-confirmed codex stores `\\?\C:\…` on win32).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("samePath (cross-host path equivalence)", () => {
+  it("null/undefined never matches", () => {
+    expect(samePath(null, "/a")).toBe(false);
+    expect(samePath("/a", undefined)).toBe(false);
+    expect(samePath(null, null)).toBe(false);
+  });
+
+  it("resolves equivalent paths (trailing slash, .., .)", () => {
+    expect(samePath("/a/b", "/a/b")).toBe(true);
+    expect(samePath("/a/b/", "/a/b")).toBe(true);
+    expect(samePath("/a/x/../b", "/a/b")).toBe(true);
+    expect(samePath("/a/./b", "/a/b")).toBe(true);
+    expect(samePath("/a/b", "/a/c")).toBe(false);
+  });
+
+  it.runIf(process.platform === "win32")(
+    "strips the win32 extended-length \\\\?\\ prefix and case-folds",
+    () => {
+      expect(samePath("\\\\?\\C:\\Users\\x\\codex", "C:\\Users\\x\\codex")).toBe(true);
+      expect(samePath("\\\\?\\C:\\USERS\\X\\CODEX", "c:\\users\\x\\codex")).toBe(true);
+      expect(samePath("\\\\?\\C:\\Users\\x\\codex", "C:\\Users\\y\\codex")).toBe(false);
+    },
+  );
+});

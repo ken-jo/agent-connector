@@ -41,7 +41,7 @@ import {
 } from "../marketplace-state.js";
 import { ensureDir } from "../paths.js";
 import { packageConnector } from "../package.js";
-import { findOnPath, firstLine, runHostCommand } from "./shared.js";
+import { findOnPath, firstLine, runHostCommand, samePath } from "./shared.js";
 import type { MarketplaceDriveOutcome, MarketplaceDriver } from "./types.js";
 
 const PLATFORM = "codex" as const;
@@ -181,7 +181,7 @@ async function driveInstall(connectorId: string): Promise<MarketplaceDriveOutcom
   // Marketplace registration (probe-first + name-collision refusal). Codex has
   // no `plugin validate` — `marketplace add` validates the bundle itself.
   const registeredAt = codexMarketplaceSource(MARKETPLACE_NAME);
-  if (registeredAt === stagingRoot) {
+  if (samePath(registeredAt, stagingRoot)) {
     changes.push({
       platform: PLATFORM,
       action: "skip",
@@ -202,7 +202,8 @@ async function driveInstall(connectorId: string): Promise<MarketplaceDriveOutcom
     const add = await runHostCommand(bin, ["plugin", "marketplace", "add", stagingRoot]);
     // Probe-first: trust config.toml over the exit code (codex prints a harmless
     // WARNING under /tmp). Only fail when the source did NOT land on our root.
-    if (codexMarketplaceSource(MARKETPLACE_NAME) !== stagingRoot) {
+    // samePath: codex stores the win32 extended-length `\\?\C:\…` form.
+    if (!samePath(codexMarketplaceSource(MARKETPLACE_NAME), stagingRoot)) {
       changes.push(
         warn(
           `could not register the local marketplace — ` +
@@ -341,15 +342,14 @@ export const codexDriver: MarketplaceDriver = {
 
   planInstall(connector, changes) {
     const stagingRoot = codexStagingRoot();
-    const registeredAt = codexMarketplaceSource(MARKETPLACE_NAME);
+    const registered = samePath(codexMarketplaceSource(MARKETPLACE_NAME), stagingRoot);
     changes.push({
       platform: PLATFORM,
-      action: registeredAt === stagingRoot ? "skip" : "create",
+      action: registered ? "skip" : "create",
       path: stagingRoot,
-      detail:
-        registeredAt === stagingRoot
-          ? `marketplace "${MARKETPLACE_NAME}" already registered`
-          : `run: codex plugin marketplace add ${stagingRoot}`,
+      detail: registered
+        ? `marketplace "${MARKETPLACE_NAME}" already registered`
+        : `run: codex plugin marketplace add ${stagingRoot}`,
     });
     changes.push({
       platform: PLATFORM,
@@ -380,7 +380,7 @@ export const codexDriver: MarketplaceDriver = {
       });
     }
     const othersStaged = stagedCodexPlugins(stagingRoot).some((n) => n !== id);
-    if (!othersStaged && codexMarketplaceSource(MARKETPLACE_NAME) === stagingRoot) {
+    if (!othersStaged && samePath(codexMarketplaceSource(MARKETPLACE_NAME), stagingRoot)) {
       changes.push({
         platform: PLATFORM,
         action: "remove",
@@ -427,7 +427,7 @@ export const codexDriver: MarketplaceDriver = {
     if (
       nothingStaged &&
       !anyCodexAgentConnectorPlugins() &&
-      codexMarketplaceSource(MARKETPLACE_NAME) === stagingRoot
+      samePath(codexMarketplaceSource(MARKETPLACE_NAME), stagingRoot)
     ) {
       changes.push(...(await driveMarketplaceRemove(stagingRoot)));
     }

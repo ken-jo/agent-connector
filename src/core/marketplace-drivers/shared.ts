@@ -11,7 +11,7 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 import { spawnChild } from "../spawn-child.js";
 
@@ -143,4 +143,30 @@ export function runHostCommand(
 export function firstLine(text: string): string {
   const line = text.split(/\r?\n/).find((l) => l.trim() !== "");
   return line ? line.trim() : "";
+}
+
+/**
+ * Path equivalence for comparing a path WE built (e.g. a staging root) against a
+ * path a HOST CLI recorded in its own state. A plain `===` is wrong on Windows:
+ * codex canonicalizes the marketplace `source` to the extended-length form
+ * `\\?\C:\…` (live-confirmed on codex-cli 0.139.0), which never string-equals our
+ * `path.join` result. Normalize both: strip the `\\?\` / `\\?\UNC\` prefix,
+ * `resolve()`, and case-fold on win32 (NTFS is case-insensitive). On POSIX this
+ * is just `resolve(a) === resolve(b)`, so existing exact-match behavior is
+ * preserved (an exact match always stays a match — samePath only widens).
+ */
+export function samePath(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (a == null || b == null) return false;
+  const norm = (p: string): string => {
+    let s = p;
+    if (process.platform === "win32") {
+      s = s.replace(/^\\\\\?\\UNC\\/, "\\\\").replace(/^\\\\\?\\/, "");
+    }
+    s = resolve(s);
+    return process.platform === "win32" ? s.toLowerCase() : s;
+  };
+  return norm(a) === norm(b);
 }
