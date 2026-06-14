@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-06-14
 
 Everything below was dogfooded and verified in isolated-home installs — and,
 for the marketplace drivers, end-to-end against the real host CLIs on both Linux
