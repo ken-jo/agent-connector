@@ -140,6 +140,40 @@ export function isUsageEventCommand(
 }
 
 /**
+ * Build the home-bin statusline command a host's status line config points at:
+ *   "<homeBin>" statusline <platformId> --connector <id>
+ * Mirrors {@link buildHomeBinHookCommand} / {@link buildUsageEventCommand} (the
+ * same single-home-binary indirection) but routes to the `statusline`
+ * entrypoint, which renders the connector's HUD line for the host.
+ */
+export function buildHomeBinStatuslineCommand(
+  homeBinPath: string,
+  platformId: string,
+  connectorId: string,
+): string {
+  return `${quoteArg(homeBinPath)} statusline ${platformId} --connector ${connectorId}`;
+}
+
+/**
+ * True when `command` is OUR home-bin statusline command for exactly
+ * `connectorId`. Same end-of-token anchoring as {@link isHomeBinHookCommand} so a
+ * shared-prefix id can't collide; additionally requires the ` statusline ` verb
+ * so it is never confused with a plain `hook` / `usage-event` command.
+ */
+export function isHomeBinStatuslineCommand(
+  command: string | undefined,
+  homeBinPath: string,
+  connectorId: string,
+): boolean {
+  if (!command) return false;
+  // Normalize separators like isHomeBinHookCommand (win32 ownership detection).
+  const hay = command.replace(/\\/g, "/");
+  if (!hay.includes(homeBinPath.replace(/\\/g, "/"))) return false;
+  if (!hay.includes(" statusline ")) return false;
+  return isHomeBinHookCommand(command, homeBinPath, connectorId);
+}
+
+/**
  * Single source of truth for "is OPT-IN host-native turn-usage capture enabled
  * for this connector?" — read by the Gemini / Antigravity adapters at install
  * time to decide whether to ALSO write the AfterModel / PostInvocation usage hook.

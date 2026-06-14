@@ -192,6 +192,9 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // TODO(issue #2): Cursor has a real command-driven status contract, but it
+    // is unverified against the home-bin statusline wiring — left to the
+    // BaseAdapter skip-warn (supportsStatusline unset) until confirmed.
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

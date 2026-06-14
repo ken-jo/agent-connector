@@ -9,7 +9,7 @@
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
 ![platforms](https://img.shields.io/badge/platforms-29-2563eb)
-![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory-2563eb)
+![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
@@ -332,14 +332,16 @@ export default defineConnector({
 > Code only for now; other hosts skip-warn, never silently.
 
 > **Host-config key patches.** For host-exclusive *settings keys* no other
-> surface reaches (Claude Code's `statusLine`, an experimental `env.*` flag),
-> declare `platforms: { "claude-code": { configPatch: [{ key, value, reason }] } }`.
+> surface reaches (e.g. an experimental `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`
+> flag), declare `platforms: { "claude-code": { configPatch: [{ key, value, reason }] } }`.
 > Semantics are fixed: **set-if-absent + skip-warn on any conflict** — never
 > overwrite, never deep-merge. Ownership is refcounted in a persisted ledger, so
 > uninstall removes a key only when the last owning connector releases it and the
 > value is untouched; security-relevant keys (`permissions*`, `apiKey*`,
-> `env.ANTHROPIC_*`, token/secret env vars, …) are hard-refused. Claude Code only
-> for now; other hosts skip-warn with the exact manual edit.
+> `env.ANTHROPIC_*`, token/secret env vars, …) are hard-refused, as are keys
+> agent-connector models as first-class surfaces (`hooks*`, `mcpServers*`,
+> `statusLine` → use the `statusline` surface instead). Claude Code only for now;
+> other hosts skip-warn with the exact manual edit.
 
 `agent-connector install` turns that into, e.g.:
 
@@ -394,6 +396,45 @@ edit is *left intact* (sync warns; `install --force` overwrites after a backup).
 Uninstall excises exactly your blocks and `doctor` verifies them (present /
 hash-intact / user-edited / file missing). Hosts with no writable memory file at
 a scope skip-warn, never silently.
+
+### Status line (`statusline`) — live HUD per connector
+
+Ship a render function that the host calls on every status refresh:
+
+```ts
+import { defineConnector, defineStatusline } from "@ken-jo/agent-connector";
+
+export default defineConnector({
+  id: "acme-db",
+  // ...
+  statusline: defineStatusline({
+    render(ctx) {
+      const pct = ctx.context?.percent ?? 0;
+      return `acme-db · ${pct}% ctx · $${(ctx.cost?.totalUsd ?? 0).toFixed(4)}`;
+    },
+  }),
+});
+```
+
+`StatuslineContext` provides (where the host supplies them) `host`,
+`connectorId`, `sessionId`, `cwd`, `model` (`id` / `displayName`),
+`cost` (`totalUsd`), `context` (`usedTokens` / `maxTokens` / `percent`),
+`transcriptPath`, and `raw` (the host's verbatim payload). Fields the host
+does not provide are `undefined`.
+
+**v1: claude-code only.** Install registers `settings.json.statusLine` via the
+same configPatch ownership ledger — **set-if-absent, never clobbers a
+`statusLine` agent-connector doesn't own** (skip-warns and prints the manual
+edit instead), refcounted, reversible. Every other host adapter skip-warns at
+install time, never silently. The runtime is **fail-safe**: any error — a
+throwing `render`, unknown connector, malformed stdin — exits 0 with empty
+stdout so a HUD never wedges the host. `doctor` includes a dedicated
+`statusline wired` check.
+
+> `defineStatusline` is a typed identity helper and is optional — you can
+> pass the `{ render }` object directly to `statusline:`. Both
+> `StatuslineDef` and `StatuslineContext` are exported from
+> `@ken-jo/agent-connector`.
 
 ## How it works (operating model)
 

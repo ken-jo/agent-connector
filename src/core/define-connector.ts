@@ -17,6 +17,7 @@ import type {
   PublishConfig,
   ResolvedConnector,
   SkillDef,
+  StatuslineDef,
   SubagentDef,
 } from "./types.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
@@ -87,6 +88,10 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const hasSkills = Array.isArray(config.skills) && config.skills.length > 0;
   const hasSubagents = Array.isArray(config.subagents) && config.subagents.length > 0;
   const hasMemory = Array.isArray(config.memory) && config.memory.length > 0;
+  // A statusline (a HUD) is a legitimate sole payload — a connector whose whole
+  // job is rendering a status line. SINGULAR (one per connector), so a plain
+  // presence check (object with a render handler — validated in normalizeStatusline).
+  const hasStatusline = config.statusline != null;
   // A platform-scoped nativeHooks declaration is a legitimate sole payload
   // (a hooks-only connector wired entirely through native passthrough events).
   const hasNativeHooks = Object.values(config.platforms ?? {}).some(
@@ -105,11 +110,12 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     !hasSkills &&
     !hasSubagents &&
     !hasMemory &&
+    !hasStatusline &&
     !hasNativeHooks &&
     !hasConfigPatch
   ) {
     throw new ConnectorConfigError(
-      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, " +
+      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, `statusline`, " +
         "or a per-platform `nativeHooks` / `configPatch` declaration",
     );
   }
@@ -156,6 +162,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const skills = normalizeSkills(config.skills);
   const subagents = normalizeSubagents(config.subagents);
   const memory = normalizeMemory(config.memory);
+  const statusline = normalizeStatusline(config.statusline);
 
   const t = config.telemetry ?? {};
 
@@ -182,6 +189,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     skills,
     subagents,
     memory,
+    ...(statusline ? { statusline } : {}),
     platforms: config.platforms ?? {},
     targets: config.targets ?? "auto",
     ...(config.publish ? { publish: normalizePublish(config.publish) } : {}),
@@ -500,6 +508,47 @@ function normalizeMemory(input: MemoryDef[] | undefined): MemoryDef[] {
     return { ...entry, name };
   });
 }
+
+/** Default name for the (singular) statusline declaration. */
+const STATUSLINE_DEFAULT_NAME = "statusline";
+
+/**
+ * Validate + normalize the SINGULAR `statusline` (a HUD handler surface):
+ *   - `render` MUST be a function (it is the renderer, re-imported at runtime
+ *     like a hook handler);
+ *   - `name` defaults to "statusline", then must be kebab-case (the shared
+ *     surface-name validator);
+ *   - `description`, when present, must be a string.
+ * Returns undefined when no statusline is declared (it is optional and singular,
+ * unlike the memory[] array).
+ */
+function normalizeStatusline(
+  input: StatuslineDef | undefined,
+): StatuslineDef | undefined {
+  if (input == null) return undefined;
+  if (typeof input !== "object" || Array.isArray(input)) {
+    throw new ConnectorConfigError("statusline must be an object");
+  }
+  if (typeof input.render !== "function") {
+    throw new ConnectorConfigError("statusline.render must be a function");
+  }
+  const name =
+    input.name === undefined
+      ? STATUSLINE_DEFAULT_NAME
+      : assertSurfaceName("statusline", input.name, 0);
+  if (input.description !== undefined && typeof input.description !== "string") {
+    throw new ConnectorConfigError("statusline.description must be a string");
+  }
+  return { ...input, name };
+}
+
+/**
+ * Typed identity helper for authoring a status line in its own module:
+ *   export const myStatusline = defineStatusline({ render: (ctx) => "…" });
+ * Mirrors the (informal) defineX helpers; gives the developer full type
+ * inference on {@link StatuslineContext} without importing the type by hand.
+ */
+export const defineStatusline = (def: StatuslineDef): StatuslineDef => def;
 
 function normalizeSubagents(input: SubagentDef[] | undefined): SubagentDef[] {
   if (input == null) return [];

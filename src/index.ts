@@ -10,7 +10,11 @@
  * collects platform-independent per-tool token telemetry.
  */
 
-export { defineConnector, ConnectorConfigError } from "./core/define-connector.js";
+export {
+  defineConnector,
+  defineStatusline,
+  ConnectorConfigError,
+} from "./core/define-connector.js";
 
 export type {
   ConnectorConfig,
@@ -40,6 +44,8 @@ export type {
   SubagentStopEvent,
   TelemetryConfig,
   MemoryDef,
+  StatuslineDef,
+  StatuslineContext,
   PlatformMemoryOverride,
   PlatformId,
   PlatformOverride,

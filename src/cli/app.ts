@@ -162,6 +162,10 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   usage: () => import("./commands/usage.js"),
   leaderboard: () => import("./commands/leaderboard.js"),
   hook: () => import("./commands/hook.js"),
+  // Internal (omitted from USAGE): the statusline (HUD) entrypoint a host's
+  // status line config points at. Fail-safe: always exits 0 with at most a
+  // rendered line. See cli/commands/statusline.ts.
+  statusline: () => import("./commands/statusline.js"),
   serve: () => import("./commands/serve.js"),
   // Hidden (omitted from USAGE): the opt-in host-native turn-usage entrypoint an
   // AfterModel / PostInvocation hook points at. Always exits 0; records a
@@ -201,6 +205,8 @@ const COMMAND_USAGE: Record<string, string> = {
     "usage report|export|leaderboard [--by <dim>] [--since <dur>] [--platform <id>] [--format csv|json] [--out <file>] [--json]",
   leaderboard: "leaderboard [--since <dur>] [--connector <id>] [--scope <slice>] [--json]",
   hook: "hook <platform> <event> --connector <id>   (internal — host hook configs point here)",
+  statusline:
+    "statusline <platform> --connector <id>   (internal — host status line configs point here)",
   serve:
     "serve --connector <id> [--scope user|project] [--host <platformId>] -- <command> [args...]   (internal — host MCP entries point here)",
 };

@@ -550,6 +550,16 @@ export interface PlatformCapabilities {
    * per-adapter `memoryTargets()` hook.
    */
   supportsMemory?: boolean;
+  /**
+   * Statusline-surface support (a HUD/status line wired at the single home
+   * binary). OPTIONAL, read as `?? false` (supportsMemory precedent). Only
+   * statusline-supporting adapters set this true; the BaseAdapter
+   * install/uninstall defaults skip-warn regardless of the flag (v1:
+   * claude-code only). Unlike the content surfaces this is a runtime-dispatched
+   * handler — the supporting adapter wires the host's status line at
+   * `<homeBin> statusline <host> --connector <id>`.
+   */
+  supportsStatusline?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -645,6 +655,69 @@ export interface MemoryDef {
    * `agent-connector:begin` / `agent-connector:end` (ConnectorConfigError).
    */
   content: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Statusline surface (a HUD/status line) — a HANDLER surface, declared once.
+// SINGULAR (one per connector), unlike the memory[] content array: a connector
+// renders ONE status line. Unlike commands/skills/subagents/memory (pure file
+// writers) this is a runtime-dispatched handler, like a hook — the host execs
+// the home binary, which re-imports the connector module and calls render().
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Normalized context handed to {@link StatuslineDef.render}. Standalone (NOT a
+ * shared HostCtx — that unification is a separate effort): each adapter's
+ * `parseStatusInput` maps the host's verbatim status payload into this shape,
+ * filling only the fields that host exposes. `raw` is the untouched host payload
+ * (the escape hatch for fields not modeled here).
+ */
+export interface StatuslineContext {
+  /** Which host is asking for the status line. */
+  host: PlatformId;
+  /** Connector id this status line is dispatched for (stamped by the runtime). */
+  connectorId?: string;
+  /** Host session id when the payload carries one. */
+  sessionId?: string;
+  /** Working directory the host reports for this session. */
+  cwd?: string;
+  /** Active model, when the host reports it. */
+  model?: { id?: string; displayName?: string };
+  /** Running cost, when the host reports it. */
+  cost?: { totalUsd?: number };
+  /** Context-window usage, when the host reports it. */
+  context?: { usedTokens?: number; maxTokens?: number; percent?: number };
+  /** Path to the session transcript, when the host reports one. */
+  transcriptPath?: string;
+  /** The host's verbatim status payload (escape hatch). */
+  raw: unknown;
+}
+
+/**
+ * A connector's status line ("HUD"): a single handler that renders the line
+ * text from the normalized {@link StatuslineContext}. The handler lives in the
+ * connector module and is re-imported at runtime (like hook handlers), so it
+ * must survive defineConnector resolution as a live function.
+ *
+ * v1 returns a plain string (no Segment[] yet — a future enhancement). Adapters
+ * with {@link PlatformCapabilities.supportsStatusline} wire the host's status
+ * line at the single home binary (`<homeBin> statusline <host> --connector
+ * <id>`); every other adapter reports the standard skip-warn.
+ */
+export interface StatuslineDef {
+  /**
+   * kebab-case id; default "statusline". Stable identifier surfaced in
+   * status/docs output (the status line is singular, so it is not used as a
+   * marker key like memory names — but it stays kebab-case for consistency).
+   */
+  name?: string;
+  /** One-line "what this status line shows" — status/docs output only. */
+  description?: string;
+  /**
+   * Renderer. Receives the normalized context; returns the status line text.
+   * Re-imported at runtime via the connector module path (like hook handlers).
+   */
+  render: (ctx: StatuslineContext) => string | Promise<string>;
 }
 
 /** Per-host memory tuning — the object form of {@link PlatformOverride.memory}. */
@@ -754,6 +827,8 @@ export interface PlatformOverride {
    * object → per-host target/mode tuning ({@link PlatformMemoryOverride}).
    */
   memory?: boolean | PlatformMemoryOverride;
+  /** false → do not wire the status line on this platform (no object form in v1). */
+  statusline?: boolean;
   /** Verbatim fields merged into the native config (reach platform-exclusive features). */
   extra?: Record<string, unknown>;
 }
@@ -813,6 +888,11 @@ export interface ConnectorConfig {
    * memory/rules file (AGENTS.md-first). Omit when the connector ships none.
    */
   memory?: MemoryDef[];
+  /**
+   * The connector's status line (a HUD). SINGULAR — a connector renders ONE
+   * status line. Omit when the connector ships none.
+   */
+  statusline?: StatuslineDef;
   /** Per-platform overrides / escape hatches. */
   platforms?: Partial<Record<PlatformId, PlatformOverride>>;
   /** "auto" (all detected) or an explicit allow-list. Default "auto". */
@@ -843,6 +923,14 @@ export interface ResolvedConnector {
   subagents: SubagentDef[];
   /** Normalized memory entries; names defaulted ("memory"); [] when none. */
   memory: MemoryDef[];
+  /**
+   * Normalized status line (a HUD); name defaulted ("statusline"). Undefined
+   * when the connector declares none. SINGULAR (not an array) — see
+   * {@link StatuslineDef}. Carries the live `render` handler, so it survives
+   * defineConnector but NOT JSON serialization (re-imported at runtime, like
+   * hook handlers).
+   */
+  statusline?: StatuslineDef;
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   /** Distribution metadata (registry server.json + MCPB bundle); passed through verbatim. */

@@ -201,11 +201,43 @@ Distilled from the union of platform behaviors (report §3).
   `connectorDir(id)/memory-state.json` ledger adds created-file deletion
   rights + doctor diagnostics: block present / hash intact / user-edited /
   file missing). Full contract: `llms-full.txt` §2.4.
+- **`statusline` (handler surface)** — a HUD / status-line declared once
+  (`statusline?: StatuslineDef`) and driven by a developer-supplied `render`
+  function, not content. Singular (one per connector, not an array). Interface:
+  ```ts
+  interface StatuslineDef {
+    name?: string;          // kebab-case id; default "statusline"
+    description?: string;
+    render: (ctx: StatuslineContext) => string | Promise<string>;
+  }
+  ```
+  `StatuslineContext` carries `{ host, connectorId?, sessionId?, cwd?,
+  model?{id?,displayName?}, cost?{totalUsd?},
+  context?{usedTokens?,maxTokens?,percent?}, transcriptPath?, raw }` — fields
+  the host doesn't provide are undefined; `raw` is the host's verbatim payload.
+  SDK helper `defineStatusline({ render })` (typed identity) plus types
+  `StatuslineDef` / `StatuslineContext` are exported from the package root.
+  **Deployment (v1 = claude-code only):** `PlatformCapabilities.supportsStatusline`
+  gates it (read as `?? false`); every other adapter emits the standard
+  skip-warn, never a silent drop. On claude-code, install registers
+  `settings.json.statusLine = { type: "command", command: "<homeBin> statusline
+  claude-code --connector <id>" }` — **reusing the configPatch ownership
+  ledger**: set-if-absent, never clobbers a `statusLine` agent-connector doesn't
+  own (skip-warn + manual-edit hint), refcounted, reversible (uninstall removes
+  only when last-owner ∧ value-unchanged ∧ prior-absent). `statusLine` is
+  therefore a **reserved key** — raw `configPatch` targeting it throws
+  `ConnectorConfigError` pointing at the statusline surface (same namespace-guard
+  treatment as `hooks*` / `mcpServers*`). Runtime is **fail-safe**: any error
+  (throwing render, unknown connector, malformed stdin) → exit 0 / empty stdout;
+  a HUD must never wedge the host. Doctor adds a dedicated `statusline wired`
+  check (`ok / present-but-not-ours / missing`). CLI verb:
+  `agent-connector statusline <platform> --connector <id>` (internal, like
+  `hook`/`serve`).
 - **`configPatch`** — the third (and smallest) escape hatch beside `extra` and
   `nativeHooks`: a declarative, ownership-tracked patch of ONE host-exclusive
   config key `extra` cannot reach (`extra` merges into the native MCP ENTRY /
   content frontmatter, not sibling top-level settings keys — e.g. Claude Code's
-  `statusLine` or `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`). Semantics are
+  `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`). Semantics are
   FIXED and not configurable: **set-if-absent on a single dotted leaf key**
   (segments `[A-Za-z0-9_-]+`, no array indices, no deep merge, no overwrite, no
   delete), **skip-warn on ANY conflict** (present key, drifted value,
@@ -217,7 +249,7 @@ Distilled from the union of platform behaviors (report §3).
   AND the prior state was absent — otherwise the key is left in place with a
   warn. Doctor reports per-patch `ok / drifted / missing / orphaned` and never
   auto-fixes drift. Safety: keys agent-connector already models (`hooks*`,
-  `mcpServers*`) are rejected at `defineConnector` (namespace guard), and each
+  `mcpServers*`, `statusLine*`) are rejected at `defineConnector` (namespace guard), and each
   supporting adapter hard-refuses a documented sensitive-key denylist
   (claude-code: `permissions*`, `allowedTools*`/`disallowedTools*`, `apiKey*`,
   `awsAuthRefresh`/`awsCredentialExport`, `forceLoginMethod`/`forceLoginOrgUUID`,
@@ -228,15 +260,20 @@ Distilled from the union of platform behaviors (report §3).
   **Promotion rules:** (a) a second host gains `supportsConfigPatch` only on
   demonstrated, genuine connector-facing key demand for that host; (b) a
   host-exclusive feature graduates from `configPatch` to a typed cross-host
-  knob (e.g. `statusline?: {…}`) only when **≥3 hosts** ship an analog — the
-  same bar as hook-event promotion. **Format-preservation requirements for
-  future hosts:** VS Code JSONC must use `jsonc-parser` modify/applyEdits and
-  Codex `config.toml` must use an anchored section/line edit —
+  knob only when **≥3 hosts** ship an analog — the same bar as hook-event
+  promotion (`statusline` is the first graduated example: previously a
+  configPatch key, now a reserved first-class surface).
+  **Format-preservation requirements for future hosts:** VS Code JSONC must use
+  `jsonc-parser` modify/applyEdits and Codex `config.toml` must use an
+  anchored section/line edit —
   `core/toml.ts`'s parse/stringify round-trip destroys comments/ordering and
   is **BANNED for configPatch**. **Explicitly NOT configPatch targets:**
-  VS Code `inputs` arrays and Zed `context_servers.<id>.settings` — same-file
-  sibling structures coupled to the MCP entry's lifecycle (adapter dialect /
-  `extra` territory; VS Code `inputs` doubles as the secret-prompt mechanism).
+  `statusLine` (→ statusline surface; raw configPatch targeting `statusLine` or
+  `statusLine.*` throws `ConnectorConfigError` — declare it via
+  `statusline: { render }` instead); VS Code `inputs` arrays and Zed
+  `context_servers.<id>.settings` — same-file sibling structures coupled to the
+  MCP entry's lifecycle (adapter dialect / `extra` territory; VS Code `inputs`
+  doubles as the secret-prompt mechanism).
   Also out of v1 scope (deferred, documented): TOML hosts (Codex's
   `experimental_use_rmcp_client` becomes codex-adapter-internal behavior when
   remote-MCP support lands), `onConflict`/`force` options, array/index paths,

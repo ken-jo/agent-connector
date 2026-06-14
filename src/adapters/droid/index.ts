@@ -168,6 +168,9 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // Droid registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
+    // TODO(issue #2): Droid has a real command-driven status contract, but it is
+    // unverified against the home-bin statusline wiring — left to the BaseAdapter
+    // skip-warn (supportsStatusline unset) until confirmed.
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

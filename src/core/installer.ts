@@ -261,6 +261,16 @@ export async function installConnector(
         }
       }
     }
+
+    // Statusline (a HUD) installs LAST — after memory/configPatch — so the
+    // reported diff reflects final state; uninstall runs it FIRST (the inverse).
+    // BaseAdapter defines installStatusline (skip-warn on non-supporting hosts),
+    // so the `!` is safe and the call self-skips when no statusline is declared.
+    if (connector.statusline != null) {
+      runStep(id, "installStatusline", result, () => {
+        pushAll(result.changes, adapter.installStatusline!(ctx));
+      });
+    }
   }
 
   return result;
@@ -311,6 +321,17 @@ export async function uninstallConnector(
     if (!adapter) continue;
 
     const ctx = buildContext(connector, id, scope, projectDir, dryRun);
+
+    // Statusline (a HUD) uninstalls FIRST — the inverse of its install-LAST
+    // position. Gated on adapter support (not the declaration): the adapter's
+    // uninstallStatusline is keyed off the persisted ownership ledger, so an
+    // id-only synthetic uninstall (connector record lost) still releases the
+    // statusLine key it owns. Only supporting adapters can have wired it.
+    if (adapter.capabilities.supportsStatusline ?? false) {
+      runStep(id, "uninstallStatusline", result, () => {
+        pushAll(result.changes, adapter.uninstallStatusline!(ctx));
+      });
+    }
 
     // Inverse order of install: config patches FIRST (install applies them
     // last), then content surfaces, then hooks, then the server entry. The
