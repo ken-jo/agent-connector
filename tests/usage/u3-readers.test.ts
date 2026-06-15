@@ -578,12 +578,18 @@ describe("crush reader", () => {
 // ═════════════════════════════════════════════════════════════════════════
 
 describe("zed reader", () => {
-  // Match where the reader looks: %LOCALAPPDATA%\Zed on Windows, else
-  // $XDG_DATA_HOME/zed (~/.local/share/zed).
-  const dbPath = (): string =>
-    process.platform === "win32"
-      ? join(process.env.LOCALAPPDATA as string, "Zed", "threads", "threads.db")
-      : join(tmpHome, ".local", "share", "zed", "threads", "threads.db");
+  // Match where the reader looks (paths.ts hostRoots "zed"): %LOCALAPPDATA%\Zed
+  // on Windows, ~/Library/Application Support/Zed on macOS, else
+  // $XDG_DATA_HOME/zed (~/.local/share/zed). The macOS branch is load-bearing —
+  // without it the fixture lands in the XDG path while the reader scans
+  // Application Support, so read() finds nothing (the 2026-06-15 mac-verify miss).
+  const dbPath = (): string => {
+    if (process.platform === "win32")
+      return join(process.env.LOCALAPPDATA as string, "Zed", "threads", "threads.db");
+    if (process.platform === "darwin")
+      return join(tmpHome, "Library", "Application Support", "Zed", "threads", "threads.db");
+    return join(tmpHome, ".local", "share", "zed", "threads", "threads.db");
+  };
 
   /** Build a threads fixture; `payload` is the JSON object, compressed per dataType. */
   function writeThreadsDb(
