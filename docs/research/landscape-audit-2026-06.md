@@ -14,14 +14,25 @@
   programmatically counted — 16 json-stdio, 9 mcp-only, 7 ts-plugin per
   `site/src/platform-data.ts`).
 - **vs tokscale** (junhoyeo's leaderboard, the stated breadth target): tokscale
-  tracks **26 distinct agent clients** for *usage*. AC has a deploy adapter for
-  **all 26 of the 26 that expose a writable MCP/config surface.** The 3 tokscale
-  entries AC does *not* adapt are non-deployable by design (see Non-targets).
+  tracks **29 distinct agent clients** for *usage* (a 27-entry `--client` enum
+  plus two table-only rows, **warp** and **Grok Build**). AC has a deploy adapter
+  for **26 of them** — every one that exposes a writable MCP/config surface. Of
+  the 3 AC does *not* adapt, **synthetic** (telemetry-only) and **gjc** (an agent
+  harness, not a config-deploy host) are non-targets by design; **Grok Build** is
+  the one genuine deployable **gap** (a tokscale client with no AC adapter yet —
+  see §3/§5), not a non-target.
 - **AC is AHEAD of tokscale on 5 hosts** it doesn't track at all:
-  `vscode-copilot`, `jetbrains-copilot`, `antigravity-cli`, `mimo-code`,
-  `nemoclaw`.
-- **Verified gaps outside tokscale: 4** real MCP-capable hosts AC does not yet
-  adapt — **Grok Build (xAI)**, **Continue CLI (`cn`)**, **Amazon Q Developer
+  `jetbrains-copilot`, `antigravity-cli`, `mimo-code`, `nemoclaw`, `omp`
+  (Oh My Pi — tokscale tracks only the base `pi` client). **Not** `vscode-copilot`:
+  tokscale's single `copilot` parser reads both Copilot CLI **and** VS Code Copilot
+  Chat OTEL telemetry (confirmed in `src/usage/readers/copilot-cli.ts`, a faithful
+  port of tokscale's `sessions/copilot.rs`), so VS Code Copilot usage falls inside
+  tokscale's `copilot` bucket. AC ships `copilot-cli` **and** `vscode-copilot` as two
+  deploy adapters for that one tracked client; only `jetbrains-copilot` is a Copilot
+  host tokscale tracks nowhere.
+- **Verified gaps: 4** real MCP-capable hosts AC does not yet adapt — one
+  *inside* tokscale, **Grok Build (xAI)** (a tokscale client with no AC adapter),
+  plus three *outside* tokscale: **Continue CLI (`cn`)**, **Amazon Q Developer
   CLI**, **Windsurf** — ranked below.
 
 ---
@@ -85,17 +96,18 @@ README lists the clients it reads usage from. Authoritative `--client` enum
 (README, fetched 2026-06-15):
 `opencode, claude, codex, copilot, gemini, cursor, amp, codebuff, droid,
 openclaw, hermes, pi, kimi, qwen, roocode, kilocode, kilo, mux, crush, goose,
-antigravity, zed, kiro, trae, cline, gjc, synthetic` — plus table-only rows for
-**Grok Build** and **Kimi Code**. Net **26 distinct agent products** (treating
-gjc/Grok/synthetic as the three non-CLI-deploy entries, Kimi Code as a Kimi
-variant). Source: <https://github.com/junhoyeo/tokscale> (README).
+antigravity, zed, kiro, trae, cline, gjc, synthetic` (27 entries) — plus
+table-only rows for **warp** and **Grok Build**. Net **29 distinct agent
+products**. Of these, only **gjc** (harness) and **synthetic** (telemetry-only)
+are non-deploy entries; **Grok Build** is a deployable gap (§3). Source:
+<https://github.com/junhoyeo/tokscale> (README).
 
 | tokscale client | what it is | MCP/config-deployable? | AC adapter |
 |---|---|---|---|
 | opencode | OSS terminal agent (sst) | yes (ts-plugin) | ✅ opencode |
 | claude | Claude Code | yes | ✅ claude-code |
 | codex | OpenAI Codex CLI | yes | ✅ codex |
-| copilot | GitHub Copilot CLI | yes | ✅ copilot-cli |
+| copilot | GitHub Copilot CLI + VS Code Copilot Chat (one OTEL parser) | yes | ✅ copilot-cli + ✅ vscode-copilot |
 | gemini | Gemini CLI | yes | ✅ gemini-cli |
 | cursor | Cursor IDE | yes (mcp.json) | ✅ cursor |
 | amp | Amp (Sourcegraph) | yes (settings.json) | ✅ amp |
@@ -117,6 +129,7 @@ variant). Source: <https://github.com/junhoyeo/tokscale> (README).
 | kiro | Kiro (AWS) | yes | ✅ kiro |
 | trae | Trae (ByteDance) | yes | ✅ trae |
 | cline | Cline | yes | ✅ cline |
+| warp | Warp terminal (Warp.dev) | yes (mcp-only) | ✅ warp |
 | gjc | Gajae-Code | harness, not a config-deploy host (see §4) | ❌ (non-target) |
 | synthetic | Octofriend / synthetic.new | no writable MCP config | ❌ (telemetry-only) |
 | Grok Build | xAI terminal agent | **yes** (~/.grok/config.toml) | ❌ **GAP** (§3) |
@@ -201,13 +214,20 @@ as strong as either on reach.
 
 ### Where AC is already AHEAD (differentiators worth recording)
 
-These 5 shipped adapters are hosts **tokscale does not track at all**:
+These **5** shipped adapters are hosts **tokscale does not track at all**:
 
-- `vscode-copilot` (VS Code Copilot) — full json-stdio surface.
-- `jetbrains-copilot` (JetBrains Copilot) — IDE MCP + project hooks.
+- `jetbrains-copilot` (JetBrains Copilot) — IDE MCP + project hooks. (Unlike VS Code
+  Copilot, JetBrains Copilot's usage is in no tokscale bucket — tokscale's `copilot`
+  parser reads Copilot CLI + VS Code Copilot Chat OTEL only.)
 - `antigravity-cli` (the `agy` CLI, distinct from the Antigravity editor).
 - `mimo-code` (Xiaomi MiMoCode, OpenCode fork).
 - `nemoclaw` (NVIDIA NemoClaw, OpenClaw wrapper).
+- `omp` (Oh My Pi, Pi fork) — tokscale tracks only the base `pi` client, not the OMP fork.
+
+`vscode-copilot` is **not** in this list: it is a distinct AC deploy adapter, but its
+usage is captured by tokscale's `copilot` bucket (which reads VS Code Copilot Chat
+telemetry), so it is *covered*, not *ahead* — AC ships two deploy adapters
+(`copilot-cli`, `vscode-copilot`) for tokscale's single `copilot` client.
 
 AC deploys *config* (MCP servers + hooks + content surfaces) where tokscale only
 *reads* usage — a structurally different and broader job — so AC also covers the
@@ -244,9 +264,19 @@ External (cited):
   config reference. **Verify on a live binary before building.**
 - **Grok Build launch date** ("~May 2026") — from a third-party blog, not an xAI
   changelog. Treat as approximate.
-- **tokscale "26 distinct" count** — derived by de-duplicating its `--client`
-  enum + table rows (Kimi Code = Kimi variant; gjc/Grok/synthetic non-CLI-deploy).
-  A reasonable reading, not a number tokscale itself publishes.
+- **tokscale "29 distinct" count** — the `--client` enum (27 entries) plus two
+  table-only rows (warp, Grok Build). Of these, only gjc (harness) and synthetic
+  (telemetry-only) are non-deploy; Grok Build is a deployable gap, not a
+  non-target. Read from tokscale's README enum + tables, not a number tokscale
+  itself publishes.
+- **The `copilot` bucket scope (why 5 ahead, not 6)** — tokscale's single
+  `copilot` parser (`sessions/copilot.rs`, ported in
+  `src/usage/readers/copilot-cli.ts`) reads BOTH Copilot CLI *and* VS Code Copilot
+  Chat OTEL telemetry. So `vscode-copilot` is counted *covered* (its usage falls in
+  the `copilot` bucket), not *ahead* — AC just ships two deploy adapters
+  (`copilot-cli`, `vscode-copilot`) for that one tracked client. Only
+  `jetbrains-copilot` is a Copilot host with no tokscale bucket → **5 ahead, not 6**.
+  An earlier pass over-counted this as 6 by treating `vscode-copilot` as untracked.
 - **Aider native MCP** — could NOT confirm a first-party `mcpServers` deploy file;
   all evidence is community tooling. If wrong, Aider moves to a gap.
 - **Auggie CLI** — existence noted; MCP-config path `[unverified]`. Not counted
