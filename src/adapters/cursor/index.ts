@@ -192,9 +192,12 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
-    // TODO(issue #2): Cursor has a real command-driven status contract, but it
-    // is unverified against the home-bin statusline wiring — left to the
-    // BaseAdapter skip-warn (supportsStatusline unset) until confirmed.
+    // Cursor has a command-driven status line (`/statusline` → `statusLine` in
+    // ~/.cursor/cli-config.json, GLOBAL scope only) per the Cursor changelog, but
+    // the config-key shape + the Claude-parity stdin payload are sourced from a
+    // community tool (agent-status-pills), not first-party Cursor docs — payload
+    // field names unverified. Deferred pending a live cursor-agent capture; not a
+    // permanent gap; user-scope only when wired.
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

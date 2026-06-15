@@ -3,7 +3,7 @@
  *
  * Asserts the surface predicates resolve against REAL adapter capabilities:
  *   • capabilitiesOf — known host vs unknown id;
- *   • hostsSupporting — statusline / configPatch are v1 claude-code-only, memory
+ *   • hostsSupporting — configPatch is v1 claude-code-only; statusline is claude-code + qwen-code; memory
  *     is broad (the AGENTS.md-first surface), and the result is sorted;
  *   • surfaceSupport — the convenience boolean, including the unknown-id case.
  */
@@ -32,8 +32,8 @@ describe("capabilitiesOf", () => {
 });
 
 describe("hostsSupporting", () => {
-  it("statusline is v1 claude-code-only", async () => {
-    expect(await hostsSupporting("statusline")).toEqual(["claude-code"]);
+  it("statusline v1 hosts are claude-code + qwen-code", async () => {
+    expect(await hostsSupporting("statusline")).toEqual(["claude-code", "qwen-code"]);
   });
 
   it("configPatch is v1 claude-code-only", async () => {

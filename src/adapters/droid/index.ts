@@ -171,9 +171,16 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // Droid registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
-    // TODO(issue #2): Droid has a real command-driven status contract, but it is
-    // unverified against the home-bin statusline wiring — left to the BaseAdapter
-    // skip-warn (supportsStatusline unset) until confirmed.
+    // Droid HAS a confirmed command-driven status line: `statusLine.command`
+    // (object {command, padding?, maxRows?}) in ~/.factory/settings.json, stdout
+    // rendered above the input (docs.factory.ai/cli/configuration/settings). BUT
+    // Factory publishes NO statusline stdin payload schema (the model/cost/
+    // context_window fields circulating online are Claude Code's, not
+    // Factory-captured), so the payload→StatuslineContext mapping can't be
+    // authored without a live stdin capture (blocked: needs an authenticated
+    // droid session). NOT a permanent gap — supportsStatusline stays unset until
+    // the payload is captured (set statusLine.command to a stdin-dumping script
+    // on a real droid box to confirm).
     // Content surfaces: Droid implements all three (live-confirmed Factory dirs).
     //   command  → <configDir>/commands/<name>.md   (md+frontmatter: description, argument-hint)
     //   skill    → <configDir>/skills/<name>/SKILL.md (+ resources)
