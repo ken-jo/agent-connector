@@ -175,6 +175,17 @@ interface BaseEvent {
   projectDir?: string;
   /** Raw host-specific payload for passthrough/escape-hatch use. */
   raw: unknown;
+  /**
+   * What the host can honor (the adapter's capability flags). OPTIONAL on the
+   * TYPE so adapters' parseEvent (which has no capabilities at parse time) need
+   * no change, but the runtime ALWAYS populates it before the handler runs — so
+   * a hook handler can rely on evt.capabilities being present at runtime.
+   */
+  capabilities?: PlatformCapabilities;
+  /** Install scope, when recovered from the registered metadata (else undefined). */
+  scope?: InstallScope;
+  /** Async accessor to this connector's own telemetry usage (see HostCtx.telemetry). */
+  telemetry?: TelemetryAccessor;
 }
 
 export interface PreToolUseEvent extends BaseEvent {
@@ -388,6 +399,12 @@ export interface HooksConfig {
  * the host's stdin JSON exactly as it arrived, so the handler reads the host's
  * own contract (e.g. Claude's snake_case `task_id` / `teammate_name` fields)
  * with full native fidelity.
+ */
+/**
+ * Native passthrough hook event. NOTE: unlike a normalized {@link BaseEvent},
+ * this deliberately does NOT carry the HostCtx trio (capabilities / scope /
+ * telemetry) — native hooks are a raw-envelope passthrough, so the handler
+ * receives only the verbatim payload below.
  */
 export interface NativeHookEvent {
   /** Host-native event name, VERBATIM (e.g. "TaskCreated", "WorktreeRemove"). */
@@ -706,17 +723,31 @@ export interface HostCtx {
   /** What this host can actually honor (the adapter's capability flags). */
   capabilities: PlatformCapabilities;
   /**
-   * Install scope, when known. OPTIONAL: scope is an install-time property and
-   * is NOT available at runtime (the entrypoint only has platformId +
-   * connectorId + stdin), so render(ctx) receives it undefined for now — branch
-   * on `host` + `capabilities` instead. (Threading scope through the registered
-   * connector metadata is a later follow-up.)
+   * Install scope, when known. OPTIONAL: scope is an install-time property the
+   * runtime recovers from the connector's registered metadata
+   * (`readRegisteredMeta(connectorId)?.scope`) and stamps onto the ctx, so it is
+   * now POPULATED when the meta carries it. It is still undefined for an
+   * unregistered / ad-hoc connector (no meta) or one registered before scope was
+   * persisted — branch on `host` + `capabilities` when scope may be absent.
+   * CAVEAT: the persisted scope is the install's RUN-WIDE DEFAULT scope; it may
+   * differ from the EFFECTIVE per-host scope when the connector set a
+   * `platforms[host].scope` override (the single registry record is keyed by
+   * connector id only, so it cannot hold a per-host scope). Treat it as the
+   * default, not a guaranteed per-host truth.
    */
   scope?: InstallScope;
   /** Project directory, when the host reports it. */
   projectDir?: string;
   /** Host session id, when the host reports it. */
   sessionId?: string;
+  /**
+   * Async accessor to THIS connector's own telemetry usage (token sums + call
+   * count). ASYNC (reads the store); resolves empty zeros when
+   * AGENT_CONNECTOR_TELEMETRY=0; NEVER throws (returns zeros on any read error).
+   * Stamped by the runtime entrypoint, so a handler reads it via
+   * `await ctx.telemetry?.()`. Undefined only in contexts that do not build it.
+   */
+  telemetry?: TelemetryAccessor;
 }
 
 /**
@@ -863,6 +894,27 @@ export interface PlatformMemoryOverride {
 // ─────────────────────────────────────────────────────────────────────────
 // Telemetry (config-time options; runtime types live in telemetry/types.ts)
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * A handler-facing rollup of THIS connector's own recorded telemetry usage —
+ * the sum of every stored row for the connector (inputTokens/outputTokens) plus
+ * the row count (`calls`). Aggregate counts only; no raw content (mirrors the
+ * {@link ToolEventRecord} contract). Exposed via {@link HostCtx.telemetry}.
+ */
+export interface TelemetryUsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  calls: number;
+}
+
+/**
+ * Async accessor a handler calls to read its connector's own telemetry usage.
+ * ASYNC (it reads the store). Returns empty zeros when AGENT_CONNECTOR_TELEMETRY=0,
+ * and NEVER throws (any read error resolves to zeros) — a handler can always
+ * `await ctx.telemetry?.()` without a try/catch.
+ */
+export type TelemetryAccessor = () => Promise<TelemetryUsageSummary>;
 
 export interface TelemetryConfig {
   /** On by default. Global kill switch also via AGENT_CONNECTOR_TELEMETRY=0. */

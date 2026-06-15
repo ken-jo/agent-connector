@@ -130,7 +130,9 @@ export async function installConnector(
       log.warn(`ensureHomeBin failed: ${errMessage(err)}`);
     }
     try {
-      registerConnector(connector, modulePath);
+      // Persist the install scope so the runtime entrypoints can stamp it onto
+      // the HostCtx/event (scope is otherwise unavailable at runtime).
+      registerConnector(connector, modulePath, scope);
     } catch (err) {
       log.warn(`registerConnector failed: ${errMessage(err)}`);
     }

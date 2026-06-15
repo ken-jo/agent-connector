@@ -23,8 +23,12 @@
 
 import type { PlatformId } from "../core/types.js";
 import { log } from "../core/logger.js";
-import { loadRegisteredConnector } from "../core/load-connector.js";
+import {
+  loadRegisteredConnector,
+  readRegisteredMeta,
+} from "../core/load-connector.js";
 import { loadAdapter } from "../adapters/registry.js";
+import { buildTelemetryAccessor } from "./telemetry-accessor.js";
 
 /** Flags + stdin the CLI hands to {@link runStatusline}. */
 export interface RunStatuslineOptions {
@@ -97,6 +101,12 @@ export async function runStatusline(
     // runtime guarantee matches the type (mirrors the simulate harness). Never
     // let render() see undefined capabilities while the type claims it is present.
     if (ctx.capabilities == null) ctx.capabilities = adapter.capabilities;
+    // Recover the install scope from the registered metadata (sync) and stamp it
+    // onto the ctx — scope is an install-time property the entrypoint has no
+    // other access to. Undefined when the meta carries none. Also expose the
+    // per-connector telemetry usage accessor (lazy, fail-safe to zeros).
+    ctx.scope = readRegisteredMeta(connectorId)?.scope;
+    ctx.telemetry = buildTelemetryAccessor(connectorId);
 
     // Per-host render override: when rendering for host X, `hosts[X].render`
     // wins over the top-level render; a host not listed (or a per-host entry

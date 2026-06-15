@@ -28,8 +28,12 @@ import type {
   ResolvedConnector,
 } from "../core/types.js";
 import { log } from "../core/logger.js";
-import { loadRegisteredConnector } from "../core/load-connector.js";
+import {
+  loadRegisteredConnector,
+  readRegisteredMeta,
+} from "../core/load-connector.js";
 import { loadAdapter, REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
+import { buildTelemetryAccessor } from "./telemetry-accessor.js";
 import type { NormalizedEvent } from "../adapters/spi.js";
 import { projectIdentity } from "../core/paths.js";
 import { measureHook } from "../telemetry/measure.js";
@@ -234,6 +238,15 @@ export async function runHook(opts: RunHookOptions): Promise<RunHookResult> {
     // The hook command carries the authoritative connector id; stamp it on the
     // event so handlers see the connector they were dispatched for.
     evt.connectorId = connectorId;
+    // Unify the hook event with HostCtx: the adapter's parseEvent has no
+    // capabilities/scope/telemetry at parse time (they are runtime-only), so the
+    // runtime ALWAYS backfills them before the handler runs. capabilities comes
+    // from the adapter; scope is recovered from the registered metadata (sync);
+    // telemetry is the lazy per-connector usage accessor. The SAME three
+    // assignments run on the error path (failOpenOrPreserveDeny) for symmetry.
+    evt.capabilities = adapter.capabilities;
+    evt.scope = readRegisteredMeta(connectorId)?.scope;
+    evt.telemetry = buildTelemetryAccessor(connectorId);
 
     const definition = connector.hooks[event];
     if (!definition || typeof definition.handler !== "function") {
@@ -336,6 +349,12 @@ async function failOpenOrPreserveDeny(
     const raw = parseStdin(opts.stdin);
     const evt = adapter.parseEvent(opts.event, raw);
     evt.connectorId = opts.connectorId;
+    // Backfill the HostCtx fields here too (symmetry with the main path), so a
+    // per-host deny reconstructed on the error path still carries capabilities/
+    // scope/telemetry — a handler that branches on them denies identically.
+    evt.capabilities = adapter.capabilities;
+    evt.scope = readRegisteredMeta(opts.connectorId)?.scope;
+    evt.telemetry = buildTelemetryAccessor(opts.connectorId);
 
     const subject = eventMatcherSubject(evt);
     if (subject !== undefined) {

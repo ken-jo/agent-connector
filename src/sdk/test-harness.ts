@@ -475,6 +475,11 @@ export async function simulate(
 
     const evt = adapter.parseEvent(event, coerceInput(opts.input));
     evt.connectorId = connector.id;
+    // Mirror the runtime: runHook backfills evt.capabilities from the adapter so
+    // a handler reading evt.capabilities behaves the same here. (scope/telemetry
+    // are runtime-only — recovered from the registered meta / store, which the
+    // offline harness deliberately never touches — so they stay undefined.)
+    evt.capabilities = adapter.capabilities;
 
     // Guarding on the TOP-LEVEL handler is sufficient: a `hosts`-only hook (a
     // hosts: map with no top-level handler) is rejected at defineConnector, so a

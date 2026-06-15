@@ -32,6 +32,7 @@ const THROW_ID = "sl-render-throw";
 const HOSTS_ID = "sl-render-hosts";
 const FALLBACK_ID = "sl-render-fallback";
 const CAPS_ID = "sl-render-caps";
+const SCOPE_ID = "sl-render-scope";
 const PERHOST_THROW_ID = "sl-render-perhost-throw";
 
 const SAVED = {
@@ -134,6 +135,16 @@ beforeEach(async () => {
   );
   const capsConn = (await loadConnectorFromPath(capsPath)).connector;
   registerConnector(capsConn, capsPath);
+
+  // A render that echoes ctx.scope — registered at scope "project" so the
+  // runtime stamps it from the metadata onto the ctx.
+  const scopePath = writeFixtureModule(
+    tmpData,
+    SCOPE_ID,
+    "(ctx) => `scope=${ctx.scope}`",
+  );
+  const scopeConn = (await loadConnectorFromPath(scopePath)).connector;
+  registerConnector(scopeConn, scopePath, "project");
 
   // A connector whose TOP-LEVEL render is fine but whose PER-HOST claude-code
   // render THROWS — the per-host selection sits inside the try, so a per-host
@@ -255,6 +266,16 @@ describe("runStatusline", () => {
     });
     expect(res.exitCode).toBe(0);
     expect(res.stdout).toBe("caps=true");
+  });
+
+  it("populates ctx.scope from the registered metadata (install at scope 'project')", async () => {
+    const res = await runStatusline({
+      platformId: "claude-code",
+      connectorId: SCOPE_ID,
+      stdin: JSON.stringify({ cwd: "/x" }),
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe("scope=project");
   });
 
   it("FAIL-SAFE: a throwing PER-HOST render degrades to exit 0, no stdout", async () => {

@@ -258,7 +258,9 @@ export async function installViaMarketplace(
       log.warn(`ensureHomeBin failed: ${errMessage(err)}`);
     }
     try {
-      registerConnector(connector, modulePath);
+      // Persist the install scope (marketplace v1 is always "user") so the
+      // runtime entrypoints can stamp it onto the HostCtx/event.
+      registerConnector(connector, modulePath, scope);
     } catch (err) {
       log.warn(`registerConnector failed: ${errMessage(err)}`);
     }

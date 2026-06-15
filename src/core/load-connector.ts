@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import type {
   CommandDef,
   HookEventName,
+  InstallScope,
   MemoryDef,
   PlatformId,
   PlatformOverride,
@@ -72,6 +73,17 @@ export interface RegisteredMeta {
   targets: ResolvedConnector["targets"];
   /** Per-platform overrides with any hook handler functions stripped. */
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
+  /**
+   * The install scope this connector was registered under, persisted so the
+   * runtime entrypoints (hook/statusline/action) can recover it cheaply (sync)
+   * and stamp it onto the HostCtx/event — scope is an install-time property the
+   * runtime otherwise has no access to. OPTIONAL: absent for an ad-hoc register
+   * that passed no scope, or a record written before this field existed.
+   * This is the install's RUN-WIDE DEFAULT scope; it can differ from the
+   * effective per-host scope when a `platforms[host].scope` override is set (the
+   * record is keyed by connector id only and holds no per-host scope map).
+   */
+  scope?: InstallScope;
 }
 
 /**
@@ -194,11 +206,14 @@ function serializablePlatforms(
 /**
  * Persist a connector's serializable metadata to `connectorDir(id)/connector.json`.
  * Handlers are NOT serialized — they are re-imported from `modulePath` at runtime.
+ * The optional `scope` (the install scope the caller deployed under) is persisted
+ * so the runtime entrypoints can recover it and stamp it onto the HostCtx/event.
  * Returns the absolute path of the written record.
  */
 export function registerConnector(
   connector: ResolvedConnector,
   modulePath: string,
+  scope?: InstallScope,
 ): string {
   const meta: RegisteredMeta = {
     id: connector.id,
@@ -215,6 +230,10 @@ export function registerConnector(
     memory: connector.memory,
     targets: connector.targets,
     platforms: serializablePlatforms(connector.platforms),
+    // Persist the install scope when the caller supplied one (the installer
+    // passes its install scope). Omitted from the record when undefined so an
+    // ad-hoc register stays minimal and round-trips as "no scope known".
+    ...(scope !== undefined ? { scope } : {}),
   };
 
   const dir = connectorDir(connector.id);

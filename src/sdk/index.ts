@@ -36,6 +36,8 @@ export {
 
 export type { SurfaceName } from "./introspect.js";
 
+export { toolName, style } from "./helpers.js";
+
 export type {
   ConnectorConfig,
   ResolvedConnector,
@@ -56,6 +58,8 @@ export type {
   ActionDef,
   ActionResult,
   HostCtx,
+  TelemetryAccessor,
+  TelemetryUsageSummary,
   ConfigPatchDef,
   NativeHookDef,
   NativeHookEvent,

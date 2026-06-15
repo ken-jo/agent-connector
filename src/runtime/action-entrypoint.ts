@@ -30,8 +30,12 @@ import type {
   PlatformCapabilities,
   PlatformId,
 } from "../core/types.js";
-import { loadRegisteredConnector } from "../core/load-connector.js";
+import {
+  loadRegisteredConnector,
+  readRegisteredMeta,
+} from "../core/load-connector.js";
 import { loadAdapter, REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
+import { buildTelemetryAccessor } from "./telemetry-accessor.js";
 
 /** Flags the CLI hands to {@link runAction} (no stdin — actions take no payload). */
 export interface RunActionOptions {
@@ -110,6 +114,11 @@ export async function runAction(
   const ctx: HostCtx = {
     host,
     capabilities: adapter?.capabilities ?? EMPTY_CAPABILITIES,
+    // Recover the install scope from the registered metadata (sync) — scope is
+    // an install-time property the entrypoint otherwise has no access to —
+    // and expose the per-connector telemetry usage accessor (lazy, fail-safe).
+    scope: readRegisteredMeta(connectorId)?.scope,
+    telemetry: buildTelemetryAccessor(connectorId),
   };
 
   // Per-host run override: when running for host X, `hosts[X].run` wins over the
