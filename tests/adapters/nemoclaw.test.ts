@@ -103,6 +103,18 @@ function buildHooksConnector(): ResolvedConnector {
   });
 }
 
+/** Same connector, plus one action (drives the inherited installActions). */
+function buildActionsConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    actions: [
+      { id: "reindex", description: "Rebuild the search index.", run: () => undefined },
+    ],
+  });
+}
+
 function buildCtx(projectDir: string, connector: ResolvedConnector): InstallContext {
   return {
     connector,
@@ -352,5 +364,42 @@ describe("nemoclaw adapter — hooks bridge dispatches `hook nemoclaw` (HOST bin
       sessionId: "nc-1",
       projectDir: "/some/proj",
     });
+  });
+});
+
+describe("nemoclaw adapter — action commands dispatch `action nemoclaw` (HOST binding, not openclaw)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshHome("ac-nemoclaw-act-");
+    ctx = buildCtx(projectDir, buildActionsConnector());
+  });
+
+  it("inherits installActions (does NOT override it) and advertises supportsActions", () => {
+    expect(nemoclawAdapter.capabilities.supportsActions).toBe(true);
+    // The fork does not override installActions — it is the inherited OpenClaw one.
+    expect(nemoclawAdapter.installActions).toBe(openclawAdapter.installActions);
+  });
+
+  it("the generated registerCommand bakes `[\"action\", \"nemoclaw\", …]` (NOT openclaw) — the this.id binding guard", () => {
+    const changes = nemoclawAdapter.installActions!(ctx);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+    // Every ChangeRecord carries the nemoclaw identity (this.id), not openclaw.
+    expect(changes.every((c) => c.platform === "nemoclaw")).toBe(true);
+
+    const pluginPath = nemoclawAdapter.getHookConfigPath(ctx);
+    expect(existsSync(pluginPath)).toBe(true);
+    const src = readFileSync(pluginPath, "utf8");
+
+    // THE binding fix: the action verb bakes the install target (this.id) as the
+    // host token, so the command routes back to THIS adapter. A plain
+    // `"openclaw"` here (the pre-fix module-const HOST bug) would mis-route every
+    // nemoclaw action to the openclaw adapter.
+    expect(src).toContain("api.registerCommand(");
+    expect(src).toContain('["action", "nemoclaw", "reindex", "--connector"');
+    expect(src).not.toContain('["action", "openclaw", "reindex", "--connector"');
+    expect(src).toContain(CONNECTOR_ID);
+    expect(src).toContain(HOME_BIN);
   });
 });

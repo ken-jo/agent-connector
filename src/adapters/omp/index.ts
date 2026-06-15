@@ -159,6 +159,11 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // OMP registers stdio and remote (http) MCP servers.
     transports: ["stdio", "http"],
+    // Action surface: each declared action becomes a user-invokable slash
+    // command registered INSIDE the generated plugin module (pi.registerCommand),
+    // shelling out to the home-bin `action` verb. supportsActions → the
+    // installActions/uninstallActions overrides below.
+    supportsActions: true,
   };
 
   // ── Native paths ───────────────────────────────────────────────────────
@@ -366,17 +371,88 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
         },
       ];
     }
+    // Empty-events gate: the plugin module is SHARED with the action surface, so
+    // a connector with actions-but-no-hooks still needs it written — but that is
+    // installActions' job. installHooks itself only writes when there ARE hooks,
+    // so its skip detail stays honest about why (no hooks) while admitting the
+    // plugin may still exist for actions.
     if (ctx.connector.hookEvents.length === 0) {
       return [
         {
           platform: this.id,
           action: "skip",
           path: entryPath,
-          detail: "connector declares no hooks",
+          detail:
+            this.actionTriggers(ctx).length > 0
+              ? "no hooks (plugin written for actions)"
+              : "connector declares no hooks",
         },
       ];
     }
 
+    return this.ensurePlugin(ctx, (file) =>
+      file.path.endsWith("package.json")
+        ? "omp extension manifest"
+        : `omp plugin module (${this.hookDetail(ctx)})`,
+    );
+  }
+
+  // ── Action install / uninstall (slash commands in the shared plugin) ────
+
+  /**
+   * Each declared action becomes a `pi.registerCommand(...)` inside the SAME
+   * generated extension module (see buildPluginSource). So installActions just
+   * ensures that shared module is on disk: when hooks already wrote the identical
+   * bytes the content-compare yields "skip" (no double material write), and an
+   * actions-only connector gets the plugin written here. Honors
+   * platforms.omp.actions === false and the empty-actions skip.
+   */
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const entryPath = this.getHookConfigPath(ctx);
+    if (ctx.connector.platforms[HOST]?.actions === false) {
+      return [
+        { platform: this.id, action: "skip", path: entryPath, detail: "actions disabled for omp" },
+      ];
+    }
+    if (this.actionTriggers(ctx).length === 0) {
+      return [
+        { platform: this.id, action: "skip", path: entryPath, detail: "connector declares no actions" },
+      ];
+    }
+    return this.ensurePlugin(ctx, (file) =>
+      file.path.endsWith("package.json")
+        ? "omp extension manifest"
+        : "omp plugin module (action commands)",
+    );
+  }
+
+  /**
+   * Actions live INSIDE the shared plugin module, which uninstallHooks removes
+   * unconditionally (it runs last in the teardown pass). Removing it here too
+   * would race uninstallHooks, so this is a single informational skip.
+   */
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    return [
+      {
+        platform: this.id,
+        action: "skip",
+        path: this.getHookConfigPath(ctx),
+        detail: "action commands are embedded in the plugin module; removed by uninstallHooks",
+      },
+    ];
+  }
+
+  /**
+   * Synthesize + content-compare-write the extension package (package.json +
+   * index.js). Shared by installHooks and installActions: the generator is a pure
+   * function of ctx, so whichever surface runs second sees byte-identical files
+   * and reports "skip" — no double material write. `detailFor` flavors the
+   * ChangeRecord detail per surface.
+   */
+  private ensurePlugin(
+    ctx: InstallContext,
+    detailFor: (file: GeneratedPluginFile) => string,
+  ): ChangeRecord[] {
     const files = this.synthesizePlugin(ctx);
     const changes: ChangeRecord[] = [];
 
@@ -399,9 +475,7 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
         platform: this.id,
         action,
         path: file.path,
-        detail: file.path.endsWith("package.json")
-          ? "omp extension manifest"
-          : `omp plugin module (${this.hookDetail(ctx)})`,
+        detail: detailFor(file),
       });
     }
 
@@ -634,9 +708,35 @@ function deriveSessionId(ctx) {
   });`);
     }
 
+    // Action surface: one pi.registerCommand per declared action. The command
+    // shells out to the home-bin `action` verb (host token literal "omp" — OMP
+    // has no fork). Fail-open: a launcher error degrades to a no-op (never wedges
+    // OMP). Both id AND description are JSON.stringify'd — descriptions are
+    // free-form connector text, so a raw " / backtick would break the module.
+    const actionHandlers: string[] = [];
+    for (const action of this.actionTriggers(ctx)) {
+      const id = JSON.stringify(action.id);
+      const description = JSON.stringify(action.description);
+      actionHandlers.push(`  // Action /${action.id} → run the home-bin action verb directly.
+  pi.registerCommand(${id}, {
+    description: ${description},
+    handler: async (_args, _ctx) => {
+      try {
+        const args = ["action", "omp", ${id}, "--connector", CONNECTOR_ID];
+        process.platform === "win32"
+          ? execSync([HOME_BIN, ...args].map((a) => '"' + a + '"').join(" "), { stdio: "inherit" })
+          : execFileSync(HOME_BIN, args, { stdio: "inherit" });
+      } catch { /* fail-open */ }
+      return undefined;
+    },
+  });`);
+    }
+
+    // When hook events are empty but actions exist, the factory body is just the
+    // action registrations (still valid JS — an empty handlers[] yields "").
     const factory = `
 export default function plugin(pi) {
-${handlers.join("\n\n")}
+${[...handlers, ...actionHandlers].join("\n\n")}
 }
 `;
 
@@ -722,7 +822,10 @@ ${handlers.join("\n\n")}
     const entryPath = this.getHookConfigPath(ctx);
     const manifestPath = join(this.extensionDir(ctx), "package.json");
     const connectorId = ctx.connector.id;
-    const hasHooks = ctx.connector.hookEvents.length > 0;
+    // Actions are health-equivalent to hooks: both write the SAME extension
+    // package, so an actions-only connector must still assert it is present.
+    const hasHooks =
+      ctx.connector.hookEvents.length > 0 || this.actionTriggers(ctx).length > 0;
 
     return [
       {

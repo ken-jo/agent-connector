@@ -4,8 +4,9 @@
  * Asserts the surface predicates resolve against REAL adapter capabilities:
  *   • capabilitiesOf — known host vs unknown id;
  *   • hostsSupporting — configPatch is v1 claude-code-only; statusline is claude-code + qwen-code;
- *     actions is the emitter set (droid + hermes + warp); memory is broad (the
- *     AGENTS.md-first surface), and the result is sorted;
+ *     actions is the emitter set (droid + hermes + warp + the ts-plugin slash-command
+ *     hosts nemoclaw/omp/openclaw); memory is broad (the AGENTS.md-first surface),
+ *     and the result is sorted;
  *   • surfaceSupport — the convenience boolean, including the unknown-id case.
  */
 
@@ -37,8 +38,15 @@ describe("hostsSupporting", () => {
     expect(await hostsSupporting("statusline")).toEqual(["claude-code", "qwen-code"]);
   });
 
-  it("actions emitter hosts are droid + hermes + warp (sorted)", async () => {
-    expect(await hostsSupporting("actions")).toEqual(["droid", "hermes", "warp"]);
+  it("actions emitter hosts include the ts-plugin slash-command hosts (sorted)", async () => {
+    expect(await hostsSupporting("actions")).toEqual([
+      "droid",
+      "hermes",
+      "nemoclaw",
+      "omp",
+      "openclaw",
+      "warp",
+    ]);
   });
 
   it("configPatch is v1 claude-code-only", async () => {

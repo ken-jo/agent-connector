@@ -200,11 +200,11 @@ export interface Adapter {
 
   // ── Action surface (a user-invokable action) ──────────────────────────────
   // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the
-  // content-surface pattern). v1 ships only the dispatch BACKBONE: NO adapter
-  // EMITS a host affordance (the survey found no verifiable CLI emission
-  // target), so the BaseAdapter defaults honestly skip-warn on EVERY host and
-  // no adapter overrides them. A future affordance-emitter sets
-  // capabilities.supportsActions and overrides this pair.
+  // content-surface pattern). The dispatch BACKBONE shipped first; the affordance
+  // EMITTERS now ship per-host (droid/hermes/warp host triggers + the ts-plugin
+  // slash-command hosts omp/openclaw, which register the trigger INSIDE the
+  // generated plugin module). An emitting adapter sets capabilities.supportsActions
+  // and overrides this pair; every other host keeps the BaseAdapter skip-warn.
   /** Emit this host's affordance bound to `<homeBin> action <host> <id> --connector <id>`. */
   installActions?(ctx: InstallContext): ChangeRecord[];
   /** Inverse of installActions — remove only the affordances this connector emitted. */

@@ -921,3 +921,286 @@ describe("openclaw adapter runtime dispatch — parseEvent + formatReply round-t
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Action surface — slash commands embedded in the SHARED plugin module.
+//
+// On omp/openclaw the action trigger is a registerCommand INSIDE the generated
+// plugin (omp pi.registerCommand / openclaw api.registerCommand), NOT a
+// standalone file. These tests guard the load-bearing risks: the registerCommand
+// block is present (and, for an actions-only connector, no hook handlers are);
+// the `action <host>` token is host-correct (omp literal "omp"); a description
+// containing a `"` is JSON-escaped so the module still PARSES; install writes the
+// plugin (+ openclaw dual-registration) and uninstall removes it; and a
+// hooks+actions install writes the plugin exactly once (the second surface skips).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A connector with ONLY actions (no server, no hooks) — drives installActions. */
+function actionsOnlyConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    actions: [
+      { id: "reindex", description: "Rebuild the search index.", run: () => undefined },
+      // A description with an embedded double-quote — must be JSON-escaped so the
+      // generated module still parses (a raw " would take the whole plugin down).
+      { id: "purge", description: 'Purge the "stale" cache.', run: () => undefined },
+    ],
+  });
+}
+
+/** A connector with BOTH hooks and actions — drives the shared-ensurePlugin path. */
+function hooksAndActionsConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    server: { transport: "stdio", command: "npx", args: ["-y", "@x/y"], tools: { include: ["*"] } },
+    hooks: { PreToolUse: { handler: () => ({ decision: "allow" }) } },
+    actions: [{ id: "reindex", description: "Rebuild the search index.", run: () => undefined }],
+  });
+}
+
+describe("omp adapter — action surface (slash commands in the shared plugin)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-w4-omp-act-");
+    ctx = buildCtx(projectDir, actionsOnlyConnector());
+  });
+
+  it("advertises supportsActions", () => {
+    expect(ompAdapter.capabilities.supportsActions).toBe(true);
+  });
+
+  it("installActions writes the plugin whose source embeds pi.registerCommand running `action omp <id>` and NO hook handlers", () => {
+    const changes = ompAdapter.installActions!(ctx);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+    expect(changes.every((c) => c.platform === "omp")).toBe(true);
+
+    const entryPath = ompAdapter.getHookConfigPath(ctx);
+    expect(existsSync(entryPath)).toBe(true);
+    const src = readFileSync(entryPath, "utf8");
+
+    // The registerCommand block, host token literal "omp", both action ids.
+    expect(src).toContain("pi.registerCommand(");
+    expect(src).toContain('["action", "omp", "reindex", "--connector", CONNECTOR_ID]');
+    expect(src).toContain('["action", "omp", "purge", "--connector", CONNECTOR_ID]');
+    // Actions-only → NO hook handler is wired into the factory.
+    expect(src).not.toContain('pi.on("tool_call"');
+    expect(src).not.toContain('pi.on("session_start"');
+    // The factory is still a valid module with the default export.
+    expect(src).toContain("export default function");
+  });
+
+  it("JSON-escapes a description containing a double-quote (the module still parses)", async () => {
+    ompAdapter.installActions!(ctx);
+    const entryPath = ompAdapter.getHookConfigPath(ctx);
+    const src = readFileSync(entryPath, "utf8");
+    // The raw quote is escaped, never emitted bare.
+    expect(src).toContain('description: "Purge the \\"stale\\" cache."');
+    // The proof it parses: dynamically import the freshly-written module.
+    const mod = await import(`${pathToFileURL(entryPath).href}?actesc=${Date.now()}`);
+    expect(typeof mod.default).toBe("function");
+  });
+
+  it("the registerCommand handler shells out to the home bin (live, child_process mocked)", async () => {
+    ompAdapter.installActions!(ctx);
+    const entryPath = ompAdapter.getHookConfigPath(ctx);
+    const mod = await import(`${pathToFileURL(entryPath).href}?actrun=${Date.now()}`);
+
+    // Capture the registered commands by passing a fake `pi`.
+    const registered: Record<string, any> = {};
+    mod.default({ registerCommand: (name: string, def: any) => { registered[name] = def; } });
+    expect(Object.keys(registered).sort()).toEqual(["purge", "reindex"]);
+
+    execFileSyncImpl = () => "";
+    await registered.reindex.handler({}, {});
+    const call = execFileSyncMock.mock.calls.at(-1)!;
+    expect(call[0]).toBe(HOME_BIN);
+    expect(call[1]).toEqual(["action", "omp", "reindex", "--connector", CONNECTOR_ID]);
+  });
+
+  it("installActions is idempotent — a second call yields skip for every file", () => {
+    ompAdapter.installActions!(ctx);
+    const second = ompAdapter.installActions!(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+  });
+
+  it("uninstallActions is an informational skip (the plugin is removed by uninstallHooks)", () => {
+    ompAdapter.installActions!(ctx);
+    const changes = ompAdapter.uninstallActions!(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("removed by uninstallHooks");
+    // The plugin file is NOT touched by uninstallActions.
+    expect(existsSync(ompAdapter.getHookConfigPath(ctx))).toBe(true);
+    // uninstallHooks is the SOLE teardown — it removes the shared module.
+    ompAdapter.uninstallHooks(ctx);
+    expect(existsSync(ompAdapter.getHookConfigPath(ctx))).toBe(false);
+  });
+
+  it("honors platforms.omp.actions === false (opt-out, never writes)", () => {
+    const ctxOff = buildCtx(
+      projectDir,
+      defineConnector({
+        id: CONNECTOR_ID,
+        actions: [{ id: "reindex", run: () => undefined }],
+        platforms: { omp: { actions: false } },
+      }),
+    );
+    const changes = ompAdapter.installActions!(ctxOff);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("disabled for omp");
+    expect(existsSync(ompAdapter.getHookConfigPath(ctxOff))).toBe(false);
+  });
+
+  it("installHooks on an actions-only connector skips honestly (plugin written for actions)", () => {
+    const changes = ompAdapter.installHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("plugin written for actions");
+  });
+
+  it("hooks+actions install writes the plugin ONCE — the second surface skips (no double write)", () => {
+    const ctxBoth = buildCtx(projectDir, hooksAndActionsConnector());
+    const hookChanges = ompAdapter.installHooks(ctxBoth);
+    expect(hookChanges.some((c) => c.action === "create")).toBe(true);
+    // The action surface ensures the SAME plugin — byte-identical → all skips.
+    const actionChanges = ompAdapter.installActions!(ctxBoth);
+    expect(actionChanges.every((c) => c.action === "skip")).toBe(true);
+    // The generated module carries BOTH the hook handler AND the action command.
+    const src = readFileSync(ompAdapter.getHookConfigPath(ctxBoth), "utf8");
+    expect(src).toContain('pi.on("tool_call"');
+    expect(src).toContain("pi.registerCommand(");
+  });
+
+  it("getHealthChecks for an actions-only connector asserts the extension package is present", () => {
+    ompAdapter.installActions!(ctx);
+    const ext = ompAdapter
+      .getHealthChecks!(ctx)
+      .find((c) => /extension package present/.test(c.name))!;
+    expect(ext.check().status).toBe("OK");
+  });
+});
+
+describe("openclaw adapter — action surface (slash commands in the shared plugin)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+  let configPath: string;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-w4-oc-act-");
+    ctx = buildCtx(projectDir, actionsOnlyConnector());
+    configPath = join(projectDir, "openclaw.json");
+  });
+
+  it("advertises supportsActions", () => {
+    expect(openclawAdapter.capabilities.supportsActions).toBe(true);
+  });
+
+  it("installActions writes the plugin (api.registerCommand `action openclaw <id>`) + the dual-registration entry, NO hook handlers", () => {
+    const changes = openclawAdapter.installActions!(ctx);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+    expect(changes.every((c) => c.platform === "openclaw")).toBe(true);
+
+    const pluginPath = openclawAdapter.getHookConfigPath(ctx);
+    expect(existsSync(pluginPath)).toBe(true);
+    const src = readFileSync(pluginPath, "utf8");
+
+    expect(src).toContain("api.registerCommand(");
+    expect(src).toContain('["action", "openclaw", "reindex", "--connector", CONNECTOR_ID]');
+    expect(src).toContain('["action", "openclaw", "purge", "--connector", CONNECTOR_ID]');
+    // Actions-only → NO hook handler is wired in register(api).
+    expect(src).not.toContain('on("before_tool_call"');
+    expect(src).not.toContain('on("session_start"');
+    expect(src).toContain("register(api)");
+
+    // plugins.load.paths + plugins.entries half (a) is written even for actions.
+    const cfg = readJson(configPath);
+    expect(cfg.plugins?.entries?.[CONNECTOR_ID]?.enabled).toBe(true);
+    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
+    expect(cfg.plugins.load.paths).toContain(pluginDir);
+  });
+
+  it("JSON-escapes a description containing a double-quote (the module still parses)", async () => {
+    openclawAdapter.installActions!(ctx);
+    const pluginPath = openclawAdapter.getHookConfigPath(ctx);
+    const src = readFileSync(pluginPath, "utf8");
+    expect(src).toContain('description: "Purge the \\"stale\\" cache."');
+    const mod = await import(`${pathToFileURL(pluginPath).href}?ocesc=${Date.now()}`);
+    expect(typeof mod.default).toBe("object");
+    expect(typeof mod.default.register).toBe("function");
+  });
+
+  it("the registerCommand handler shells out to the home bin and returns its trimmed text (live, mocked)", async () => {
+    openclawAdapter.installActions!(ctx);
+    const pluginPath = openclawAdapter.getHookConfigPath(ctx);
+    const mod = await import(`${pathToFileURL(pluginPath).href}?ocrun=${Date.now()}`);
+
+    const registered: Record<string, any> = {};
+    mod.default.register({
+      registerCommand: (def: any) => { registered[def.name] = def; },
+    });
+    expect(Object.keys(registered).sort()).toEqual(["purge", "reindex"]);
+
+    execFileSyncImpl = () => "  reindexed 42 docs  \n";
+    const res = await registered.reindex.handler({});
+    expect(res).toEqual({ text: "reindexed 42 docs" });
+    const call = execFileSyncMock.mock.calls.at(-1)!;
+    expect(call[0]).toBe(HOME_BIN);
+    expect(call[1]).toEqual(["action", "openclaw", "reindex", "--connector", CONNECTOR_ID]);
+  });
+
+  it("installActions is idempotent — a second call yields skip for every change", () => {
+    openclawAdapter.installActions!(ctx);
+    const second = openclawAdapter.installActions!(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+  });
+
+  it("uninstallActions is an informational skip; uninstallHooks removes the shared plugin + entry", () => {
+    openclawAdapter.installActions!(ctx);
+    const changes = openclawAdapter.uninstallActions!(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("removed by uninstallHooks");
+    expect(existsSync(openclawAdapter.getHookConfigPath(ctx))).toBe(true);
+
+    openclawAdapter.uninstallHooks(ctx);
+    expect(existsSync(openclawAdapter.getHookConfigPath(ctx))).toBe(false);
+    const cfg = readJson(configPath);
+    expect(cfg.plugins?.entries?.[CONNECTOR_ID]).toBeUndefined();
+    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
+    expect(cfg.plugins?.load?.paths ?? []).not.toContain(pluginDir);
+  });
+
+  it("honors platforms.openclaw.actions === false (opt-out, never writes)", () => {
+    const ctxOff = buildCtx(
+      projectDir,
+      defineConnector({
+        id: CONNECTOR_ID,
+        actions: [{ id: "reindex", run: () => undefined }],
+        platforms: { openclaw: { actions: false } },
+      }),
+    );
+    const changes = openclawAdapter.installActions!(ctxOff);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("disabled for openclaw");
+    expect(existsSync(openclawAdapter.getHookConfigPath(ctxOff))).toBe(false);
+  });
+
+  it("hooks+actions install writes the plugin ONCE — the second surface skips (no double write)", () => {
+    const ctxBoth = buildCtx(projectDir, hooksAndActionsConnector());
+    const hookChanges = openclawAdapter.installHooks(ctxBoth);
+    expect(hookChanges.some((c) => c.action === "create")).toBe(true);
+    const actionChanges = openclawAdapter.installActions!(ctxBoth);
+    expect(actionChanges.every((c) => c.action === "skip")).toBe(true);
+    const src = readFileSync(openclawAdapter.getHookConfigPath(ctxBoth), "utf8");
+    expect(src).toContain('on("before_tool_call"');
+    expect(src).toContain("api.registerCommand(");
+  });
+});

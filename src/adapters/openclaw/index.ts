@@ -268,6 +268,12 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     // project scope → the resolved <workspace>/skills (the highest-priority
     // documented skill root, the same workspace the memory surface anchors to).
     supportsSkills: true,
+    // Action surface: each declared action becomes a user-invokable slash
+    // command registered INSIDE the generated plugin module (api.registerCommand),
+    // shelling out to the home-bin action verb with the install target baked as
+    // the host token (this.id), so a fork like NemoClaw emits `action nemoclaw`.
+    // supportsActions -> the installActions/uninstallActions overrides below.
+    supportsActions: true,
   };
 
   // ── Tolerant JSON5/JSONC read (override base strict JSON.parse) ──────────
@@ -599,19 +605,84 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const pluginPath = this.getHookConfigPath(ctx);
-    const configPath = this.getServerConfigPath(ctx);
 
     if (ctx.connector.platforms[this.id]?.hooks === false) {
       return [
         { platform: this.id, action: "skip", path: pluginPath, detail: `hooks disabled for ${this.id}` },
       ];
     }
+    // Empty-events gate: the plugin module is SHARED with the action surface, so
+    // a connector with actions-but-no-hooks still needs it written + registered —
+    // but that is installActions' job (it calls ensurePlugin too). installHooks
+    // only writes when there ARE hooks; its skip detail stays honest about why.
     if (ctx.connector.hookEvents.length === 0) {
       return [
-        { platform: this.id, action: "skip", path: pluginPath, detail: "connector declares no hooks" },
+        {
+          platform: this.id,
+          action: "skip",
+          path: pluginPath,
+          detail:
+            this.actionTriggers(ctx).length > 0
+              ? "no hooks (plugin written for actions)"
+              : "connector declares no hooks",
+        },
       ];
     }
 
+    return this.ensurePlugin(ctx, `openclaw plugin module (${this.hookDetail(ctx)})`);
+  }
+
+  // ── Action install / uninstall (slash commands in the shared plugin) ────
+
+  /**
+   * Each declared action becomes an `api.registerCommand(...)` inside the SAME
+   * synthesized plugin module (see buildPluginSource). So installActions ensures
+   * that shared module is on disk AND dual-registered: when hooks already wrote
+   * the identical bytes the content-compare yields "skip" (no double material
+   * write), and an actions-only connector gets the plugin written + registered
+   * here. Honors platforms.<id>.actions === false and the empty-actions skip.
+   */
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const pluginPath = this.getHookConfigPath(ctx);
+    if (ctx.connector.platforms[this.id]?.actions === false) {
+      return [
+        { platform: this.id, action: "skip", path: pluginPath, detail: `actions disabled for ${this.id}` },
+      ];
+    }
+    if (this.actionTriggers(ctx).length === 0) {
+      return [
+        { platform: this.id, action: "skip", path: pluginPath, detail: "connector declares no actions" },
+      ];
+    }
+    return this.ensurePlugin(ctx, "openclaw plugin module (action commands)");
+  }
+
+  /**
+   * Actions live INSIDE the shared plugin module, which uninstallHooks removes
+   * (file + manifest + dual-registration entry) unconditionally — it runs last
+   * in the teardown pass. Removing the plugin here too would race uninstallHooks,
+   * so this is a single informational skip.
+   */
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    return [
+      {
+        platform: this.id,
+        action: "skip",
+        path: this.getHookConfigPath(ctx),
+        detail: "action commands are embedded in the plugin module; removed by uninstallHooks",
+      },
+    ];
+  }
+
+  /**
+   * Synthesize + content-compare-write the plugin module(s) AND upsert the dual-
+   * registration entry. Shared by installHooks and installActions: the generator
+   * is a pure function of ctx, so whichever surface runs second sees byte-
+   * identical files (and an already-present entry) and reports "skip" — no double
+   * material write. `moduleDetail` flavors the module ChangeRecord per surface.
+   */
+  private ensurePlugin(ctx: InstallContext, moduleDetail: string): ChangeRecord[] {
+    const configPath = this.getServerConfigPath(ctx);
     const changes: ChangeRecord[] = [];
 
     // 1. Write the synthesized plugin module(s).
@@ -631,7 +702,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
         platform: this.id,
         action,
         path: file.path,
-        detail: `openclaw plugin module (${this.hookDetail(ctx)})`,
+        detail: moduleDetail,
       });
     }
 
@@ -1195,6 +1266,39 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       );
     }
 
+    // Action surface: one api.registerCommand per declared action, registered in
+    // the SAME register(api) body. The command shells out to the home-bin
+    // `action <host>` verb with the host token baked as this.id (so a NemoClaw
+    // fork emits `action nemoclaw`, NOT openclaw — exactly like the hook bridge
+    // above). The win32 branch reuses the hook bridge's quoted-shell form (a .cmd
+    // launcher throws EINVAL via execFileSync). Both id AND description are
+    // JSON.stringify'd — descriptions are free-form connector text, so a raw " /
+    // backtick would break the generated module.
+    for (const action of this.actionTriggers(ctx)) {
+      const id = JSON.stringify(action.id);
+      const description = JSON.stringify(action.description);
+      reg.push(
+        "\n" +
+          "    // Action /" + action.id + " -> run the home-bin action verb directly.\n" +
+          "    api.registerCommand({\n" +
+          "      name: " + id + ",\n" +
+          "      description: " + description + ",\n" +
+          "      handler: async (_ctx) => {\n" +
+          "        try {\n" +
+          '          const args = ["action", ' + JSON.stringify(this.id) + ", " + id + ', "--connector", CONNECTOR_ID];\n' +
+          "          const out =\n" +
+          '            process.platform === "win32"\n' +
+          "              ? execSync([HOME_BIN, ...args].map((a) => '\"' + a + '\"').join(\" \"), { encoding: \"utf8\" })\n" +
+          '              : execFileSync(HOME_BIN, args, { encoding: "utf8" });\n' +
+          '          return { text: (out || "").trim() };\n' +
+          "        } catch (e) {\n" +
+          "          return { text: \"action \" + " + id + " + \" failed: \" + (e && e.message ? e.message : \"error\") };\n" +
+          "        }\n" +
+          "      },\n" +
+          "    });\n",
+      );
+    }
+
     reg.push("  },\n");
 
     const definition =
@@ -1323,7 +1427,11 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const pluginPath = this.getHookConfigPath(ctx);
     const pluginDir = this.pluginDir(ctx);
     const id = ctx.connector.id;
-    const hasHooks = ctx.connector.hookEvents.length > 0;
+    // Actions are health-equivalent to hooks: both write the SAME plugin module
+    // and the SAME dual-registration entry, so an actions-only connector must
+    // still assert the plugin/extension is present + loaded.
+    const hasHooks =
+      ctx.connector.hookEvents.length > 0 || this.actionTriggers(ctx).length > 0;
     const hasServer = Boolean(ctx.connector.server);
 
     return [
