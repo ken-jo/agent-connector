@@ -330,6 +330,18 @@ export function DefineConnector() {
         the CLI consume.
       </Lead>
 
+      <P>
+        The typed per-surface identity helpers and host-capability introspection
+        live at the consolidated <C>@ken-jo/agent-connector/sdk</C> subpath:{" "}
+        <C>defineStatusline</C>, <C>defineAction</C>, <C>defineHook</C>,{" "}
+        <C>defineCommand</C>, <C>defineSkill</C>, <C>defineSubagent</C>,{" "}
+        <C>defineMemory</C>, <C>defineConfigPatch</C>, <C>defineNativeHook</C>,
+        plus <C>hostsSupporting</C> / <C>capabilitiesOf</C> /{" "}
+        <C>surfaceSupport</C>. The root <C>@ken-jo/agent-connector</C> export is
+        unchanged for backward compatibility — these helpers are also
+        re-exported from root.
+      </P>
+
       <H3 id="connector-config">ConnectorConfig</H3>
       <FieldTable rows={connectorConfigFields} />
 
@@ -342,8 +354,8 @@ export function DefineConnector() {
         <LI>
           A connector must declare <strong>at least one</strong> of <C>server</C>
           , <C>hooks</C>, <C>commands</C>, <C>skills</C>, <C>subagents</C>,{" "}
-          <C>memory</C> (or a per-platform <C>nativeHooks</C> /{" "}
-          <C>configPatch</C> declaration) — else it throws.
+          <C>memory</C>, <C>statusline</C>, <C>actions</C> (or a per-platform{" "}
+          <C>nativeHooks</C> / <C>configPatch</C> declaration) — else it throws.
         </LI>
         <LI>
           If <C>server</C> is present: stdio transport requires a string{" "}
@@ -657,6 +669,13 @@ export function SurfacesSection() {
         <C>SurfaceToolPolicy</C> is shared:{" "}
         <C>&#123; allow?: string[]; deny?: string[] &#125;</C> — rendered to each
         host&apos;s allowed-tools / tools[] / readonly.
+      </P>
+      <P>
+        Plus two runtime-dispatched handler surfaces beyond the content writers —
+        a singular <C>statusline</C> (a HUD <C>render(ctx)</C> handler; claude-code
+        in v1, other hosts skip-warn) and <C>actions</C> (user-invokable{" "}
+        <C>run(ctx)</C> handlers dispatched by <C>agent-connector action</C>; v1
+        ships the dispatch backbone, no host affordance emitter yet).
       </P>
 
       <H3 id="command-def">CommandDef</H3>
@@ -1854,7 +1873,7 @@ export function Troubleshooting() {
 
       <H3 id="hooks-unavailable">&quot;hooks unavailable here&quot;</H3>
       <P>
-        The <strong>9 mcp-only hosts</strong> (Warp, Kilo, Roo Code, Trae,
+        The <strong>8 mcp-only hosts</strong> (Warp, Roo Code, Trae,
         Zed, Amp, Codebuff, Mux, Pi) have no hook layer — only the MCP
         server is installed. Detection and <C>doctor</C> surface{" "}
         <strong>&quot;hooks unavailable here&quot;</strong> for them; this is
