@@ -103,6 +103,17 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "kilo",
     load: () => import("./kilo/index.js").then((m) => m.default),
   },
+  // cline is the Cline VS Code extension (saoudrizwan.claude-dev) — the most-
+  // installed AI coding extension and the PARENT that roo-code and kilo forked.
+  // mcp-only (no hook layer); MCP at the globalStorage cline_mcp_settings.json
+  // ("mcpServers"); content lives in the .clinerules tree + ~/Documents/Cline.
+  // NO runtime-marker collision with roo-code (rooveterinaryinc.roo-cline / .roo)
+  // or kilo (kilocode.kilo-code / .kilo) — distinct ext ids + dotdirs — so there
+  // is NO fork-before-parent ordering constraint here; it simply sits beside them.
+  {
+    id: "cline",
+    load: () => import("./cline/index.js").then((m) => m.default),
+  },
   {
     id: "trae",
     load: () => import("./trae/index.js").then((m) => m.default),

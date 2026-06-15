@@ -204,7 +204,7 @@ export const legacyHashRedirects: Record<string, string> = {
 /** Per-section <meta name="description"> copy (for /docs/<track>/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "The MCP-developer track. Write your MCP server + hooks once with defineConnector and deploy natively across 31 AI-agent platforms with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
+    "The MCP-developer track. Write your MCP server + hooks once with defineConnector and deploy natively across 32 AI-agent platforms with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
   installation:
     "Install agent-connector as a dependency of your connector package (npm install @ken-jo/agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
@@ -224,7 +224,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 12 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance upserted as a marker-fenced, hash-stamped managed block into the memory/rules file each host actually reads — AGENTS.md on 29 of 31 hosts (the open agents.md standard), CLAUDE.md for Claude Code, GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; claude-code in v1, other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; v1 ships the dispatch backbone, no host affordance emitter yet).",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance upserted as a marker-fenced, hash-stamped managed block into the memory/rules file each host actually reads — AGENTS.md on 29 of 32 hosts (the open agents.md standard), CLAUDE.md for Claude Code, GEMINI.md for Gemini CLI, and .clinerules for Cline. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; claude-code in v1, other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; v1 ships the dispatch backbone, no host affordance emitter yet).",
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 9 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -239,7 +239,7 @@ export const sectionDescription: Record<string, string> = {
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
   platforms:
-    "The 31 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
+    "The 32 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
   "add-a-platform":
     "Adding a platform is one registry entry plus one adapter — the framework's core design guarantee.",
   "operating-model":
@@ -1201,7 +1201,7 @@ export const sharedFlags: { flag: string; desc: string }[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (31, by paradigm — llms-full §6)                           */
+/* Platforms (32, by paradigm — llms-full §6)                           */
 /* ------------------------------------------------------------------ */
 
 export interface PlatformEntry {
@@ -1268,6 +1268,12 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     target: "~/.warp/.mcp.json → mcpServers (cwd keyed as working_directory)",
   },
   { name: "Roo Code", id: "roo-code", target: "mcp config" },
+  {
+    name: "Cline",
+    id: "cline",
+    target:
+      "globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json → mcpServers (the parent roo-code/kilo forked)",
+  },
   { name: "Trae", id: "trae", target: "mcp config" },
   { name: "Zed", id: "zed", target: "host config" },
   { name: "Amp", id: "amp", target: 'settings.json → "amp.mcpServers" (flat dotted key)' },

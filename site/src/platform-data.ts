@@ -104,10 +104,10 @@ const s = (
  * uncertain cells default to matching our support — no guessed gaps.
  *
  * Cross-cutting facts:
- *   - memory: ALL 31 hosts natively read a rules/memory file (31-host memory
+ *   - memory: ALL 32 hosts natively read a rules/memory file (32-host memory
  *     matrix; AGENTS.md or a host-specific equivalent). hostNative.memory=true
  *     everywhere.
- *   - hooks: the 20 json-stdio/ts-plugin hosts all expose a native hook or
+ *   - hooks: the 23 json-stdio/ts-plugin hosts all expose a native hook or
  *     plugin layer (hook survey). Of the 9 "mcp-only" hosts the survey lists
  *     as hook-less, ONE is stale: Amp now ships a TypeScript plugin system
  *     with thread-lifecycle events (ampcode.com/manual, Plugins) — so Amp is
@@ -307,6 +307,21 @@ export const platforms: Platform[] = [
     // skills (.kilo/skills/) are now wired — all six surfaces supported. The ext
     // shares one config backend with kilo-cli (kilo.json + kilo.jsonc merge).
     hostNative: s(true, true, true, true, true, true),
+  },
+  {
+    id: "cline",
+    name: "Cline",
+    paradigm: "mcp-only",
+    surfaces: s(true, false, true, true, false, true),
+    // The most-installed AI coding VS Code ext + the parent roo-code/kilo forked.
+    // mcp-only: MCP at <vscodeUserDir>/globalStorage/saoudrizwan.claude-dev/
+    // settings/cline_mcp_settings.json ("mcpServers" — cline/cline disk.ts
+    // GlobalFileNames). Wired: commands (.clinerules/workflows + Documents/Cline/
+    // Workflows), skills (.clinerules/skills/<name>/SKILL.md), memory (.clinerules
+    // + Documents/Cline/Rules) — docs.cline.bot. subagents hostNative=false: the
+    // VS Code ext has no verified on-disk subagent surface (only the separate
+    // Cline CLI does). N/A: hooks (no event-callback plugin API).
+    hostNative: s(true, false, true, true, false, true),
   },
   {
     id: "trae",
