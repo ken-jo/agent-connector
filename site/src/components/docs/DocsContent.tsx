@@ -649,7 +649,7 @@ export function SurfacesSection() {
     <DocSection
       id="surfaces"
       eyebrow="Core API"
-      title="Commands, Skills, Subagents & Memory"
+      title="Commands, Skills, Subagents, Memory, Statusline & Actions"
     >
       <Lead>
         Content surfaces are <strong>content-only</strong> (markdown / TOML

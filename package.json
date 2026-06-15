@@ -28,7 +28,7 @@
     "url": "https://github.com/ken-jo/agent-connector/issues"
   },
   "bin": {
-    "agent-connector": "./dist/cli.js"
+    "agent-connector": "dist/cli.js"
   },
   "exports": {
     ".": {

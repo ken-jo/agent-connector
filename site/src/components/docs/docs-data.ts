@@ -65,7 +65,7 @@ export const tracks: Record<TrackId, TrackDef> = {
           { id: "define-connector", label: "defineConnector" },
           { id: "server", label: "Server" },
           { id: "hooks", label: "Hooks" },
-          { id: "surfaces", label: "Commands, Skills, Subagents & Memory" },
+          { id: "surfaces", label: "Commands, Skills, Subagents, Memory, Statusline & Actions" },
         ],
       },
       {
