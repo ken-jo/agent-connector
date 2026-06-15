@@ -1,9 +1,42 @@
 # Changelog
 
-## [Unreleased]
+## 0.4.0 — 2026-06-15
 
-Three new surfaces, a Connector SDK, and a HostCtx unification — all
-implemented and green (1633 tests) on the `feat/statusline-surface` branch.
+The largest release since the public launch: **29 → 31 platforms**, ten
+host-gap content surfaces closed, three new declarable surfaces (statusline,
+actions, plus the Connector SDK), and a HostCtx unification. Natively verified
+on Linux, Windows, and macOS (**1727 tests**), with live install + activation
+against real host CLIs.
+
+### Platforms — 29 → 31 (MiMoCode + NVIDIA NemoClaw)
+
+- **mimo-code** — Xiaomi MiMoCode (`@mimo-ai/cli`, bin `mimo`), an OpenCode
+  fork. STANDALONE `ts-plugin` adapter (OpenCode's module-const HOST binding
+  can't be cleanly subclassed): config `~/.config/mimocode/mimocode.json`, MCP
+  root key `mcp`, bridge dispatches `hook mimo-code`.
+- **nemoclaw** — NVIDIA NemoClaw, an orchestrator that wraps OpenClaw. Thin
+  fork extending `OpenClawAdapter` (id/name/detection only); inherits the
+  dual-registration into the wrapped `~/.openclaw/openclaw.json`.
+- `OpenClawAdapter` hardened for a correct fork (zero-change for openclaw):
+  `this.id` threaded through the server/hook/bridge/parseEvent paths (so a
+  nemoclaw install routes to the nemoclaw id), and `detectInstalled` bows out
+  when `~/.nemoclaw/` is present so the shared config is never double-targeted.
+- Every config path/root-key was source-verified against the upstream repos
+  before wiring (no guessed paths).
+
+### Ten host-gap content surfaces closed (7 hosts)
+
+- Now installed where the host natively reads them: **droid**
+  commands/skills/subagents (`.factory/{commands,skills,droids}`), **roo-code**
+  commands/skills (`.roo/…`), **trae** skills, **codebuff** skills
+  (`.agents/skills`), **openclaw** skills (`<workspace>/skills`) → **nemoclaw
+  inherits** it, **amp** skills (`~/.config/agents/skills`), **goose** skills.
+  Each cell was contract-verified against primary sources before wiring.
+- The remaining wall gaps are honest, documented non-gaps (no on-disk surface
+  to write): warp commands, trae/openclaw subagents, amp hooks, amp subagents,
+  codebuff subagents.
+
+Three new surfaces, a Connector SDK, and a HostCtx unification.
 
 ### Statusline (HUD) surface
 
@@ -74,6 +107,18 @@ implemented and green (1633 tests) on the `feat/statusline-surface` branch.
 - `ctx.telemetry()` accessor returns the current session's
   `TelemetryUsageSummary` synchronously. `TelemetryAccessor` and
   `TelemetryUsageSummary` are exported types (root + `/sdk`).
+
+### Verification
+
+- Native full suite green on all three OSes: Linux (Node 18), Windows
+  (Node 24), and macOS (Node 26) — **1727 tests**, `tsc` clean, build green.
+  (The macOS run caught and fixed one latent macOS-only test-path bug in the
+  zed usage reader fixture; the reader itself was correct.)
+- Live install + activation against **real host CLIs** in isolated HOMEs
+  (claude-code, codex, opencode, gemini) — each CLI loaded the connector via
+  its own `mcp list` handshake; clean uninstall with no leak into real configs.
+- Landing + guide pages re-synced to the shipped surface set (statusline /
+  actions / the `/sdk` authoring subpath) ahead of release.
 
 ## 0.3.1 — 2026-06-14
 

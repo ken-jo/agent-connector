@@ -41,7 +41,7 @@ export function Efficiency() {
             Write it once. Skip <span className="whitespace-nowrap">~23,000 lines</span> of glue.
           </>
         }
-        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agent-connector already did that work — across 31 platforms, 6 surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
+        description="Supporting agent hosts the old way means hand-authoring and maintaining a different config dialect, install flow, and quirk-set for every one. agent-connector already did that work — across 31 platforms, 6 content/MCP surfaces, and 3 hook paradigms — so your integration collapses to a single definition."
       />
 
       {/* Hero stat band */}

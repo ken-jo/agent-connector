@@ -224,7 +224,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 12 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance upserted as a marker-fenced, hash-stamped managed block into the memory/rules file each host actually reads — AGENTS.md on 29 of 31 hosts (the open agents.md standard), CLAUDE.md for Claude Code, GEMINI.md for Gemini CLI.",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance upserted as a marker-fenced, hash-stamped managed block into the memory/rules file each host actually reads — AGENTS.md on 29 of 31 hosts (the open agents.md standard), CLAUDE.md for Claude Code, GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; claude-code in v1, other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; v1 ships the dispatch backbone, no host affordance emitter yet).",
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 9 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -320,11 +320,23 @@ export const connectorConfigFields: FieldRow[] = [
       "Standing guidance → marker-fenced managed blocks in each host's memory/rules file (AGENTS.md-first; CLAUDE.md / GEMINI.md exceptions).",
   },
   {
+    name: "statusline",
+    type: "StatuslineDef",
+    notes:
+      "The connector's status line / HUD — a single render(ctx) handler; SINGULAR. Omit when none.",
+  },
+  {
+    name: "actions",
+    type: "ActionDef[]",
+    notes:
+      "User-invokable actions dispatched by `agent-connector action`; v1 ships the dispatch backbone only (no host affordance yet). Omit when none.",
+  },
+  {
     name: "platforms",
     type: "Partial<Record<PlatformId, PlatformOverride>>",
     default: "{}",
     notes:
-      "Per-platform overrides / escape hatch (extra, nativeHooks, configPatch, memory target/mode tuning, disable a surface, force scope).",
+      "Per-platform overrides / escape hatch (extra, nativeHooks, configPatch, memory target/mode tuning, disable a surface (incl. statusline), force scope).",
   },
   {
     name: "targets",
@@ -411,6 +423,19 @@ export const resolvedConnectorFields: FieldRow[] = [
     type: "MemoryDef[]",
     required: true,
     notes: 'Normalized; names defaulted ("memory"); [] when none.',
+  },
+  {
+    name: "statusline",
+    type: "StatuslineDef",
+    notes:
+      'Normalized; name defaulted ("statusline"); omitted when none. Carries the live render handler.',
+  },
+  {
+    name: "actions",
+    type: "ActionDef[]",
+    required: true,
+    notes:
+      "Normalized; ids defaulted/validated kebab-case + unique; [] when none. Carries the live run handlers.",
   },
   {
     name: "platforms",
@@ -760,7 +785,7 @@ export const memoryTargetRows: {
   note: string;
 }[] = [
   {
-    host: "27 AGENTS.md adopter hosts",
+    host: "29 AGENTS.md adopter hosts",
     project:
       "<projectDir>/AGENTS.md — exclusive/first-match readers are probed so the block lands where the host actually reads (zed's nine-candidate first-match, warp's WARP.md priority, hermes' .hermes.md, opencode's CLAUDE.md fallback, codex's AGENTS.override.md; openclaw → its agent workspace)",
     user:
@@ -972,6 +997,12 @@ export const platformOverrideFields: FieldRow[] = [
     name: "subagents",
     type: "boolean",
     notes: "false → skip subagent files here.",
+  },
+  {
+    name: "statusline",
+    type: "boolean",
+    notes:
+      "false → do not wire the status line on this platform (no object form in v1).",
   },
   {
     name: "memory",
@@ -1310,7 +1341,7 @@ export const configErrorRows: { message: string; cause: string }[] = [
   },
   {
     message:
-      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, or a per-platform `nativeHooks` / `configPatch` declaration",
+      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, `statusline`, `actions`, or a per-platform `nativeHooks` / `configPatch` declaration",
     cause:
       "No surface was declared. A connector needs at least one of those to do anything.",
   },

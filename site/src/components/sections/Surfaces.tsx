@@ -8,7 +8,7 @@ export function Surfaces() {
       <SectionHeading
         eyebrow="Six surfaces"
         title="Write once, deploy native"
-        description="agent-connector generalizes context-mode's adapter layer across six integration surfaces — each rendered into the host's native shape, degrading gracefully where a host lacks one."
+        description="agent-connector generalizes context-mode's adapter layer across six integration surfaces — each rendered into the host's native shape, degrading gracefully where a host lacks one. Two runtime-dispatched handler surfaces (statusline, actions) ship beyond this per-host content wall."
       />
 
       <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3">

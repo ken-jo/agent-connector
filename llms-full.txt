@@ -1127,11 +1127,18 @@ Two detection layers (from `src/adapters/detect.ts`):
   scrubbing → `DetectionSignal`.
 
 `PlatformCapabilities` flags the single-API layer queries to degrade gracefully:
-per-event booleans (`preToolUse`, `postToolUse`, `preCompact`, `sessionStart`,
-`sessionEnd`, `userPromptSubmit`, `stop`, `notification`), `canModifyArgs`,
-`canModifyOutput`, `canInjectSessionContext`, `transports: Transport[]`, and the
-optional content-surface flags `supportsCommands` / `supportsSkills` /
-`supportsSubagents`.
+the required per-event booleans (`preToolUse`, `postToolUse`, `preCompact`,
+`sessionStart`, `sessionEnd`, `userPromptSubmit`, `stop`, `notification`),
+`canModifyArgs`, `canModifyOutput`, `canInjectSessionContext`, and
+`transports: Transport[]`; plus OPTIONAL flags (each read `?? false`): the 4
+newer per-event flags `permissionRequest` / `postToolUseFailure` /
+`subagentStart` / `subagentStop` (1:1 with the 12-member `HookEventName` union),
+the content-surface flags `supportsCommands` / `supportsSkills` /
+`supportsSubagents` / `supportsMemory`, and the handler/escape-hatch surface
+flags `supportsStatusline` / `supportsConfigPatch` / `supportsNativeHooks` /
+`supportsActions` (v1: statusline/configPatch/nativeHooks are claude-code-only;
+no adapter sets `supportsActions` yet — dispatch backbone only, install
+skip-warns everywhere).
 
 `InstallScope` is the normalized, low→high-precedence enum
 `{ system, user, project, profile, managed }`; each adapter maps it to a concrete
