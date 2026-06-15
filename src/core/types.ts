@@ -1186,6 +1186,12 @@ export interface DiagnosticResult {
   status: "pass" | "fail" | "warn";
   message: string;
   fix?: string;
+  /**
+   * true ⇒ a plain re-sync re-asserts this (the surface is simply absent and
+   * agent-connector owns it). Omitted/false ⇒ heal must DEFER (drift we'd
+   * clobber, external dep, or ambiguous ownership).
+   */
+  fixable?: boolean;
 }
 
 /** Lightweight adapter-defined doctor check (synchronous thunk). */

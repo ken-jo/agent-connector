@@ -201,7 +201,7 @@ const COMMAND_USAGE: Record<string, string> = {
   package:
     "package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]",
   doctor:
-    "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--json]",
+    "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--json] [--heal] [--dry-run]",
   status: "status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
   telemetry:
     "telemetry report|export|leaderboard [--by <dim>] [--since <dur>] [--connector <id>] [--scope <slice>] [--format csv|json] [--out <file>] [--json]",

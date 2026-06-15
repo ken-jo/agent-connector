@@ -1082,6 +1082,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           status: "warn",
           message: `missing — key deleted from ${entry.file} since install`,
           fix: `agent-connector install (sync) will re-assert it`,
+          fixable: true,
         });
       } else {
         results.push({
