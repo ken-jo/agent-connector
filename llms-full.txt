@@ -152,6 +152,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
 | `memory` | `MemoryDef[]` | `[]` | Standing guidance → marker-fenced MANAGED BLOCKS in each host's memory/rules file (AGENTS.md-first; see §2.4). |
 | `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` function; v1 deploys on claude-code only; other hosts skip-warn. See §2.5. |
+| `actions` | `ActionDef[]` | `[]` | Named actions the connector exposes for user-triggered dispatch. See §2.6. |
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
@@ -159,8 +160,8 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 **Top-level validation rules** (`define-connector.ts`):
 - `config` must be an object; `id` must match the kebab-case regex.
 - A connector must declare **at least one** of `server`, `hooks`, `commands`,
-  `skills`, `subagents`, `memory`, `statusline` (or a per-platform `nativeHooks` /
-  `configPatch` declaration) — else it throws.
+  `skills`, `subagents`, `memory`, `statusline`, `actions` (or a per-platform
+  `nativeHooks` / `configPatch` declaration) — else it throws.
 - If `server` is present: stdio transport requires a string `command`; any remote
   transport (`http`/`sse`/`ws`) requires a string `url`.
 - Every present hook entry's `handler` must be a function.
@@ -306,7 +307,7 @@ WorktreeRemove, PostCompact, Elicitation, ElicitationResult). `nativeHooks` wire
 of them — and any future event a host adds — with zero agent-connector releases:
 
 ```ts
-// PlatformOverride (§2.7) gains:
+// PlatformOverride (§2.8) gains:
 nativeHooks?: Record<string, NativeHookDef>;  // key = HOST event name, VERBATIM
 
 interface NativeHookDef {
@@ -648,7 +649,53 @@ like `hook`/`serve`; the host points at it).
 `statusLine` or `statusLine.*` throws `ConnectorConfigError` at `defineConnector`,
 pointing at this surface. Use `ConnectorConfig.statusline` instead.
 
-### 2.6 `TelemetryConfig`
+### 2.6 `ActionDef[]` — the actions surface
+
+`ConnectorConfig.actions` is a list of **named, user-triggered actions** the connector
+exposes for out-of-band dispatch. Unlike hooks (which respond to host lifecycle events)
+and the statusline (which renders on a cadence), actions are invoked explicitly by the
+user or an external orchestrator.
+
+```ts
+interface ActionDef {
+  id: string;                          // kebab-case action identifier (required)
+  description?: string;               // one-line hint for help / introspection output
+  run: (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
+  hosts?: Partial<Record<PlatformId, (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>>>;
+                                       // per-host override of run; falls back to run when absent
+}
+
+interface ActionResult {
+  message?: string;                    // human-readable outcome printed to stdout
+}
+```
+
+`defineAction({ id, run })` is the typed identity helper (exported from **both** the
+root `@ken-jo/agent-connector` and `/sdk`).
+
+**CLI verb:** `agent-connector action <platform> <actionId> --connector <id>` — loads
+the connector, resolves the action by id, and invokes `run(ctx)` (or the per-host
+override when present). This is an **internal entrypoint** like `hook`/`serve`/`statusline`;
+the host or the user points at it directly.
+
+**User-triggered error semantics** (intentionally stricter than hooks/statusline):
+- Unknown `actionId` → exit 1 + stderr message.
+- A `run` that throws → exit 1 + stderr (the exception message).
+- These are NOT fail-open/fail-safe-silent — an action the user explicitly triggered
+  should report errors, not swallow them.
+
+**v1 is the DISPATCH BACKBONE ONLY.** Install skip-warns on every host: there is no
+host affordance emitter yet (binding a slash command / keybinding to the verb requires
+generated IDE extensions, a later phase). Authors can invoke the verb manually or wire
+it externally; the connector declares the actions and the runtime dispatches them — the
+host-side trigger surface is deferred.
+
+**Introspection:** `explain()` emits one row per action per host (support `"skip-warn"`
+everywhere in v1 — the dispatch verb is present but the host emitter is not). `simulate()`
+does **NOT** cover actions: an action takes no host payload and has no host-honor verdict
+(the dispatch is unconditional — intentional).
+
+### 2.7 `TelemetryConfig`
 
 ```ts
 interface TelemetryConfig {
@@ -666,13 +713,13 @@ interface TelemetryConfig {
 
 `hostNativeUsage` may also be forced on at install via env `AGENT_CONNECTOR_HOST_NATIVE=1`.
 
-### 2.7 `PlatformOverride` (per-platform escape hatch)
+### 2.8 `PlatformOverride` (per-platform escape hatch)
 
 ```ts
 interface PlatformOverride {
   hooks?: boolean | Partial<HooksConfig>;   // false → no NORMALIZED hooks here; object → merge/replace
   nativeHooks?: Record<string, NativeHookDef>; // native-event passthrough (§2.3); claude-code only today
-  configPatch?: ConfigPatchDef[];           // host-config key patches (below); claude-code only today
+  configPatch?: ConfigPatchDef[];           // host-config key patches (below); claude-code only today (§2.8)
   server?: Partial<ServerDef> | false;      // false → don't register server here; object → shallow-merge
   scope?: InstallScope;                     // force a scope for this platform
   commands?: boolean;                       // false → skip command files here
@@ -827,7 +874,7 @@ graduates from `configPatch` to a typed cross-host surface (e.g. a new
 `ConnectorConfig` field) only when ≥3 hosts ship an analog (the `statusline`
 surface is the first example of this promotion path).
 
-### 2.8 `ResolvedConnector` (what `defineConnector` returns)
+### 2.9 `ResolvedConnector` (what `defineConnector` returns)
 
 ```ts
 interface ResolvedConnector {
@@ -841,13 +888,14 @@ interface ResolvedConnector {
   subagents: SubagentDef[];           // normalized; [] when none
   memory: MemoryDef[];                // normalized; names defaulted ("memory"); [] when none
   statusline?: StatuslineDef;         // undefined when not declared
+  actions: ActionDef[];               // normalized; [] when none
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   publish?: PublishConfig;            // registry/MCPB metadata, passed through verbatim
 }
 ```
 
-### 2.9 Full example (server + hooks + commands + skills)
+### 2.10 Full example (server + hooks + commands + skills)
 
 ```ts
 import { defineConnector } from "@ken-jo/agent-connector";
@@ -943,7 +991,7 @@ Resolves the connector, then per target: backup settings → render server confi
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
 config + set the exec bit → write any command/skill/subagent files → upsert any
 `memory` managed blocks (last among the content surfaces, §2.4) → register in the
-plugin registry where applicable → apply any `configPatch` entries LAST (§2.7 — so
+plugin registry where applicable → apply any `configPatch` entries LAST (§2.8 — so
 the diff reflects final state; `--dry-run` shows the exact key + value + reason).
 `--force` overwrites USER-EDITED memory blocks (hash drift) after a timestamped
 backup; the default is warn-and-leave.
@@ -966,7 +1014,7 @@ pointer refresh fails.
 ### uninstall
 `agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--purge] [--dry-run]`
 Full inverse — releases `configPatch` ownership FIRST (ledger-keyed; a patched key is
-deleted only when this connector is the last owner and the value is unchanged, §2.7),
+deleted only when this connector is the last owner and the value is unchanged, §2.8),
 then excises `memory` managed blocks (first among the content surfaces — prefix scan
 over the connector's marker namespace + the memory ledger, so even an id-only
 synthetic uninstall reclaims blocks, §2.4), then removes the connector's MCP + hook
@@ -1058,6 +1106,10 @@ connector-agnostic); `--json` emits `{ mcp, host, hostSkipped, hostNativeTurns }
   host-native turn-usage hook (installed by Gemini / Antigravity adapters when
   host-native usage is enabled). Reads stdin, records a distinct `model_turn` row,
   ALWAYS exits 0 (fail-open).
+- `agent-connector action <platform> <actionId> --connector <id>` — user-triggered
+  action dispatch. Loads the connector, resolves the action by id, and runs `run(ctx)`
+  (or the per-host override). Exit 1 on unknown id or a throwing handler (NOT
+  fail-open — see §2.6).
 
 **`--since` syntax** (telemetry/usage/leaderboard): `Ns`, `Nm`, `Nh`, `Nd`
 (seconds/minutes/hours/days), e.g. `30s`, `15m`, `24h`, `7d`. Empty = no lower bound;
@@ -1333,10 +1385,15 @@ Or ship a branded CLI: `createConnectorCli({ name, connector })` from
 connector (see `examples/branded-cli`); explicit `--connector`/`--connector-id`
 always overrides.
 
-**Package subpaths:** `.` (root — `defineConnector`, public types, `ConnectorConfigError`)
+**Package subpaths:** `.` (root — full `define*` family: `defineConnector` +
+`defineStatusline` + `defineAction` + `defineHook` / `defineCommand` / `defineSkill` /
+`defineSubagent` / `defineMemory` / `defineConfigPatch` / `defineNativeHook`; public
+types including `TelemetryAccessor` / `TelemetryUsageSummary`; `ConnectorConfigError`)
 · `./runtime` (serve-proxy + hook entrypoint internals)
 · `./cli` (`createConnectorCli`)
-· `./sdk` (consolidated authoring surface — `define*` family + introspection helpers; additive, does NOT replace the root export)
+· `./sdk` (same full `define*` family + introspection helpers `capabilitiesOf` /
+`hostsSupporting` / `surfaceSupport` / `SURFACE_PREDICATES` + the test harness export;
+additive, does NOT replace the root export)
 · `./sdk/test` (offline harness — `explain` + `simulate`; see §9).
 
 Engines: Node `>=18.17`, ESM only. Runtime deps are pure-JS / WASM (`gpt-tokenizer`,
@@ -1359,6 +1416,7 @@ actually work on host X?" — before you touch a real host.
 import {
   defineConnector,       // existing — validates + returns ResolvedConnector
   defineStatusline,      // existing typed helper
+  defineAction,          // typed identity helper for ActionDef (see §2.6)
   defineCommand, defineSkill, defineSubagent, defineMemory,
   defineConfigPatch, defineNativeHook,
   defineHook,            // event-parameterized (see below)
@@ -1398,7 +1456,7 @@ def unchanged.
 | `SURFACE_PREDICATES` | `Record<SurfaceName, (caps: PlatformCapabilities) => boolean>` | The per-surface predicate map (exported for advanced use). |
 
 `SurfaceName` vocabulary: `server` · `hooks` · `commands` · `skills` · `subagents` ·
-`memory` · `statusline` · `configPatch` · `nativeHooks`.
+`memory` · `statusline` · `configPatch` · `nativeHooks` · `actions`.
 
 Examples:
 ```ts

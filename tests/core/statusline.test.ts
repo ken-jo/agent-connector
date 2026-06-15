@@ -607,4 +607,22 @@ describe("claude-code — doctor reports statusLine once", () => {
     expect(sl).toHaveLength(1);
     expect(sl[0]!.check().status).toBe("OK");
   });
+
+  it("fires for a REGISTERED connector (ledger row present, statusline not declared)", () => {
+    // Install with a statusline connector → seeds the ownership ledger.
+    claudeAdapter.installStatusline!(
+      buildCtx(statuslineConnector("sl-reg", { render: () => "x" })),
+    );
+    // The REGISTERED-connector doctor path (connectorFromMeta) can't re-expose
+    // the render fn, so statusline comes back undefined — but the ledger row
+    // proves the surface was wired, so the check must still fire (and pass).
+    const regConnector = defineConnector({
+      id: "sl-reg",
+      memory: [{ name: "m", content: "x" }],
+    }); // SAME id, NO statusline
+    const checks = claudeAdapter.getHealthChecks!(buildCtx(regConnector));
+    const sl = checks.filter((c) => /statusline/i.test(c.name));
+    expect(sl).toHaveLength(1);
+    expect(sl[0]!.check().status).toBe("OK");
+  });
 });

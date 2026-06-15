@@ -14,6 +14,13 @@ export {
   defineConnector,
   defineStatusline,
   defineAction,
+  defineHook,
+  defineCommand,
+  defineSkill,
+  defineSubagent,
+  defineMemory,
+  defineConfigPatch,
+  defineNativeHook,
   ConnectorConfigError,
 } from "./core/define-connector.js";
 
@@ -50,6 +57,8 @@ export type {
   ActionDef,
   ActionResult,
   HostCtx,
+  TelemetryAccessor,
+  TelemetryUsageSummary,
   PlatformMemoryOverride,
   PlatformId,
   PlatformOverride,

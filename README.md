@@ -14,7 +14,7 @@
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-1483%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-1633%20passing-22c55e)
 
 ## Who this is for
 
@@ -102,7 +102,7 @@ installed into an isolated environment for every adapter and inspected on disk:
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **1483 tests passing** · `tsc` clean · build green.
+- **1633 tests passing** · `tsc` clean · build green.
 
 The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
 `configPatch` — went through the same bar: dogfooded against real connector
@@ -475,8 +475,8 @@ export default defineConnector({
   // ...
   statusline: defineStatusline({
     render(ctx) {
-      const pct = ctx.context?.percent ?? 0;
-      return `acme-db · ${pct}% ctx · $${(ctx.cost?.totalUsd ?? 0).toFixed(4)}`;
+      const model = ctx.model?.displayName ?? ctx.model?.id ?? "unknown";
+      return `acme-db · ${model} · $${(ctx.cost?.totalUsd ?? 0).toFixed(4)}`;
     },
   }),
 });
@@ -487,6 +487,12 @@ export default defineConnector({
 `cost` (`totalUsd`), `context` (`usedTokens` / `maxTokens` / `percent`),
 `transcriptPath`, and `raw` (the host's verbatim payload). Fields the host
 does not provide are `undefined`.
+
+> **`ctx.context` is reserved** — `context.usedTokens` / `maxTokens` / `percent`
+> are declared in `StatuslineContext` for a future AC-usage integration but are
+> **not populated by any v1 code path**. Rendering `ctx.context?.percent ?? 0`
+> always produces `0%`. Use `ctx.cost?.totalUsd` and `ctx.model?.displayName`
+> (both populated by claude-code) instead.
 
 **v1: claude-code only.** Install registers `settings.json.statusLine` via the
 same configPatch ownership ledger — **set-if-absent, never clobbers a
@@ -501,6 +507,54 @@ stdout so a HUD never wedges the host. `doctor` includes a dedicated
 > pass the `{ render }` object directly to `statusline:`. Both
 > `StatuslineDef` and `StatuslineContext` are exported from
 > `@ken-jo/agent-connector`.
+
+### Actions (`defineAction`) — user-triggered dispatch
+
+Declare named, user-invocable operations on your connector:
+
+```ts
+import { defineConnector, defineAction } from "@ken-jo/agent-connector";
+
+export default defineConnector({
+  id: "acme-db",
+  // ...
+  actions: [
+    defineAction({
+      id: "flush-cache",
+      description: "Flush the acme-db query cache",
+      async run(ctx) {
+        // ctx is HostCtx — same context object as hooks
+        await flushCache();
+        return { message: "Cache flushed." };
+      },
+    }),
+  ],
+});
+```
+
+The **universal verb** runs any declared action from the shell (or from a
+script / IDE task):
+
+```bash
+agent-connector action <platform> flush-cache --connector acme-db
+```
+
+`run(ctx)` executes and its optional `{ message }` return is printed to
+stdout. **Error semantics are user-triggered**: an unknown action id or a
+throw exits 1 and writes to stderr (unlike hooks and statusline, which are
+fail-safe/silent on error).
+
+`defineAction` is a typed identity helper and is exported from both
+`@ken-jo/agent-connector` and `@ken-jo/agent-connector/sdk`.
+`ActionDef = { id, description?, run, hosts? }` and `ActionResult = { message? }`.
+
+**v1: dispatch backbone only.** `install` skip-warns on every host — there
+is no host affordance emitter yet (binding a slash-command or keybinding to
+the verb requires generated IDE extensions, a later phase). The `action`
+verb is fully functional today; host-side registration is deferred.
+`explain()` emits action rows (skip-warn everywhere in v1); `simulate()`
+does not cover actions (actions take no host payload and have no host-honor
+verdict — intentional).
 
 ## How it works (operating model)
 

@@ -1646,8 +1646,20 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     // is not disabled for this host. settings.json.statusLine.command must be OUR
     // home-bin statusline command (ok); present but not ours → drifted/skip-warn
     // (never our concern to fix); absent → missing.
+    // Fire the check when the connector DECLARES a statusline (the live-config
+    // doctor path) OR when the ownership ledger holds a statusLine row this
+    // connector owns (the REGISTERED-connector path: connectorFromMeta can't
+    // re-expose the render fn, so statusline comes back undefined — but the
+    // ledger row proves the surface was wired). Mirrors uninstallStatusline,
+    // which is also ledger-keyed; without this the wired statusLine has ZERO
+    // doctor coverage in the registered path (configPatchDiagnostics excludes it).
+    const statuslineLedgerOwned = ledgerEntriesOwnedBy(
+      loadConfigPatchLedger(ctx.dataRoot),
+      HOST,
+      connectorId,
+    ).some((e) => e.key === STATUSLINE_KEY);
     if (
-      ctx.connector.statusline != null &&
+      (ctx.connector.statusline != null || statuslineLedgerOwned) &&
       ctx.connector.platforms[HOST]?.statusline !== false
     ) {
       checks.push({

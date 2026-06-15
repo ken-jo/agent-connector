@@ -233,6 +233,20 @@ Distilled from the union of platform behaviors (report §3).
   check (`ok / present-but-not-ours / missing`). CLI verb:
   `agent-connector statusline <platform> --connector <id>` (internal, like
   `hook`/`serve`).
+- **`actions` (dispatch backbone)** — a connector declares `actions?:
+  ActionDef[]`. Each `ActionDef = { id: string; description?: string; run:
+  (ctx: HostCtx) => ActionResult | void | Promise<…>; hosts?: per-host run
+  override }`. The universal verb `agent-connector action <platform> <actionId>
+  --connector <id>` loads the connector and invokes `run(ctx)`. Error semantics
+  are USER-TRIGGERED (not fail-safe-silent like hooks/statusline): unknown action
+  id or a throw → exit 1 + stderr. `defineAction({ id, run })` is the typed
+  authoring helper (exported from root and `/sdk`). **v1 = dispatch backbone
+  only**: install honestly skip-warns on every host — no host affordance emitter
+  yet (binding a slash-command or keybinding to the verb requires generated IDE
+  extensions, a later phase). `actions` is a real member of the `SurfaceName`
+  introspection vocabulary; `explain()` emits action rows (skip-warn everywhere
+  in v1); `simulate()` does not cover actions (an action takes no host payload
+  and has no host-honor verdict — intentional).
 - **`configPatch`** — the third (and smallest) escape hatch beside `extra` and
   `nativeHooks`: a declarative, ownership-tracked patch of ONE host-exclusive
   config key `extra` cannot reach (`extra` merges into the native MCP ENTRY /
@@ -387,6 +401,8 @@ type and return the definition unchanged; validation stays inside
 
 - `defineConnector(config)` — existing; the root definition entry point.
 - `defineStatusline({ render })` — existing; typed to `StatuslineDef`.
+- `defineAction({ id, run })` — typed to `ActionDef`; see the action surface
+  below.
 - `defineCommand`, `defineSkill`, `defineSubagent`, `defineMemory`,
   `defineConfigPatch`, `defineNativeHook` — each `(def) => def`, typed to
   its `*Def`.
@@ -409,7 +425,8 @@ type and return the definition unchanged; validation stays inside
   host's capability flags; `undefined` for an unrecognized id.
 - `hostsSupporting(surface): Promise<PlatformId[]>` — which registered hosts
   honor a surface. `surface` is a `SurfaceName`: `server | hooks | commands |
-  skills | subagents | memory | statusline | configPatch | nativeHooks`.
+  skills | subagents | memory | statusline | configPatch | nativeHooks |
+  actions`.
 - `surfaceSupport(host, surface): Promise<boolean>` — per-host / per-surface
   convenience predicate.
 - `SURFACE_PREDICATES` — the per-surface capability predicate map, exported
