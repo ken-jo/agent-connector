@@ -493,7 +493,7 @@ Marker + edit-detection semantics:
   matches); stray lone markers are recovered (backup + strip the marker line
   only), and duplicate pairs from past bugs collapse into one on every upsert.
 
-**AGENTS.md-first policy (where the block goes).** 27 of the 29 registered
+**AGENTS.md-first policy (where the block goes).** 29 of the 31 registered
 hosts read the open AGENTS.md standard (https://agents.md — plain-markdown "README
 for agents", stewarded by the Agentic AI Foundation under the Linux Foundation),
 so the default target is the standard file. Project scope →
@@ -1128,7 +1128,7 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 
 ---
 
-## 6. Supported platforms (29, by hook paradigm)
+## 6. Supported platforms (31, by hook paradigm)
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
@@ -1169,14 +1169,16 @@ Detection surfaces "hooks unavailable here."
 | Mux | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 
-### `ts-plugin` — framework-generated bridge module (5)
+### `ts-plugin` — framework-generated bridge module (7)
 
 | Platform | id | Mechanism |
 |---|---|---|
 | OpenCode | `opencode` | generated exported plugin module importing your handler |
+| MiMoCode | `mimo-code` | OpenCode fork (Xiaomi @mimo-ai/cli, bin `mimo`); generated plugin module in `~/.config/mimocode/plugin/` (MCP root key `mcp` in `mimocode.json`) |
 | Kilo CLI | `kilo-cli` | generated `@kilocode/plugin` module registered in kilo.jsonc's `plugin` array |
 | Kilo Code | `kilo` | generated plugin module in `.kilo/plugin/` (7.x extension shares the Kilo CLI backend) |
 | OMP | `omp` | generated plugin module |
+| NemoClaw | `nemoclaw` | NVIDIA OpenClaw wrapper/fork; generated plugin module + DUAL REGISTRATION in the wrapped `~/.openclaw/openclaw.json` (detected via `~/.nemoclaw/`) |
 | OpenClaw | `openclaw` | generated plugin module |
 
 (`PlatformId` also includes `synthetic` and `unknown` sentinels used internally.)

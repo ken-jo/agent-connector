@@ -69,6 +69,15 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "opencode",
     load: () => import("./opencode/index.js").then((m) => m.default),
   },
+  // mimo-code is Xiaomi's MiMoCode (@mimo-ai/cli, bin `mimo`) — an OpenCode FORK
+  // (ts-plugin, MCP root key "mcp", ~/.config/mimocode/mimocode.json). Grouped
+  // beside the OpenCode family whose config dialect + plugin contract it shares;
+  // detected via the DISTINCT ~/.config/mimocode dir, so there is no fork-ordering
+  // constraint vs opencode (no shared config file to disambiguate).
+  {
+    id: "mimo-code",
+    load: () => import("./mimo-code/index.js").then((m) => m.default),
+  },
   // kilo-cli is the SQLite-backed OpenCode FORK command-line product (ts-plugin,
   // loads @kilocode/plugin modules registered in kilo.jsonc's "plugin" array;
   // MCP root key "mcp", ~/.config/kilo/kilo.jsonc). Grouped beside the OpenCode
@@ -167,6 +176,19 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
   {
     id: "omp",
     load: () => import("./omp/index.js").then((m) => m.default),
+  },
+  // nemoclaw BEFORE openclaw (fork-before-parent convention). NVIDIA NemoClaw
+  // wraps OpenClaw and DRIVES the SAME ~/.openclaw/openclaw.json, so a NemoClaw
+  // box carries BOTH the ~/.nemoclaw/ and ~/.openclaw/ markers. Exclusivity is
+  // enforced at the SOURCE: OpenClawAdapter.detectInstalled BOWS OUT when
+  // ~/.nemoclaw/ is present, so the shared config is never double-targeted as two
+  // platforms. This ordering is the deterministic tie-break (matching the
+  // antigravity-cli/antigravity precedent). nemoclaw extends OpenClawAdapter
+  // (id/name/detection overridden), so inherited server/hook registration still
+  // lands in the wrapped openclaw.json.
+  {
+    id: "nemoclaw",
+    load: () => import("./nemoclaw/index.js").then((m) => m.default),
   },
   {
     id: "openclaw",

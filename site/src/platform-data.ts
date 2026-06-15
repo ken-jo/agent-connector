@@ -97,14 +97,14 @@ const s = (
  * hostNative PROVENANCE (order: mcp/hooks/commands/skills/subagents/memory).
  * Fact base, strongest-first: the AC research corpus (docs/research/*.json +
  * each adapter's header comment), the 0.2.0 release skills audit, the 20-host
- * hook-extension survey (live official docs, 2026-06-11), the 29-host
+ * hook-extension survey (live official docs, 2026-06-11), the 31-host
  * memory-surface matrix, and targeted official-doc fetches (2026-06-12) for
  * cells the corpus left uncertain. Rule applied throughout: a claimed gap
  * (hostNative=true while surfaces=false) requires positive evidence; genuinely
  * uncertain cells default to matching our support — no guessed gaps.
  *
  * Cross-cutting facts:
- *   - memory: ALL 29 hosts natively read a rules/memory file (29-host memory
+ *   - memory: ALL 31 hosts natively read a rules/memory file (31-host memory
  *     matrix; AGENTS.md or a host-specific equivalent). hostNative.memory=true
  *     everywhere.
  *   - hooks: the 20 json-stdio/ts-plugin hosts all expose a native hook or
@@ -258,6 +258,17 @@ export const platforms: Platform[] = [
     name: "OpenCode",
     paradigm: "ts-plugin",
     surfaces: s(true, true, true, true, true, true),
+    hostNative: s(true, true, true, true, true, true),
+  },
+  {
+    id: "mimo-code",
+    name: "MiMoCode",
+    paradigm: "ts-plugin",
+    surfaces: s(true, true, true, true, true, true),
+    // Xiaomi MiMoCode (github.com/XiaomiMiMo/MiMo-Code, @mimo-ai/cli) is a FORK
+    // of OpenCode — it inherits OpenCode's six surfaces (MCP root key "mcp",
+    // ts-plugin hooks, commands/skills/subagents under <mcDir>, AGENTS.md +
+    // CLAUDE.md memory). Mirrors the OpenCode wall row; no verified divergence.
     hostNative: s(true, true, true, true, true, true),
   },
   {
@@ -422,6 +433,19 @@ export const platforms: Platform[] = [
     paradigm: "ts-plugin",
     surfaces: s(true, true, false, false, false, true),
     hostNative: s(true, true, false, false, false, true),
+  },
+  {
+    id: "nemoclaw",
+    name: "NVIDIA NemoClaw",
+    paradigm: "ts-plugin",
+    surfaces: s(true, true, false, false, false, true),
+    // NVIDIA NemoClaw (github.com/NVIDIA/NemoClaw) WRAPS OpenClaw and writes the
+    // SAME ~/.openclaw/openclaw.json — it extends OpenClawAdapter, so its surfaces
+    // are OpenClaw's verbatim (MCP nested mcp.servers, ts-plugin hooks, memory).
+    // GAPS mirror OpenClaw: skills (docs.openclaw.ai/tools/skills) + subagents
+    // (sub-agent runs + agents.list). NemoClaw ships NO Claude-style hooks of its
+    // own, but inherits OpenClaw's plugin-hook machinery → hooks stays honest.
+    hostNative: s(true, true, false, true, true, true),
   },
   {
     id: "openclaw",

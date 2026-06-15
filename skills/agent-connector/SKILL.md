@@ -1,6 +1,6 @@
 ---
 name: agent-connector
-description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks (12 normalized events + a native-event passthrough), slash commands, Agent Skills, subagents, or standing AGENTS.md guidance (memory) ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 29 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
+description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks (12 normalized events + a native-event passthrough), slash commands, Agent Skills, subagents, or standing AGENTS.md guidance (memory) ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 31 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
 ---
 
 # agent-connector
@@ -101,7 +101,7 @@ export default defineConnector({
 
   // Standing guidance (memory) — written ONCE as a marker-fenced, hash-stamped
   // managed block into the memory file each host actually reads: the standard
-  // AGENTS.md on 27 of the 29 hosts, CLAUDE.md on Claude Code (opt-in
+  // AGENTS.md on 29 of the 31 hosts, CLAUDE.md on Claude Code (opt-in
   // `platforms["claude-code"].memory.mode: "agents-import"` manages an @AGENTS.md
   // bridge instead), GEMINI.md on Gemini CLI. User edits inside the block are
   // hash-detected and never clobbered (`install --force` overrides after a backup);

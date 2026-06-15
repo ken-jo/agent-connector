@@ -222,7 +222,10 @@ interface OpenClawPluginEntry {
 
 export class OpenClawAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
-  readonly name = "OpenClaw";
+  // Declared as `string` (not the literal "OpenClaw") so a fork adapter can
+  // override it — NemoClaw extends this class (precedent: AntigravityAdapter,
+  // whose name is likewise typed `string` for AntigravityCliAdapter).
+  readonly name: string = "OpenClaw";
   readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
@@ -324,7 +327,15 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const userDir = join(homedir(), ".openclaw");
     const projectConfig = join(projectDir, "openclaw.json");
 
-    const userInstalled = existsSync(userConfig) || existsSync(userDir);
+    // Fork-before-parent at DETECTION: NemoClaw DRIVES ~/.openclaw/openclaw.json,
+    // so on a NemoClaw box (its ~/.nemoclaw/ marker present) the user-scope
+    // OpenClaw config is nemoclaw-OWNED — defer so the planner does not double-
+    // target the shared file as two platforms (an `uninstall openclaw` would
+    // otherwise strip the connector's entries out from under nemoclaw). The
+    // NemoClaw adapter overrides detectInstalled, so it is unaffected by this.
+    const deferToNemoClaw = existsSync(join(homedir(), ".nemoclaw"));
+    const userInstalled =
+      !deferToNemoClaw && (existsSync(userConfig) || existsSync(userDir));
     const projInstalled = existsSync(projectConfig);
     const installed = userInstalled || projInstalled;
 
@@ -415,7 +426,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
 
   /** Resolve the per-platform server override into an effective ServerDef. */
   private effectiveServer(ctx: InstallContext): ServerDef | undefined {
-    const override = ctx.connector.platforms[HOST]?.server;
+    const override = ctx.connector.platforms[this.id]?.server;
     if (override === false) return undefined;
     const base = ctx.connector.server;
     if (!base) return undefined;
@@ -575,9 +586,9 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const pluginPath = this.getHookConfigPath(ctx);
     const configPath = this.getServerConfigPath(ctx);
 
-    if (ctx.connector.platforms[HOST]?.hooks === false) {
+    if (ctx.connector.platforms[this.id]?.hooks === false) {
       return [
-        { platform: this.id, action: "skip", path: pluginPath, detail: "hooks disabled for openclaw" },
+        { platform: this.id, action: "skip", path: pluginPath, detail: `hooks disabled for ${this.id}` },
       ];
     }
     if (ctx.connector.hookEvents.length === 0) {
@@ -895,7 +906,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       "    // On Windows HOME_BIN is the agent-connector.cmd launcher: Node cannot\n" +
       "    // execFile a batch file, and shell+args is deprecated (DEP0190), so run\n" +
       "    // one quoted command line via a shell. POSIX keeps the direct execFile.\n" +
-      '    const args = ["hook", "openclaw", event, "--connector", CONNECTOR_ID];\n' +
+      '    const args = ["hook", ' + JSON.stringify(this.id) + ', event, "--connector", CONNECTOR_ID];\n' +
       '    const opts = { input: JSON.stringify(payload), encoding: "utf8" };\n' +
       "    const stdout =\n" +
       '      process.platform === "win32"\n' +
@@ -1100,7 +1111,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
     const input = (raw ?? {}) as OpenClawBridgePayload;
     const base = {
-      hostPlatform: HOST,
+      hostPlatform: this.id,
       connectorId: "",
       sessionId: typeof input.sessionId === "string" ? input.sessionId : "",
       raw,

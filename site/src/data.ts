@@ -56,7 +56,7 @@ export const paradigms: Paradigm[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (29) — single-sourced in ./platform-data (registry order, */
+/* Platforms (31) — single-sourced in ./platform-data (registry order, */
 /* per-host surface profiles, drift-tested against the adapters).      */
 /* ------------------------------------------------------------------ */
 
@@ -82,7 +82,7 @@ export interface Pillar {
 export const pillars: Pillar[] = [
   {
     eyebrow: "Pillar 01",
-    title: "One API → 29 platforms",
+    title: "One API → 31 platforms",
     summary:
       "Declare your server, hooks, commands, skills, subagents & memory once with defineConnector. The CLI detects every installed host and renders the right native config in each.",
     points: [
@@ -172,7 +172,7 @@ export const surfaces: Surface[] = [
   {
     name: "Memory",
     description:
-      "Write guidance once — it lands in the standard AGENTS.md on 27 of 29 hosts as reversible managed blocks (CLAUDE.md / GEMINI.md natively on the rest).",
+      "Write guidance once — it lands in the standard AGENTS.md on 29 of 31 hosts as reversible managed blocks (CLAUDE.md / GEMINI.md natively on the rest).",
     icon: BookOpen,
   },
 ];
@@ -206,7 +206,7 @@ export const installMethods: InstallMethod[] = [
     title: "Direct config-write",
     summary:
       "Writes each host's native MCP + hook/plugin config in place — idempotent, reversible, no submission or review.",
-    scope: "All 29 platforms",
+    scope: "All 31 platforms",
   },
   {
     id: "marketplace",
