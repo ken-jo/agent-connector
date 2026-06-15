@@ -60,6 +60,7 @@ import type {
   HookEventName,
   HookParadigm,
   HookResponse,
+  JsonValue,
   NotificationEvent,
   PermissionRequestEvent,
   PlatformCapabilities,
@@ -72,6 +73,7 @@ import type {
   SessionEndEvent,
   SessionStartEvent,
   SkillDef,
+  StatuslineContext,
   StopEvent,
   SubagentDef,
   SubagentStartEvent,
@@ -84,13 +86,41 @@ import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { writeTomlString } from "../../core/toml.js";
 import {
   buildHomeBinHookCommand,
+  buildHomeBinStatuslineCommand,
   buildServeWrapperCommand,
   isHomeBinHookCommand,
+  isHomeBinStatuslineCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import {
+  type ConfigPatchLedgerEntry,
+  addLedgerOwner,
+  createLedgerEntry,
+  describeJsonValue,
+  dropLedgerEntry,
+  findLedgerEntry,
+  hashJsonValue,
+  jsonDeepEquals,
+  ledgerEntriesOwnedBy,
+  loadConfigPatchLedger,
+  removeLedgerOwner,
+  saveConfigPatchLedger,
+} from "../../core/config-patch-ledger.js";
 
 const HOST: PlatformId = "qwen-code";
 const MCP_ROOT_KEY = "mcpServers";
+
+/**
+ * settings.json leaf key the statusline surface owns on Qwen. UNLIKE claude-code
+ * (a top-level `statusLine` leaf), Qwen nests its status-line config under `ui`
+ * (`{ ui: { statusLine: { type:"command", command, refreshInterval? } } }` in
+ * ~/.qwen/settings.json; verified against the qwen-code status-line docs and
+ * QwenLM/qwen-code settings.md, shipped v0.14.3 / PR #2923). We own the
+ * `ui.statusLine` leaf via the SAME refcounted ownership ledger as configPatch
+ * (the ledger is surface-agnostic) — never clobbering a `ui.statusLine` a user
+ * already set.
+ */
+const STATUSLINE_KEY = "ui.statusLine";
 
 /** A single hook registration entry as Qwen stores it (Claude-shaped, nested). */
 interface QwenHookEntry {
@@ -103,6 +133,30 @@ interface QwenSettingsFile {
   mcpServers?: Record<string, unknown>;
   hooks?: Record<string, QwenHookEntry[]>;
   [key: string]: unknown;
+}
+
+/**
+ * Qwen's statusLine command stdin payload (the documented status-line input Qwen
+ * pipes to the command, read once). Every field optional — a refresh only carries
+ * what the host knows. Unmodeled fields (version, git, metrics, vim) stay in
+ * StatuslineContext.raw. Sources: qwenlm.github.io/qwen-code-docs status-line page,
+ * QwenLM/qwen-code settings.md.
+ */
+interface QwenStatuslineInput {
+  session_id?: string;
+  version?: string;
+  model?: { display_name?: string };
+  context_window?: {
+    context_window_size?: number;
+    used_percentage?: number;
+    remaining_percentage?: number;
+    current_usage?: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+  };
+  workspace?: { current_dir?: string };
+  git?: { branch?: string };
+  vim?: { mode?: string };
 }
 
 /**
@@ -214,6 +268,14 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // Statusline surface: qwen-code is the 2nd v1 host (after claude-code).
+    // installStatusline wires settings.json `ui.statusLine` = {type:"command",
+    // command:<home-bin statusline cmd>} through the SAME refcounted ownership
+    // ledger as configPatch (never clobbers a ui.statusLine agent-connector does
+    // not own). The key is NESTED here (`ui.statusLine`), unlike claude-code's
+    // top-level `statusLine`. Confirmed config key + stdin payload against the
+    // qwen-code status-line docs (shipped v0.14.3, PR #2923).
+    supportsStatusline: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -528,6 +590,351 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Statusline surface (a HUD/status line) ────────────────────────────────
+  // Wires settings.json `ui.statusLine` = { type:"command", command:<home-bin
+  // statusline cmd> } through the SAME refcounted ownership ledger as configPatch
+  // (the ledger primitives are surface-agnostic). qwen-code does NOT advertise
+  // supportsConfigPatch, so — unlike claude-code, which routes the statusline
+  // through its private applyConfigPatches loop — this adapter performs the nested
+  // set-if-absent write directly with the exported ledger primitives. Semantics
+  // are identical: never clobber a ui.statusLine agent-connector does not own
+  // (skip-warn), record prior state + owner (refcounted across connectors),
+  // reversible by uninstallStatusline (last-owner-verified delete). The key is
+  // NESTED (`ui.statusLine`), so we own the `ui.statusLine` leaf — if the user
+  // already has it, we skip-warn and never touch their value.
+  //
+  // The home-bin command makes Qwen exec
+  // `<homeBin> statusline qwen-code --connector <id>` for every status refresh,
+  // which re-imports the connector module and renders the line (runtime/
+  // statusline-entrypoint). No telemetry in v1.
+
+  /** The statusLine config object value agent-connector writes at `ui.statusLine`. */
+  private statuslineValue(ctx: InstallContext): JsonValue {
+    const command = buildHomeBinStatuslineCommand(ctx.homeBinPath, HOST, ctx.connector.id);
+    return { type: "command", command };
+  }
+
+  override installStatusline(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.statusline == null) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no statusline" }];
+    }
+    if (connector.platforms[HOST]?.statusline === false) {
+      return [{ platform: this.id, action: "skip", detail: "statusline disabled for qwen-code" }];
+    }
+
+    const filePath = this.getServerConfigPath(ctx);
+    // OVERWRITE GUARD (upsertServerInJson precedent): never round-trip a
+    // present-but-unparseable settings file into `{}`.
+    if (this.isPresentButUnparseable(filePath)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail: `existing ${filePath} is not parseable; statusline left unapplied (back it up / fix it, then re-run)`,
+        },
+      ];
+    }
+    const settings = this.readJson<Record<string, unknown>>(filePath) ?? {};
+    if (typeof settings !== "object" || Array.isArray(settings)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail: `existing ${filePath} is not a JSON object; statusline left unapplied`,
+        },
+      ];
+    }
+
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    const desired = this.statuslineValue(ctx);
+    const segments = STATUSLINE_KEY.split(".");
+    const leaf = readJsonLeaf(settings, segments);
+    const entry = findLedgerEntry(ledger, HOST, filePath, STATUSLINE_KEY);
+    const changes: ChangeRecord[] = [];
+
+    if (leaf.kind === "blocked") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `statusline ${STATUSLINE_KEY} skipped: "${leaf.atPath}" exists but is not an ` +
+            `object — set ${STATUSLINE_KEY} manually if wanted`,
+        },
+      ];
+    }
+
+    if (leaf.kind === "absent") {
+      // SET-IF-ABSENT: the one write path. Intermediates (`ui`) created as needed.
+      writeJsonLeaf(settings, segments, desired);
+      this.writeJson(filePath, settings, ctx.dryRun);
+      if (entry) {
+        // Stale ledger row (key deleted out from under us): re-assert the value,
+        // keep existing owners (they still rely on the key), record what we wrote.
+        entry.writtenValue = desired;
+        entry.writtenValueHash = hashJsonValue(desired);
+        addLedgerOwner(entry, connector.id, connector.version);
+      } else {
+        createLedgerEntry(ledger, {
+          platform: HOST,
+          file: filePath,
+          key: STATUSLINE_KEY,
+          value: desired,
+          connectorId: connector.id,
+          connectorVersion: connector.version,
+        });
+      }
+      if (!ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+      changes.push({
+        platform: this.id,
+        action: "create",
+        path: filePath,
+        detail: `statusline ${STATUSLINE_KEY}: <absent> → ${describeJsonValue(desired)}`,
+      });
+      return changes;
+    }
+
+    // Key PRESENT — never overwrite; the only question is ownership/refcount.
+    if (!entry) {
+      // User- (or other-tool-) owned. No ownership is taken even when the values
+      // happen to match — uninstall must never delete a key we did not create.
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `statusline ${STATUSLINE_KEY} skipped: already set to ${describeJsonValue(leaf.value)} ` +
+            `(not created by agent-connector) — left untouched`,
+        },
+      ];
+    }
+
+    if (!jsonDeepEquals(leaf.value, entry.writtenValue)) {
+      // DRIFT: the user edited the value after we wrote it. Never revert.
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `statusline ${STATUSLINE_KEY}: value changed since install ` +
+            `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
+            `leaving in place`,
+        },
+      ];
+    }
+
+    if (jsonDeepEquals(desired, leaf.value)) {
+      // Same value we own: register as co-owner (refcount++) or idempotent skip.
+      const owners = entry.owners.map((o) => o.connectorId);
+      if (addLedgerOwner(entry, connector.id, connector.version)) {
+        if (!ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+        return [
+          {
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `statusline ${STATUSLINE_KEY} already installed; registered as co-owner (co-owned with ${owners.join(", ")})`,
+          },
+        ];
+      }
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: filePath,
+          detail: `statusline ${STATUSLINE_KEY} already installed`,
+        },
+      ];
+    }
+
+    // FIRST-WRITER-WINS: another connector owns the key with a different value.
+    return [
+      {
+        platform: this.id,
+        action: "warn",
+        path: filePath,
+        detail:
+          `statusline ${STATUSLINE_KEY} skipped: already owned by ${entry.owners
+            .map((o) => o.connectorId)
+            .join(", ")} with a different value — left untouched`,
+      },
+    ];
+  }
+
+  override uninstallStatusline(ctx: InstallContext): ChangeRecord[] {
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    // Release ONLY the ui.statusLine ledger row this connector owns (keyed off the
+    // ledger, not the declaration, so an id-only synthetic uninstall still reclaims
+    // it). Last-owner-verified delete: remove the key ONLY when last-owner ∧
+    // value-unchanged ∧ prior-absent (else skip-warn + leave the key).
+    const owned = ledgerEntriesOwnedBy(ledger, HOST, ctx.connector.id).filter(
+      (e) => e.key === STATUSLINE_KEY,
+    );
+    if (owned.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: "statusline: no ownership recorded; left untouched",
+        },
+      ];
+    }
+
+    const changes: ChangeRecord[] = [];
+    let ledgerMutated = false;
+
+    // All rows share one file (the scope-resolved settings.json), but group by
+    // file anyway so a scope drift between install and uninstall stays correct.
+    const byFile = new Map<string, ConfigPatchLedgerEntry[]>();
+    for (const entry of owned) {
+      const bucket = byFile.get(entry.file) ?? [];
+      bucket.push(entry);
+      byFile.set(entry.file, bucket);
+    }
+
+    for (const [filePath, entries] of byFile) {
+      const unparseable = this.isPresentButUnparseable(filePath);
+      const settings = unparseable ? null : this.readJson<Record<string, unknown>>(filePath);
+      let fileMutated = false;
+
+      for (const entry of entries) {
+        const { lastOwner } = removeLedgerOwner(entry, ctx.connector.id);
+        ledgerMutated = true;
+
+        if (!lastOwner) {
+          // Shared-flag case: A uninstalls, B still relies on the key.
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `statusline ${entry.key} retained: still owned by ${entry.owners
+              .map((o) => o.connectorId)
+              .join(", ")}`,
+          });
+          continue;
+        }
+
+        // Last owner out → the ledger row is dropped on every branch below; the
+        // KEY is removed only on the fully-verified branch.
+        dropLedgerEntry(ledger, entry);
+
+        if (unparseable) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: filePath,
+            detail: `statusline ${entry.key}: ${filePath} is not parseable; key left in place (ownership released)`,
+          });
+          continue;
+        }
+        if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `statusline ${entry.key} already absent (no settings file); ownership record dropped`,
+          });
+          continue;
+        }
+        const leaf = readJsonLeaf(settings, entry.key.split("."));
+        if (leaf.kind !== "present") {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `statusline ${entry.key} already absent; ownership record dropped`,
+          });
+          continue;
+        }
+        if (entry.prior?.present !== false || !jsonDeepEquals(leaf.value, entry.writtenValue)) {
+          // User edited the value after install (or the row predates the
+          // set-if-absent guarantee): deleting would clobber them. Leave it.
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: filePath,
+            detail:
+              `statusline ${entry.key}: value changed since install ` +
+              `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
+              `left in place`,
+          });
+          continue;
+        }
+
+        // VERIFIED: last owner + current === writtenValue + prior absent. Delete
+        // the leaf key (the `ui` intermediate we may have created is left in place).
+        deleteJsonLeaf(settings, entry.key.split("."));
+        fileMutated = true;
+        changes.push({
+          platform: this.id,
+          action: "remove",
+          path: filePath,
+          detail: `statusline ${entry.key} removed (was ${describeJsonValue(entry.writtenValue)})`,
+        });
+      }
+
+      if (fileMutated && settings) this.writeJson(filePath, settings, ctx.dryRun);
+    }
+
+    if (ledgerMutated && !ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+    return changes;
+  }
+
+  /**
+   * Parse Qwen's statusLine stdin JSON into the normalized
+   * {@link StatuslineContext}. Qwen pipes a JSON object to the statusLine command
+   * on stdin (model, context_window, workspace, git, …); fields the payload omits
+   * stay undefined. `raw` keeps the verbatim payload (incl. version/git/metrics/
+   * vim). NOTE: Qwen has NO cost analog (no cost field in the payload), so
+   * `ctx.cost` is intentionally left undefined. Sources: qwen-code status-line
+   * docs, QwenLM/qwen-code settings.md.
+   */
+  parseStatusInput(raw: unknown): StatuslineContext {
+    const input = (raw ?? {}) as QwenStatuslineInput;
+
+    const ctx: StatuslineContext = {
+      host: HOST,
+      capabilities: this.capabilities,
+      raw,
+    };
+    if (typeof input.session_id === "string" && input.session_id !== "") {
+      ctx.sessionId = input.session_id;
+    }
+    if (typeof input.workspace?.current_dir === "string") {
+      ctx.cwd = input.workspace.current_dir;
+    }
+    if (typeof input.model?.display_name === "string") {
+      ctx.model = { displayName: input.model.display_name };
+    }
+    const cw = input.context_window;
+    if (cw) {
+      const context: { usedTokens?: number; maxTokens?: number; percent?: number } = {};
+      if (typeof cw.context_window_size === "number") context.maxTokens = cw.context_window_size;
+      if (typeof cw.current_usage === "number") context.usedTokens = cw.current_usage;
+      if (typeof cw.used_percentage === "number") context.percent = cw.used_percentage;
+      if (
+        context.usedTokens !== undefined ||
+        context.maxTokens !== undefined ||
+        context.percent !== undefined
+      ) {
+        ctx.context = context;
+      }
+    }
+    // ctx.cost stays undefined: Qwen's status payload has no cost analog.
+    return ctx;
+  }
+
+  /** Format the rendered status line into Qwen's native reply: stdout = line, exit 0. */
+  formatStatusOutput(rendered: string): HookReply {
+    return { exitCode: 0, stdout: rendered };
+  }
+
   // ── Content surfaces: commands / subagents ───────────────────────────────
   // CONTENT-ONLY: pure native-file writers under <qwenDir>/{commands,agents}. No
   // runtime dispatch, no home-bin pointer, no telemetry wrap. Each method is
@@ -759,6 +1166,47 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
         name: `${this.name}: subagent ${agent.name} present`,
         check: () =>
           existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+
+    // Statusline check: assert it when the connector declares a statusline AND it
+    // is not disabled for this host, OR when the ownership ledger holds a
+    // ui.statusLine row this connector owns (the REGISTERED-connector path:
+    // connectorFromMeta can't re-expose the render fn, so statusline comes back
+    // undefined — but the ledger row proves the surface was wired). Mirrors
+    // claude-code's "statusline wired" check; ui.statusLine.command must be OUR
+    // home-bin statusline command (OK); present-but-not-ours / absent → FAIL.
+    const statuslineLedgerOwned = ledgerEntriesOwnedBy(
+      loadConfigPatchLedger(ctx.dataRoot),
+      HOST,
+      connectorId,
+    ).some((e) => e.key === STATUSLINE_KEY);
+    if (
+      (ctx.connector.statusline != null || statuslineLedgerOwned) &&
+      ctx.connector.platforms[HOST]?.statusline !== false
+    ) {
+      checks.push({
+        name: `${this.name}: statusline wired`,
+        check: () => {
+          const settings = this.readJson<{ ui?: { statusLine?: { command?: unknown } } }>(
+            settingsPath,
+          );
+          const command = settings?.ui?.statusLine?.command;
+          if (command === undefined) {
+            return { status: "FAIL", detail: `ui.statusLine not set in ${settingsPath}` };
+          }
+          if (
+            typeof command === "string" &&
+            isHomeBinStatuslineCommand(command, homeBin, connectorId)
+          ) {
+            return { status: "OK", detail: "ui.statusLine command present" };
+          }
+          // Present but not ours — a non-AC ui.statusLine we must never clobber.
+          return {
+            status: "FAIL",
+            detail: `ui.statusLine in ${settingsPath} is not agent-connector's (left untouched)`,
+          };
+        },
       });
     }
     return checks;
@@ -1036,6 +1484,77 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
   private stdout(payload: unknown): HookReply {
     return { exitCode: 0, stdout: JSON.stringify(payload) };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// JSON leaf-path helpers (statusline nested set-if-absent). Mirror claude-code's
+// file-local helpers (those are private to the claude-code module). The leaf
+// path here is the validated dotted `ui.statusLine`.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Result of looking up a dotted leaf path in a parsed JSON object. */
+type JsonLeafLookup =
+  | { kind: "absent" }
+  | { kind: "present"; value: JsonValue }
+  | { kind: "blocked"; atPath: string };
+
+/**
+ * Walk `segments` (a dotted leaf path) through `root`. "blocked" reports the
+ * first intermediate that exists but is not a plain object — the skip-warn case
+ * (we never replace a non-object intermediate, e.g. a user's `ui: "dark"`).
+ */
+function readJsonLeaf(root: Record<string, unknown>, segments: string[]): JsonLeafLookup {
+  let node: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const next = node[segments[i]!];
+    if (next === undefined) return { kind: "absent" };
+    if (next === null || typeof next !== "object" || Array.isArray(next)) {
+      return { kind: "blocked", atPath: segments.slice(0, i + 1).join(".") };
+    }
+    node = next as Record<string, unknown>;
+  }
+  const leaf = node[segments[segments.length - 1]!];
+  if (leaf === undefined) return { kind: "absent" };
+  return { kind: "present", value: leaf as JsonValue };
+}
+
+/**
+ * Write `value` at the leaf, creating ONLY absent intermediate objects along the
+ * way (callers must have verified the path is not blocked).
+ */
+function writeJsonLeaf(
+  root: Record<string, unknown>,
+  segments: string[],
+  value: JsonValue,
+): void {
+  let node: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i]!;
+    const next = node[seg];
+    if (next === undefined) {
+      const created: Record<string, unknown> = {};
+      node[seg] = created;
+      node = created;
+    } else {
+      node = next as Record<string, unknown>;
+    }
+  }
+  node[segments[segments.length - 1]!] = value;
+}
+
+/**
+ * Delete the leaf key only. Intermediate objects — even ones we created (the
+ * `ui` wrapper) — are deliberately left in place (harmless; pruning risks
+ * clobbering sibling keys the user set under `ui`).
+ */
+function deleteJsonLeaf(root: Record<string, unknown>, segments: string[]): void {
+  let node: Record<string, unknown> = root;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const next = node[segments[i]!];
+    if (next === null || typeof next !== "object" || Array.isArray(next)) return;
+    node = next as Record<string, unknown>;
+  }
+  delete node[segments[segments.length - 1]!];
 }
 
 /**
