@@ -232,7 +232,8 @@ describe("runAction", () => {
       actionId: "caps",
     });
     expect(res.exitCode).toBe(0);
-    // claude-code is a registered host; supportsActions is OFF in v1.
+    // claude-code is a registered host with no action emitter (not droid/hermes/
+    // warp), so supportsActions is OFF — the dispatch backbone runs regardless.
     expect(res.stdout).toBe("host=claude-code sa=false");
   });
 

@@ -33,7 +33,7 @@
  * also accepts native ${VAR}, but resolve-to-literal avoids surprises.
  */
 
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -188,6 +188,14 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // Actions: Droid runs EXECUTABLE files placed at <configDir>/commands/<id>
+    // (NO .md extension) via `/<id>` — "Executable files must start with a valid
+    // shebang so the CLI can call the interpreter" and stdout is returned to the
+    // transcript (docs.factory.ai/cli/configuration/custom-slash-commands). We
+    // write a POSIX shebang script that execs the home-bin action verb. The
+    // exec-file interpreter resolution is UNVERIFIED on win32, so the emitter
+    // skip-warns there (see installActions).
+    supportsActions: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -655,6 +663,68 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     if (agent.model !== undefined) frontmatter.model = agent.model;
     if (agent.extra) Object.assign(frontmatter, agent.extra);
     return this.renderFrontmatterMd(frontmatter, agent.prompt);
+  }
+
+  // ── Action surface (executable command file, NO .md extension) ────────────
+  // Each action emits an EXECUTABLE script at <configDir>/commands/<id> (no
+  // extension) whose shebang lets Droid's CLI exec it; it execs the home-bin
+  // action verb and forwards "$@". Invoked via `/<id>`, stdout → transcript
+  // (docs.factory.ai/cli/configuration/custom-slash-commands). chmod 0o755.
+  //
+  // COLLISION NOTE: the COMMAND surface writes commands/<name>.md; actions write
+  // commands/<id> (no extension) — different filenames, both register `/<name>`.
+  // A connector reusing one id for a command AND an action is the author's call.
+  //
+  // CROSS-OS: the shebang exec-file is POSIX. On win32 Droid's exec-file
+  // interpreter resolution is UNVERIFIED, so we skip-warn there and write nothing
+  // (honest degradation, like other Windows caveats in the codebase).
+
+  /** Native action file path: <configDir>/commands/<id> (NO .md extension). */
+  private actionPath(ctx: InstallContext, id: string): string {
+    return join(this.getConfigDir(ctx), "commands", id);
+  }
+
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.actions === false) {
+      return [{ platform: this.id, action: "skip", detail: "actions disabled for droid" }];
+    }
+    const triggers = this.actionTriggers(ctx);
+    if (triggers.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+    if (process.platform === "win32") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail: `droid action exec-files are unverified on Windows; ${triggers.length} skipped`,
+        },
+      ];
+    }
+    return triggers.map((trigger) => {
+      const path = this.actionPath(ctx, trigger.id);
+      const record = this.writeContentFile(path, this.renderActionScript(trigger.command), ctx.dryRun);
+      // Set the executable bit so Droid's CLI can call the interpreter. Only
+      // when we actually wrote (create/update) and not in dryRun.
+      if (record.action !== "skip" && !ctx.dryRun) chmodSync(path, 0o755);
+      return record;
+    });
+  }
+
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.actions.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+    return connector.actions.map((action) =>
+      this.removeContentFile(this.actionPath(ctx, action.id), ctx.dryRun),
+    );
+  }
+
+  /** Render the POSIX exec-file: shebang + `exec <action verb> "$@"`. */
+  private renderActionScript(command: string): string {
+    return `#!/usr/bin/env sh\nexec ${command} "$@"\n`;
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────

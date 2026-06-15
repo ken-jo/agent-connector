@@ -63,6 +63,7 @@ import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
+  isHomeBinActionCommand,
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
@@ -72,8 +73,20 @@ const HOST: PlatformId = "hermes";
 const MCP_ROOT_KEY = "mcp_servers";
 /** Top-level key under which Hermes stores shell hooks in config.yaml. */
 const HOOKS_KEY = "hooks";
+/**
+ * Top-level map under which Hermes stores `/<id>` slash commands. A
+ * `{ type: "exec", command }` entry runs the shell command directly, bypassing
+ * the LLM — the action emitter's target.
+ */
+const QUICK_COMMANDS_KEY = "quick_commands";
 /** Default per-hook timeout (seconds) when the connector declares none. */
 const DEFAULT_HOOK_TIMEOUT = 60;
+
+/** One Hermes quick-command entry (a `/<id>` slash command). */
+interface HermesQuickCommand {
+  type: "exec";
+  command: string;
+}
 
 /**
  * Canonical → Hermes native hook event name. Hermes keys its `hooks:` block by
@@ -177,6 +190,12 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // Hermes has no SSE transport.
     transports: ["stdio", "http"],
+    // Actions surface: Hermes ships `quick_commands.<id>: { type: "exec",
+    // command }` — a `/<id>` slash command that runs the shell command directly,
+    // bypassing the LLM (hermes-agent.nousresearch.com/docs/user-guide/cli:
+    // "custom commands that run shell commands instantly without invoking the
+    // LLM"). We emit one per declared action bound to the home-bin action verb.
+    supportsActions: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -465,6 +484,126 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
       return [{ platform: this.id, action: "skip", path, detail: "no matching hook entries" }];
     }
     return changes;
+  }
+
+  // ── Action surface (quick_commands map in the SAME config.yaml) ───────────
+  // Each declared action emits `quick_commands.<id>: { type: "exec", command }`
+  // where command is the home-bin action verb — a `/<id>` slash command that
+  // runs it directly, bypassing the LLM. MERGE-preserve: never clobber another
+  // entry. Set-if-absent per id; if `quick_commands.<id>` exists and is NOT
+  // ours, skip-warn (the configPatch ownership semantics).
+
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector, dryRun } = ctx;
+    const path = this.getHookConfigPath(ctx);
+
+    if (connector.platforms[HOST]?.actions === false) {
+      return [{ platform: this.id, action: "skip", path, detail: "actions disabled for hermes" }];
+    }
+    const triggers = this.actionTriggers(ctx);
+    if (triggers.length === 0) {
+      return [{ platform: this.id, action: "skip", path, detail: "connector declares no actions" }];
+    }
+
+    const cfg = readYaml<Record<string, unknown>>(path) ?? {};
+    const bucket = this.objectBucket(cfg, QUICK_COMMANDS_KEY);
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+
+    for (const trigger of triggers) {
+      const desired: HermesQuickCommand = { type: "exec", command: trigger.command };
+      const existing = bucket[trigger.id];
+      if (existing !== undefined) {
+        // Set-if-absent: only re-write an entry that is already OURS (an
+        // exec entry whose command is our action verb for this connector).
+        if (!this.isOurQuickCommand(existing, ctx)) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path,
+            detail: `${QUICK_COMMANDS_KEY}.${trigger.id} exists and is not ours — skipped`,
+          });
+          continue;
+        }
+        if (JSON.stringify(existing) === JSON.stringify(desired)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path,
+            detail: `${QUICK_COMMANDS_KEY}.${trigger.id}`,
+          });
+          continue;
+        }
+        bucket[trigger.id] = desired;
+        changes.push({
+          platform: this.id,
+          action: "update",
+          path,
+          detail: `${QUICK_COMMANDS_KEY}.${trigger.id}`,
+        });
+      } else {
+        bucket[trigger.id] = desired;
+        changes.push({
+          platform: this.id,
+          action: "create",
+          path,
+          detail: `${QUICK_COMMANDS_KEY}.${trigger.id}`,
+        });
+      }
+      mutated = true;
+    }
+
+    if (mutated) writeYaml(path, cfg, dryRun);
+    return changes;
+  }
+
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    const path = this.getHookConfigPath(ctx);
+    const cfg = readYaml<Record<string, unknown>>(path);
+    const bucketRaw = cfg?.[QUICK_COMMANDS_KEY];
+    if (
+      !cfg ||
+      !bucketRaw ||
+      typeof bucketRaw !== "object" ||
+      Array.isArray(bucketRaw)
+    ) {
+      return [{ platform: this.id, action: "skip", path, detail: "no quick_commands section present" }];
+    }
+    const bucket = bucketRaw as Record<string, unknown>;
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+    // Remove ONLY our exec entries; leave foreign entries (and the map itself
+    // when any remain) untouched.
+    for (const id of Object.keys(bucket)) {
+      if (!this.isOurQuickCommand(bucket[id], ctx)) continue;
+      delete bucket[id];
+      mutated = true;
+      changes.push({
+        platform: this.id,
+        action: "remove",
+        path,
+        detail: `${QUICK_COMMANDS_KEY}.${id}`,
+      });
+    }
+
+    if (mutated) {
+      // Drop an emptied map so we leave no orphan key behind.
+      if (Object.keys(bucket).length === 0) delete cfg[QUICK_COMMANDS_KEY];
+      writeYaml(path, cfg, ctx.dryRun);
+    }
+    if (changes.length === 0) {
+      return [{ platform: this.id, action: "skip", path, detail: "no matching quick_commands entries" }];
+    }
+    return changes;
+  }
+
+  /** True when a quick-command entry is OUR exec action verb for this connector. */
+  private isOurQuickCommand(entry: unknown, ctx: InstallContext): boolean {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const e = entry as Partial<HermesQuickCommand>;
+    if (e.type !== "exec" || typeof e.command !== "string") return false;
+    return isHomeBinActionCommand(e.command, ctx.homeBinPath, ctx.connector.id);
   }
 
   /** True when a hook command is ours (anchored home-bin + connector id). */
