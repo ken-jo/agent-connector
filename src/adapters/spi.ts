@@ -198,6 +198,18 @@ export interface Adapter {
   /** Format the rendered line into the host's native status reply (exit code + stdout). */
   formatStatusOutput?(rendered: string): HookReply;
 
+  // ── Action surface (a user-invokable action) ──────────────────────────────
+  // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the
+  // content-surface pattern). v1 ships only the dispatch BACKBONE: NO adapter
+  // EMITS a host affordance (the survey found no verifiable CLI emission
+  // target), so the BaseAdapter defaults honestly skip-warn on EVERY host and
+  // no adapter overrides them. A future affordance-emitter sets
+  // capabilities.supportsActions and overrides this pair.
+  /** Emit this host's affordance bound to `<homeBin> action <host> <id> --connector <id>`. */
+  installActions?(ctx: InstallContext): ChangeRecord[];
+  /** Inverse of installActions — remove only the affordances this connector emitted. */
+  uninstallActions?(ctx: InstallContext): ChangeRecord[];
+
   /** Back up the settings file(s) before mutation. Returns backup path or null. */
   backupSettings(ctx: InstallContext): string | null;
 

@@ -33,3 +33,9 @@ export type {
   RunStatuslineOptions,
   RunStatuslineResult,
 } from "./statusline-entrypoint.js";
+
+export { runAction } from "./action-entrypoint.js";
+export type {
+  RunActionOptions,
+  RunActionResult,
+} from "./action-entrypoint.js";

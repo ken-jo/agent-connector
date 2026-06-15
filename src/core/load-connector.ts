@@ -298,6 +298,11 @@ export function connectorFromMeta(meta: RegisteredMeta): ResolvedConnector {
     skills: meta.skills ?? [],
     subagents: meta.subagents ?? [],
     memory: meta.memory ?? [],
+    // Actions carry live `run` handlers, so they are NOT serialized into the
+    // record (like the statusline render). A handler-less meta-derived connector
+    // gets [] — inspection/uninstall never dispatch action handlers, and the
+    // BaseAdapter action default already tolerates an empty list.
+    actions: [],
     platforms: meta.platforms ?? {},
     targets: meta.targets,
   };

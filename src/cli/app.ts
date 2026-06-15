@@ -166,6 +166,10 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   // status line config points at. Fail-safe: always exits 0 with at most a
   // rendered line. See cli/commands/statusline.ts.
   statusline: () => import("./commands/statusline.js"),
+  // Internal (omitted from USAGE): the user-invokable action entrypoint a future
+  // host affordance points at. USER-TRIGGERED: surfaces errors (exit 1 + stderr),
+  // unlike the fail-open hook / fail-safe statusline. See cli/commands/action.ts.
+  action: () => import("./commands/action.js"),
   serve: () => import("./commands/serve.js"),
   // Hidden (omitted from USAGE): the opt-in host-native turn-usage entrypoint an
   // AfterModel / PostInvocation hook points at. Always exits 0; records a
@@ -207,6 +211,8 @@ const COMMAND_USAGE: Record<string, string> = {
   hook: "hook <platform> <event> --connector <id>   (internal — host hook configs point here)",
   statusline:
     "statusline <platform> --connector <id>   (internal — host status line configs point here)",
+  action:
+    "action <platform> <actionId> --connector <id>   (internal — host action affordances point here)",
   serve:
     "serve --connector <id> [--scope user|project] [--host <platformId>] -- <command> [args...]   (internal — host MCP entries point here)",
 };

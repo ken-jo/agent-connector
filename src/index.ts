@@ -13,6 +13,7 @@
 export {
   defineConnector,
   defineStatusline,
+  defineAction,
   ConnectorConfigError,
 } from "./core/define-connector.js";
 
@@ -46,6 +47,8 @@ export type {
   MemoryDef,
   StatuslineDef,
   StatuslineContext,
+  ActionDef,
+  ActionResult,
   HostCtx,
   PlatformMemoryOverride,
   PlatformId,

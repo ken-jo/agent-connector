@@ -76,6 +76,7 @@ describe("SURFACE_PREDICATES", () => {
     const names = Object.keys(SURFACE_PREDICATES).sort();
     expect(names).toEqual(
       [
+        "actions",
         "commands",
         "configPatch",
         "hooks",

@@ -575,6 +575,18 @@ export interface PlatformCapabilities {
    * `<homeBin> statusline <host> --connector <id>`.
    */
   supportsStatusline?: boolean;
+  /**
+   * Action-surface support — can this adapter EMIT a host affordance (slash
+   * command / keybinding / clickable element) bound to the universal
+   * `<homeBin> action <host> <actionId> --connector <id>` verb? OPTIONAL, read
+   * as `?? false` (supportsStatusline precedent). v1 ships only the dispatch
+   * BACKBONE — no adapter sets this true, because the host-feasibility survey
+   * found no verifiable CLI emission target (slash commands are prompt
+   * templates that cannot run a shell verb; plugin APIs expose no command
+   * registration). It is the flag a future affordance-emitter flips; until then
+   * every adapter's BaseAdapter install/uninstall defaults honestly skip-warn.
+   */
+  supportsActions?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -779,6 +791,52 @@ export interface StatuslineDef {
   hosts?: Partial<Record<PlatformId, { render: StatuslineDef["render"] }>>;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Action surface (a user-invokable action) — a HANDLER surface, declared once.
+// Like the statusline this is a runtime-dispatched handler (the host execs the
+// home binary, which re-imports the connector module and calls run()), NOT a
+// pure file writer. UNLIKE the statusline it is USER-TRIGGERED: errors are
+// SURFACED (exit 1 + stderr), never failed silently. v1 ships the dispatch
+// backbone only — the affordance EMISSION (binding a host slash/keybinding to
+// the verb) is a later phase, so no adapter sets supportsActions yet.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** What an action's run() returns. v1 minimal: an optional user-facing message. */
+export interface ActionResult {
+  message?: string;
+}
+
+/**
+ * A user-invokable action: an id + a run(ctx) handler. The connector binds it to
+ * a host affordance (slash command / keybinding) in a LATER phase; v1 ships the
+ * dispatch backbone (the `agent-connector action` verb runs run(ctx)). run
+ * receives the shared {@link HostCtx} (host + capabilities; no stdin — an action
+ * takes no host payload, unlike a hook or status line). The handler lives in the
+ * connector module and is re-imported at runtime (like hook handlers /
+ * statusline.render), so it must survive defineConnector resolution as a live
+ * function.
+ */
+export interface ActionDef {
+  /** kebab-case id; unique within the connector. The verb's positional arg. */
+  id: string;
+  /** One-line "what this action does" — status/docs output only. */
+  description?: string;
+  /**
+   * The action handler. Receives the normalized {@link HostCtx}; an optional
+   * {@link ActionResult} return prints its `message` to the user. Re-imported at
+   * runtime via the connector module path (like hook handlers).
+   */
+  run: (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
+  /**
+   * Per-host run override. When dispatching for host X, `hosts[X].run` WINS over
+   * the top-level `run`; a host not listed here falls back to the top-level run.
+   * Same shape/semantics as {@link StatuslineDef.hosts}: keys MUST be registered
+   * platform ids and each entry's run MUST be a function (validated at
+   * defineConnector). The top-level `run` is ALWAYS the mandatory fallback.
+   */
+  hosts?: Partial<Record<PlatformId, { run: ActionDef["run"] }>>;
+}
+
 /** Per-host memory tuning — the object form of {@link PlatformOverride.memory}. */
 export interface PlatformMemoryOverride {
   /**
@@ -952,6 +1010,13 @@ export interface ConnectorConfig {
    * status line. Omit when the connector ships none.
    */
   statusline?: StatuslineDef;
+  /**
+   * User-invokable actions (each an id + run(ctx) handler the universal
+   * `agent-connector action` verb dispatches). Omit when the connector ships
+   * none. The host-affordance binding is a later phase; v1 ships the dispatch
+   * backbone only.
+   */
+  actions?: ActionDef[];
   /** Per-platform overrides / escape hatches. */
   platforms?: Partial<Record<PlatformId, PlatformOverride>>;
   /** "auto" (all detected) or an explicit allow-list. Default "auto". */
@@ -990,6 +1055,13 @@ export interface ResolvedConnector {
    * hook handlers).
    */
   statusline?: StatuslineDef;
+  /**
+   * Normalized actions (each id defaulted/validated kebab-case + unique); [] when
+   * none. Carries the live `run` handlers, so it survives defineConnector but NOT
+   * JSON serialization (re-imported at runtime, like hook handlers / the
+   * statusline render).
+   */
+  actions: ActionDef[];
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   /** Distribution metadata (registry server.json + MCPB bundle); passed through verbatim. */

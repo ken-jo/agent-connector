@@ -29,6 +29,7 @@ export type SurfaceName =
   | "subagents"
   | "memory"
   | "statusline"
+  | "actions"
   | "configPatch"
   | "nativeHooks";
 
@@ -65,6 +66,10 @@ export const SURFACE_PREDICATES: Record<
   subagents: (c) => c.supportsSubagents ?? false,
   memory: (c) => c.supportsMemory ?? false,
   statusline: (c) => c.supportsStatusline ?? false,
+  // v1: no adapter sets supportsActions (no affordance emitter yet), so this is
+  // false everywhere and explain() marks actions skip-warn on every host — the
+  // honest state until the affordance emitter ships.
+  actions: (c) => c.supportsActions ?? false,
   configPatch: (c) => c.supportsConfigPatch ?? false,
   nativeHooks: (c) => c.supportsNativeHooks ?? false,
 };

@@ -271,6 +271,17 @@ export async function installConnector(
         pushAll(result.changes, adapter.installStatusline!(ctx));
       });
     }
+
+    // Actions (user-invokable handlers) install LAST — after the statusline.
+    // BaseAdapter defines installActions (skip-warn on EVERY host in v1 — there
+    // is no verifiable affordance to emit yet), so the `!` is safe and the call
+    // self-skip-warns. Gated on the declaration so undeclared adds no noise.
+    // (`?? []` tolerates pre-actions-surface resolved connectors.)
+    if ((connector.actions ?? []).length) {
+      runStep(id, "installActions", result, () => {
+        pushAll(result.changes, adapter.installActions!(ctx));
+      });
+    }
   }
 
   return result;
@@ -321,6 +332,17 @@ export async function uninstallConnector(
     if (!adapter) continue;
 
     const ctx = buildContext(connector, id, scope, projectDir, dryRun);
+
+    // Actions uninstall FIRST — the inverse of their install-LAST position.
+    // Gated on the declaration (NOT adapter support): v1 emits no affordance and
+    // keeps no ledger, so uninstallActions only ever skip-warns — but running it
+    // when actions are declared keeps the uninstall diff symmetric with install
+    // (never silent). (`?? []` tolerates pre-actions-surface resolved connectors.)
+    if ((connector.actions ?? []).length) {
+      runStep(id, "uninstallActions", result, () => {
+        pushAll(result.changes, adapter.uninstallActions!(ctx));
+      });
+    }
 
     // Statusline (a HUD) uninstalls FIRST — the inverse of its install-LAST
     // position. Gated on adapter support (not the declaration): the adapter's
@@ -702,6 +724,7 @@ function syntheticConnector(id: string): ResolvedConnector {
     skills: [],
     subagents: [],
     memory: [],
+    actions: [],
     platforms: {},
     targets: "auto",
   };

@@ -74,6 +74,7 @@ function declaredGlobalSurfaces(connector: ResolvedConnector): SurfaceName[] {
   if (connector.subagents.length > 0) out.push("subagents");
   if (connector.memory.length > 0) out.push("memory");
   if (connector.statusline) out.push("statusline");
+  if (connector.actions.length > 0) out.push("actions");
   return out;
 }
 
@@ -123,8 +124,10 @@ function isDisabledForHost(
       return override.memory === false;
     case "statusline":
       return override.statusline === false;
+    case "actions":
     case "configPatch":
     case "nativeHooks":
+      // No per-host boolean opt-out form (declaring them is the opt-in).
       return false;
   }
 }
