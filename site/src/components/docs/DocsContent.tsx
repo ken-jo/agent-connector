@@ -117,7 +117,7 @@ export function Introduction() {
         It generalizes context-mode&apos;s proven adapter layer into a reusable
         framework: where context-mode hardcoded the served identity, here the
         identity is a parameter you supply via <C>defineConnector</C>. It ships{" "}
-        <strong>31 registered deploy adapters</strong> grouped into three hook
+        <strong>32 registered deploy adapters</strong> grouped into three hook
         paradigms (install targets the hosts detected on your machine, or the
         targets you name — never all 31 unconditionally), and is Windows-first
         (no symlinks, no POSIX-only assumptions).
@@ -212,7 +212,7 @@ export function QuickStart() {
         for the full field reference. Every command is idempotent, reversible,
         and <C>--dry-run</C>-able. <C>install</C> targets the hosts{" "}
         <strong>detected</strong> on your machine (or an explicit{" "}
-        <C>--targets</C> list), intersected with the 31-adapter registry.
+        <C>--targets</C> list), intersected with the 32-adapter registry.
       </P>
       <CodeBlock
         code={S.defineConnectorSnippet}
@@ -754,7 +754,7 @@ export function SurfacesSection() {
 
       <H3 id="memory-targets">AGENTS.md-first: where the block goes</H3>
       <P>
-        <strong>29 of the 31 hosts read the open{" "}
+        <strong>29 of the 32 hosts read the open{" "}
         <a
           className="underline hover:text-foreground"
           href="https://agents.md"
@@ -1709,7 +1709,7 @@ export function PlatformsSection() {
     <DocSection id="platforms" eyebrow="Reference" title="Platforms">
       <Lead>
         <C>PlatformId</C> is a closed union with one adapter registry entry per
-        platform — <strong>31</strong> hosts, grouped by hook paradigm (the
+        platform — <strong>32</strong> hosts, grouped by hook paradigm (the
         deepest cross-platform divergence).
       </Lead>
       {/* counts derive from the entry lists (which the drift-guard test pins
