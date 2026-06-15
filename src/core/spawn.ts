@@ -55,6 +55,20 @@ export function quoteArg(arg: string): string {
 }
 
 /**
+ * True when `hay` (slash-normalized) has the quoted home-bin path IMMEDIATELY
+ * followed by `verb` — i.e. the verb sits in its command SLOT (right after the
+ * home binary), not merely somewhere in the argument list. This distinguishes
+ * `"<bin>" statusline …` from `"<bin>" action … statusline …`: the action verb
+ * takes a free-form `actionId` positional that can legitimately equal another
+ * verb's name (`statusline` / `usage-event` / `hook`), and only the SLOT
+ * position identifies the real verb. `homeBinNorm` is the slash-normalized
+ * home-bin path the caller already derived.
+ */
+function hasVerbSlot(hay: string, homeBinNorm: string, verb: string): boolean {
+  return hay.includes(`"${homeBinNorm}" ${verb} `);
+}
+
+/**
  * Build the universal hook command a host config points at:
  *   "<homeBin>" hook <platformId> <event> --connector <id>
  * Pointing every host at the one stable home binary is how a single update
@@ -134,8 +148,82 @@ export function isUsageEventCommand(
   if (!command) return false;
   // Normalize separators like isHomeBinHookCommand (win32 ownership detection).
   const hay = command.replace(/\\/g, "/");
-  if (!hay.includes(homeBinPath.replace(/\\/g, "/"))) return false;
-  if (!hay.includes(" usage-event ")) return false;
+  const homeBinNorm = homeBinPath.replace(/\\/g, "/");
+  if (!hay.includes(homeBinNorm)) return false;
+  if (!hasVerbSlot(hay, homeBinNorm, "usage-event")) return false;
+  return isHomeBinHookCommand(command, homeBinPath, connectorId);
+}
+
+/**
+ * Build the home-bin statusline command a host's status line config points at:
+ *   "<homeBin>" statusline <platformId> --connector <id>
+ * Mirrors {@link buildHomeBinHookCommand} / {@link buildUsageEventCommand} (the
+ * same single-home-binary indirection) but routes to the `statusline`
+ * entrypoint, which renders the connector's HUD line for the host.
+ */
+export function buildHomeBinStatuslineCommand(
+  homeBinPath: string,
+  platformId: string,
+  connectorId: string,
+): string {
+  return `${quoteArg(homeBinPath)} statusline ${platformId} --connector ${connectorId}`;
+}
+
+/**
+ * True when `command` is OUR home-bin statusline command for exactly
+ * `connectorId`. Same end-of-token anchoring as {@link isHomeBinHookCommand} so a
+ * shared-prefix id can't collide; additionally requires the ` statusline ` verb
+ * so it is never confused with a plain `hook` / `usage-event` command.
+ */
+export function isHomeBinStatuslineCommand(
+  command: string | undefined,
+  homeBinPath: string,
+  connectorId: string,
+): boolean {
+  if (!command) return false;
+  // Normalize separators like isHomeBinHookCommand (win32 ownership detection).
+  const hay = command.replace(/\\/g, "/");
+  const homeBinNorm = homeBinPath.replace(/\\/g, "/");
+  if (!hay.includes(homeBinNorm)) return false;
+  if (!hasVerbSlot(hay, homeBinNorm, "statusline")) return false;
+  return isHomeBinHookCommand(command, homeBinPath, connectorId);
+}
+
+/**
+ * Build the home-bin action command a future host affordance (slash command /
+ * keybinding) points at:
+ *   "<homeBin>" action <platformId> <actionId> --connector <id>
+ * Mirrors {@link buildHomeBinStatuslineCommand} (the same single-home-binary
+ * indirection) but routes to the `action` entrypoint, which re-imports the
+ * connector and runs the named action's run(ctx). v1 ships only this command
+ * builder + the runtime verb; no adapter EMITS the affordance yet.
+ */
+export function buildHomeBinActionCommand(
+  homeBinPath: string,
+  platformId: string,
+  actionId: string,
+  connectorId: string,
+): string {
+  return `${quoteArg(homeBinPath)} action ${platformId} ${actionId} --connector ${connectorId}`;
+}
+
+/**
+ * True when `command` is OUR home-bin action command for exactly `connectorId`.
+ * Same end-of-token anchoring as {@link isHomeBinHookCommand} so a shared-prefix
+ * id can't collide; additionally requires the ` action ` verb so it is never
+ * confused with a plain `hook` / `usage-event` / `statusline` command.
+ */
+export function isHomeBinActionCommand(
+  command: string | undefined,
+  homeBinPath: string,
+  connectorId: string,
+): boolean {
+  if (!command) return false;
+  // Normalize separators like isHomeBinHookCommand (win32 ownership detection).
+  const hay = command.replace(/\\/g, "/");
+  const homeBinNorm = homeBinPath.replace(/\\/g, "/");
+  if (!hay.includes(homeBinNorm)) return false;
+  if (!hasVerbSlot(hay, homeBinNorm, "action")) return false;
   return isHomeBinHookCommand(command, homeBinPath, connectorId);
 }
 

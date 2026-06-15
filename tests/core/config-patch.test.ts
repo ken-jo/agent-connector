@@ -131,8 +131,8 @@ function writeSettings(data: unknown): void {
   writeFileSync(settingsPath(), `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-const STATUSLINE_PATCH: ConfigPatchDef = {
-  key: "statusLine",
+const WIDGET_PATCH: ConfigPatchDef = {
+  key: "outputWidget",
   value: { type: "command", command: "context-mode statusline", padding: 0 },
   reason: "render the context meter in the status line",
   docsUrl: "https://example.com/context-mode#statusline",
@@ -150,10 +150,10 @@ const TEAMS_PATCH: ConfigPatchDef = {
 
 describe("defineConnector — configPatch validation", () => {
   it("accepts the driving cases and keeps configPatch a legal sole payload", () => {
-    const resolved = patchConnector("cp-ok", [STATUSLINE_PATCH, TEAMS_PATCH]);
+    const resolved = patchConnector("cp-ok", [WIDGET_PATCH, TEAMS_PATCH]);
     // platforms survive resolution verbatim — declarations intact.
     expect(resolved.platforms["claude-code"]?.configPatch).toEqual([
-      STATUSLINE_PATCH,
+      WIDGET_PATCH,
       TEAMS_PATCH,
     ]);
   });
@@ -181,6 +181,10 @@ describe("defineConnector — configPatch validation", () => {
       ["enableAllProjectMcpServers", "server"],
       ["enabledMcpjsonServers", "server"],
       ["disabledMcpjsonServers", "server"],
+      // statusLine is modeled by the statusline surface — a raw configPatch
+      // targeting it is refused and pointed at `statusline: { render }`.
+      ["statusLine", "statusline"],
+      ["statusLine.command", "statusline"],
     ] as const) {
       try {
         patchConnector("cp-ns", [{ key, value: true, reason: "r" }]);
@@ -195,8 +199,8 @@ describe("defineConnector — configPatch validation", () => {
   it("rejects duplicate keys within one platform's list", () => {
     expect(() =>
       patchConnector("cp-dup", [
-        { key: "statusLine", value: 1, reason: "a" },
-        { key: "statusLine", value: 2, reason: "b" },
+        { key: "outputWidget", value: 1, reason: "a" },
+        { key: "outputWidget", value: 2, reason: "b" },
       ]),
     ).toThrow(/duplicate key/);
   });
@@ -258,12 +262,12 @@ describe("defineConnector — configPatch validation", () => {
 
 describe("registerConnector — configPatch persistence", () => {
   it("persists configPatch declarations WHOLE (pure JSON)", () => {
-    const connector = patchConnector("cp-meta", [STATUSLINE_PATCH, TEAMS_PATCH]);
+    const connector = patchConnector("cp-meta", [WIDGET_PATCH, TEAMS_PATCH]);
     registerConnector(connector, join(tmpData, "fake.mjs"));
     const meta = readRegisteredMeta("cp-meta");
     expect(meta).not.toBeNull();
     expect(meta!.platforms["claude-code"]?.configPatch).toEqual([
-      STATUSLINE_PATCH,
+      WIDGET_PATCH,
       TEAMS_PATCH,
     ]);
   });
@@ -284,7 +288,7 @@ describe("config-patch ledger — persistence", () => {
     ledger.entries.push({
       platform: "claude-code",
       file: "/tmp/x/settings.json",
-      key: "statusLine",
+      key: "outputWidget",
       writtenValue: { a: 1 },
       writtenValueHash: "h",
       prior: { present: false },
@@ -305,30 +309,30 @@ describe("config-patch ledger — persistence", () => {
 
 describe("claude-code adapter — installConfigPatches", () => {
   it("writes an absent key, records ownership, and reports the exact key+value diff", () => {
-    const connector = patchConnector("cp-a", [STATUSLINE_PATCH, TEAMS_PATCH]);
+    const connector = patchConnector("cp-a", [WIDGET_PATCH, TEAMS_PATCH]);
     const changes = claudeAdapter.installConfigPatches(buildCtx(connector));
 
     const creates = changes.filter((c) => c.action === "create");
     expect(creates).toHaveLength(2);
     expect(creates[0]!.detail).toBe(
-      `configPatch statusLine: <absent> → ${JSON.stringify(STATUSLINE_PATCH.value)} ` +
-        `(${STATUSLINE_PATCH.reason})`,
+      `configPatch outputWidget: <absent> → ${JSON.stringify(WIDGET_PATCH.value)} ` +
+        `(${WIDGET_PATCH.reason})`,
     );
     expect(creates[1]!.detail).toContain(
       'configPatch env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: <absent> → "1"',
     );
 
     const cfg = readSettings();
-    expect(cfg.statusLine).toEqual(STATUSLINE_PATCH.value);
+    expect(cfg.outputWidget).toEqual(WIDGET_PATCH.value);
     expect(cfg.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe("1");
 
     const ledger = loadConfigPatchLedger(tmpData);
     expect(ledger.entries).toHaveLength(2);
-    const entry = ledger.entries.find((e) => e.key === "statusLine")!;
+    const entry = ledger.entries.find((e) => e.key === "outputWidget")!;
     expect(entry.platform).toBe("claude-code");
     expect(entry.file).toBe(settingsPath());
     expect(entry.prior).toEqual({ present: false });
-    expect(entry.writtenValue).toEqual(STATUSLINE_PATCH.value);
+    expect(entry.writtenValue).toEqual(WIDGET_PATCH.value);
     expect(entry.writtenValueHash).toMatch(/^[0-9a-f]{64}$/);
     expect(entry.owners.map((o) => o.connectorId)).toEqual(["cp-a"]);
   });
@@ -356,8 +360,8 @@ describe("claude-code adapter — installConfigPatches", () => {
   });
 
   it("SET-IF-ABSENT: a user-present key is skip-warned, never overwritten, and never owned", () => {
-    writeSettings({ statusLine: { type: "command", command: "my-own-statusline" } });
-    const connector = patchConnector("cp-conflict", [STATUSLINE_PATCH]);
+    writeSettings({ outputWidget: { type: "command", command: "my-own-statusline" } });
+    const connector = patchConnector("cp-conflict", [WIDGET_PATCH]);
     const changes = claudeAdapter.installConfigPatches(buildCtx(connector));
 
     expect(changes).toHaveLength(1);
@@ -365,10 +369,10 @@ describe("claude-code adapter — installConfigPatches", () => {
     expect(changes[0]!.detail).toContain("already set");
     expect(changes[0]!.detail).toContain("my-own-statusline"); // current value shown
     expect(changes[0]!.detail).toContain("manual edit if wanted");
-    expect(changes[0]!.detail).toContain(STATUSLINE_PATCH.docsUrl!);
+    expect(changes[0]!.detail).toContain(WIDGET_PATCH.docsUrl!);
 
     // Value untouched; NO ownership taken (uninstall must never delete it).
-    expect(readSettings().statusLine.command).toBe("my-own-statusline");
+    expect(readSettings().outputWidget.command).toBe("my-own-statusline");
     expect(loadConfigPatchLedger(tmpData).entries).toHaveLength(0);
   });
 
@@ -418,7 +422,9 @@ describe("claude-code adapter — installConfigPatches", () => {
     for (const key of sensitive) {
       expect(claudeSensitiveKeyViolation(key), `${key} should be denylisted`).not.toBeNull();
     }
-    // The driving cases pass the denylist.
+    // The driving cases pass the SENSITIVE-key denylist. (statusLine is NOT
+    // sensitive — it is namespace-reserved for the statusline surface instead,
+    // which the defineConnector test below asserts.)
     expect(claudeSensitiveKeyViolation("statusLine")).toBeNull();
     expect(
       claudeSensitiveKeyViolation("env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"),
@@ -471,12 +477,12 @@ describe("claude-code adapter — installConfigPatches", () => {
   });
 
   it("dry-run computes the full diff but writes neither settings nor ledger", () => {
-    const connector = patchConnector("cp-dry", [STATUSLINE_PATCH]);
+    const connector = patchConnector("cp-dry", [WIDGET_PATCH]);
     const changes = claudeAdapter.installConfigPatches(
       buildCtx(connector, { dryRun: true }),
     );
     expect(changes[0]!.action).toBe("create");
-    expect(changes[0]!.detail).toContain("statusLine: <absent> →");
+    expect(changes[0]!.detail).toContain("outputWidget: <absent> →");
     expect(changes[0]!.detail).toContain('"context-mode statusline"');
     expect(existsSync(settingsPath())).toBe(false);
     expect(existsSync(configPatchLedgerPath(tmpData))).toBe(false);
@@ -585,13 +591,13 @@ describe("claude-code adapter — uninstallConfigPatches", () => {
   });
 
   it("skips declared patches with no ownership record (never delete a key we did not create)", () => {
-    writeSettings({ statusLine: { type: "command", command: "user-owned" } });
-    const connector = patchConnector("cp-noown", [STATUSLINE_PATCH]);
+    writeSettings({ outputWidget: { type: "command", command: "user-owned" } });
+    const connector = patchConnector("cp-noown", [WIDGET_PATCH]);
     const changes = claudeAdapter.uninstallConfigPatches(buildCtx(connector));
     expect(changes).toHaveLength(1);
     expect(changes[0]!.action).toBe("skip");
     expect(changes[0]!.detail).toContain("no ownership recorded");
-    expect(readSettings().statusLine.command).toBe("user-owned");
+    expect(readSettings().outputWidget.command).toBe("user-owned");
   });
 
   it("drops the ownership record quietly when the key is already gone", () => {
@@ -691,14 +697,14 @@ describe("claude-code adapter — doctor configPatch states", () => {
   });
 
   it("re-prints the manual edit for a declared patch that holds no ownership", () => {
-    writeSettings({ statusLine: { type: "command", command: "user-owned" } });
-    const connector = patchConnector("cp-doc-skip", [STATUSLINE_PATCH]);
+    writeSettings({ outputWidget: { type: "command", command: "user-owned" } });
+    const connector = patchConnector("cp-doc-skip", [WIDGET_PATCH]);
     claudeAdapter.installConfigPatches(buildCtx(connector)); // skip-warns, no ownership
     const results = configPatchResults(connector);
     const declared = results.find((r) => r.message.includes("declared but not owned"))!;
     expect(declared.status).toBe("warn");
     expect(declared.fix).toContain("manual edit if wanted");
-    expect(declared.fix).toContain(STATUSLINE_PATCH.docsUrl!);
+    expect(declared.fix).toContain(WIDGET_PATCH.docsUrl!);
   });
 });
 
@@ -822,7 +828,7 @@ describe("installer — configPatch wiring", () => {
   });
 
   it("does NOT warn on claude-code and the dry-run plan shows the exact key+value diff", async () => {
-    const connector = patchConnector("cp-plan", [STATUSLINE_PATCH]);
+    const connector = patchConnector("cp-plan", [WIDGET_PATCH]);
     const result = await installConnector({
       connector,
       modulePath: join(tmpData, "fake.mjs"),
@@ -835,7 +841,7 @@ describe("installer — configPatch wiring", () => {
       result.changes.some((c) => c.detail.includes("configPatch not supported")),
     ).toBe(false);
     const diff = result.changes.find((c) =>
-      c.detail.startsWith("configPatch statusLine:"),
+      c.detail.startsWith("configPatch outputWidget:"),
     );
     expect(diff).toBeDefined();
     expect(diff!.action).toBe("create");

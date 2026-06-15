@@ -1,7 +1,7 @@
 # agent-connector — Full LLM Reference
 
 > agent-connector serves TWO audiences. **(A) MCP developers** write their MCP server +
-> hooks (and slash commands / Agent Skills / subagents / memory) ONCE with `defineConnector({...})`;
+> hooks (and slash commands / Agent Skills / subagents / memory / status line) ONCE with `defineConnector({...})`;
 > the CLI detects every installed AI-agent host, renders the right config in each one's
 > native dialect, installs/syncs/uninstalls them, and gives you default, platform-
 > independent, local-first per-tool token telemetry for YOUR OWN wrapped server.
@@ -151,6 +151,8 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `skills` | `SkillDef[]` | `[]` | Agent Skills → native content files. |
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
 | `memory` | `MemoryDef[]` | `[]` | Standing guidance → marker-fenced MANAGED BLOCKS in each host's memory/rules file (AGENTS.md-first; see §2.4). |
+| `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` function; v1 deploys on claude-code only; other hosts skip-warn. See §2.5. |
+| `actions` | `ActionDef[]` | `[]` | Named actions the connector exposes for user-triggered dispatch. See §2.6. |
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
@@ -158,8 +160,8 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 **Top-level validation rules** (`define-connector.ts`):
 - `config` must be an object; `id` must match the kebab-case regex.
 - A connector must declare **at least one** of `server`, `hooks`, `commands`,
-  `skills`, `subagents`, `memory` (or a per-platform `nativeHooks` /
-  `configPatch` declaration) — else it throws.
+  `skills`, `subagents`, `memory`, `statusline`, `actions` (or a per-platform
+  `nativeHooks` / `configPatch` declaration) — else it throws.
 - If `server` is present: stdio transport requires a string `command`; any remote
   transport (`http`/`sse`/`ws`) requires a string `url`.
 - Every present hook entry's `handler` must be a function.
@@ -305,7 +307,7 @@ WorktreeRemove, PostCompact, Elicitation, ElicitationResult). `nativeHooks` wire
 of them — and any future event a host adds — with zero agent-connector releases:
 
 ```ts
-// PlatformOverride (§2.6) gains:
+// PlatformOverride (§2.8) gains:
 nativeHooks?: Record<string, NativeHookDef>;  // key = HOST event name, VERBATIM
 
 interface NativeHookDef {
@@ -581,7 +583,119 @@ outside agent-connector's own markers is exactly as the user left it. `doctor`
 verifies each ledger row: file present, block present, recorded hash == actual
 inner hash (user-edited drift → warn, never auto-fixed).
 
-### 2.5 `TelemetryConfig`
+### 2.5 `StatuslineDef` — the status-line handler surface
+
+`ConnectorConfig.statusline` is a **handler surface** (like hooks, not like the
+file-writing content surfaces). It is SINGULAR — one `StatuslineDef` per connector,
+not an array. The developer supplies a `render(ctx)` function; agent-connector
+owns how it gets called.
+
+```ts
+interface StatuslineDef {
+  name?: string;          // kebab-case id; default "statusline"
+  description?: string;
+  render: (ctx: StatuslineContext) => string | Promise<string>;
+}
+
+interface StatuslineContext {
+  host: string;
+  connectorId?: string;
+  sessionId?: string;
+  cwd?: string;
+  model?: { id?: string; displayName?: string };
+  cost?: { totalUsd?: number };
+  context?: { usedTokens?: number; maxTokens?: number; percent?: number };
+  transcriptPath?: string;
+  raw: unknown;           // host's verbatim payload; fields the host doesn't provide are undefined
+}
+```
+
+SDK helpers exported from `@ken-jo/agent-connector`:
+- `defineStatusline({ render })` — typed identity helper
+- Types: `StatuslineDef`, `StatuslineContext`
+
+**Deployment (v1 = claude-code only).** `PlatformCapabilities.supportsStatusline`
+gates it (read `?? false`). On **claude-code**, install registers:
+
+```json
+{ "statusLine": { "type": "command", "command": "<homeBin> statusline claude-code --connector <id>" } }
+```
+
+in `settings.json`. The host execs that command on every status refresh; the
+entrypoint re-imports the connector and runs `render(ctx)`, printing the line.
+
+Registration REUSES the configPatch ownership ledger: **set-if-absent, never clobber
+a `statusLine` agent-connector doesn't own** (skip-warn + manual-edit printed),
+refcounted, reversible (uninstall removes it only when last-owner ∧ value-unchanged
+∧ prior-absent). If the user or another tool (e.g. a live plugin) already owns
+`statusLine`, install skip-warns and prints the manual edit.
+
+**Every other adapter** inherits the BaseAdapter skip-warn (never silent) — exactly
+like other surfaces. (cursor-agent and Factory `droid` also have a real
+command-status contract per the host survey, but their adapters are NOT wired in v1
+— left as TODO.)
+
+**Runtime is FAIL-SAFE.** ANY error (throwing `render`, unknown connector, malformed
+stdin, …) → exit 0 with empty stdout. A HUD must never wedge the host or corrupt the
+status bar.
+
+**CLI verb:** `agent-connector statusline <platform> --connector <id>` (internal,
+like `hook`/`serve`; the host points at it).
+
+**doctor:** a dedicated `statusline wired` check (`ok` / `present-but-not-ours` /
+`missing`). No telemetry in v1.
+
+**`statusLine` is a RESERVED configPatch key.** A raw `configPatch` entry targeting
+`statusLine` or `statusLine.*` throws `ConnectorConfigError` at `defineConnector`,
+pointing at this surface. Use `ConnectorConfig.statusline` instead.
+
+### 2.6 `ActionDef[]` — the actions surface
+
+`ConnectorConfig.actions` is a list of **named, user-triggered actions** the connector
+exposes for out-of-band dispatch. Unlike hooks (which respond to host lifecycle events)
+and the statusline (which renders on a cadence), actions are invoked explicitly by the
+user or an external orchestrator.
+
+```ts
+interface ActionDef {
+  id: string;                          // kebab-case action identifier (required)
+  description?: string;               // one-line hint for help / introspection output
+  run: (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
+  hosts?: Partial<Record<PlatformId, (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>>>;
+                                       // per-host override of run; falls back to run when absent
+}
+
+interface ActionResult {
+  message?: string;                    // human-readable outcome printed to stdout
+}
+```
+
+`defineAction({ id, run })` is the typed identity helper (exported from **both** the
+root `@ken-jo/agent-connector` and `/sdk`).
+
+**CLI verb:** `agent-connector action <platform> <actionId> --connector <id>` — loads
+the connector, resolves the action by id, and invokes `run(ctx)` (or the per-host
+override when present). This is an **internal entrypoint** like `hook`/`serve`/`statusline`;
+the host or the user points at it directly.
+
+**User-triggered error semantics** (intentionally stricter than hooks/statusline):
+- Unknown `actionId` → exit 1 + stderr message.
+- A `run` that throws → exit 1 + stderr (the exception message).
+- These are NOT fail-open/fail-safe-silent — an action the user explicitly triggered
+  should report errors, not swallow them.
+
+**v1 is the DISPATCH BACKBONE ONLY.** Install skip-warns on every host: there is no
+host affordance emitter yet (binding a slash command / keybinding to the verb requires
+generated IDE extensions, a later phase). Authors can invoke the verb manually or wire
+it externally; the connector declares the actions and the runtime dispatches them — the
+host-side trigger surface is deferred.
+
+**Introspection:** `explain()` emits one row per action per host (support `"skip-warn"`
+everywhere in v1 — the dispatch verb is present but the host emitter is not). `simulate()`
+does **NOT** cover actions: an action takes no host payload and has no host-honor verdict
+(the dispatch is unconditional — intentional).
+
+### 2.7 `TelemetryConfig`
 
 ```ts
 interface TelemetryConfig {
@@ -599,13 +713,13 @@ interface TelemetryConfig {
 
 `hostNativeUsage` may also be forced on at install via env `AGENT_CONNECTOR_HOST_NATIVE=1`.
 
-### 2.6 `PlatformOverride` (per-platform escape hatch)
+### 2.8 `PlatformOverride` (per-platform escape hatch)
 
 ```ts
 interface PlatformOverride {
   hooks?: boolean | Partial<HooksConfig>;   // false → no NORMALIZED hooks here; object → merge/replace
   nativeHooks?: Record<string, NativeHookDef>; // native-event passthrough (§2.3); claude-code only today
-  configPatch?: ConfigPatchDef[];           // host-config key patches (below); claude-code only today
+  configPatch?: ConfigPatchDef[];           // host-config key patches (below); claude-code only today (§2.8)
   server?: Partial<ServerDef> | false;      // false → don't register server here; object → shallow-merge
   scope?: InstallScope;                     // force a scope for this platform
   commands?: boolean;                       // false → skip command files here
@@ -632,15 +746,15 @@ universal core + fat per-adapter tail).
 hatch beside `extra` and `nativeHooks`, for host-exclusive config KEYS that
 `extra` cannot reach: `extra` merges into the native MCP server ENTRY (or
 content frontmatter), not sibling top-level settings keys, so something like
-Claude Code's `statusLine` or `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is
-structurally unreachable without it. Connectors name a platform + key, NEVER a
-file path — the adapter owns the key→file mapping.
+Claude Code's `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is structurally
+unreachable without it. Connectors name a platform + key, NEVER a file path —
+the adapter owns the key→file mapping.
 
 ```ts
 type JsonValue = string | number | boolean | null | JsonValue[] | { [k: string]: JsonValue };
 
 interface ConfigPatchDef {
-  key: string;       // dotted LEAF path, e.g. "statusLine" or "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS";
+  key: string;       // dotted LEAF path, e.g. "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS";
                      // segments match /^[A-Za-z0-9_-]+$/ — no dots-in-key, no array indices
   value: JsonValue;  // written ONLY when the key is absent; ${env:VAR} refs resolve at install time;
                      // may be an object/array but is written atomically as the leaf — never merged into
@@ -663,7 +777,7 @@ shows the exact key + value + reason before anything is written; warns exit 1):
 | Present, NOT AC-owned (even if values match) | `warn` — never adopted; prints current vs desired + the exact manual edit |
 | Owned by another connector with a different value | `warn` — first-writer-wins, names the owning connector(s) |
 | Intermediate path segment exists but is not an object | `warn` — manual edit printed |
-| Key in the AC namespace (`hooks*`, `mcpServers*`, `enable/enabled/disabledMcpjsonServers`) | `ConnectorConfigError` at defineConnector — use `hooks`/`nativeHooks` or `server`/`extra` |
+| Key in the AC namespace (`hooks*`, `mcpServers*`, `enable/enabled/disabledMcpjsonServers`, `statusLine`/`statusLine.*`) | `ConnectorConfigError` at defineConnector — use `hooks`/`nativeHooks`, `server`/`extra`, or the `statusline` surface |
 | Key on the sensitive denylist (below) | `warn` — hard refuse, no override flag in v1 |
 
 **Ownership ledger + uninstall.** Ownership lives in a persisted, refcounted
@@ -688,7 +802,7 @@ did not create is never deleted.
 **Safety gates** (validated at `defineConnector` where statically knowable,
 re-validated in the adapter): leaf-path grammar, JSON-serializable value,
 required non-empty `reason`, duplicate-key rejection, the AC-namespace guard
-above, and a per-adapter sensitive-key DENYLIST. The documented claude-code v1
+above (`hooks*`, `mcpServers*`, `statusLine`/`statusLine.*` — use the `statusline` surface), and a per-adapter sensitive-key DENYLIST. The documented claude-code v1
 list (hard refuse): `permissions`/`permissions.*`,
 `allowedTools*`/`disallowedTools*`, `apiKey*` (e.g. `apiKeyHelper`),
 `awsAuthRefresh`, `awsCredentialExport`, `forceLoginMethod`,
@@ -715,20 +829,25 @@ doubles as its own documented manual step on unsupported hosts.
 It also re-prints the manual edit for any declared patch that was skipped at
 install (conflict, denylist, or not yet installed).
 
-Example — the statusline case that drove the design:
+Example — enabling an experimental Claude Code teams feature:
 
 ```ts
 platforms: {
   "claude-code": {
     configPatch: [{
-      key: "statusLine",
-      value: { type: "command", command: "context-mode statusline", padding: 0 },
-      reason: "Render the context meter in Claude Code's status line",
-      docsUrl: "https://github.com/acme/context-mode#statusline",
+      key: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+      value: "1",
+      reason: "Enable experimental agent-teams support required by acme-db",
+      docsUrl: "https://github.com/acme/acme-db#agent-teams",
     }],
   },
 },
 ```
+
+> **Note:** `statusLine` / `statusLine.*` is a RESERVED key — a raw `configPatch`
+> targeting it throws `ConnectorConfigError` pointing at the `statusline` surface
+> (`declare it via statusline: { render } instead`). Use `ConnectorConfig.statusline`
+> (§2.5) rather than patching `statusLine` directly.
 
 **Explicitly OUT of scope in v1** (deferred with the trigger that un-defers
 each): VS Code `inputs` arrays and Zed `context_servers.<id>.settings` —
@@ -751,10 +870,11 @@ modify/applyEdits — never whole-file re-serialization.
 **Promotion rules** (mirroring the nativeHooks ≥3-hosts bar): (a) a second
 host gains `supportsConfigPatch` only on demonstrated, genuine
 connector-facing key demand for that host; (b) a host-exclusive feature
-graduates from `configPatch` to a typed cross-host knob (e.g.
-`statusline?: {…}`) only when ≥3 hosts ship an analog.
+graduates from `configPatch` to a typed cross-host surface (e.g. a new
+`ConnectorConfig` field) only when ≥3 hosts ship an analog (the `statusline`
+surface is the first example of this promotion path).
 
-### 2.7 `ResolvedConnector` (what `defineConnector` returns)
+### 2.9 `ResolvedConnector` (what `defineConnector` returns)
 
 ```ts
 interface ResolvedConnector {
@@ -767,13 +887,15 @@ interface ResolvedConnector {
   skills: SkillDef[];                 // normalized; [] when none
   subagents: SubagentDef[];           // normalized; [] when none
   memory: MemoryDef[];                // normalized; names defaulted ("memory"); [] when none
+  statusline?: StatuslineDef;         // undefined when not declared
+  actions: ActionDef[];               // normalized; [] when none
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   publish?: PublishConfig;            // registry/MCPB metadata, passed through verbatim
 }
 ```
 
-### 2.8 Full example (server + hooks + commands + skills)
+### 2.10 Full example (server + hooks + commands + skills)
 
 ```ts
 import { defineConnector } from "@ken-jo/agent-connector";
@@ -869,7 +991,7 @@ Resolves the connector, then per target: backup settings → render server confi
 the native file → if hooks & paradigm≠mcp-only: synthesize the entrypoint + write hook
 config + set the exec bit → write any command/skill/subagent files → upsert any
 `memory` managed blocks (last among the content surfaces, §2.4) → register in the
-plugin registry where applicable → apply any `configPatch` entries LAST (§2.6 — so
+plugin registry where applicable → apply any `configPatch` entries LAST (§2.8 — so
 the diff reflects final state; `--dry-run` shows the exact key + value + reason).
 `--force` overwrites USER-EDITED memory blocks (hash drift) after a timestamped
 backup; the default is warn-and-leave.
@@ -892,7 +1014,7 @@ pointer refresh fails.
 ### uninstall
 `agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--purge] [--dry-run]`
 Full inverse — releases `configPatch` ownership FIRST (ledger-keyed; a patched key is
-deleted only when this connector is the last owner and the value is unchanged, §2.6),
+deleted only when this connector is the last owner and the value is unchanged, §2.8),
 then excises `memory` managed blocks (first among the content surfaces — prefix scan
 over the connector's marker namespace + the memory ledger, so even an id-only
 synthetic uninstall reclaims blocks, §2.4), then removes the connector's MCP + hook
@@ -984,6 +1106,10 @@ connector-agnostic); `--json` emits `{ mcp, host, hostSkipped, hostNativeTurns }
   host-native turn-usage hook (installed by Gemini / Antigravity adapters when
   host-native usage is enabled). Reads stdin, records a distinct `model_turn` row,
   ALWAYS exits 0 (fail-open).
+- `agent-connector action <platform> <actionId> --connector <id>` — user-triggered
+  action dispatch. Loads the connector, resolves the action by id, and runs `run(ctx)`
+  (or the per-host override). Exit 1 on unknown id or a throwing handler (NOT
+  fail-open — see §2.6).
 
 **`--since` syntax** (telemetry/usage/leaderboard): `Ns`, `Nm`, `Nh`, `Nd`
 (seconds/minutes/hours/days), e.g. `30s`, `15m`, `24h`, `7d`. Empty = no lower bound;
@@ -1261,8 +1387,161 @@ Or ship a branded CLI: `createConnectorCli({ name, connector })` from
 connector (see `examples/branded-cli`); explicit `--connector`/`--connector-id`
 always overrides.
 
+**Package subpaths:** `.` (root — full `define*` family: `defineConnector` +
+`defineStatusline` + `defineAction` + `defineHook` / `defineCommand` / `defineSkill` /
+`defineSubagent` / `defineMemory` / `defineConfigPatch` / `defineNativeHook`; public
+types including `TelemetryAccessor` / `TelemetryUsageSummary`; `ConnectorConfigError`)
+· `./runtime` (serve-proxy + hook entrypoint internals)
+· `./cli` (`createConnectorCli`)
+· `./sdk` (same full `define*` family + introspection helpers `capabilitiesOf` /
+`hostsSupporting` / `surfaceSupport` / `SURFACE_PREDICATES` + the test harness export;
+additive, does NOT replace the root export)
+· `./sdk/test` (offline harness — `explain` + `simulate`; see §9).
+
 Engines: Node `>=18.17`, ESM only. Runtime deps are pure-JS / WASM (`gpt-tokenizer`,
 `sql.js`, `fzstd`, `@iarna/toml`, `yaml`) — no native build. License: Apache-2.0 © KenJo.
+
+---
+
+## 9. Connector SDK — `@ken-jo/agent-connector/sdk` + `/sdk/test`
+
+> "Author with the typed `define*` family, then `explain`/`simulate` your connector
+> against every host's real capabilities — offline."
+
+The framework already normalizes surfaces and capability-gates per host. The SDK
+turns that knowledge into a **queryable, offline** answer to "does my handler / HUD
+actually work on host X?" — before you touch a real host.
+
+### 9.1 `/sdk` — authoring surface
+
+```ts
+import {
+  defineConnector,       // existing — validates + returns ResolvedConnector
+  defineStatusline,      // existing typed helper
+  defineAction,          // typed identity helper for ActionDef (see §2.6)
+  defineCommand, defineSkill, defineSubagent, defineMemory,
+  defineConfigPatch, defineNativeHook,
+  defineHook,            // event-parameterized (see below)
+  capabilitiesOf, hostsSupporting, surfaceSupport,
+  SURFACE_PREDICATES,
+  ConnectorConfigError,
+} from "@ken-jo/agent-connector/sdk";
+```
+
+All `define*` helpers are **typed identity functions** — each takes and returns its
+corresponding `*Def`, giving type inference and a single import site. Validation
+stays in `defineConnector`; the helpers add no runtime behavior.
+
+**`defineHook` is event-parameterized** so the handler payload narrows to the
+concrete event type rather than the full union:
+
+```ts
+const onPre = defineHook("PreToolUse", {
+  handler(evt) {
+    // evt is typed as PreToolUseEvent — evt.toolName is known
+    return { decision: "deny", reason: "no" };
+  },
+});
+// pass onPre as hooks.PreToolUse in defineConnector({ hooks: { PreToolUse: onPre } })
+```
+
+The leading event string is used only for type inference; `defineHook` returns the
+def unchanged.
+
+### 9.2 Introspection helpers (all async — adapters load lazily)
+
+| Helper | Signature | Returns |
+|---|---|---|
+| `capabilitiesOf` | `(host: PlatformId) => Promise<PlatformCapabilities \| undefined>` | Capability flags for the host; `undefined` for an unknown id. |
+| `hostsSupporting` | `(surface: SurfaceName) => Promise<PlatformId[]>` | All registered hosts that honor the surface. |
+| `surfaceSupport` | `(host: PlatformId, surface: SurfaceName) => Promise<boolean>` | Convenience: single host × surface check. |
+| `SURFACE_PREDICATES` | `Record<SurfaceName, (caps: PlatformCapabilities) => boolean>` | The per-surface predicate map (exported for advanced use). |
+
+`SurfaceName` vocabulary: `server` · `hooks` · `commands` · `skills` · `subagents` ·
+`memory` · `statusline` · `configPatch` · `nativeHooks` · `actions`.
+
+Examples:
+```ts
+await hostsSupporting("statusline");  // → ["claude-code"]
+await hostsSupporting("memory");      // → the broad AGENTS.md set
+await surfaceSupport("codex", "hooks"); // → true
+```
+
+### 9.3 `/sdk/test` — offline harness
+
+```ts
+import { explain, simulate } from "@ken-jo/agent-connector/sdk/test";
+```
+
+#### `explain(connector)` — per-host × per-surface support matrix
+
+```ts
+explain(connector: ResolvedConnector): Promise<ExplainRow[]>
+
+interface ExplainRow {
+  host:    PlatformId;
+  surface: SurfaceName;
+  support: "native" | "skip-warn" | "disabled";
+  reason:  string;
+}
+```
+
+Returns one row per `(host, surface)` pair for **every surface the connector
+actually declares** (un-declared surfaces are omitted). `configPatch` and
+`nativeHooks` rows are scoped to the host that declares them. `disabled` means the
+connector explicitly set `platforms[host].<surface> = false`. The `server` row
+reason notes that registration may be host-managed on some IDEs (v1 capability-based
+check). Use this as the full readout before install:
+
+```ts
+const rows = await explain(myConnector);
+rows.forEach(r => console.log(r.host, r.surface, r.support, r.reason));
+```
+
+#### `simulate(connector, opts)` — behavioral check against the real adapter chain
+
+```ts
+simulate(
+  connector: ResolvedConnector,
+  opts: {
+    surface: "hooks" | "statusline";
+    host:    PlatformId;
+    event?:  HookEventName;   // required when surface === "hooks"
+    input:   unknown;         // host-shaped raw payload
+  }
+): Promise<{ honored: boolean; hostReply?: unknown; reason: string }>
+```
+
+Runs the **real** adapter parse → handler → format chain offline and reports
+whether the host would actually honor the handler's decision. It mirrors the
+runtime exactly: tolerant stdin parsing, matcher filtering (a matcher-scoped
+handler that doesn't match is not run), and a verdict computed by **parsing the
+host reply and judging the actual `(event, decision)` contract** — not substring
+guessing. Concrete honored/dropped/degraded cases:
+
+| Scenario | `honored` | `reason` (summary) |
+|---|---|---|
+| codex `UserPromptSubmit` — context drop (no stdout path) | `false` | codex drops `context` on UserPromptSubmit |
+| `deny` on `Stop` / `SubagentStop` | `true` | continues subagent / session (persistence) |
+| `deny` on `SubagentStart` / `PostToolUseFailure` | `false` | degrades to context note — nothing is blockable here |
+| `PermissionRequest` `ask` | `true` | host's native dialog handles the ask (no stdout needed) |
+| matcher-scoped handler that doesn't match `input` | `false` | matcher excluded this input — handler not run |
+
+```ts
+const { honored, reason } = await simulate(myConnector, {
+  surface: "hooks",
+  host:    "codex",
+  event:   "UserPromptSubmit",
+  input:   { prompt: "hello", session_id: "s1" },
+});
+// honored: false — codex drops context on UserPromptSubmit
+```
+
+`simulate` is the behavioral complement to `explain`: `explain` is the whole
+support matrix; `simulate` is the per-invocation contract check that encodes each
+host's real honor / drop / degrade behavior.
+
+---
 
 ## Links
 - README.md — overview + quick start.

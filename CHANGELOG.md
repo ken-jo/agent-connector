@@ -1,5 +1,80 @@
 # Changelog
 
+## [Unreleased]
+
+Three new surfaces, a Connector SDK, and a HostCtx unification — all
+implemented and green (1633 tests) on the `feat/statusline-surface` branch.
+
+### Statusline (HUD) surface
+
+- Connectors declare a `statusline` function that receives a `StatuslineContext`
+  (model, cost, token counters, session metadata) and returns a plain string or
+  `{ text; tooltip? }` — rendered as a live status-bar HUD by each host that
+  offers the affordance.
+- `defineStatusline(fn)` is the typed authoring helper, exported from the root
+  AND `/sdk`.
+- Install wires the statusline on supporting hosts; `doctor` drift-checks the
+  registered value; `explain()` lists it per-host.
+- **v1 caveat**: `ctx.context` (`usedTokens`/`maxTokens`/`percent`) is reserved
+  for a future AC-usage integration — it is not populated in v1. Use
+  `ctx.cost?.totalUsd` or `ctx.model?.displayName` instead.
+
+### Connector SDK (`/sdk` + `/sdk/test` subpaths)
+
+- New `/sdk` subpath export with the full `define*` family:
+  `defineConnector`, `defineStatusline`, `defineAction`,
+  `defineHook`, `defineCommand`, `defineSkill`, `defineSubagent`,
+  `defineMemory`, `defineConfigPatch`, `defineNativeHook`. The root
+  export now carries the same full family (previously root-only was
+  `defineConnector`).
+- **Introspection helpers**: `capabilitiesOf(connector)` returns a
+  `SurfaceName[]` of declared surfaces; `hostsSupporting(surface)`
+  returns the host list that honors it. `SurfaceName` vocabulary:
+  `server | hooks | commands | skills | subagents | memory | statusline |
+  configPatch | nativeHooks | actions`.
+- **Offline harness** (`/sdk/test`): `explain(connector)` prints a
+  per-host surface/skip-warn table (including action rows — all
+  skip-warned in v1); `simulate(connector, event, payload)` runs a
+  hook or statusline call offline and returns the verdict without a live
+  host. Actions are intentionally excluded from `simulate` (they take
+  no host payload).
+- `toolName(name)` and `style(text, style)` authoring helpers for
+  consistent naming and formatting across hosts.
+
+### Per-host `hosts:` override map
+
+- Connectors can now supply per-host overrides under a `hosts` key:
+  fine-grained hook handler overrides, a per-host `statusline` variant,
+  and per-host `actions.run` overrides. This replaces the need to
+  branch inside a single function on `ctx.host`.
+
+### Actions surface — dispatch backbone (`action` verb)
+
+- Connectors declare `actions?: ActionDef[]`. Each entry:
+  `{ id: string; description?: string; run: (ctx: HostCtx) => ActionResult | void | Promise<…>; hosts?: per-host run override }`.
+  `ActionResult = { message?: string }`.
+- `defineAction({ id, run })` is the typed authoring helper.
+- Universal CLI verb: `agent-connector action <platform> <actionId>
+  --connector <id>` loads the connector and calls `run(ctx)`. Error
+  semantics are user-triggered (not fail-silent): unknown action id or a
+  thrown error → exit 1 + stderr.
+- `actions` is part of the `SurfaceName` introspection vocabulary;
+  `explain()` emits action rows (skip-warned on every host in v1 — the
+  host affordance emitter, e.g. slash-command or keybinding generation,
+  is a later phase). `simulate()` does not cover actions by design.
+- **v1 is the dispatch backbone only**: `install` skip-warns on every
+  host because no host affordance emitter exists yet. Document and use
+  it via the `action` verb directly.
+
+### HostCtx unification
+
+- Hook events now carry `capabilities` (the host's `SurfaceName[]`),
+  `scope` (project vs global), and `telemetry` metadata on the context
+  object passed to every handler.
+- `ctx.telemetry()` accessor returns the current session's
+  `TelemetryUsageSummary` synchronously. `TelemetryAccessor` and
+  `TelemetryUsageSummary` are exported types (root + `/sdk`).
+
 ## 0.3.1 — 2026-06-14
 
 Marketplace/plugin driver expansion — and the cross-OS hardening that came with

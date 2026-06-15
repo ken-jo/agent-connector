@@ -45,7 +45,13 @@ import { renderFrontmatterMd } from "./claude-code/render.js";
 import type { Adapter, InstallContext, MemoryTarget } from "./spi.js";
 
 /** Content-surface kinds with BaseAdapter default install/uninstall handling. */
-type ContentSurface = "commands" | "skills" | "subagents" | "memory";
+type ContentSurface =
+  | "commands"
+  | "skills"
+  | "subagents"
+  | "memory"
+  | "statusline"
+  | "actions";
 
 /**
  * Documented USER-scope AGENTS.md locations, per host (the AGENTS.md-first
@@ -487,6 +493,52 @@ export abstract class BaseAdapter implements Adapter {
   uninstallConfigPatches(_ctx: InstallContext): ChangeRecord[] {
     // Nothing was ever applied by a non-supporting adapter → nothing to release.
     return [];
+  }
+
+  // ── Statusline surface (a HUD/status line) ────────────────────────────────
+  // CONCRETE (overridable) defaults, mirroring the content surfaces: the
+  // installer calls these unconditionally (BaseAdapter defines them), and they
+  // self-skip when the connector declares no statusline, else skip-warn on a
+  // non-supporting host. Only claude-code overrides them today.
+
+  installStatusline(ctx: InstallContext): ChangeRecord[] {
+    if (ctx.connector.statusline == null) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no statusline" }];
+    }
+    if (ctx.connector.platforms[this.id]?.statusline === false) {
+      return [{ platform: this.id, action: "skip", detail: `statusline disabled for ${this.id}` }];
+    }
+    if (!(this.capabilities.supportsStatusline ?? false)) {
+      return this.unsupportedSurface(ctx, "statusline", 1);
+    }
+    // A supporting adapter must override this; the default is the same skip-warn
+    // safety net the configPatch defaults provide (never silent).
+    return this.unsupportedSurface(ctx, "statusline", 1);
+  }
+
+  uninstallStatusline(ctx: InstallContext): ChangeRecord[] {
+    if (ctx.connector.statusline == null) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no statusline" }];
+    }
+    if (!(this.capabilities.supportsStatusline ?? false)) {
+      // Nothing could ever have been written by a non-supporting adapter.
+      return this.unsupportedSurface(ctx, "statusline", 1);
+    }
+    return this.unsupportedSurface(ctx, "statusline", 1);
+  }
+
+  // ── Action surface (a user-invokable action) ──────────────────────────────
+  // CONCRETE (overridable) defaults, mirroring the statusline pair. v1 ships
+  // ONLY the dispatch backbone: there is no verifiable host affordance to emit,
+  // so EVERY host honestly skip-warns and NO adapter overrides these. (`?? []`
+  // tolerates pre-resolved connectors from versions before the action surface
+  // existed, exactly like installMemory.)
+
+  installActions(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "actions", (ctx.connector.actions ?? []).length);
+  }
+  uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    return this.unsupportedSurface(ctx, "actions", (ctx.connector.actions ?? []).length);
   }
 
   /**

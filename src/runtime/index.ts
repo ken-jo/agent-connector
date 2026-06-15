@@ -1,5 +1,5 @@
 /**
- * runtime — the two universal runtime entrypoints, re-exported for the CLI.
+ * runtime — the universal runtime entrypoints, re-exported for the CLI.
  *
  *   • runHook  — the json-stdio hook dispatcher every host's hook config points
  *     at (via the single stable home binary). Takes the parsed hook flags + the
@@ -27,3 +27,15 @@ export type { RunServeOptions } from "./serve.js";
 
 export { runUsageEvent } from "./usage-event.js";
 export type { RunUsageEventOptions, RunUsageEventResult } from "./usage-event.js";
+
+export { runStatusline } from "./statusline-entrypoint.js";
+export type {
+  RunStatuslineOptions,
+  RunStatuslineResult,
+} from "./statusline-entrypoint.js";
+
+export { runAction } from "./action-entrypoint.js";
+export type {
+  RunActionOptions,
+  RunActionResult,
+} from "./action-entrypoint.js";

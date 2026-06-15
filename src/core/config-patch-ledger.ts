@@ -101,6 +101,9 @@ export function configPatchNamespaceViolation(key: string): string | null {
   ) {
     return `"${key}" targets MCP server registration agent-connector already models; declare it via \`server\` / \`platforms.<id>.server\` / \`extra\` instead`;
   }
+  if (head === "statusLine") {
+    return `"${key}" is modeled by the statusline surface; declare it via \`statusline: { render }\` instead`;
+  }
   return null;
 }
 

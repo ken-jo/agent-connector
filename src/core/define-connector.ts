@@ -9,16 +9,23 @@
 import { isAbsolute, normalize } from "node:path";
 
 import type {
+  ActionDef,
   CommandDef,
+  ConfigPatchDef,
   ConnectorConfig,
+  HookDefinition,
   HookEventName,
   HooksConfig,
   MemoryDef,
+  NativeHookDef,
+  PlatformId,
   PublishConfig,
   ResolvedConnector,
   SkillDef,
+  StatuslineDef,
   SubagentDef,
 } from "./types.js";
+import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
 import {
   MANAGED_BLOCK_BEGIN_TOKEN,
@@ -87,6 +94,13 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const hasSkills = Array.isArray(config.skills) && config.skills.length > 0;
   const hasSubagents = Array.isArray(config.subagents) && config.subagents.length > 0;
   const hasMemory = Array.isArray(config.memory) && config.memory.length > 0;
+  // A statusline (a HUD) is a legitimate sole payload — a connector whose whole
+  // job is rendering a status line. SINGULAR (one per connector), so a plain
+  // presence check (object with a render handler — validated in normalizeStatusline).
+  const hasStatusline = config.statusline != null;
+  // Actions (each a user-invokable run handler) are a legitimate sole payload —
+  // a connector whose whole job is shipping dispatchable actions.
+  const hasActions = Array.isArray(config.actions) && config.actions.length > 0;
   // A platform-scoped nativeHooks declaration is a legitimate sole payload
   // (a hooks-only connector wired entirely through native passthrough events).
   const hasNativeHooks = Object.values(config.platforms ?? {}).some(
@@ -105,11 +119,13 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     !hasSkills &&
     !hasSubagents &&
     !hasMemory &&
+    !hasStatusline &&
+    !hasActions &&
     !hasNativeHooks &&
     !hasConfigPatch
   ) {
     throw new ConnectorConfigError(
-      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, " +
+      "a connector must declare at least one of `server`, `hooks`, `commands`, `skills`, `subagents`, `memory`, `statusline`, `actions`, " +
         "or a per-platform `nativeHooks` / `configPatch` declaration",
     );
   }
@@ -131,13 +147,16 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     }
   }
 
-  // Validate hook handlers are functions.
+  // Validate hook handlers are functions, plus any per-host override map.
   if (config.hooks) {
     for (const ev of ALL_EVENTS) {
       const def = config.hooks[ev];
       if (def != null && typeof def.handler !== "function") {
         throw new ConnectorConfigError(`hooks.${ev}.handler must be a function`);
       }
+      // Per-host override map: every key must be a registered platform id and
+      // every entry's handler a function (author-time hard error, not skip-warn).
+      validateHostsMap(def?.hosts, `hooks.${ev}.hosts`, "handler");
     }
   }
 
@@ -156,6 +175,8 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const skills = normalizeSkills(config.skills);
   const subagents = normalizeSubagents(config.subagents);
   const memory = normalizeMemory(config.memory);
+  const statusline = normalizeStatusline(config.statusline);
+  const actions = normalizeActions(config.actions);
 
   const t = config.telemetry ?? {};
 
@@ -182,6 +203,8 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     skills,
     subagents,
     memory,
+    ...(statusline ? { statusline } : {}),
+    actions,
     platforms: config.platforms ?? {},
     targets: config.targets ?? "auto",
     ...(config.publish ? { publish: normalizePublish(config.publish) } : {}),
@@ -192,6 +215,48 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
 
 /** The 12 normalized event names, for the nativeHooks collision check. */
 const NORMALIZED_EVENT_SET: ReadonlySet<string> = new Set(ALL_EVENTS);
+
+/**
+ * Validate a per-host override map (`hosts?:`) declared on a hook definition or
+ * on the statusline. Shared by the hook-validation loop and normalizeStatusline:
+ *   - the value must be a plain object keyed by platform id;
+ *   - every key MUST be a REGISTERED platform id (REGISTERED_PLATFORM_IDS) —
+ *     an unknown id is an author-time ConnectorConfigError (NOT a skip-warn:
+ *     a typo'd host would otherwise silently never fire);
+ *   - every entry's implementation field (`handler` for hooks, `render` for
+ *     statusline, `run` for actions) MUST be a function (it is re-imported from
+ *     the connector module at runtime, like the top-level handler/render/run).
+ * `undefined` (no map) is valid and skipped.
+ */
+function validateHostsMap(
+  map: unknown,
+  surfaceLabel: string,
+  implField: "handler" | "render" | "run",
+): void {
+  if (map == null) return;
+  if (typeof map !== "object" || Array.isArray(map)) {
+    throw new ConnectorConfigError(
+      `${surfaceLabel} must be an object keyed by platform id`,
+    );
+  }
+  for (const [platformId, entry] of Object.entries(map as Record<string, unknown>)) {
+    if (!REGISTERED_PLATFORM_IDS.has(platformId as PlatformId)) {
+      const valid = [...REGISTERED_PLATFORM_IDS].sort().join(", ");
+      throw new ConnectorConfigError(
+        `unknown platform id "${platformId}" in hosts map for ${surfaceLabel}; valid ids: ${valid}`,
+      );
+    }
+    if (
+      entry == null ||
+      typeof entry !== "object" ||
+      typeof (entry as Record<string, unknown>)[implField] !== "function"
+    ) {
+      throw new ConnectorConfigError(
+        `${surfaceLabel}.${platformId}.${implField} must be a function`,
+      );
+    }
+  }
+}
 
 /**
  * Validate every `platforms[<id>].nativeHooks` declaration:
@@ -331,10 +396,15 @@ function normalizePublish(publish: PublishConfig): PublishConfig {
 }
 
 /** Validate a surface name (kebab-case) or throw a ConnectorConfigError. */
-function assertSurfaceName(surface: string, name: unknown, index: number): string {
+function assertSurfaceName(
+  surface: string,
+  name: unknown,
+  index: number,
+  field = "name",
+): string {
   if (typeof name !== "string" || !SURFACE_NAME_RE.test(name)) {
     throw new ConnectorConfigError(
-      `${surface}[${index}].name must be kebab-case matching ${SURFACE_NAME_RE} (got ${JSON.stringify(name)})`,
+      `${surface}[${index}].${field} must be kebab-case matching ${SURFACE_NAME_RE} (got ${JSON.stringify(name)})`,
     );
   }
   return name;
@@ -359,9 +429,10 @@ function assertNoDuplicate(
   seen: Set<string>,
   name: string,
   index: number,
+  field = "name",
 ): void {
   if (seen.has(name)) {
-    throw new ConnectorConfigError(`${surface}[${index}] duplicate name "${name}"`);
+    throw new ConnectorConfigError(`${surface}[${index}] duplicate ${field} "${name}"`);
   }
   seen.add(name);
 }
@@ -500,6 +571,174 @@ function normalizeMemory(input: MemoryDef[] | undefined): MemoryDef[] {
     return { ...entry, name };
   });
 }
+
+/** Default name for the (singular) statusline declaration. */
+const STATUSLINE_DEFAULT_NAME = "statusline";
+
+/**
+ * Validate + normalize the SINGULAR `statusline` (a HUD handler surface):
+ *   - `render` MUST be a function (it is the renderer, re-imported at runtime
+ *     like a hook handler);
+ *   - `name` defaults to "statusline", then must be kebab-case (the shared
+ *     surface-name validator);
+ *   - `description`, when present, must be a string.
+ * Returns undefined when no statusline is declared (it is optional and singular,
+ * unlike the memory[] array).
+ */
+function normalizeStatusline(
+  input: StatuslineDef | undefined,
+): StatuslineDef | undefined {
+  if (input == null) return undefined;
+  if (typeof input !== "object" || Array.isArray(input)) {
+    throw new ConnectorConfigError("statusline must be an object");
+  }
+  if (typeof input.render !== "function") {
+    throw new ConnectorConfigError("statusline.render must be a function");
+  }
+  const name =
+    input.name === undefined
+      ? STATUSLINE_DEFAULT_NAME
+      : assertSurfaceName("statusline", input.name, 0);
+  if (input.description !== undefined && typeof input.description !== "string") {
+    throw new ConnectorConfigError("statusline.description must be a string");
+  }
+  // Per-host render override map: registered platform ids only, each render a
+  // function (author-time hard error, mirroring the hook hosts-map validation).
+  validateHostsMap(input.hosts, "statusline.hosts", "render");
+  return { ...input, name };
+}
+
+/**
+ * Validate + normalize `actions` (the user-invokable action handler surface):
+ *   - the value must be an array;
+ *   - each entry's `id` must be kebab-case (the shared surface-name validator)
+ *     and UNIQUE within the connector (ConnectorConfigError on dup — the id is
+ *     the verb's positional arg, so a duplicate would be ambiguous);
+ *   - `run` MUST be a function (it is the handler, re-imported at runtime like a
+ *     hook handler / statusline render);
+ *   - `description`, when present, must be a string;
+ *   - the per-host `hosts:` override map is validated via the shared
+ *     validateHostsMap (registered platform ids only, each `run` a function).
+ * Returns [] when no actions are declared (defaults applied, like the other
+ * array surfaces).
+ */
+function normalizeActions(input: ActionDef[] | undefined): ActionDef[] {
+  if (input == null) return [];
+  if (!Array.isArray(input)) {
+    throw new ConnectorConfigError("actions must be an array");
+  }
+  const seen = new Set<string>();
+  return input.map((action, i) => {
+    if (!action || typeof action !== "object" || Array.isArray(action)) {
+      throw new ConnectorConfigError(`actions[${i}] must be an object`);
+    }
+    const id = assertSurfaceName("actions", action.id, i, "id");
+    assertNoDuplicate("actions", seen, id, i, "id");
+    if (typeof action.run !== "function") {
+      throw new ConnectorConfigError(`actions[${i}].run must be a function`);
+    }
+    if (action.description !== undefined && typeof action.description !== "string") {
+      throw new ConnectorConfigError(`actions[${i}].description must be a string`);
+    }
+    // Per-host run override map: registered platform ids only, each run a
+    // function (author-time hard error, mirroring the statusline/hook hosts-map).
+    validateHostsMap(action.hosts, `actions.${id}.hosts`, "run");
+    return { ...action, id };
+  });
+}
+
+/**
+ * Typed identity helper for authoring a status line in its own module:
+ *   export const myStatusline = defineStatusline({ render: (ctx) => "…" });
+ * Mirrors the (informal) defineX helpers; gives the developer full type
+ * inference on {@link StatuslineContext} without importing the type by hand.
+ */
+export const defineStatusline = (def: StatuslineDef): StatuslineDef => def;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Typed identity helpers (the `define*` authoring family)
+//
+// Each is a one-line identity function: it returns its argument UNCHANGED and
+// does NOT validate or mutate (validation still happens centrally in
+// defineConnector). Their only job is ergonomics — authoring a surface in its
+// own module with full type inference + autocomplete on the *Def shape, and a
+// single import site — mirroring the existing {@link defineStatusline}.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Typed identity helper for authoring ONE normalized lifecycle hook in its own
+ * module, EVENT-PARAMETERIZED so the handler's payload narrows to that event:
+ *
+ *   export const onPre = defineHook("PreToolUse", {
+ *     handler(evt) { evt.toolName // ← typed as a PreToolUseEvent, not the union
+ *       return { decision: "deny", reason: "no" };
+ *     },
+ *   });
+ *
+ * The leading `event` argument exists ONLY to infer `E`; the def is returned
+ * unchanged (identity — validation still happens in defineConnector). Passing
+ * `HookDefinition` without an event would widen the handler param to the full
+ * {@link HookEventName} union and lose per-event narrowing, so the event tag is
+ * required.
+ */
+export const defineHook = <E extends HookEventName>(
+  event: E,
+  def: HookDefinition<E>,
+): HookDefinition<E> => {
+  void event; // tag-only: used solely to infer E (the def carries no event field)
+  return def;
+};
+
+/**
+ * Typed identity helper for authoring a slash {@link CommandDef} in its own
+ * module. Returns the def unchanged (kebab-case name + prompt are validated by
+ * defineConnector when the connector is assembled).
+ */
+export const defineCommand = (def: CommandDef): CommandDef => def;
+
+/**
+ * Typed identity helper for authoring an Agent {@link SkillDef} in its own
+ * module. Returns the def unchanged (name/description/body + safe resource keys
+ * are validated by defineConnector).
+ */
+export const defineSkill = (def: SkillDef): SkillDef => def;
+
+/**
+ * Typed identity helper for authoring a {@link SubagentDef} in its own module.
+ * Returns the def unchanged (name/description/prompt validated by defineConnector).
+ */
+export const defineSubagent = (def: SubagentDef): SubagentDef => def;
+
+/**
+ * Typed identity helper for authoring a {@link MemoryDef} (standing-guidance
+ * managed block) in its own module. Returns the def unchanged (name/content +
+ * byte budget + marker-token guard validated by defineConnector).
+ */
+export const defineMemory = (def: MemoryDef): MemoryDef => def;
+
+/**
+ * Typed identity helper for authoring a user-invokable {@link ActionDef} in its
+ * own module. Returns the def unchanged (kebab-case unique id + run-is-function
+ * + the per-host hosts map validated by defineConnector when the connector is
+ * assembled).
+ */
+export const defineAction = (def: ActionDef): ActionDef => def;
+
+/**
+ * Typed identity helper for authoring a declarative {@link ConfigPatchDef}
+ * (set-if-absent host-config key patch) in its own module. Returns the def
+ * unchanged (leaf-path grammar + namespace guard + required reason validated by
+ * defineConnector when it appears under `platforms[<id>].configPatch`).
+ */
+export const defineConfigPatch = (def: ConfigPatchDef): ConfigPatchDef => def;
+
+/**
+ * Typed identity helper for authoring a {@link NativeHookDef} (host-native
+ * passthrough hook) in its own module. Returns the def unchanged (event-name
+ * collision + handler-is-function validated by defineConnector when it appears
+ * under `platforms[<id>].nativeHooks`).
+ */
+export const defineNativeHook = (def: NativeHookDef): NativeHookDef => def;
 
 function normalizeSubagents(input: SubagentDef[] | undefined): SubagentDef[] {
   if (input == null) return [];

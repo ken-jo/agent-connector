@@ -178,6 +178,17 @@ interface BaseEvent {
   projectDir?: string;
   /** Raw host-specific payload for passthrough/escape-hatch use. */
   raw: unknown;
+  /**
+   * What the host can honor (the adapter's capability flags). OPTIONAL on the
+   * TYPE so adapters' parseEvent (which has no capabilities at parse time) need
+   * no change, but the runtime ALWAYS populates it before the handler runs — so
+   * a hook handler can rely on evt.capabilities being present at runtime.
+   */
+  capabilities?: PlatformCapabilities;
+  /** Install scope, when recovered from the registered metadata (else undefined). */
+  scope?: InstallScope;
+  /** Async accessor to this connector's own telemetry usage (see HostCtx.telemetry). */
+  telemetry?: TelemetryAccessor;
 }
 
 export interface PreToolUseEvent extends BaseEvent {
@@ -348,6 +359,21 @@ export interface HookDefinition<E extends HookEventName = HookEventName> {
   handler(
     event: EventPayloadMap[E],
   ): HookResponse | void | Promise<HookResponse | void>;
+  /**
+   * Per-host handler override. When dispatching for host X, `hosts[X].handler`
+   * WINS over the top-level `handler`; a host not listed here falls back to the
+   * top-level handler. Keys MUST be registered platform ids and each entry's
+   * handler MUST be a function (validated at defineConnector). The runtime
+   * selection preserves fail-open: a missing/invalid per-host entry simply falls
+   * back to the top-level handler — selection never throws.
+   *
+   * The top-level `handler` is ALWAYS required, even when every host is
+   * overridden — it is the mandatory fallback (a `hosts`-only definition is a
+   * ConnectorConfigError). A per-host handler SHARES the top-level `matcher`
+   * (there is no per-host matcher); the matcher is evaluated before per-host
+   * selection, so a non-matching subject suppresses the per-host handler too.
+   */
+  hosts?: Partial<Record<PlatformId, { handler: HookDefinition<E>["handler"] }>>;
 }
 
 /** Developer-declared hooks, keyed by canonical event name. */
@@ -376,6 +402,12 @@ export interface HooksConfig {
  * the host's stdin JSON exactly as it arrived, so the handler reads the host's
  * own contract (e.g. Claude's snake_case `task_id` / `teammate_name` fields)
  * with full native fidelity.
+ */
+/**
+ * Native passthrough hook event. NOTE: unlike a normalized {@link BaseEvent},
+ * this deliberately does NOT carry the HostCtx trio (capabilities / scope /
+ * telemetry) — native hooks are a raw-envelope passthrough, so the handler
+ * receives only the verbatim payload below.
  */
 export interface NativeHookEvent {
   /** Host-native event name, VERBATIM (e.g. "TaskCreated", "WorktreeRemove"). */
@@ -553,6 +585,28 @@ export interface PlatformCapabilities {
    * per-adapter `memoryTargets()` hook.
    */
   supportsMemory?: boolean;
+  /**
+   * Statusline-surface support (a HUD/status line wired at the single home
+   * binary). OPTIONAL, read as `?? false` (supportsMemory precedent). Only
+   * statusline-supporting adapters set this true; the BaseAdapter
+   * install/uninstall defaults skip-warn regardless of the flag (v1:
+   * claude-code only). Unlike the content surfaces this is a runtime-dispatched
+   * handler — the supporting adapter wires the host's status line at
+   * `<homeBin> statusline <host> --connector <id>`.
+   */
+  supportsStatusline?: boolean;
+  /**
+   * Action-surface support — can this adapter EMIT a host affordance (slash
+   * command / keybinding / clickable element) bound to the universal
+   * `<homeBin> action <host> <actionId> --connector <id>` verb? OPTIONAL, read
+   * as `?? false` (supportsStatusline precedent). v1 ships only the dispatch
+   * BACKBONE — no adapter sets this true, because the host-feasibility survey
+   * found no verifiable CLI emission target (slash commands are prompt
+   * templates that cannot run a shell verb; plugin APIs expose no command
+   * registration). It is the flag a future affordance-emitter flips; until then
+   * every adapter's BaseAdapter install/uninstall defaults honestly skip-warn.
+   */
+  supportsActions?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -650,6 +704,173 @@ export interface MemoryDef {
   content: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Statusline surface (a HUD/status line) — a HANDLER surface, declared once.
+// SINGULAR (one per connector), unlike the memory[] content array: a connector
+// renders ONE status line. Unlike commands/skills/subagents/memory (pure file
+// writers) this is a runtime-dispatched handler, like a hook — the host execs
+// the home binary, which re-imports the connector module and calls render().
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Shared context for handler surfaces. v1: {@link StatuslineContext} extends it
+ * (render sees host + capabilities). Hook payloads (the normalized
+ * {@link EventPayloadMap} events) keep their existing shape for now and adopt
+ * HostCtx in a later phase (lower blast radius — they carry `hostPlatform` +
+ * `connectorId` + per-event fields already, and changing the runtime hook
+ * payload shape is a wider change than this statusline-only unification).
+ */
+export interface HostCtx {
+  /** Which host is running this handler. */
+  host: PlatformId;
+  /** What this host can actually honor (the adapter's capability flags). */
+  capabilities: PlatformCapabilities;
+  /**
+   * Install scope, when known. OPTIONAL: scope is an install-time property the
+   * runtime recovers from the connector's registered metadata
+   * (`readRegisteredMeta(connectorId)?.scope`) and stamps onto the ctx, so it is
+   * now POPULATED when the meta carries it. It is still undefined for an
+   * unregistered / ad-hoc connector (no meta) or one registered before scope was
+   * persisted — branch on `host` + `capabilities` when scope may be absent.
+   * CAVEAT: the persisted scope is the install's RUN-WIDE DEFAULT scope; it may
+   * differ from the EFFECTIVE per-host scope when the connector set a
+   * `platforms[host].scope` override (the single registry record is keyed by
+   * connector id only, so it cannot hold a per-host scope). Treat it as the
+   * default, not a guaranteed per-host truth.
+   */
+  scope?: InstallScope;
+  /** Project directory, when the host reports it. */
+  projectDir?: string;
+  /** Host session id, when the host reports it. */
+  sessionId?: string;
+  /**
+   * Async accessor to THIS connector's own telemetry usage (token sums + call
+   * count). ASYNC (reads the store); resolves empty zeros when
+   * AGENT_CONNECTOR_TELEMETRY=0; NEVER throws (returns zeros on any read error).
+   * Stamped by the runtime entrypoint, so a handler reads it via
+   * `await ctx.telemetry?.()`. Undefined only in contexts that do not build it.
+   */
+  telemetry?: TelemetryAccessor;
+}
+
+/**
+ * Normalized context handed to {@link StatuslineDef.render}. Extends the shared
+ * {@link HostCtx} (so render sees `host` + `capabilities` + the optional
+ * scope/projectDir/sessionId) and adds the statusline-specific fields. Each
+ * adapter's `parseStatusInput` maps the host's verbatim status payload into this
+ * shape, filling only the fields that host exposes. `raw` is the untouched host
+ * payload (the escape hatch for fields not modeled here).
+ */
+export interface StatuslineContext extends HostCtx {
+  /**
+   * Connector id this status line is dispatched for (stamped by the runtime,
+   * NOT by the adapter). Kept on StatuslineContext rather than HostCtx: it is a
+   * runtime-dispatch detail, and HostCtx is meant to describe the HOST, not the
+   * connector being dispatched.
+   */
+  connectorId?: string;
+  /** Working directory the host reports for this session. */
+  cwd?: string;
+  /** Active model, when the host reports it. */
+  model?: { id?: string; displayName?: string };
+  /** Running cost, when the host reports it. */
+  cost?: { totalUsd?: number };
+  /** Context-window usage, when the host reports it. */
+  context?: { usedTokens?: number; maxTokens?: number; percent?: number };
+  /** Path to the session transcript, when the host reports one. */
+  transcriptPath?: string;
+  /** The host's verbatim status payload (escape hatch). */
+  raw: unknown;
+}
+
+/**
+ * A connector's status line ("HUD"): a single handler that renders the line
+ * text from the normalized {@link StatuslineContext}. The handler lives in the
+ * connector module and is re-imported at runtime (like hook handlers), so it
+ * must survive defineConnector resolution as a live function.
+ *
+ * v1 returns a plain string (no Segment[] yet — a future enhancement). Adapters
+ * with {@link PlatformCapabilities.supportsStatusline} wire the host's status
+ * line at the single home binary (`<homeBin> statusline <host> --connector
+ * <id>`); every other adapter reports the standard skip-warn.
+ */
+export interface StatuslineDef {
+  /**
+   * kebab-case id; default "statusline". Stable identifier surfaced in
+   * status/docs output (the status line is singular, so it is not used as a
+   * marker key like memory names — but it stays kebab-case for consistency).
+   */
+  name?: string;
+  /** One-line "what this status line shows" — status/docs output only. */
+  description?: string;
+  /**
+   * Renderer. Receives the normalized context; returns the status line text.
+   * Re-imported at runtime via the connector module path (like hook handlers).
+   */
+  render: (ctx: StatuslineContext) => string | Promise<string>;
+  /**
+   * Per-host render override. When rendering for host X, `hosts[X].render` WINS
+   * over the top-level `render`; a host not listed here falls back to the
+   * top-level render. Keys MUST be registered platform ids and each entry's
+   * render MUST be a function (validated at defineConnector). The runtime
+   * selection preserves fail-safe: a missing/invalid per-host entry simply falls
+   * back to the top-level render — selection never throws.
+   *
+   * The top-level `render` is ALWAYS required, even when every host is
+   * overridden — it is the mandatory fallback (a `hosts`-only definition is a
+   * ConnectorConfigError). A `hosts` entry targeting a host that has no
+   * statusline surface is inert (the runtime no-ops it), exactly as the surface
+   * itself skip-warns there.
+   */
+  hosts?: Partial<Record<PlatformId, { render: StatuslineDef["render"] }>>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Action surface (a user-invokable action) — a HANDLER surface, declared once.
+// Like the statusline this is a runtime-dispatched handler (the host execs the
+// home binary, which re-imports the connector module and calls run()), NOT a
+// pure file writer. UNLIKE the statusline it is USER-TRIGGERED: errors are
+// SURFACED (exit 1 + stderr), never failed silently. v1 ships the dispatch
+// backbone only — the affordance EMISSION (binding a host slash/keybinding to
+// the verb) is a later phase, so no adapter sets supportsActions yet.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** What an action's run() returns. v1 minimal: an optional user-facing message. */
+export interface ActionResult {
+  message?: string;
+}
+
+/**
+ * A user-invokable action: an id + a run(ctx) handler. The connector binds it to
+ * a host affordance (slash command / keybinding) in a LATER phase; v1 ships the
+ * dispatch backbone (the `agent-connector action` verb runs run(ctx)). run
+ * receives the shared {@link HostCtx} (host + capabilities; no stdin — an action
+ * takes no host payload, unlike a hook or status line). The handler lives in the
+ * connector module and is re-imported at runtime (like hook handlers /
+ * statusline.render), so it must survive defineConnector resolution as a live
+ * function.
+ */
+export interface ActionDef {
+  /** kebab-case id; unique within the connector. The verb's positional arg. */
+  id: string;
+  /** One-line "what this action does" — status/docs output only. */
+  description?: string;
+  /**
+   * The action handler. Receives the normalized {@link HostCtx}; an optional
+   * {@link ActionResult} return prints its `message` to the user. Re-imported at
+   * runtime via the connector module path (like hook handlers).
+   */
+  run: (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
+  /**
+   * Per-host run override. When dispatching for host X, `hosts[X].run` WINS over
+   * the top-level `run`; a host not listed here falls back to the top-level run.
+   * Same shape/semantics as {@link StatuslineDef.hosts}: keys MUST be registered
+   * platform ids and each entry's run MUST be a function (validated at
+   * defineConnector). The top-level `run` is ALWAYS the mandatory fallback.
+   */
+  hosts?: Partial<Record<PlatformId, { run: ActionDef["run"] }>>;
+}
+
 /** Per-host memory tuning — the object form of {@link PlatformOverride.memory}. */
 export interface PlatformMemoryOverride {
   /**
@@ -676,6 +897,27 @@ export interface PlatformMemoryOverride {
 // ─────────────────────────────────────────────────────────────────────────
 // Telemetry (config-time options; runtime types live in telemetry/types.ts)
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * A handler-facing rollup of THIS connector's own recorded telemetry usage —
+ * the sum of every stored row for the connector (inputTokens/outputTokens) plus
+ * the row count (`calls`). Aggregate counts only; no raw content (mirrors the
+ * {@link ToolEventRecord} contract). Exposed via {@link HostCtx.telemetry}.
+ */
+export interface TelemetryUsageSummary {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  calls: number;
+}
+
+/**
+ * Async accessor a handler calls to read its connector's own telemetry usage.
+ * ASYNC (it reads the store). Returns empty zeros when AGENT_CONNECTOR_TELEMETRY=0,
+ * and NEVER throws (any read error resolves to zeros) — a handler can always
+ * `await ctx.telemetry?.()` without a try/catch.
+ */
+export type TelemetryAccessor = () => Promise<TelemetryUsageSummary>;
 
 export interface TelemetryConfig {
   /** On by default. Global kill switch also via AGENT_CONNECTOR_TELEMETRY=0. */
@@ -757,6 +999,8 @@ export interface PlatformOverride {
    * object → per-host target/mode tuning ({@link PlatformMemoryOverride}).
    */
   memory?: boolean | PlatformMemoryOverride;
+  /** false → do not wire the status line on this platform (no object form in v1). */
+  statusline?: boolean;
   /** Verbatim fields merged into the native config (reach platform-exclusive features). */
   extra?: Record<string, unknown>;
 }
@@ -816,6 +1060,18 @@ export interface ConnectorConfig {
    * memory/rules file (AGENTS.md-first). Omit when the connector ships none.
    */
   memory?: MemoryDef[];
+  /**
+   * The connector's status line (a HUD). SINGULAR — a connector renders ONE
+   * status line. Omit when the connector ships none.
+   */
+  statusline?: StatuslineDef;
+  /**
+   * User-invokable actions (each an id + run(ctx) handler the universal
+   * `agent-connector action` verb dispatches). Omit when the connector ships
+   * none. The host-affordance binding is a later phase; v1 ships the dispatch
+   * backbone only.
+   */
+  actions?: ActionDef[];
   /** Per-platform overrides / escape hatches. */
   platforms?: Partial<Record<PlatformId, PlatformOverride>>;
   /** "auto" (all detected) or an explicit allow-list. Default "auto". */
@@ -846,6 +1102,21 @@ export interface ResolvedConnector {
   subagents: SubagentDef[];
   /** Normalized memory entries; names defaulted ("memory"); [] when none. */
   memory: MemoryDef[];
+  /**
+   * Normalized status line (a HUD); name defaulted ("statusline"). Undefined
+   * when the connector declares none. SINGULAR (not an array) — see
+   * {@link StatuslineDef}. Carries the live `render` handler, so it survives
+   * defineConnector but NOT JSON serialization (re-imported at runtime, like
+   * hook handlers).
+   */
+  statusline?: StatuslineDef;
+  /**
+   * Normalized actions (each id defaulted/validated kebab-case + unique); [] when
+   * none. Carries the live `run` handlers, so it survives defineConnector but NOT
+   * JSON serialization (re-imported at runtime, like hook handlers / the
+   * statusline render).
+   */
+  actions: ActionDef[];
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   /** Distribution metadata (registry server.json + MCPB bundle); passed through verbatim. */

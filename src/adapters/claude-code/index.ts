@@ -24,6 +24,7 @@ import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent 
 import type {
   ChangeRecord,
   CommandDef,
+  ConfigPatchDef,
   DetectedPlatform,
   DiagnosticResult,
   HealthCheck,
@@ -43,6 +44,7 @@ import type {
   SessionStartEvent,
   ServerDef,
   SkillDef,
+  StatuslineContext,
   StopEvent,
   SubagentDef,
   SubagentStartEvent,
@@ -53,8 +55,10 @@ import type {
 import { resolveEnvRefsDeep, rewriteEnvRefs } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
+  buildHomeBinStatuslineCommand,
   buildServeWrapperCommand,
   isHomeBinHookCommand,
+  isHomeBinStatuslineCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import {
@@ -98,6 +102,14 @@ const HOST: PlatformId = "claude-code";
 const MCP_ROOT_KEY = "mcpServers";
 
 /**
+ * settings.json leaf key the statusline surface owns. Wired through the SAME
+ * set-if-absent ownership ledger as configPatch (it is NOT on the configPatch
+ * sensitive-key denylist — verified — and is a single top-level leaf), so a
+ * non-AC statusLine is never clobbered.
+ */
+const STATUSLINE_KEY = "statusLine";
+
+/**
  * Reserved blockId of the SHARED `@AGENTS.md` import bridge in CLAUDE.md
  * (agents-import mode). The `_shared/` prefix cannot collide with a connector
  * blockId (connector ids match ^[a-z0-9][a-z0-9-]*$), and the bridge is
@@ -124,6 +136,21 @@ interface ClaudeHttpServer {
   type: "http";
   url: string;
   headers?: Record<string, string>;
+}
+
+/**
+ * Claude Code statusLine command stdin payload (the documented status-line hook
+ * input). Every field optional — a refresh only carries what the host knows.
+ * `version` and any unmodeled fields stay in StatuslineContext.raw.
+ */
+interface ClaudeStatuslineInput {
+  session_id?: string;
+  transcript_path?: string;
+  cwd?: string;
+  version?: string;
+  model?: { id?: string; display_name?: string };
+  workspace?: { current_dir?: string; project_dir?: string };
+  cost?: { total_cost_usd?: number };
 }
 
 export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
@@ -158,6 +185,11 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     // (set-if-absent leaf keys in settings.json, refcounted ownership ledger,
     // sensitive-key denylist — see SENSITIVE_KEY_RULES below).
     supportsConfigPatch: true,
+    // Statusline surface: claude-code is the ONLY v1 host. installStatusline
+    // wires settings.json.statusLine = {type:"command", command:<home-bin
+    // statusline cmd>} through the SAME set-if-absent ownership ledger as
+    // configPatch (never clobbers a statusLine agent-connector does not own).
+    supportsStatusline: true,
     transports: ["stdio", "http"],
     // Content surfaces: Claude Code is the reference implementation for all three.
     supportsCommands: true,
@@ -495,7 +527,29 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
         { platform: this.id, action: "skip", detail: "connector declares no configPatch entries" },
       ];
     }
+    return this.applyConfigPatches(ctx, patches);
+  }
 
+  /**
+   * The shared set-if-absent / ownership-ledger apply loop behind BOTH
+   * {@link installConfigPatches} and {@link installStatusline}. Routing the
+   * statusline through the EXACT same path is how a connector's statusLine
+   * inherits the configPatch contract verbatim: never clobber a statusLine
+   * agent-connector does not own (skip-warn), record prior state + owner,
+   * refcounted across connectors, reversible by uninstallConfigPatches.
+   */
+  private applyConfigPatches(
+    ctx: InstallContext,
+    patches: ConfigPatchDef[],
+    opts: { surfaceLabel?: "configPatch" | "statusline" } = {},
+  ): ChangeRecord[] {
+    // The user-facing surface name in every ChangeRecord.detail. "statusline"
+    // routes the AC-modeled statusLine key through this loop INTERNALLY — that
+    // key is namespace-reserved against raw configPatch, so the internal path
+    // bypasses the namespace guard (the surface, not a smuggled patch, owns it).
+    const surfaceLabel = opts.surfaceLabel ?? "configPatch";
+    const internal = surfaceLabel !== "configPatch";
+    const { connector } = ctx;
     const filePath = this.getPatchableConfigPath(ctx);
     // OVERWRITE GUARD (upsertServerInJson precedent): never round-trip a
     // present-but-unparseable settings file into `{}`.
@@ -539,14 +593,18 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
         });
         continue;
       }
-      const namespace = configPatchNamespaceViolation(patch.key);
-      if (namespace) {
-        changes.push({
-          platform: this.id,
-          action: "warn",
-          detail: `configPatch refused: ${namespace}`,
-        });
-        continue;
+      // The statusline surface intentionally models the (now namespace-reserved)
+      // statusLine key, so its internal patches skip this guard.
+      if (!internal) {
+        const namespace = configPatchNamespaceViolation(patch.key);
+        if (namespace) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `configPatch refused: ${namespace}`,
+          });
+          continue;
+        }
       }
       // SENSITIVE-KEY DENYLIST — hard refuse, no override flag in v1.
       const sensitive = claudeSensitiveKeyViolation(patch.key);
@@ -573,7 +631,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           action: "warn",
           path: filePath,
           detail:
-            `configPatch ${patch.key} skipped: "${leaf.atPath}" exists but is not an ` +
+            `${surfaceLabel} ${patch.key} skipped: "${leaf.atPath}" exists but is not an ` +
             `object — ${configPatchManualEdit(patch)}`,
         });
         continue;
@@ -605,7 +663,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           platform: this.id,
           action: "create",
           path: filePath,
-          detail: `configPatch ${patch.key}: <absent> → ${describeJsonValue(desired)} (${patch.reason})`,
+          detail: `${surfaceLabel} ${patch.key}: <absent> → ${describeJsonValue(desired)} (${patch.reason})`,
         });
         continue;
       }
@@ -619,7 +677,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           action: "warn",
           path: filePath,
           detail:
-            `configPatch ${patch.key} skipped: already set to ${describeJsonValue(leaf.value)} ` +
+            `${surfaceLabel} ${patch.key} skipped: already set to ${describeJsonValue(leaf.value)} ` +
             `(not created by agent-connector; desired ${describeJsonValue(desired)}) — ` +
             configPatchManualEdit(patch),
         });
@@ -634,7 +692,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           action: "warn",
           path: filePath,
           detail:
-            `configPatch ${patch.key}: value changed since install ` +
+            `${surfaceLabel} ${patch.key}: value changed since install ` +
             `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
             `leaving in place — ${configPatchManualEdit(patch)}`,
         });
@@ -651,14 +709,14 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
             platform: this.id,
             action: "skip",
             path: filePath,
-            detail: `configPatch ${patch.key} already installed; registered as co-owner (co-owned with ${owners.join(", ")})`,
+            detail: `${surfaceLabel} ${patch.key} already installed; registered as co-owner (co-owned with ${owners.join(", ")})`,
           });
         } else {
           changes.push({
             platform: this.id,
             action: "skip",
             path: filePath,
-            detail: `configPatch ${patch.key} already installed`,
+            detail: `${surfaceLabel} ${patch.key} already installed`,
           });
         }
         continue;
@@ -670,7 +728,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
         action: "warn",
         path: filePath,
         detail:
-          `configPatch ${patch.key} skipped: already owned by ${entry.owners
+          `${surfaceLabel} ${patch.key} skipped: already owned by ${entry.owners
             .map((o) => o.connectorId)
             .join(", ")} with a different value ` +
           `(current ${describeJsonValue(leaf.value)}, desired ${describeJsonValue(desired)}) — ` +
@@ -689,7 +747,11 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     // Keyed off the LEDGER (not the declaration): releases ownership for every
     // file/scope this connector ever patched, even when the uninstall context
     // is a minimal synthetic connector or the scope flag differs from install.
-    const owned = ledgerEntriesOwnedBy(ledger, HOST, connectorId);
+    // EXCLUDE the statusLine key — that surface releases via uninstallStatusline
+    // (the installer runs both), so this never double-processes the same row.
+    const owned = ledgerEntriesOwnedBy(ledger, HOST, connectorId).filter(
+      (e) => e.key !== STATUSLINE_KEY,
+    );
     const declared = ctx.connector.platforms[HOST]?.configPatch ?? [];
     const changes: ChangeRecord[] = [];
 
@@ -706,7 +768,26 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
       }
     }
     if (owned.length === 0) return changes;
+    changes.push(...this.releaseOwnedConfigPatches(ctx, ledger, owned));
+    return changes;
+  }
 
+  /**
+   * The shared last-owner-verified release loop behind BOTH
+   * {@link uninstallConfigPatches} and {@link uninstallStatusline}: for each
+   * already-selected owned ledger entry, drop this connector's ownership and
+   * remove the key ONLY when last-owner ∧ value-unchanged ∧ prior-absent (else
+   * skip-warn + leave the key). Saves the ledger when it mutated.
+   */
+  private releaseOwnedConfigPatches(
+    ctx: InstallContext,
+    ledger: ReturnType<typeof loadConfigPatchLedger>,
+    owned: ConfigPatchLedgerEntry[],
+    opts: { surfaceLabel?: "configPatch" | "statusline" } = {},
+  ): ChangeRecord[] {
+    const surfaceLabel = opts.surfaceLabel ?? "configPatch";
+    const connectorId = ctx.connector.id;
+    const changes: ChangeRecord[] = [];
     let ledgerMutated = false;
     const backedUp = new Set<string>();
 
@@ -735,7 +816,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
             platform: this.id,
             action: "skip",
             path: filePath,
-            detail: `configPatch ${entry.key} retained: still owned by ${entry.owners
+            detail: `${surfaceLabel} ${entry.key} retained: still owned by ${entry.owners
               .map((o) => o.connectorId)
               .join(", ")}`,
           });
@@ -751,7 +832,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
             platform: this.id,
             action: "warn",
             path: filePath,
-            detail: `configPatch ${entry.key}: ${filePath} is not parseable; key left in place (ownership released)`,
+            detail: `${surfaceLabel} ${entry.key}: ${filePath} is not parseable; key left in place (ownership released)`,
           });
           continue;
         }
@@ -760,7 +841,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
             platform: this.id,
             action: "skip",
             path: filePath,
-            detail: `configPatch ${entry.key} already absent (no settings file); ownership record dropped`,
+            detail: `${surfaceLabel} ${entry.key} already absent (no settings file); ownership record dropped`,
           });
           continue;
         }
@@ -770,7 +851,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
             platform: this.id,
             action: "skip",
             path: filePath,
-            detail: `configPatch ${entry.key} already absent; ownership record dropped`,
+            detail: `${surfaceLabel} ${entry.key} already absent; ownership record dropped`,
           });
           continue;
         }
@@ -782,7 +863,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
             action: "warn",
             path: filePath,
             detail:
-              `configPatch ${entry.key}: value changed since install ` +
+              `${surfaceLabel} ${entry.key}: value changed since install ` +
               `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
               `left in place`,
           });
@@ -810,7 +891,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           platform: this.id,
           action: "remove",
           path: filePath,
-          detail: `configPatch ${entry.key} removed (was ${describeJsonValue(entry.writtenValue)})`,
+          detail: `${surfaceLabel} ${entry.key} removed (was ${describeJsonValue(entry.writtenValue)})`,
         });
       }
 
@@ -819,6 +900,111 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
 
     if (ledgerMutated && !ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
     return changes;
+  }
+
+  // ── Statusline surface (a HUD/status line) ────────────────────────────────
+  // Wires settings.json.statusLine = { type:"command", command:<home-bin
+  // statusline cmd> } through the SAME ownership ledger as configPatch: a
+  // synthetic ConfigPatchDef routed through applyConfigPatches, so the statusLine
+  // inherits the full set-if-absent contract verbatim — never clobbers a
+  // statusLine agent-connector does not own (skip-warn), records prior state +
+  // owner, reversible. The home-bin command makes the host exec
+  // `<homeBin> statusline claude-code --connector <id>` for every status refresh,
+  // which re-imports the connector module and renders the line (runtime/
+  // statusline-entrypoint). No telemetry in v1.
+
+  /** The synthetic statusLine configPatch this connector would write. */
+  private statuslineConfigPatch(ctx: InstallContext): ConfigPatchDef {
+    const command = buildHomeBinStatuslineCommand(ctx.homeBinPath, HOST, ctx.connector.id);
+    return {
+      key: STATUSLINE_KEY,
+      value: { type: "command", command },
+      reason: "agent-connector statusline surface",
+    };
+  }
+
+  override installStatusline(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.statusline == null) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no statusline" }];
+    }
+    if (connector.platforms[HOST]?.statusline === false) {
+      return [{ platform: this.id, action: "skip", detail: "statusline disabled for claude-code" }];
+    }
+    // Reuse the configPatch apply path (set-if-absent, ownership ledger, skip-warn
+    // on any non-AC statusLine). This is the SAME machinery installConfigPatches
+    // uses on this exact file, so the ownership semantics are identical — only the
+    // surface LABEL differs (statusLine is namespace-reserved against raw
+    // configPatch; this internal path bypasses that guard and owns the key).
+    return this.applyConfigPatches(ctx, [this.statuslineConfigPatch(ctx)], {
+      surfaceLabel: "statusline",
+    });
+  }
+
+  override uninstallStatusline(ctx: InstallContext): ChangeRecord[] {
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    // Release ONLY the statusLine ledger row this connector owns (keyed off the
+    // ledger, not the declaration, so an id-only synthetic uninstall still
+    // reclaims it). Same last-owner-verified delete as uninstallConfigPatches.
+    const owned = ledgerEntriesOwnedBy(ledger, HOST, ctx.connector.id).filter(
+      (e) => e.key === STATUSLINE_KEY,
+    );
+    if (owned.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: "statusline: no ownership recorded; left untouched",
+        },
+      ];
+    }
+    return this.releaseOwnedConfigPatches(ctx, ledger, owned, {
+      surfaceLabel: "statusline",
+    });
+  }
+
+  /**
+   * Parse Claude Code's statusLine stdin JSON into the normalized
+   * {@link StatuslineContext}. Claude pipes a JSON object to the statusLine
+   * command on stdin (model, workspace, cost, etc.); fields the payload omits
+   * stay undefined. `raw` keeps the verbatim payload (incl. `version`).
+   */
+  parseStatusInput(raw: unknown): StatuslineContext {
+    const input = (raw ?? {}) as ClaudeStatuslineInput;
+    const model: { id?: string; displayName?: string } = {};
+    if (typeof input.model?.id === "string") model.id = input.model.id;
+    if (typeof input.model?.display_name === "string") {
+      model.displayName = input.model.display_name;
+    }
+    const cwd =
+      typeof input.cwd === "string"
+        ? input.cwd
+        : typeof input.workspace?.current_dir === "string"
+          ? input.workspace.current_dir
+          : undefined;
+
+    const ctx: StatuslineContext = {
+      host: HOST,
+      capabilities: this.capabilities,
+      raw,
+    };
+    if (typeof input.session_id === "string" && input.session_id !== "") {
+      ctx.sessionId = input.session_id;
+    }
+    if (cwd !== undefined) ctx.cwd = cwd;
+    if (model.id !== undefined || model.displayName !== undefined) ctx.model = model;
+    if (typeof input.cost?.total_cost_usd === "number") {
+      ctx.cost = { totalUsd: input.cost.total_cost_usd };
+    }
+    if (typeof input.transcript_path === "string") {
+      ctx.transcriptPath = input.transcript_path;
+    }
+    return ctx;
+  }
+
+  /** Format the rendered status line into Claude's native reply: stdout = line, exit 0. */
+  formatStatusOutput(rendered: string): HookReply {
+    return { exitCode: 0, stdout: rendered };
   }
 
   /**
@@ -853,7 +1039,13 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const results: DiagnosticResult[] = [];
     const ledger = loadConfigPatchLedger(ctx.dataRoot);
     const connectorId = ctx.connector.id;
-    const platformEntries = ledger.entries.filter((e) => e.platform === this.id);
+    // EXCLUDE the statusLine row: it is owned by the statusline surface and gets
+    // its own dedicated health check in getHealthChecks. Reporting it here too
+    // would double-report the key and (on a user edit) print a bogus configPatch
+    // "drifted" hint to restore a configPatch the connector never declared.
+    const platformEntries = ledger.entries.filter(
+      (e) => e.platform === this.id && e.key !== STATUSLINE_KEY,
+    );
 
     for (const entry of platformEntries) {
       const ownedByThis = entry.owners.some((o) => o.connectorId === connectorId);
@@ -1447,6 +1639,49 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
         name: `${this.name}: subagent ${agent.name} present`,
         check: () =>
           existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+
+    // Statusline check: only assert it when the connector declares one AND it
+    // is not disabled for this host. settings.json.statusLine.command must be OUR
+    // home-bin statusline command (ok); present but not ours → drifted/skip-warn
+    // (never our concern to fix); absent → missing.
+    // Fire the check when the connector DECLARES a statusline (the live-config
+    // doctor path) OR when the ownership ledger holds a statusLine row this
+    // connector owns (the REGISTERED-connector path: connectorFromMeta can't
+    // re-expose the render fn, so statusline comes back undefined — but the
+    // ledger row proves the surface was wired). Mirrors uninstallStatusline,
+    // which is also ledger-keyed; without this the wired statusLine has ZERO
+    // doctor coverage in the registered path (configPatchDiagnostics excludes it).
+    const statuslineLedgerOwned = ledgerEntriesOwnedBy(
+      loadConfigPatchLedger(ctx.dataRoot),
+      HOST,
+      connectorId,
+    ).some((e) => e.key === STATUSLINE_KEY);
+    if (
+      (ctx.connector.statusline != null || statuslineLedgerOwned) &&
+      ctx.connector.platforms[HOST]?.statusline !== false
+    ) {
+      checks.push({
+        name: `${this.name}: statusline wired`,
+        check: () => {
+          const settings = this.readJson<{ statusLine?: { command?: unknown } }>(settingsPath);
+          const command = settings?.statusLine?.command;
+          if (command === undefined) {
+            return { status: "FAIL", detail: `statusLine not set in ${settingsPath}` };
+          }
+          if (
+            typeof command === "string" &&
+            isHomeBinStatuslineCommand(command, homeBin, connectorId)
+          ) {
+            return { status: "OK", detail: "statusLine command present" };
+          }
+          // Present but not ours — a non-AC statusLine we must never clobber.
+          return {
+            status: "FAIL",
+            detail: `statusLine in ${settingsPath} is not agent-connector's (left untouched)`,
+          };
+        },
       });
     }
     return checks;

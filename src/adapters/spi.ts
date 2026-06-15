@@ -27,6 +27,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ResolvedConnector,
+  StatuslineContext,
 } from "../core/types.js";
 
 /** Union of every normalized event payload. */
@@ -176,6 +177,38 @@ export interface Adapter {
   uninstallConfigPatches?(ctx: InstallContext): ChangeRecord[];
   /** The ONLY file this adapter allows configPatch to touch, for the effective scope. */
   getPatchableConfigPath?(ctx: InstallContext): string;
+
+  // ── Statusline surface (a HUD/status line) ───────────────────────────────
+  // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the
+  // content-surface pattern). Only adapters advertising
+  // capabilities.supportsStatusline (v1: claude-code) override the install pair;
+  // the runtime parse/format pair lets the home-bin statusline entrypoint turn a
+  // host's raw status payload into the rendered line.
+  /**
+   * Wire this host's status line at the single home binary
+   * (`<homeBin> statusline <host> --connector <id>`). Reuses the SAME
+   * ownership/conflict semantics as configPatch (set-if-absent, never clobber a
+   * status line agent-connector does not own → skip-warn, reversible uninstall).
+   */
+  installStatusline?(ctx: InstallContext): ChangeRecord[];
+  /** Inverse of installStatusline — release ownership + remove only what we wrote. */
+  uninstallStatusline?(ctx: InstallContext): ChangeRecord[];
+  /** Parse the host's raw status payload into the normalized context. */
+  parseStatusInput?(raw: unknown): StatuslineContext;
+  /** Format the rendered line into the host's native status reply (exit code + stdout). */
+  formatStatusOutput?(rendered: string): HookReply;
+
+  // ── Action surface (a user-invokable action) ──────────────────────────────
+  // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the
+  // content-surface pattern). v1 ships only the dispatch BACKBONE: NO adapter
+  // EMITS a host affordance (the survey found no verifiable CLI emission
+  // target), so the BaseAdapter defaults honestly skip-warn on EVERY host and
+  // no adapter overrides them. A future affordance-emitter sets
+  // capabilities.supportsActions and overrides this pair.
+  /** Emit this host's affordance bound to `<homeBin> action <host> <id> --connector <id>`. */
+  installActions?(ctx: InstallContext): ChangeRecord[];
+  /** Inverse of installActions — remove only the affordances this connector emitted. */
+  uninstallActions?(ctx: InstallContext): ChangeRecord[];
 
   /** Back up the settings file(s) before mutation. Returns backup path or null. */
   backupSettings(ctx: InstallContext): string | null;

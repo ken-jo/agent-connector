@@ -130,7 +130,9 @@ export async function installConnector(
       log.warn(`ensureHomeBin failed: ${errMessage(err)}`);
     }
     try {
-      registerConnector(connector, modulePath);
+      // Persist the install scope so the runtime entrypoints can stamp it onto
+      // the HostCtx/event (scope is otherwise unavailable at runtime).
+      registerConnector(connector, modulePath, scope);
     } catch (err) {
       log.warn(`registerConnector failed: ${errMessage(err)}`);
     }
@@ -261,6 +263,27 @@ export async function installConnector(
         }
       }
     }
+
+    // Statusline (a HUD) installs LAST — after memory/configPatch — so the
+    // reported diff reflects final state; uninstall runs it FIRST (the inverse).
+    // BaseAdapter defines installStatusline (skip-warn on non-supporting hosts),
+    // so the `!` is safe and the call self-skips when no statusline is declared.
+    if (connector.statusline != null) {
+      runStep(id, "installStatusline", result, () => {
+        pushAll(result.changes, adapter.installStatusline!(ctx));
+      });
+    }
+
+    // Actions (user-invokable handlers) install LAST — after the statusline.
+    // BaseAdapter defines installActions (skip-warn on EVERY host in v1 — there
+    // is no verifiable affordance to emit yet), so the `!` is safe and the call
+    // self-skip-warns. Gated on the declaration so undeclared adds no noise.
+    // (`?? []` tolerates pre-actions-surface resolved connectors.)
+    if ((connector.actions ?? []).length) {
+      runStep(id, "installActions", result, () => {
+        pushAll(result.changes, adapter.installActions!(ctx));
+      });
+    }
   }
 
   return result;
@@ -311,6 +334,28 @@ export async function uninstallConnector(
     if (!adapter) continue;
 
     const ctx = buildContext(connector, id, scope, projectDir, dryRun);
+
+    // Actions uninstall FIRST — the inverse of their install-LAST position.
+    // Gated on the declaration (NOT adapter support): v1 emits no affordance and
+    // keeps no ledger, so uninstallActions only ever skip-warns — but running it
+    // when actions are declared keeps the uninstall diff symmetric with install
+    // (never silent). (`?? []` tolerates pre-actions-surface resolved connectors.)
+    if ((connector.actions ?? []).length) {
+      runStep(id, "uninstallActions", result, () => {
+        pushAll(result.changes, adapter.uninstallActions!(ctx));
+      });
+    }
+
+    // Statusline (a HUD) uninstalls FIRST — the inverse of its install-LAST
+    // position. Gated on adapter support (not the declaration): the adapter's
+    // uninstallStatusline is keyed off the persisted ownership ledger, so an
+    // id-only synthetic uninstall (connector record lost) still releases the
+    // statusLine key it owns. Only supporting adapters can have wired it.
+    if (adapter.capabilities.supportsStatusline ?? false) {
+      runStep(id, "uninstallStatusline", result, () => {
+        pushAll(result.changes, adapter.uninstallStatusline!(ctx));
+      });
+    }
 
     // Inverse order of install: config patches FIRST (install applies them
     // last), then content surfaces, then hooks, then the server entry. The
@@ -681,6 +726,7 @@ function syntheticConnector(id: string): ResolvedConnector {
     skills: [],
     subagents: [],
     memory: [],
+    actions: [],
     platforms: {},
     targets: "auto",
   };

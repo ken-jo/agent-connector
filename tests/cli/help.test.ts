@@ -41,6 +41,7 @@ const EVERY_COMMAND = [
   "usage",
   "leaderboard",
   "hook",
+  "statusline",
   "serve",
 ];
 
