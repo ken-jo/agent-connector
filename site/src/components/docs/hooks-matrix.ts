@@ -597,6 +597,35 @@ export const platforms: PlatformHookEntry[] = [
       "Reference ts-plugin host. EVENT_TO_OPENCODE: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (surrogate; inject additionalContext into output.system). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification and all four newer events null (subagents run as child sessions — only bus events, no dedicated hook). MCP in opencode.json root key 'mcp' (command is ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). No 'ask' gate -> ask degrades to a thrown block. Bridge shells out to <homeBin> hook opencode <event> --connector <id>; formatReply emits the NORMALIZED HookResponse on stdout (the bridge parses it directly).",
   },
   {
+    platform: "mimo-code",
+    displayName: "MiMoCode",
+    paradigm: "ts-plugin",
+    hasHooks: true,
+    configPath:
+      "~/.config/mimocode/plugin/<connector-id>.js (auto-loaded ESM bridge module; project <projectDir>/.mimocode/plugin)",
+    capabilities: {
+      canModifyArgs: true,
+      canModifyOutput: true,
+      canInjectSessionContext: true,
+    },
+    events: {
+      SessionStart: "experimental.chat.system.transform",
+      SessionEnd: null,
+      UserPromptSubmit: null,
+      PreToolUse: "tool.execute.before",
+      PostToolUse: "tool.execute.after",
+      PreCompact: null,
+      Stop: null,
+      Notification: null,
+      PermissionRequest: null,
+      PostToolUseFailure: null,
+      SubagentStart: null,
+      SubagentStop: null,
+    },
+    notes:
+      "Xiaomi MiMoCode (@mimo-ai/cli, bin `mimo`) — an OpenCode FORK; STANDALONE adapter mirroring OpenCode's render logic with mimocode paths so detection, the runtime bridge, and per-platform overrides route to the mimo-code id (NOT opencode). EVENT_TO_MIMOCODE identical to OpenCode: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (inject into output.system); rest null. MCP in mimocode.json root key 'mcp' (command ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). ask degrades to a thrown block. Bridge shells out to <homeBin> hook mimo-code <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
+  },
+  {
     platform: "kilo-cli",
     displayName: "Kilo CLI",
     paradigm: "ts-plugin",
@@ -653,6 +682,35 @@ export const platforms: PlatformHookEntry[] = [
     },
     notes:
       "EVENT_TO_OMP (pi.on targets): PreToolUse->tool_call, PostToolUse->tool_result, SessionStart->session_start, PreCompact->session_before_compact. SessionEnd/UserPromptSubmit/Stop/Notification and all four newer events null (agent_start/agent_end are the MAIN loop, not subagents; failures arrive merged as tool_result isError). Loads an EXTENSION PACKAGE: generated index.js (HookFactory (pi)=>void) + package.json with 'omp' manifest field; MCP native ~/.omp/agent/mcp.json (mcpServers). PreToolUse gates via { block:true, reason } (deny/ask both block; modify -> allow). tool_result/session_start observe-only -> canModifyArgs/Output/InjectContext all false. Bridge shells to <homeBin> hook omp <event> --connector <id>; formatReply emits NORMALIZED HookResponse.",
+  },
+  {
+    platform: "nemoclaw",
+    displayName: "NVIDIA NemoClaw",
+    paradigm: "ts-plugin",
+    hasHooks: true,
+    configPath:
+      "<stateDir>/extensions/<id>/index.mjs + the WRAPPED openclaw.json dual-reg (plugins.entries+load.paths & mcp.servers; project <projectDir>/.openclaw); detected via ~/.nemoclaw/",
+    capabilities: {
+      canModifyArgs: true,
+      canModifyOutput: false,
+      canInjectSessionContext: true,
+    },
+    events: {
+      SessionStart: "session_start",
+      SessionEnd: null,
+      UserPromptSubmit: null,
+      PreToolUse: "before_tool_call",
+      PostToolUse: "after_tool_call",
+      PreCompact: null,
+      Stop: null,
+      Notification: null,
+      PermissionRequest: null,
+      PostToolUseFailure: null,
+      SubagentStart: "subagent_spawned",
+      SubagentStop: "subagent_ended",
+    },
+    notes:
+      "NVIDIA NemoClaw WRAPS OpenClaw — a thin FORK of the OpenClaw adapter (extends OpenClawAdapter, overriding only id/name/detection). It inherits OpenClaw's hook machinery verbatim, so the event map + capabilities are OpenClaw's: PreToolUse->before_tool_call (modify mutates event.params; deny/ask block), PostToolUse->after_tool_call (observe-only -> canModifyOutput false), SessionStart->session_start + before_prompt_build injection, SubagentStart/Stop->subagent_spawned/ended (observe-only). NemoClaw ships NO Claude-style hooks of its own, but the inherited bridge writes the same DUAL REGISTRATION into the WRAPPED ~/.openclaw/openclaw.json (the agent NemoClaw runs). Detection keys on the NemoClaw-specific ~/.nemoclaw/ marker: OpenClaw's detection BOWS OUT when ~/.nemoclaw/ is present (and nemoclaw is registered BEFORE openclaw), so a real NemoClaw box — which has BOTH markers — is never double-targeted. The inherited bridge is HOST-BOUND to this id: <homeBin> hook nemoclaw <event> (NOT openclaw — events route back to the nemoclaw adapter); formatReply emits NORMALIZED HookResponse.",
   },
   {
     platform: "openclaw",
