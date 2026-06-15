@@ -428,6 +428,7 @@ export abstract class BaseAdapter implements Adapter {
           status: "warn",
           message: `memory file missing: ${row.path}`,
           fix: "agent-connector install (sync) will re-create the block",
+          fixable: true,
         });
         continue;
       }
@@ -445,6 +446,7 @@ export abstract class BaseAdapter implements Adapter {
           status: "warn",
           message: `managed block not found in ${row.path}`,
           fix: "agent-connector install (sync) will re-append it",
+          fixable: true,
         });
       } else if (block.drifted) {
         results.push({
@@ -479,6 +481,7 @@ export abstract class BaseAdapter implements Adapter {
               `${current[0]!.path} (${current[0]!.reason}) — the block in ${row.path} ` +
               `may no longer be read`,
             fix: "agent-connector install (sync) re-probes and writes the file the host reads now",
+            fixable: true,
           });
         }
       }
@@ -906,6 +909,11 @@ export abstract class BaseAdapter implements Adapter {
             status: "warn",
             message: `not found: ${cfg}`,
             fix: `agent-connector install --targets ${this.id}`,
+            // Only sync-recoverable when the connector actually declares a
+            // server — a re-sync writes the config file only then. For a
+            // serverless (memory/configPatch-only) connector the file is never
+            // created, so marking it fixable would loop it into "still failing".
+            fixable: !!ctx.connector.server,
           },
     );
     for (const hc of this.getHealthChecks?.(ctx) ?? []) {
