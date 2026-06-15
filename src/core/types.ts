@@ -833,9 +833,11 @@ export interface StatuslineDef {
 // pure file writer. UNLIKE the statusline it is USER-TRIGGERED: errors are
 // SURFACED (exit 1 + stderr), never failed silently. The dispatch backbone
 // shipped first; the affordance EMITTERS (binding a host slash command / palette
-// workflow / exec-file to the verb) now ship per-host: droid + hermes + warp set
-// supportsActions and override installActions/uninstallActions. Hosts with no
-// verifiable emission target leave supportsActions unset (BaseAdapter skip-warn).
+// workflow / exec-file to the verb) now ship per-host: droid + hermes + warp plus
+// the ts-plugin slash-command hosts omp + openclaw (and the nemoclaw fork, which
+// inherits) set supportsActions and override installActions/uninstallActions.
+// Hosts with no verifiable emission target leave supportsActions unset
+// (BaseAdapter skip-warn).
 // ─────────────────────────────────────────────────────────────────────────
 
 /** What an action's run() returns. v1 minimal: an optional user-facing message. */
