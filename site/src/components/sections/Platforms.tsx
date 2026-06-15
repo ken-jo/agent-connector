@@ -1,6 +1,7 @@
 import { Section, SectionHeading } from "@/components/sections/Section";
 import { cn } from "@/lib/utils";
 import {
+  handlerChips,
   installMethods,
   paradigms,
   platformCount,
@@ -70,6 +71,12 @@ function SurfaceLegend() {
         <span className={chipStates["host-na"].className}>Abc</span>
         <span className="ml-1.5 font-sans">not offered by this agent</span>
       </p>
+      <p className="mt-1 text-center font-sans text-[11px] text-muted-foreground">
+        <span className="font-mono uppercase tracking-wide text-foreground">Statusline</span>
+        {" "}and{" "}
+        <span className="font-mono uppercase tracking-wide text-foreground">Actions</span>
+        {" "}are runtime-dispatched handler surfaces shown only where agent-connector wires them — absence is not a claim the host lacks them.
+      </p>
     </div>
   );
 }
@@ -118,6 +125,22 @@ function AgentEntry({ platform }: { platform: Platform }) {
           );
         })}
       </div>
+      {handlerChips.some((c) => platform.surfaces[c.key]) && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          {handlerChips
+            .filter((c) => platform.surfaces[c.key])
+            .map((c) => (
+              <span
+                key={c.key}
+                title={`${c.full}: agent-connector installs it`}
+                className="font-mono text-[9px] uppercase tracking-wide text-foreground"
+              >
+                {c.abbr}
+                <span className="sr-only">: agent-connector installs it</span>
+              </span>
+            ))}
+        </div>
+      )}
     </div>
   );
 }
