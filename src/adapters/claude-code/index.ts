@@ -983,7 +983,11 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
           ? input.workspace.current_dir
           : undefined;
 
-    const ctx: StatuslineContext = { host: HOST, raw };
+    const ctx: StatuslineContext = {
+      host: HOST,
+      capabilities: this.capabilities,
+      raw,
+    };
     if (typeof input.session_id === "string" && input.session_id !== "") {
       ctx.sessionId = input.session_id;
     }

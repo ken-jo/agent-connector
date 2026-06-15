@@ -18,7 +18,20 @@
 import { describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/sdk/index.js";
+import type { HostCtx as HostCtxFromSdk } from "../../src/sdk/index.js";
+import type { HostCtx as HostCtxFromRoot } from "../../src/index.js";
 import { simulate } from "../../src/sdk/test.js";
+
+// HostCtx export smoke (type-only): both barrels resolve the SAME type. The
+// bidirectional `extends` makes the check meaningful (and `used`, vs a dead
+// alias) — a runtime const proves it type-checks; type exports add nothing at runtime.
+type _HostCtxSameType = HostCtxFromSdk extends HostCtxFromRoot
+  ? HostCtxFromRoot extends HostCtxFromSdk
+    ? true
+    : never
+  : never;
+const _hostCtxSmoke: _HostCtxSameType = true;
+void _hostCtxSmoke;
 
 // A connector that injects context on every user prompt — the surface that
 // claude-code honors and codex silently drops.
@@ -186,6 +199,91 @@ describe("simulate — hooks (other paths)", () => {
     });
     expect(result.honored).toBe(false);
     expect(result.reason).toMatch(/unknown host/);
+  });
+});
+
+describe("simulate — per-host hosts: override map", () => {
+  it("statusline: per-host render WINS over top-level on the named host", async () => {
+    const connector = defineConnector({
+      id: "sim-sl-hosts",
+      statusline: {
+        render: () => "TOP-LEVEL",
+        hosts: { "claude-code": { render: () => "HOST-SPECIFIC" } },
+      },
+    });
+    const result = await simulate(connector, {
+      surface: "statusline",
+      host: "claude-code",
+      input: "{}",
+    });
+    expect(result.honored).toBe(true);
+    expect(result.hostReply).toBe("HOST-SPECIFIC");
+  });
+
+  it("statusline: populates ctx.capabilities (render reads supportsStatusline)", async () => {
+    const connector = defineConnector({
+      id: "sim-sl-caps",
+      statusline: {
+        render: (ctx) => `caps=${ctx.capabilities?.supportsStatusline === true}`,
+      },
+    });
+    const result = await simulate(connector, {
+      surface: "statusline",
+      host: "claude-code",
+      input: "{}",
+    });
+    expect(result.honored).toBe(true);
+    expect(result.hostReply).toBe("caps=true");
+  });
+
+  it("hooks: per-host handler WINS over top-level on the named host (claude-code)", async () => {
+    const connector = defineConnector({
+      id: "sim-hk-hosts",
+      hooks: {
+        PreToolUse: {
+          handler: () => ({ decision: "deny", reason: "TOP-REASON" }),
+          hosts: {
+            "claude-code": {
+              handler: () => ({ decision: "deny", reason: "HOST-REASON" }),
+            },
+          },
+        },
+      },
+    });
+    const result = await simulate(connector, {
+      surface: "hooks",
+      host: "claude-code",
+      event: "PreToolUse",
+      input: JSON.stringify({ tool_name: "Bash", tool_input: {} }),
+    });
+    expect(result.honored).toBe(true);
+    expect(result.hostReply).toContain("HOST-REASON");
+    expect(result.hostReply).not.toContain("TOP-REASON");
+  });
+
+  it("hooks: falls back to the top-level handler on a host NOT in the map (codex)", async () => {
+    const connector = defineConnector({
+      id: "sim-hk-fallback",
+      hooks: {
+        PreToolUse: {
+          handler: () => ({ decision: "deny", reason: "TOP-REASON" }),
+          hosts: {
+            "claude-code": {
+              handler: () => ({ decision: "deny", reason: "HOST-REASON" }),
+            },
+          },
+        },
+      },
+    });
+    const result = await simulate(connector, {
+      surface: "hooks",
+      host: "codex",
+      event: "PreToolUse",
+      input: JSON.stringify({ tool_name: "Bash", tool_input: {} }),
+    });
+    expect(result.honored).toBe(true);
+    expect(result.hostReply).toContain("TOP-REASON");
+    expect(result.hostReply).not.toContain("HOST-REASON");
   });
 });
 

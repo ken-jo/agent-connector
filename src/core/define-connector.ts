@@ -17,12 +17,14 @@ import type {
   HooksConfig,
   MemoryDef,
   NativeHookDef,
+  PlatformId,
   PublishConfig,
   ResolvedConnector,
   SkillDef,
   StatuslineDef,
   SubagentDef,
 } from "./types.js";
+import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
 import {
   MANAGED_BLOCK_BEGIN_TOKEN,
@@ -140,13 +142,16 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     }
   }
 
-  // Validate hook handlers are functions.
+  // Validate hook handlers are functions, plus any per-host override map.
   if (config.hooks) {
     for (const ev of ALL_EVENTS) {
       const def = config.hooks[ev];
       if (def != null && typeof def.handler !== "function") {
         throw new ConnectorConfigError(`hooks.${ev}.handler must be a function`);
       }
+      // Per-host override map: every key must be a registered platform id and
+      // every entry's handler a function (author-time hard error, not skip-warn).
+      validateHostsMap(def?.hosts, `hooks.${ev}.hosts`, "handler");
     }
   }
 
@@ -203,6 +208,48 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
 
 /** The 12 normalized event names, for the nativeHooks collision check. */
 const NORMALIZED_EVENT_SET: ReadonlySet<string> = new Set(ALL_EVENTS);
+
+/**
+ * Validate a per-host override map (`hosts?:`) declared on a hook definition or
+ * on the statusline. Shared by the hook-validation loop and normalizeStatusline:
+ *   - the value must be a plain object keyed by platform id;
+ *   - every key MUST be a REGISTERED platform id (REGISTERED_PLATFORM_IDS) —
+ *     an unknown id is an author-time ConnectorConfigError (NOT a skip-warn:
+ *     a typo'd host would otherwise silently never fire);
+ *   - every entry's implementation field (`handler` for hooks, `render` for
+ *     statusline) MUST be a function (it is re-imported from the connector
+ *     module at runtime, like the top-level handler/render).
+ * `undefined` (no map) is valid and skipped.
+ */
+function validateHostsMap(
+  map: unknown,
+  surfaceLabel: string,
+  implField: "handler" | "render",
+): void {
+  if (map == null) return;
+  if (typeof map !== "object" || Array.isArray(map)) {
+    throw new ConnectorConfigError(
+      `${surfaceLabel} must be an object keyed by platform id`,
+    );
+  }
+  for (const [platformId, entry] of Object.entries(map as Record<string, unknown>)) {
+    if (!REGISTERED_PLATFORM_IDS.has(platformId as PlatformId)) {
+      const valid = [...REGISTERED_PLATFORM_IDS].sort().join(", ");
+      throw new ConnectorConfigError(
+        `unknown platform id "${platformId}" in hosts map for ${surfaceLabel}; valid ids: ${valid}`,
+      );
+    }
+    if (
+      entry == null ||
+      typeof entry !== "object" ||
+      typeof (entry as Record<string, unknown>)[implField] !== "function"
+    ) {
+      throw new ConnectorConfigError(
+        `${surfaceLabel}.${platformId}.${implField} must be a function`,
+      );
+    }
+  }
+}
 
 /**
  * Validate every `platforms[<id>].nativeHooks` declaration:
@@ -542,6 +589,9 @@ function normalizeStatusline(
   if (input.description !== undefined && typeof input.description !== "string") {
     throw new ConnectorConfigError("statusline.description must be a string");
   }
+  // Per-host render override map: registered platform ids only, each render a
+  // function (author-time hard error, mirroring the hook hosts-map validation).
+  validateHostsMap(input.hosts, "statusline.hosts", "render");
   return { ...input, name };
 }
 

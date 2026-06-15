@@ -241,18 +241,31 @@ export async function runHook(opts: RunHookOptions): Promise<RunHookResult> {
       return ALLOW;
     }
 
+    // Per-host handler override: when dispatching for host X, `hosts[X].handler`
+    // wins over the top-level handler; a host not listed (or a per-host entry
+    // that is somehow not a function) falls back to the top-level handler.
+    // Selection NEVER throws — fail-open is preserved.
+    // NOTE: keyed on the RAW install-baked platformId (the host this entrypoint
+    // was registered for), NOT resolveHookHostPlatform's AGENT_CONNECTOR_HOST
+    // override — that override only re-labels the telemetry row. The error path
+    // (failOpenOrPreserveDeny) resolves the IDENTICAL handler the same way, so a
+    // per-host deny is preserved consistently.
+    const perHost = definition.hosts?.[platformId as PlatformId]?.handler;
+    const handler = typeof perHost === "function" ? perHost : definition.handler;
+
     // Matcher: if set and the event's subject (tool name, or agent type for
     // Subagent* events) does not match, allow (the hook is simply not
-    // interested in this tool/agent).
+    // interested in this tool/agent). The matcher is the definition's — a
+    // per-host handler shares the top-level matcher.
     const subject = eventMatcherSubject(evt);
     if (subject !== undefined) {
       const re = compileMatcher(definition.matcher);
       if (re && !re.test(subject)) return ALLOW;
     }
 
-    // Run the handler. Its return is normalized (void → allow) and handed to the
-    // adapter to render the host-native reply.
-    const handlerResult = await definition.handler(
+    // Run the resolved handler. Its return is normalized (void → allow) and
+    // handed to the adapter to render the host-native reply.
+    const handlerResult = await handler(
       // The adapter parsed `evt` as exactly this event's payload type; the
       // HooksConfig handler for the same event expects that payload.
       evt as never,
@@ -313,6 +326,13 @@ async function failOpenOrPreserveDeny(
     const definition = connector.hooks[opts.event];
     if (!definition || typeof definition.handler !== "function") return ALLOW;
 
+    // Reconstruct the deny from the SAME handler the main path would have run —
+    // the per-host override if one is declared for this host, else the top-level
+    // handler. Otherwise a per-host deny could be silently downgraded on the
+    // error path.
+    const perHost = definition.hosts?.[opts.platformId as PlatformId]?.handler;
+    const handler = typeof perHost === "function" ? perHost : definition.handler;
+
     const raw = parseStdin(opts.stdin);
     const evt = adapter.parseEvent(opts.event, raw);
     evt.connectorId = opts.connectorId;
@@ -323,7 +343,7 @@ async function failOpenOrPreserveDeny(
       if (re && !re.test(subject)) return ALLOW;
     }
 
-    const response = normalizeResponse(await definition.handler(evt as never));
+    const response = normalizeResponse(await handler(evt as never));
     if (response.decision !== "deny") return ALLOW;
 
     const reply = adapter.formatReply(opts.event, response);

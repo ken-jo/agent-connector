@@ -345,6 +345,21 @@ export interface HookDefinition<E extends HookEventName = HookEventName> {
   handler(
     event: EventPayloadMap[E],
   ): HookResponse | void | Promise<HookResponse | void>;
+  /**
+   * Per-host handler override. When dispatching for host X, `hosts[X].handler`
+   * WINS over the top-level `handler`; a host not listed here falls back to the
+   * top-level handler. Keys MUST be registered platform ids and each entry's
+   * handler MUST be a function (validated at defineConnector). The runtime
+   * selection preserves fail-open: a missing/invalid per-host entry simply falls
+   * back to the top-level handler — selection never throws.
+   *
+   * The top-level `handler` is ALWAYS required, even when every host is
+   * overridden — it is the mandatory fallback (a `hosts`-only definition is a
+   * ConnectorConfigError). A per-host handler SHARES the top-level `matcher`
+   * (there is no per-host matcher); the matcher is evaluated before per-host
+   * selection, so a non-matching subject suppresses the per-host handler too.
+   */
+  hosts?: Partial<Record<PlatformId, { handler: HookDefinition<E>["handler"] }>>;
 }
 
 /** Developer-declared hooks, keyed by canonical event name. */
@@ -666,19 +681,48 @@ export interface MemoryDef {
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Normalized context handed to {@link StatuslineDef.render}. Standalone (NOT a
- * shared HostCtx — that unification is a separate effort): each adapter's
- * `parseStatusInput` maps the host's verbatim status payload into this shape,
- * filling only the fields that host exposes. `raw` is the untouched host payload
- * (the escape hatch for fields not modeled here).
+ * Shared context for handler surfaces. v1: {@link StatuslineContext} extends it
+ * (render sees host + capabilities). Hook payloads (the normalized
+ * {@link EventPayloadMap} events) keep their existing shape for now and adopt
+ * HostCtx in a later phase (lower blast radius — they carry `hostPlatform` +
+ * `connectorId` + per-event fields already, and changing the runtime hook
+ * payload shape is a wider change than this statusline-only unification).
  */
-export interface StatuslineContext {
-  /** Which host is asking for the status line. */
+export interface HostCtx {
+  /** Which host is running this handler. */
   host: PlatformId;
-  /** Connector id this status line is dispatched for (stamped by the runtime). */
-  connectorId?: string;
-  /** Host session id when the payload carries one. */
+  /** What this host can actually honor (the adapter's capability flags). */
+  capabilities: PlatformCapabilities;
+  /**
+   * Install scope, when known. OPTIONAL: scope is an install-time property and
+   * is NOT available at runtime (the entrypoint only has platformId +
+   * connectorId + stdin), so render(ctx) receives it undefined for now — branch
+   * on `host` + `capabilities` instead. (Threading scope through the registered
+   * connector metadata is a later follow-up.)
+   */
+  scope?: InstallScope;
+  /** Project directory, when the host reports it. */
+  projectDir?: string;
+  /** Host session id, when the host reports it. */
   sessionId?: string;
+}
+
+/**
+ * Normalized context handed to {@link StatuslineDef.render}. Extends the shared
+ * {@link HostCtx} (so render sees `host` + `capabilities` + the optional
+ * scope/projectDir/sessionId) and adds the statusline-specific fields. Each
+ * adapter's `parseStatusInput` maps the host's verbatim status payload into this
+ * shape, filling only the fields that host exposes. `raw` is the untouched host
+ * payload (the escape hatch for fields not modeled here).
+ */
+export interface StatuslineContext extends HostCtx {
+  /**
+   * Connector id this status line is dispatched for (stamped by the runtime,
+   * NOT by the adapter). Kept on StatuslineContext rather than HostCtx: it is a
+   * runtime-dispatch detail, and HostCtx is meant to describe the HOST, not the
+   * connector being dispatched.
+   */
+  connectorId?: string;
   /** Working directory the host reports for this session. */
   cwd?: string;
   /** Active model, when the host reports it. */
@@ -718,6 +762,21 @@ export interface StatuslineDef {
    * Re-imported at runtime via the connector module path (like hook handlers).
    */
   render: (ctx: StatuslineContext) => string | Promise<string>;
+  /**
+   * Per-host render override. When rendering for host X, `hosts[X].render` WINS
+   * over the top-level `render`; a host not listed here falls back to the
+   * top-level render. Keys MUST be registered platform ids and each entry's
+   * render MUST be a function (validated at defineConnector). The runtime
+   * selection preserves fail-safe: a missing/invalid per-host entry simply falls
+   * back to the top-level render — selection never throws.
+   *
+   * The top-level `render` is ALWAYS required, even when every host is
+   * overridden — it is the mandatory fallback (a `hosts`-only definition is a
+   * ConnectorConfigError). A `hosts` entry targeting a host that has no
+   * statusline surface is inert (the runtime no-ops it), exactly as the surface
+   * itself skip-warns there.
+   */
+  hosts?: Partial<Record<PlatformId, { render: StatuslineDef["render"] }>>;
 }
 
 /** Per-host memory tuning — the object form of {@link PlatformOverride.memory}. */

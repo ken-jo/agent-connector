@@ -433,12 +433,25 @@ export async function simulate(
       ) {
         return { honored: false, reason: `${opts.host} has no statusline surface` };
       }
+      // Guarding on the TOP-LEVEL render is sufficient: a `hosts`-only statusline
+      // (a hosts: map with no top-level render) is rejected at defineConnector, so
+      // a connector that targets `opts.host` only via hosts[] still has a top-level
+      // render here. (If that author-time invariant ever relaxes, revisit this.)
       if (!connector.statusline || typeof connector.statusline.render !== "function") {
         return { honored: false, reason: "connector declares no statusline" };
       }
       const ctx = adapter.parseStatusInput(coerceInput(opts.input));
       ctx.connectorId = connector.id;
-      const rendered = await connector.statusline.render(ctx);
+      // Defensive: parseStatusInput now sets ctx.capabilities (it is required on
+      // StatuslineContext), but a future adapter could omit it — backfill from
+      // the adapter so render() can always read ctx.capabilities.
+      if (ctx.capabilities == null) ctx.capabilities = adapter.capabilities;
+      // Per-host render override, mirroring the runtime: hosts[host].render wins
+      // over the top-level render; an unlisted host falls back to top-level.
+      const perHost = connector.statusline.hosts?.[opts.host as PlatformId]?.render;
+      const render =
+        typeof perHost === "function" ? perHost : connector.statusline.render;
+      const rendered = await render(ctx);
       const line = rendered == null ? "" : String(rendered);
       const reply = adapter.formatStatusOutput(line);
       return {
@@ -460,6 +473,10 @@ export async function simulate(
     const evt = adapter.parseEvent(event, coerceInput(opts.input));
     evt.connectorId = connector.id;
 
+    // Guarding on the TOP-LEVEL handler is sufficient: a `hosts`-only hook (a
+    // hosts: map with no top-level handler) is rejected at defineConnector, so a
+    // host targeted only via hosts[] still has a top-level handler here. (If that
+    // author-time invariant ever relaxes, revisit this.)
     const definition = connector.hooks[event];
     if (!definition || typeof definition.handler !== "function") {
       return { honored: false, reason: `connector declares no ${event} handler` };
@@ -481,8 +498,12 @@ export async function simulate(
       }
     }
 
+    // Per-host handler override, mirroring runHook: hosts[host].handler wins
+    // over the top-level handler; an unlisted host falls back to top-level.
+    const perHost = definition.hosts?.[opts.host as PlatformId]?.handler;
+    const handler = typeof perHost === "function" ? perHost : definition.handler;
     const response = normalizeResponse(
-      await definition.handler(evt as never),
+      await handler(evt as never),
     );
     const reply = adapter.formatReply(event, response);
     const verdict = judgeHookHonor(String(opts.host), event, response, reply.stdout);

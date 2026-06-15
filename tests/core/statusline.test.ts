@@ -130,7 +130,14 @@ describe("defineConnector — statusline validation", () => {
     // name defaults to "statusline".
     expect(resolved.statusline?.name).toBe("statusline");
     // The live handler is callable and returns the rendered string.
-    expect(resolved.statusline?.render({ host: "claude-code", cwd: "/x", raw: {} })).toBe("cwd=/x");
+    expect(
+      resolved.statusline?.render({
+        host: "claude-code",
+        capabilities: claudeAdapter.capabilities,
+        cwd: "/x",
+        raw: {},
+      }),
+    ).toBe("cwd=/x");
   });
 
   it("is SINGULAR (one statusline object, not an array)", () => {
@@ -179,6 +186,107 @@ describe("defineConnector — statusline validation", () => {
   it("defineStatusline is a typed identity helper", () => {
     const def = defineStatusline({ render: (ctx) => `${ctx.host}` });
     expect(typeof def.render).toBe("function");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Per-host `hosts:` override map — author-time validation (BOTH surfaces)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("defineConnector — per-host hosts: map validation", () => {
+  it("resolves a statusline with a valid hosts: map (registered ids, function renders)", () => {
+    const resolved = defineConnector({
+      id: "sl-hosts-ok",
+      statusline: {
+        render: () => "top",
+        hosts: {
+          codex: { render: () => "codex-line" },
+          "claude-code": { render: () => "cc-line" },
+        },
+      },
+    });
+    expect(typeof resolved.statusline?.hosts?.["codex"]?.render).toBe("function");
+    expect(typeof resolved.statusline?.hosts?.["claude-code"]?.render).toBe("function");
+  });
+
+  it("rejects an UNKNOWN host id in a statusline hosts: map (message names the bad id)", () => {
+    let thrown: unknown;
+    try {
+      defineConnector({
+        id: "sl-hosts-bad-id",
+        statusline: {
+          render: () => "top",
+          hosts: { "not-a-host": { render: () => "x" } } as never,
+        },
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(ConnectorConfigError);
+    expect((thrown as Error).message).toContain("not-a-host");
+    expect((thrown as Error).message).toContain("statusline.hosts");
+  });
+
+  it("rejects a non-function per-host render in a statusline hosts: map", () => {
+    expect(() =>
+      defineConnector({
+        id: "sl-hosts-bad-render",
+        statusline: {
+          render: () => "top",
+          hosts: { codex: { render: "nope" as never } },
+        },
+      }),
+    ).toThrow(/statusline\.hosts\.codex\.render must be a function/);
+  });
+
+  it("resolves a hook with a valid hosts: map (registered ids, function handlers)", () => {
+    const resolved = defineConnector({
+      id: "hk-hosts-ok",
+      hooks: {
+        PreToolUse: {
+          handler: () => ({ decision: "allow" }),
+          hosts: {
+            codex: { handler: () => ({ decision: "deny", reason: "no" }) },
+            "claude-code": { handler: () => ({ decision: "deny", reason: "no" }) },
+          },
+        },
+      },
+    });
+    expect(typeof resolved.hooks.PreToolUse?.hosts?.["codex"]?.handler).toBe("function");
+  });
+
+  it("rejects an UNKNOWN host id in a hook hosts: map (message names the bad id + surface)", () => {
+    let thrown: unknown;
+    try {
+      defineConnector({
+        id: "hk-hosts-bad-id",
+        hooks: {
+          PreToolUse: {
+            handler: () => undefined,
+            hosts: { "not-a-host": { handler: () => undefined } } as never,
+          },
+        },
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(ConnectorConfigError);
+    expect((thrown as Error).message).toContain("not-a-host");
+    expect((thrown as Error).message).toContain("hooks.PreToolUse.hosts");
+  });
+
+  it("rejects a non-function per-host handler in a hook hosts: map", () => {
+    expect(() =>
+      defineConnector({
+        id: "hk-hosts-bad-handler",
+        hooks: {
+          PreToolUse: {
+            handler: () => undefined,
+            hosts: { codex: { handler: "nope" as never } },
+          },
+        },
+      }),
+    ).toThrow(/hooks\.PreToolUse\.hosts\.codex\.handler must be a function/);
   });
 });
 

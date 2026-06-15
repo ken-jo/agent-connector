@@ -46,6 +46,7 @@ export type {
   MemoryDef,
   StatuslineDef,
   StatuslineContext,
+  HostCtx,
   PlatformMemoryOverride,
   PlatformId,
   PlatformOverride,

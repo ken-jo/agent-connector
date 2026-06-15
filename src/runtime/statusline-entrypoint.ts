@@ -21,6 +21,7 @@
  * scope). When added, it MUST stay inside the same fail-safe envelope.
  */
 
+import type { PlatformId } from "../core/types.js";
 import { log } from "../core/logger.js";
 import { loadRegisteredConnector } from "../core/load-connector.js";
 import { loadAdapter } from "../adapters/registry.js";
@@ -91,8 +92,21 @@ export async function runStatusline(
     // The command carries the authoritative connector id; stamp it so render()
     // sees the connector it was dispatched for.
     ctx.connectorId = connectorId;
+    // capabilities is REQUIRED on StatuslineContext. claude-code's parseStatusInput
+    // sets it, but a future/third-party adapter could omit it — backfill so the
+    // runtime guarantee matches the type (mirrors the simulate harness). Never
+    // let render() see undefined capabilities while the type claims it is present.
+    if (ctx.capabilities == null) ctx.capabilities = adapter.capabilities;
 
-    const rendered = await connector.statusline.render(ctx);
+    // Per-host render override: when rendering for host X, `hosts[X].render`
+    // wins over the top-level render; a host not listed (or a per-host entry
+    // that is somehow not a function) falls back to the top-level render.
+    // Selection NEVER throws — fail-safe is preserved.
+    const perHost = connector.statusline.hosts?.[platformId as PlatformId]?.render;
+    const render =
+      typeof perHost === "function" ? perHost : connector.statusline.render;
+
+    const rendered = await render(ctx);
     // Coerce: a non-string return (number, accidental object) is stringified so
     // a misbehaving render never crashes the format step. null/undefined → "".
     const line = rendered == null ? "" : String(rendered);

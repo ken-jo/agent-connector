@@ -52,6 +52,7 @@ export type {
   MemoryDef,
   StatuslineDef,
   StatuslineContext,
+  HostCtx,
   ConfigPatchDef,
   NativeHookDef,
   NativeHookEvent,
