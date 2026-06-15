@@ -88,6 +88,8 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
           skills: caps.supportsSkills ?? false,
           subagents: caps.supportsSubagents ?? false,
           memory: caps.supportsMemory ?? false,
+          statusline: caps.supportsStatusline ?? false,
+          actions: caps.supportsActions ?? false,
         },
       });
     }

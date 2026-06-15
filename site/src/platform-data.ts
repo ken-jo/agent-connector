@@ -37,6 +37,10 @@ export interface PlatformSurfaces {
   subagents: boolean;
   /** Memory (managed blocks in the host's rules file). */
   memory: boolean;
+  /** Statusline/HUD handler wired at the home binary. */
+  statusline: boolean;
+  /** Action affordance (slash command / palette / exec-file) bound to the home binary. */
+  actions: boolean;
 }
 
 export interface Platform {
@@ -68,6 +72,16 @@ export const surfaceChips: SurfaceChip[] = [
 ];
 
 /**
+ * Handler surfaces shown as positive-only lit badges on cards where
+ * agent-connector actually wires them. NOT included in surfaceChips / the
+ * 3-state chip row — no faded/negative rendering for these two.
+ */
+export const handlerChips: { key: "statusline" | "actions"; abbr: string; full: string }[] = [
+  { key: "statusline", abbr: "Statusline", full: "Statusline handler" },
+  { key: "actions", abbr: "Actions", full: "Action affordances" },
+];
+
+/**
  * The three chip states the wall renders, derived from (surfaces, hostNative):
  *   - "supported" — we install it (surfaces[k] = true).
  *   - "host-gap"  — the host natively offers the surface but agent-connector
@@ -91,7 +105,9 @@ const s = (
   skills: boolean,
   subagents: boolean,
   memory: boolean,
-): PlatformSurfaces => ({ mcp, hooks, commands, skills, subagents, memory });
+  statusline: boolean,
+  actions: boolean,
+): PlatformSurfaces => ({ mcp, hooks, commands, skills, subagents, memory, statusline, actions });
 
 /*
  * hostNative PROVENANCE (order: mcp/hooks/commands/skills/subagents/memory).
@@ -201,118 +217,118 @@ export const platforms: Platform[] = [
     id: "claude-code",
     name: "Claude Code",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true),
-    hostNative: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, true, false),
+    hostNative: s(true, true, true, true, true, true, true, false),
   },
   {
     id: "codex",
     name: "Codex CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
     // commands: ~/.codex/prompts — deprecated in favor of Codex Skills, still works.
-    hostNative: s(true, true, true, true, true, true),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "cursor",
     name: "Cursor",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true),
-    hostNative: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "vscode-copilot",
     name: "VS Code Copilot",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true),
-    hostNative: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "copilot-cli",
     name: "GitHub Copilot CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, true, true, true),
+    surfaces: s(true, true, false, true, true, true, false, false),
     // commands: host N/A — built-ins only (FRs github/copilot-cli #618, #1113).
-    hostNative: s(true, true, false, true, true, true),
+    hostNative: s(true, true, false, true, true, true, false, false),
   },
   {
     id: "gemini-cli",
     name: "Gemini CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true),
-    hostNative: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "warp",
     name: "Warp",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true),
+    surfaces: s(true, false, false, true, false, true, false, true),
     // skills now wired (.agents/skills/<name>/SKILL.md, project scope — Warp Drive
     // is cloud-managed so there is no documented user-scope dir; skills double as
     // /{skill-name} slash commands in Warp's UI).
     // GAP: commands (skills-as-/{skill-name}). N/A: hooks (FR #7834),
     // subagents (profiles ≠ subagents; FR #9107).
-    hostNative: s(true, false, true, true, false, true),
+    hostNative: s(true, false, true, true, false, true, false, true),
   },
   {
     id: "opencode",
     name: "OpenCode",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, true, true, true, true),
-    hostNative: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "mimo-code",
     name: "MiMoCode",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
     // Xiaomi MiMoCode (github.com/XiaomiMiMo/MiMo-Code, @mimo-ai/cli) is a FORK
     // of OpenCode — it inherits OpenCode's six surfaces (MCP root key "mcp",
     // ts-plugin hooks, commands/skills/subagents under <mcDir>, AGENTS.md +
     // CLAUDE.md memory). Mirrors the OpenCode wall row; no verified divergence.
-    hostNative: s(true, true, true, true, true, true),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "kilo-cli",
     name: "Kilo CLI",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
     // OpenCode fork — all six surfaces now wired (commands → .kilo/command/,
     // skills → .kilo/skills/, subagents → .kilo/agent/ mode:subagent).
-    hostNative: s(true, true, true, true, true, true),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "droid",
     name: "Droid (Factory)",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, true),
     // All six wired: commands (.factory/commands), skills (.factory/skills),
     // subagents (.factory/droids/<name>.md — markdown). docs.factory.ai/cli.
-    hostNative: s(true, true, true, true, true, true),
+    hostNative: s(true, true, true, true, true, true, false, true),
   },
   {
     id: "roo-code",
     name: "Roo Code",
     paradigm: "mcp-only",
-    surfaces: s(true, false, true, true, false, true),
+    surfaces: s(true, false, true, true, false, true, false, false),
     // commands (.roo/commands) + skills (.roo/skills, AgentSkills) wired —
     // docs.roocode.com. N/A: hooks, subagents.
-    hostNative: s(true, false, true, true, false, true),
+    hostNative: s(true, false, true, true, false, true, false, false),
   },
   {
     id: "kilo",
     name: "Kilo Code",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, false, false),
     // 7.x rebuilt on the Kilo CLI server: hooks (ts-plugin, .kilo/plugin/) and
     // skills (.kilo/skills/) are now wired — all six surfaces supported. The ext
     // shares one config backend with kilo-cli (kilo.json + kilo.jsonc merge).
-    hostNative: s(true, true, true, true, true, true),
+    hostNative: s(true, true, true, true, true, true, false, false),
   },
   {
     id: "cline",
     name: "Cline",
     paradigm: "mcp-only",
-    surfaces: s(true, false, true, true, false, true),
+    surfaces: s(true, false, true, true, false, true, false, false),
     // The most-installed AI coding VS Code ext + the parent roo-code/kilo forked.
     // mcp-only: MCP at <vscodeUserDir>/globalStorage/saoudrizwan.claude-dev/
     // settings/cline_mcp_settings.json ("mcpServers" — cline/cline disk.ts
@@ -321,149 +337,149 @@ export const platforms: Platform[] = [
     // + Documents/Cline/Rules) — docs.cline.bot. subagents hostNative=false: the
     // VS Code ext has no verified on-disk subagent surface (only the separate
     // Cline CLI does). N/A: hooks (no event-callback plugin API).
-    hostNative: s(true, false, true, true, false, true),
+    hostNative: s(true, false, true, true, false, true, false, false),
   },
   {
     id: "trae",
     name: "Trae",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true),
+    surfaces: s(true, false, false, true, false, true, false, false),
     // skills wired (.trae/skills/<name>/SKILL.md — docs.trae.ai/ide/skills).
     // PERMANENT GAP (adversarially confirmed): subagents are UI-created + imported
     // via cloud share links (s.trae.ai/a/<id>) — no on-disk agent file.
     // N/A: hooks, commands (no standalone command surface).
-    hostNative: s(true, false, false, true, true, true),
+    hostNative: s(true, false, false, true, true, true, false, false),
   },
   {
     id: "antigravity-cli",
     name: "Antigravity CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, false, true),
+    surfaces: s(true, true, true, true, false, true, false, false),
     // subagents: N/A — plugin-bundle-only, no user surface (matches the IDE).
-    hostNative: s(true, true, true, true, false, true),
+    hostNative: s(true, true, true, true, false, true, false, false),
   },
   {
     id: "antigravity",
     name: "Google Antigravity",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, false, true),
-    hostNative: s(true, true, true, true, false, true),
+    surfaces: s(true, true, true, true, false, true, false, false),
+    hostNative: s(true, true, true, true, false, true, false, false),
   },
   {
     id: "zed",
     name: "Zed",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true),
+    surfaces: s(true, false, false, true, false, true, false, false),
     // skills now wired (.agents/skills project, ~/.agents/skills user).
     // N/A: hooks, commands, subagents.
-    hostNative: s(true, false, false, true, false, true),
+    hostNative: s(true, false, false, true, false, true, false, false),
   },
   {
     id: "amp",
     name: "Amp",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true),
+    surfaces: s(true, false, false, true, false, true, false, false),
     // skills wired (~/.config/agents/skills | .agents/skills, SKILL.md).
     // REMAINING GAPS (adversarially verified): hooks = experimental Bun TS-plugin
     // API only (.amp/plugins/*.ts — no declarative hook file); subagents =
     // experimental amp.experimental.createAgent / role-specific .agents/checks.
     // ampcode.com/manual. N/A: commands.
-    hostNative: s(true, true, false, true, true, true),
+    hostNative: s(true, true, false, true, true, true, false, false),
   },
   {
     id: "codebuff",
     name: "Codebuff",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true),
+    surfaces: s(true, false, false, true, false, true, false, false),
     // skills wired (.agents/skills, AgentSkills — docs + load-skills.ts verified).
     // GAP: subagents are executable .agents/*.ts AgentDefinition modules (not
     // markdown) — confirmed real, deferred (SDK-schema-coupled render).
-    hostNative: s(true, false, false, true, true, true),
+    hostNative: s(true, false, false, true, true, true, false, false),
   },
   {
     id: "mux",
     name: "Mux",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true),
-    hostNative: s(true, false, false, false, false, true),
+    surfaces: s(true, false, false, false, false, true, false, false),
+    hostNative: s(true, false, false, false, false, true, false, false),
   },
   // pi has NO writable MCP config (transports: []) — commands + skills + memory.
   {
     id: "pi",
     name: "Pi",
     paradigm: "mcp-only",
-    surfaces: s(false, false, true, true, false, true),
+    surfaces: s(false, false, true, true, false, true, false, false),
     // mcp: N/A — pi offers no MCP surface at all (deliberate host design).
     // commands now wired (prompt templates: .pi/prompts/ project,
     // ~/.pi/agent/prompts/ user); skills fixed to ~/.pi/agent/skills/ (user).
-    hostNative: s(false, false, true, true, false, true),
+    hostNative: s(false, false, true, true, false, true, false, false),
   },
   {
     id: "jetbrains-copilot",
     name: "JetBrains Copilot",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, false, true),
-    hostNative: s(true, true, true, true, false, true),
+    surfaces: s(true, true, true, true, false, true, false, false),
+    hostNative: s(true, true, true, true, false, true, false, false),
   },
   {
     id: "qwen-code",
     name: "Qwen CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true),
+    surfaces: s(true, true, true, true, true, true, true, false),
     // skills now wired (.qwen/skills project, ~/.qwen/skills user) — all six.
-    hostNative: s(true, true, true, true, true, true),
+    hostNative: s(true, true, true, true, true, true, true, false),
   },
   {
     id: "kiro",
     name: "Kiro",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, true, false, true),
+    surfaces: s(true, true, false, true, false, true, false, false),
     // skills now wired (.kiro/skills project, ~/.kiro/skills user).
-    hostNative: s(true, true, false, true, false, true),
+    hostNative: s(true, true, false, true, false, true, false, false),
   },
   {
     id: "kimi",
     name: "Kimi CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, true, false, true),
+    surfaces: s(true, true, false, true, false, true, false, false),
     // skills now wired (.kimi/skills project, ~/.kimi/skills user).
-    hostNative: s(true, true, false, true, false, true),
+    hostNative: s(true, true, false, true, false, true, false, false),
   },
   {
     id: "crush",
     name: "Crush",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true),
-    hostNative: s(true, true, false, false, false, true),
+    surfaces: s(true, true, false, false, false, true, false, false),
+    hostNative: s(true, true, false, false, false, true, false, false),
   },
   {
     id: "goose",
     name: "Goose",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, true, false, true),
+    surfaces: s(true, true, false, true, false, true, false, false),
     // skills wired (~/.agents/skills | .agents/skills, SKILL.md — goose-docs.ai,
     // live-verified; requires the built-in Summon extension v1.25.0+).
-    hostNative: s(true, true, false, true, false, true),
+    hostNative: s(true, true, false, true, false, true, false, false),
   },
   {
     id: "hermes",
     name: "Hermes Agent",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true),
-    hostNative: s(true, true, false, false, false, true),
+    surfaces: s(true, true, false, false, false, true, false, true),
+    hostNative: s(true, true, false, false, false, true, false, true),
   },
   {
     id: "omp",
     name: "Oh My Pi (OMP)",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, false, false, false, true),
-    hostNative: s(true, true, false, false, false, true),
+    surfaces: s(true, true, false, false, false, true, false, true),
+    hostNative: s(true, true, false, false, false, true, false, true),
   },
   {
     id: "nemoclaw",
     name: "NVIDIA NemoClaw",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, false, true, false, true),
+    surfaces: s(true, true, false, true, false, true, false, true),
     // NVIDIA NemoClaw (github.com/NVIDIA/NemoClaw) WRAPS OpenClaw and writes the
     // SAME ~/.openclaw/openclaw.json — it extends OpenClawAdapter, so its surfaces
     // are OpenClaw's verbatim (MCP nested mcp.servers, ts-plugin hooks, memory, and
@@ -471,18 +487,18 @@ export const platforms: Platform[] = [
     // NO Claude-style hooks of its own, but inherits OpenClaw's plugin-hook
     // machinery → hooks stays honest. PERMANENT GAP mirrors OpenClaw: subagents
     // (runtime runs + inline agents.list[], no authored-file folder).
-    hostNative: s(true, true, false, true, true, true),
+    hostNative: s(true, true, false, true, true, true, false, true),
   },
   {
     id: "openclaw",
     name: "OpenClaw",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, false, true, false, true),
+    surfaces: s(true, true, false, true, false, true, false, true),
     // skills wired (<workspace>/skills/<name>/SKILL.md —
     // docs.openclaw.ai/tools/skills, live-verified). PERMANENT GAP (adversarially
     // confirmed): subagents are runtime runs + inline agents.list[] config — no
     // authored-file folder to write into.
-    hostNative: s(true, true, false, true, true, true),
+    hostNative: s(true, true, false, true, true, true, false, true),
   },
 ];
 
