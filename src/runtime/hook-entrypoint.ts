@@ -67,7 +67,7 @@ const ALLOW: RunHookResult = { exitCode: 0 };
  * filtering out such an event would silently drop a real stop, so we run the
  * handler instead (fail-open).
  */
-function eventMatcherSubject(evt: NormalizedEvent): string | undefined {
+export function eventMatcherSubject(evt: NormalizedEvent): string | undefined {
   const name = (evt as { toolName?: unknown }).toolName;
   if (typeof name === "string") return name;
   const agentType = (evt as { agentType?: unknown }).agentType;
@@ -95,7 +95,7 @@ function parseStdin(stdin: string): unknown {
  * or empty matcher matches everything (returns null → no filtering). An invalid
  * regex degrades to "match everything" so a typo never blocks tool calls.
  */
-function compileMatcher(matcher: string | undefined): RegExp | null {
+export function compileMatcher(matcher: string | undefined): RegExp | null {
   if (!matcher || matcher === "") return null;
   try {
     return new RegExp(matcher);

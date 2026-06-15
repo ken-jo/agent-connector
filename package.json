@@ -39,6 +39,14 @@
       "types": "./dist/runtime/index.d.ts",
       "import": "./dist/runtime/index.js"
     },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js"
+    },
+    "./sdk/test": {
+      "types": "./dist/sdk/test.d.ts",
+      "import": "./dist/sdk/test.js"
+    },
     "./cli": {
       "types": "./dist/cli/sdk.d.ts",
       "import": "./dist/cli/sdk.js"

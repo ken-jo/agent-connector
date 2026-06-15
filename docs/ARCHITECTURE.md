@@ -371,6 +371,85 @@ export default defineConnector({
 });
 ```
 
+### 7.1 Connector SDK — authoring, introspection, offline harness
+
+The root export (`@ken-jo/agent-connector`) is unchanged. Two additive subpaths
+layer the developer-facing SDK on top of the abstraction model above.
+
+**`@ken-jo/agent-connector/sdk` — consolidated authoring surface.** Re-exports
+`defineConnector`, `ConnectorConfigError`, the full `define*` typed-identity
+helper family, the introspection helpers, and the public types — one import
+site for all authoring.
+
+The `define*` helpers are typed identity functions: they infer the right `*Def`
+type and return the definition unchanged; validation stays inside
+`defineConnector`. The family:
+
+- `defineConnector(config)` — existing; the root definition entry point.
+- `defineStatusline({ render })` — existing; typed to `StatuslineDef`.
+- `defineCommand`, `defineSkill`, `defineSubagent`, `defineMemory`,
+  `defineConfigPatch`, `defineNativeHook` — each `(def) => def`, typed to
+  its `*Def`.
+- `defineHook` — **event-parameterized** so the handler payload narrows to
+  the concrete event type rather than the union:
+  ```ts
+  const onPre = defineHook("PreToolUse", {
+    handler(evt) {
+      // evt is typed as PreToolUseEvent, not the full event union
+      return { decision: "deny", reason: "no" };
+    },
+  });
+  ```
+  The leading event string exists only to drive type inference; the def is
+  returned unchanged.
+
+**Introspection** (async — adapters load lazily):
+
+- `capabilitiesOf(host): Promise<PlatformCapabilities | undefined>` — a
+  host's capability flags; `undefined` for an unrecognized id.
+- `hostsSupporting(surface): Promise<PlatformId[]>` — which registered hosts
+  honor a surface. `surface` is a `SurfaceName`: `server | hooks | commands |
+  skills | subagents | memory | statusline | configPatch | nativeHooks`.
+- `surfaceSupport(host, surface): Promise<boolean>` — per-host / per-surface
+  convenience predicate.
+- `SURFACE_PREDICATES` — the per-surface capability predicate map, exported
+  for advanced use.
+
+**`@ken-jo/agent-connector/sdk/test` — offline harness.** The two exports
+answer "does my handler / HUD actually work on host X?" without touching a
+real host.
+
+- `explain(connector): Promise<ExplainRow[]>` — the per-host × per-declared-
+  surface support matrix. Each row is `{ host, surface, support: "native" |
+  "skip-warn" | "disabled", reason }`. Only surfaces the connector actually
+  declares are included; `configPatch` / `nativeHooks` rows are scoped to the
+  host that declares them; `disabled` = an explicit
+  `platforms[host].<surface> = false`. (The `server` row is capability-based
+  for v1 — registration may be host-managed on some IDEs; the row reason notes
+  this.)
+
+- `simulate(connector, { surface, host, event?, input }): Promise<{ honored, hostReply?, reason }>`
+  — runs the **real** adapter parse → handler → format chain offline and
+  reports whether the host would actually honor the handler's decision.
+  `surface` is `"hooks"` (requires `event`) or `"statusline"`; `input` is the
+  host-shaped raw payload. It mirrors the runtime exactly: tolerant stdin,
+  matcher filtering (a matcher-scoped handler that doesn't match is not run),
+  and a verdict computed by **parsing the actual host reply and judging the
+  true `(event, decision)` contract** — not substring guessing. This means it
+  reports real host quirks honestly:
+  - codex drops `context` on `UserPromptSubmit` (no stdout path) →
+    `honored: false`.
+  - a `deny` on `Stop` / `SubagentStop` is continuation/persistence, not a
+    block → `honored: true`, reason says "continues … (persistence)".
+  - a `deny` on `SubagentStart` / `PostToolUseFailure` degrades to a context
+    note → `honored: false`.
+  - a `PermissionRequest` `ask` is honored by the host's native dialog (no
+    stdout) → `honored: true`.
+
+In short: `explain` is the whole support matrix; `simulate` is the behavioral
+check that encodes each host's real honor / drop / degrade contract — the
+honest per-host reach, offline, before you touch a real host.
+
 ## 8. CLI
 
 ```

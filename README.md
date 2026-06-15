@@ -254,6 +254,72 @@ acme-db`, `acme-db install` ≈ `agent-connector install --connector
 tools share that infrastructure. An explicit `--connector` / `--connector-id`
 always overrides the injected default.
 
+### Author + test offline — the Connector SDK (`/sdk`, `/sdk/test`)
+
+```ts
+import { defineConnector, defineHook, hostsSupporting } from "@ken-jo/agent-connector/sdk";
+import { simulate, explain } from "@ken-jo/agent-connector/sdk/test";
+```
+
+`@ken-jo/agent-connector/sdk` is the consolidated **authoring** surface — it
+re-exports `defineConnector`, the full `define*` family, the introspection
+helpers, and public types from one import site (the root export is unchanged;
+`/sdk` is additive).
+
+**`define*` typed helpers** — each is a typed identity function (`(def) => def`)
+that gives you per-surface type inference and a single import site:
+`defineCommand`, `defineSkill`, `defineSubagent`, `defineMemory`,
+`defineConfigPatch`, `defineNativeHook`. `defineHook` is event-parameterized
+so the handler payload narrows to the concrete event type:
+
+```ts
+const guard = defineHook("PreToolUse", {
+  handler(evt) {
+    // evt.toolName is typed as PreToolUseEvent — not the union
+    return evt.toolName === "acme_write"
+      ? { decision: "ask", reason: "Confirm write" }
+      : { decision: "allow" };
+  },
+});
+```
+
+**Introspection** (async — adapters load lazily):
+
+- `hostsSupporting(surface)` → `Promise<PlatformId[]>` — which registered hosts
+  honor a surface (`"hooks"` | `"statusline"` | `"memory"` | …).
+- `capabilitiesOf(host)` → `Promise<PlatformCapabilities | undefined>`.
+- `surfaceSupport(host, surface)` → `Promise<boolean>` — convenience single-pair check.
+
+**Offline harness** (`@ken-jo/agent-connector/sdk/test`) answers *"does my
+handler / HUD actually work on host X?"* before you touch a real host:
+
+- `explain(connector)` → `Promise<ExplainRow[]>` — the per-host × per-declared-surface
+  matrix. Each row is `{ host, surface, support: "native"|"skip-warn"|"disabled", reason }`.
+  Only surfaces the connector actually declares are included.
+- `simulate(connector, { surface, host, event?, input })` → `Promise<{ honored, hostReply?, reason }>`
+  — runs the **real** adapter parse→handler→format chain offline and judges the
+  actual `(event, decision)` contract. It encodes each host's real honor / drop /
+  degrade quirks — not substring guessing:
+
+```ts
+// Does codex honor a context injection on UserPromptSubmit?
+const result = await simulate(connector, {
+  surface: "hooks",
+  host: "codex",
+  event: "UserPromptSubmit",
+  input: { hookEventName: "UserPromptSubmit", prompt: "explain this" },
+});
+// → { honored: false, reason: "drops context on UserPromptSubmit (no stdout path)" }
+```
+
+> Other verdicts the harness encodes: a `deny` on `Stop`/`SubagentStop` is
+> continuation/persistence → `honored:true` (reason explains); `deny` on
+> `SubagentStart`/`PostToolUseFailure` degrades to a context note →
+> `honored:false`; a PermissionRequest `ask` is honored by the host's native
+> dialog → `honored:true`. Matcher-scoped handlers that don't match the input
+> are not run. The harness mirrors the runtime exactly — tolerant stdin,
+> matcher filtering, real verdict.
+
 ### Two ways to ship: direct install **or** a marketplace package
 
 Same one definition, your choice of distribution:

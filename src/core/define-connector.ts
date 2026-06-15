@@ -10,10 +10,13 @@ import { isAbsolute, normalize } from "node:path";
 
 import type {
   CommandDef,
+  ConfigPatchDef,
   ConnectorConfig,
+  HookDefinition,
   HookEventName,
   HooksConfig,
   MemoryDef,
+  NativeHookDef,
   PublishConfig,
   ResolvedConnector,
   SkillDef,
@@ -549,6 +552,83 @@ function normalizeStatusline(
  * inference on {@link StatuslineContext} without importing the type by hand.
  */
 export const defineStatusline = (def: StatuslineDef): StatuslineDef => def;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Typed identity helpers (the `define*` authoring family)
+//
+// Each is a one-line identity function: it returns its argument UNCHANGED and
+// does NOT validate or mutate (validation still happens centrally in
+// defineConnector). Their only job is ergonomics — authoring a surface in its
+// own module with full type inference + autocomplete on the *Def shape, and a
+// single import site — mirroring the existing {@link defineStatusline}.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Typed identity helper for authoring ONE normalized lifecycle hook in its own
+ * module, EVENT-PARAMETERIZED so the handler's payload narrows to that event:
+ *
+ *   export const onPre = defineHook("PreToolUse", {
+ *     handler(evt) { evt.toolName // ← typed as a PreToolUseEvent, not the union
+ *       return { decision: "deny", reason: "no" };
+ *     },
+ *   });
+ *
+ * The leading `event` argument exists ONLY to infer `E`; the def is returned
+ * unchanged (identity — validation still happens in defineConnector). Passing
+ * `HookDefinition` without an event would widen the handler param to the full
+ * {@link HookEventName} union and lose per-event narrowing, so the event tag is
+ * required.
+ */
+export const defineHook = <E extends HookEventName>(
+  event: E,
+  def: HookDefinition<E>,
+): HookDefinition<E> => {
+  void event; // tag-only: used solely to infer E (the def carries no event field)
+  return def;
+};
+
+/**
+ * Typed identity helper for authoring a slash {@link CommandDef} in its own
+ * module. Returns the def unchanged (kebab-case name + prompt are validated by
+ * defineConnector when the connector is assembled).
+ */
+export const defineCommand = (def: CommandDef): CommandDef => def;
+
+/**
+ * Typed identity helper for authoring an Agent {@link SkillDef} in its own
+ * module. Returns the def unchanged (name/description/body + safe resource keys
+ * are validated by defineConnector).
+ */
+export const defineSkill = (def: SkillDef): SkillDef => def;
+
+/**
+ * Typed identity helper for authoring a {@link SubagentDef} in its own module.
+ * Returns the def unchanged (name/description/prompt validated by defineConnector).
+ */
+export const defineSubagent = (def: SubagentDef): SubagentDef => def;
+
+/**
+ * Typed identity helper for authoring a {@link MemoryDef} (standing-guidance
+ * managed block) in its own module. Returns the def unchanged (name/content +
+ * byte budget + marker-token guard validated by defineConnector).
+ */
+export const defineMemory = (def: MemoryDef): MemoryDef => def;
+
+/**
+ * Typed identity helper for authoring a declarative {@link ConfigPatchDef}
+ * (set-if-absent host-config key patch) in its own module. Returns the def
+ * unchanged (leaf-path grammar + namespace guard + required reason validated by
+ * defineConnector when it appears under `platforms[<id>].configPatch`).
+ */
+export const defineConfigPatch = (def: ConfigPatchDef): ConfigPatchDef => def;
+
+/**
+ * Typed identity helper for authoring a {@link NativeHookDef} (host-native
+ * passthrough hook) in its own module. Returns the def unchanged (event-name
+ * collision + handler-is-function validated by defineConnector when it appears
+ * under `platforms[<id>].nativeHooks`).
+ */
+export const defineNativeHook = (def: NativeHookDef): NativeHookDef => def;
 
 function normalizeSubagents(input: SubagentDef[] | undefined): SubagentDef[] {
   if (input == null) return [];

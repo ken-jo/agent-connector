@@ -75,6 +75,12 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 
 `usage` groups ONLY by platform | project | session | model | day — it shows per-CLI / per-model / per-session totals, NOT per-MCP or per-tool costs (agent CLIs do not log per-tool token attribution). To get per-MCP / per-tool numbers for an MCP, that MCP must be deployed and wrapped via a connector (track A). Note: 5 'synced' platforms (cursor, antigravity, antigravity-cli, trae, warp) are reported as skipped unless a local cache already exists; some readers are host-estimated (flagged in the CONFIDENCE column).
 
+## Package subpaths
+
+- `.` (`@ken-jo/agent-connector`) — root: `defineConnector`, `ConnectorConfigError`, public types (unchanged).
+- `./sdk` (`@ken-jo/agent-connector/sdk`) — consolidated authoring surface: `defineConnector` + the `define*` family (`defineCommand`, `defineSkill`, `defineSubagent`, `defineMemory`, `defineConfigPatch`, `defineNativeHook`, `defineStatusline`) + `defineHook` (event-parameterized — leading event string narrows the handler payload type, e.g. `defineHook("PreToolUse", { handler(evt){…} })`) + introspection (`capabilitiesOf(host)`, `hostsSupporting(surface)`, `surfaceSupport(host,surface)`, `SURFACE_PREDICATES`). All async; adapters load lazily. `SurfaceName`: server|hooks|commands|skills|subagents|memory|statusline|configPatch|nativeHooks.
+- `./sdk/test` (`@ken-jo/agent-connector/sdk/test`) — offline harness: `explain(connector)` → per-host × per-declared-surface matrix (`ExplainRow[]`: `{ host, surface, support:"native"|"skip-warn"|"disabled", reason }`); `simulate(connector,{surface,host,event?,input})` → runs the REAL adapter parse→handler→format chain offline and reports `{ honored, hostReply?, reason }` — encodes each host's actual honor/drop/degrade contract (e.g. codex drops `context` on UserPromptSubmit → `honored:false`; `deny` on Stop is continuation/persistence → `honored:true`). Answers "does my handler/HUD actually work on host X?" before touching a real host.
+
 ## Key API: defineConnector fields
 
 - `id` (required, kebab-case), `displayName`, `version`.

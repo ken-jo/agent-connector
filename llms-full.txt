@@ -1333,8 +1333,155 @@ Or ship a branded CLI: `createConnectorCli({ name, connector })` from
 connector (see `examples/branded-cli`); explicit `--connector`/`--connector-id`
 always overrides.
 
+**Package subpaths:** `.` (root — `defineConnector`, public types, `ConnectorConfigError`)
+· `./runtime` (serve-proxy + hook entrypoint internals)
+· `./cli` (`createConnectorCli`)
+· `./sdk` (consolidated authoring surface — `define*` family + introspection helpers; additive, does NOT replace the root export)
+· `./sdk/test` (offline harness — `explain` + `simulate`; see §9).
+
 Engines: Node `>=18.17`, ESM only. Runtime deps are pure-JS / WASM (`gpt-tokenizer`,
 `sql.js`, `fzstd`, `@iarna/toml`, `yaml`) — no native build. License: Apache-2.0 © KenJo.
+
+---
+
+## 9. Connector SDK — `@ken-jo/agent-connector/sdk` + `/sdk/test`
+
+> "Author with the typed `define*` family, then `explain`/`simulate` your connector
+> against every host's real capabilities — offline."
+
+The framework already normalizes surfaces and capability-gates per host. The SDK
+turns that knowledge into a **queryable, offline** answer to "does my handler / HUD
+actually work on host X?" — before you touch a real host.
+
+### 9.1 `/sdk` — authoring surface
+
+```ts
+import {
+  defineConnector,       // existing — validates + returns ResolvedConnector
+  defineStatusline,      // existing typed helper
+  defineCommand, defineSkill, defineSubagent, defineMemory,
+  defineConfigPatch, defineNativeHook,
+  defineHook,            // event-parameterized (see below)
+  capabilitiesOf, hostsSupporting, surfaceSupport,
+  SURFACE_PREDICATES,
+  ConnectorConfigError,
+} from "@ken-jo/agent-connector/sdk";
+```
+
+All `define*` helpers are **typed identity functions** — each takes and returns its
+corresponding `*Def`, giving type inference and a single import site. Validation
+stays in `defineConnector`; the helpers add no runtime behavior.
+
+**`defineHook` is event-parameterized** so the handler payload narrows to the
+concrete event type rather than the full union:
+
+```ts
+const onPre = defineHook("PreToolUse", {
+  handler(evt) {
+    // evt is typed as PreToolUseEvent — evt.toolName is known
+    return { decision: "deny", reason: "no" };
+  },
+});
+// pass onPre as hooks.PreToolUse in defineConnector({ hooks: { PreToolUse: onPre } })
+```
+
+The leading event string is used only for type inference; `defineHook` returns the
+def unchanged.
+
+### 9.2 Introspection helpers (all async — adapters load lazily)
+
+| Helper | Signature | Returns |
+|---|---|---|
+| `capabilitiesOf` | `(host: PlatformId) => Promise<PlatformCapabilities \| undefined>` | Capability flags for the host; `undefined` for an unknown id. |
+| `hostsSupporting` | `(surface: SurfaceName) => Promise<PlatformId[]>` | All registered hosts that honor the surface. |
+| `surfaceSupport` | `(host: PlatformId, surface: SurfaceName) => Promise<boolean>` | Convenience: single host × surface check. |
+| `SURFACE_PREDICATES` | `Record<SurfaceName, (caps: PlatformCapabilities) => boolean>` | The per-surface predicate map (exported for advanced use). |
+
+`SurfaceName` vocabulary: `server` · `hooks` · `commands` · `skills` · `subagents` ·
+`memory` · `statusline` · `configPatch` · `nativeHooks`.
+
+Examples:
+```ts
+await hostsSupporting("statusline");  // → ["claude-code"]
+await hostsSupporting("memory");      // → the broad AGENTS.md set
+await surfaceSupport("codex", "hooks"); // → true
+```
+
+### 9.3 `/sdk/test` — offline harness
+
+```ts
+import { explain, simulate } from "@ken-jo/agent-connector/sdk/test";
+```
+
+#### `explain(connector)` — per-host × per-surface support matrix
+
+```ts
+explain(connector: ResolvedConnector): Promise<ExplainRow[]>
+
+interface ExplainRow {
+  host:    PlatformId;
+  surface: SurfaceName;
+  support: "native" | "skip-warn" | "disabled";
+  reason:  string;
+}
+```
+
+Returns one row per `(host, surface)` pair for **every surface the connector
+actually declares** (un-declared surfaces are omitted). `configPatch` and
+`nativeHooks` rows are scoped to the host that declares them. `disabled` means the
+connector explicitly set `platforms[host].<surface> = false`. The `server` row
+reason notes that registration may be host-managed on some IDEs (v1 capability-based
+check). Use this as the full readout before install:
+
+```ts
+const rows = await explain(myConnector);
+rows.forEach(r => console.log(r.host, r.surface, r.support, r.reason));
+```
+
+#### `simulate(connector, opts)` — behavioral check against the real adapter chain
+
+```ts
+simulate(
+  connector: ResolvedConnector,
+  opts: {
+    surface: "hooks" | "statusline";
+    host:    PlatformId;
+    event?:  HookEventName;   // required when surface === "hooks"
+    input:   unknown;         // host-shaped raw payload
+  }
+): Promise<{ honored: boolean; hostReply?: unknown; reason: string }>
+```
+
+Runs the **real** adapter parse → handler → format chain offline and reports
+whether the host would actually honor the handler's decision. It mirrors the
+runtime exactly: tolerant stdin parsing, matcher filtering (a matcher-scoped
+handler that doesn't match is not run), and a verdict computed by **parsing the
+host reply and judging the actual `(event, decision)` contract** — not substring
+guessing. Concrete honored/dropped/degraded cases:
+
+| Scenario | `honored` | `reason` (summary) |
+|---|---|---|
+| codex `UserPromptSubmit` — context drop (no stdout path) | `false` | codex drops `context` on UserPromptSubmit |
+| `deny` on `Stop` / `SubagentStop` | `true` | continues subagent / session (persistence) |
+| `deny` on `SubagentStart` / `PostToolUseFailure` | `false` | degrades to context note — nothing is blockable here |
+| `PermissionRequest` `ask` | `true` | host's native dialog handles the ask (no stdout needed) |
+| matcher-scoped handler that doesn't match `input` | `false` | matcher excluded this input — handler not run |
+
+```ts
+const { honored, reason } = await simulate(myConnector, {
+  surface: "hooks",
+  host:    "codex",
+  event:   "UserPromptSubmit",
+  input:   { prompt: "hello", session_id: "s1" },
+});
+// honored: false — codex drops context on UserPromptSubmit
+```
+
+`simulate` is the behavioral complement to `explain`: `explain` is the whole
+support matrix; `simulate` is the per-invocation contract check that encodes each
+host's real honor / drop / degrade behavior.
+
+---
 
 ## Links
 - README.md — overview + quick start.
