@@ -33,6 +33,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
   Transport,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
@@ -116,6 +117,12 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Codebuff registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
+    // Content surfaces: Codebuff reads AgentSkills from
+    // <configDir>/skills/<name>/SKILL.md (configDir is .agents, so the path is
+    // .agents/skills/<name>/SKILL.md). Verified against codebuff source
+    // sdk/src/skills/load-skills.ts — the frontmatter `name` MUST equal the dir
+    // name. Commands / subagents have no native Codebuff surface.
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -265,6 +272,101 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     return rewriteEnvRefsDeep({ ...env });
   }
 
+  // ── Content surfaces: skills ──────────────────────────────────────────────
+  // CONTENT-ONLY: pure native-file writers. No runtime dispatch, no home-bin
+  // pointer, no telemetry wrap. Each method is idempotent (byte-identical →
+  // skip) via writeContentFile and reversible via removeContentFile. Honors
+  // platforms["codebuff"].skills === false to skip. Both user and project scope
+  // are supported (configDir resolves per scope).
+  //
+  // Native location:
+  //   skill → <configDir>/skills/<name>/SKILL.md (+ resources)
+  //           configDir is .agents, so .agents/skills/<name>/SKILL.md. Verified
+  //           against codebuff source sdk/src/skills/load-skills.ts — the
+  //           frontmatter `name` MUST equal the dir name.
+
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), "skills", name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for codebuff" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with every other
+   * skill-supporting platform — only the parent dir differs. Codebuff requires
+   * the frontmatter `name` to equal the dir name (load-skills.ts), which holds
+   * because skillDir uses skill.name for both.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
   // ── Hooks (unavailable — Codebuff is mcp-only) ────────────────────────────
 
   installHooks(_ctx: InstallContext): ChangeRecord[] {
@@ -292,7 +394,7 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const mcpPath = this.getServerConfigPath(ctx);
     const connectorId = ctx.connector.id;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: mcp.json present`,
         check: () =>
@@ -322,6 +424,18 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: assert presence only for the skills this connector
+    // declares (a skill-less connector writes none, so absence is healthy).
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 }
 

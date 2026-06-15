@@ -284,16 +284,18 @@ export const platforms: Platform[] = [
     id: "droid",
     name: "Droid (Factory)",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true),
-    // GAPS: commands, skills, subagents (custom droids) — Droid offers all six.
+    surfaces: s(true, true, true, true, true, true),
+    // All six wired: commands (.factory/commands), skills (.factory/skills),
+    // subagents (.factory/droids/<name>.md — markdown). docs.factory.ai/cli.
     hostNative: s(true, true, true, true, true, true),
   },
   {
     id: "roo-code",
     name: "Roo Code",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true),
-    // GAPS: commands (.roo/commands), skills (.roo/skills). N/A: hooks, subagents.
+    surfaces: s(true, false, true, true, false, true),
+    // commands (.roo/commands) + skills (.roo/skills, AgentSkills) wired —
+    // docs.roocode.com. N/A: hooks, subagents.
     hostNative: s(true, false, true, true, false, true),
   },
   {
@@ -310,9 +312,11 @@ export const platforms: Platform[] = [
     id: "trae",
     name: "Trae",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true),
-    // GAPS: skills (docs.trae.ai/ide/skills), subagents (UI-only — may never be
-    // file-wireable). N/A: hooks, commands (no standalone command surface).
+    surfaces: s(true, false, false, true, false, true),
+    // skills wired (.trae/skills/<name>/SKILL.md — docs.trae.ai/ide/skills).
+    // PERMANENT GAP (adversarially confirmed): subagents are UI-created + imported
+    // via cloud share links (s.trae.ai/a/<id>) — no on-disk agent file.
+    // N/A: hooks, commands (no standalone command surface).
     hostNative: s(true, false, false, true, true, true),
   },
   {
@@ -343,17 +347,22 @@ export const platforms: Platform[] = [
     id: "amp",
     name: "Amp",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true),
-    // GAPS: hooks (new TS plugin system), skills, subagents (experimental
-    // plugin API) — all ampcode.com/manual. N/A: commands.
+    surfaces: s(true, false, false, true, false, true),
+    // skills wired (~/.config/agents/skills | .agents/skills, SKILL.md).
+    // REMAINING GAPS (adversarially verified): hooks = experimental Bun TS-plugin
+    // API only (.amp/plugins/*.ts — no declarative hook file); subagents =
+    // experimental amp.experimental.createAgent / role-specific .agents/checks.
+    // ampcode.com/manual. N/A: commands.
     hostNative: s(true, true, false, true, true, true),
   },
   {
     id: "codebuff",
     name: "Codebuff",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true),
-    // GAPS: skills (.agents/skills), subagents (.agents/*.ts custom agents).
+    surfaces: s(true, false, false, true, false, true),
+    // skills wired (.agents/skills, AgentSkills — docs + load-skills.ts verified).
+    // GAP: subagents are executable .agents/*.ts AgentDefinition modules (not
+    // markdown) — confirmed real, deferred (SDK-schema-coupled render).
     hostNative: s(true, false, false, true, true, true),
   },
   {
@@ -416,8 +425,9 @@ export const platforms: Platform[] = [
     id: "goose",
     name: "Goose",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true),
-    // GAP: skills (medium confidence — press + skills.sh; dirs unverified).
+    surfaces: s(true, true, false, true, false, true),
+    // skills wired (~/.agents/skills | .agents/skills, SKILL.md — goose-docs.ai,
+    // live-verified; requires the built-in Summon extension v1.25.0+).
     hostNative: s(true, true, false, true, false, true),
   },
   {
@@ -438,22 +448,25 @@ export const platforms: Platform[] = [
     id: "nemoclaw",
     name: "NVIDIA NemoClaw",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, false, false, false, true),
+    surfaces: s(true, true, false, true, false, true),
     // NVIDIA NemoClaw (github.com/NVIDIA/NemoClaw) WRAPS OpenClaw and writes the
     // SAME ~/.openclaw/openclaw.json — it extends OpenClawAdapter, so its surfaces
-    // are OpenClaw's verbatim (MCP nested mcp.servers, ts-plugin hooks, memory).
-    // GAPS mirror OpenClaw: skills (docs.openclaw.ai/tools/skills) + subagents
-    // (sub-agent runs + agents.list). NemoClaw ships NO Claude-style hooks of its
-    // own, but inherits OpenClaw's plugin-hook machinery → hooks stays honest.
+    // are OpenClaw's verbatim (MCP nested mcp.servers, ts-plugin hooks, memory, and
+    // now skills — installSkills is INHERITED from OpenClawAdapter). NemoClaw ships
+    // NO Claude-style hooks of its own, but inherits OpenClaw's plugin-hook
+    // machinery → hooks stays honest. PERMANENT GAP mirrors OpenClaw: subagents
+    // (runtime runs + inline agents.list[], no authored-file folder).
     hostNative: s(true, true, false, true, true, true),
   },
   {
     id: "openclaw",
     name: "OpenClaw",
     paradigm: "ts-plugin",
-    surfaces: s(true, true, false, false, false, true),
-    // GAPS: skills (docs.openclaw.ai/tools/skills — live-verified), subagents
-    // (sub-agent runs + agents.list, medium confidence).
+    surfaces: s(true, true, false, true, false, true),
+    // skills wired (<workspace>/skills/<name>/SKILL.md —
+    // docs.openclaw.ai/tools/skills, live-verified). PERMANENT GAP (adversarially
+    // confirmed): subagents are runtime runs + inline agents.list[] config — no
+    // authored-file folder to write into.
     hostNative: s(true, true, false, true, true, true),
   },
 ];

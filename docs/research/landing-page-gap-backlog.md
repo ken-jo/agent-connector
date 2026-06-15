@@ -22,6 +22,35 @@ landing page" backlog (8 platforms, 16 cells):
 
 Per surface: skills (7) · subagents (5) · commands (3) · hooks (1).
 
+## STATUS — 10 of 16 closed (the rest are honest, evidence-backed non-gaps)
+
+Each cell was first contract-verified by a research + **adversarial-refute** workflow against
+primary sources (official docs / host source) before any wiring — a guessed path fails the
+honesty bar. Result:
+
+**✅ CLOSED (implemented + `surfaces[k]` flipped, drift-guard green):**
+- droid — commands (`.factory/commands/<name>.md`), skills (`.factory/skills/<name>/SKILL.md`),
+  subagents (`.factory/droids/<name>.md`, markdown)
+- roo-code — commands (`.roo/commands`), skills (`.roo/skills`)
+- trae — skills (`.trae/skills/<name>/SKILL.md`)
+- codebuff — skills (`.agents/skills`, docs **and** `load-skills.ts` source verified)
+- openclaw — skills (`<workspace>/skills`) → **nemoclaw inherits it** (extends OpenClawAdapter)
+- amp — skills (`~/.config/agents/skills` | `.agents/skills`)
+- goose — skills (`~/.agents/skills` | `.agents/skills`)
+
+**🚫 PERMANENT GAP (host offers it, but no on-disk file surface to write — adversarially confirmed):**
+- warp commands — app-managed Warp Drive prompts; FRs warpdotdev/warp#9107 & #6857 prove Warp does
+  not read `.claude/commands` today (and the "commands" hostNative partly double-counted skills).
+- trae subagents — UI-created + cloud share links (`s.trae.ai/a/<id>`), no `.trae/agents/` file.
+- openclaw subagents — runtime runs + inline `agents.list[]` config, no authored-file folder.
+
+**⏸ DEFERRED (real but not a clean markdown file-drop — needs a separate, careful pass):**
+- amp hooks — only an experimental Bun TS-plugin API (`.amp/plugins/*.ts`); no declarative hook
+  file (the earlier "amp.hooks array" was cross-contaminated from Codex's docs).
+- amp subagents — only experimental `amp.experimental.createAgent` / role-specific `.agents/checks`.
+- codebuff subagents — confirmed real, but an executable `.agents/*.ts` `AgentDefinition` module
+  (SDK-schema-coupled), not markdown.
+
 ## How to close each (the work per cell)
 
 Most are CONTENT surfaces (commands/skills/subagents) on mcp-only or specific hosts. Closing one:

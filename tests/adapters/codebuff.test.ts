@@ -1,22 +1,22 @@
 /**
- * adapters/goose.test.ts — skills surface tests for the goose adapter.
+ * adapters/codebuff — skills surface tests for the Codebuff adapter.
  *
- * goose reads SKILL.md from the cross-agent .agents dir (NOT ~/.config/goose):
+ * Codebuff reads AgentSkills SKILL.md from:
  *   project scope → <projectDir>/.agents/skills/<name>/SKILL.md
  *   user scope    → ~/.agents/skills/<name>/SKILL.md
+ * (getConfigDir resolves .agents per scope.) Verified against codebuff source
+ * sdk/src/skills/load-skills.ts — the frontmatter `name` MUST equal the dir
+ * name.
  *
  * Tests:
  *   - supportsSkills capability is true
  *   - installSkills (project scope) writes .agents/skills/<n>/SKILL.md with
- *     correct frontmatter + body + resource files; ChangeRecord.platform === "goose"
+ *     correct frontmatter (name === dir) + body + resource files
  *   - installSkills (user scope) writes ~/.agents/skills/<n>/SKILL.md
- *   - user-scope skill does NOT leak into the project .agents tree
  *   - installSkills is idempotent (second call → skip)
- *   - uninstallSkills removes SKILL.md + resource + the empty skill dir
- *   - platforms['goose'].skills === false disables the surface
- *   - no skills declared → skip
- *
- * MCP/hooks/parse/formatReply are covered by wave3.test.ts.
+ *   - uninstallSkills removes SKILL.md + resource + empty dir
+ *   - platforms['codebuff'].skills === false disables the surface
+ *   - ChangeRecord.platform === "codebuff"
  */
 
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
@@ -30,9 +30,9 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 
-import gooseAdapter from "../../src/adapters/goose/index.js";
+import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 
-const CONNECTOR_ID = "acme-goose-skills";
+const CONNECTOR_ID = "acme-codebuff-skills";
 
 const SKILL = {
   name: "pdf-tools",
@@ -55,7 +55,7 @@ function skill() {
 function buildConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
   return defineConnector({
     id: CONNECTOR_ID,
-    displayName: "Acme Goose Skills",
+    displayName: "Acme Codebuff Skills",
     version: "1.0.0",
     skills: [skill()],
     ...cfg,
@@ -78,16 +78,16 @@ function buildCtx(
 }
 
 let savedHome: string | undefined;
-let savedUserProfile: string | undefined;
+let savedDataDir: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedUserProfile = process.env.USERPROFILE;
+  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("USERPROFILE", savedUserProfile);
+  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -96,9 +96,10 @@ function restore(key: string, value: string | undefined): void {
 }
 
 function freshProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ac-goose-skills-"));
+  const dir = mkdtempSync(join(tmpdir(), "ac-codebuff-skills-"));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
+  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   return dir;
 }
 
@@ -111,9 +112,7 @@ function splitFrontmatter(text: string): { frontmatter: Record<string, unknown>;
   };
 }
 
-// ── goose skills surface ──────────────────────────────────────────────────
-
-describe("goose adapter — skills surface", () => {
+describe("codebuff adapter — skills surface", () => {
   let projectDir: string;
   let ctx: InstallContext;
 
@@ -123,19 +122,20 @@ describe("goose adapter — skills surface", () => {
   });
 
   it("declares supportsSkills true", () => {
-    expect(gooseAdapter.capabilities.supportsSkills).toBe(true);
+    expect(codebuffAdapter.capabilities.supportsSkills).toBe(true);
   });
 
   it("installSkills (project scope) writes .agents/skills/<n>/SKILL.md with correct frontmatter", () => {
-    const changes = gooseAdapter.installSkills!(ctx);
+    const changes = codebuffAdapter.installSkills!(ctx);
     expect(changes[0]?.action).toBe("create");
-    expect(changes[0]?.platform).toBe("goose");
+    expect(changes[0]?.platform).toBe("codebuff");
 
     const skillMd = join(projectDir, ".agents", "skills", "pdf-tools", "SKILL.md");
     expect(changes[0]?.path).toBe(skillMd);
     expect(existsSync(skillMd)).toBe(true);
 
     const { frontmatter, body } = splitFrontmatter(readFileSync(skillMd, "utf8"));
+    // name MUST equal the dir name (load-skills.ts) — dir is "pdf-tools".
     expect(frontmatter.name).toBe("pdf-tools");
     expect(frontmatter.description).toBe(SKILL.description);
     expect(frontmatter.model).toBe("haiku");
@@ -145,7 +145,7 @@ describe("goose adapter — skills surface", () => {
   });
 
   it("installSkills (project scope) writes resource files beside SKILL.md", () => {
-    gooseAdapter.installSkills!(ctx);
+    codebuffAdapter.installSkills!(ctx);
     const resource = join(projectDir, ".agents", "skills", "pdf-tools", "scripts", "extract.sh");
     expect(existsSync(resource)).toBe(true);
     expect(readFileSync(resource, "utf8")).toBe(SKILL.resources["scripts/extract.sh"]);
@@ -153,9 +153,9 @@ describe("goose adapter — skills surface", () => {
 
   it("installSkills (user scope) writes ~/.agents/skills/<n>/SKILL.md", () => {
     const userCtx = buildCtx(projectDir, buildConnector(), "user");
-    const changes = gooseAdapter.installSkills!(userCtx);
+    const changes = codebuffAdapter.installSkills!(userCtx);
     expect(changes[0]?.action).toBe("create");
-    expect(changes[0]?.platform).toBe("goose");
+    expect(changes[0]?.platform).toBe("codebuff");
 
     // HOME redirected to projectDir → ~/.agents === projectDir/.agents
     const skillMd = join(projectDir, ".agents", "skills", "pdf-tools", "SKILL.md");
@@ -166,47 +166,36 @@ describe("goose adapter — skills surface", () => {
     expect(frontmatter.name).toBe("pdf-tools");
   });
 
-  it("user-scope skill does NOT write into the project .agents tree", () => {
-    // Write user-scope into one dir, project-scope into another — no overlap.
-    const userDir = freshProject();
-    const projDir = mkdtempSync(join(tmpdir(), "ac-goose-skills-proj-"));
-    const userCtx = buildCtx(projDir, buildConnector(), "user");
-    gooseAdapter.installSkills!(userCtx);
-
-    // The project dir's .agents tree must be empty (user wrote to HOME/.agents).
-    expect(existsSync(join(projDir, ".agents", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
-    // The user HOME/.agents tree got the file.
-    expect(existsSync(join(userDir, ".agents", "skills", "pdf-tools", "SKILL.md"))).toBe(true);
-  });
-
   it("installSkills is idempotent — second call yields skip", () => {
-    gooseAdapter.installSkills!(ctx);
-    const second = gooseAdapter.installSkills!(ctx);
+    codebuffAdapter.installSkills!(ctx);
+    const second = codebuffAdapter.installSkills!(ctx);
     expect(second.every((c) => c.action === "skip")).toBe(true);
+    expect(second.every((c) => c.platform === "codebuff")).toBe(true);
   });
 
   it("uninstallSkills removes SKILL.md, resource, and the empty skill dir", () => {
-    gooseAdapter.installSkills!(ctx);
+    codebuffAdapter.installSkills!(ctx);
     const skillMd = join(projectDir, ".agents", "skills", "pdf-tools", "SKILL.md");
     const resource = join(projectDir, ".agents", "skills", "pdf-tools", "scripts", "extract.sh");
     expect(existsSync(skillMd)).toBe(true);
     expect(existsSync(resource)).toBe(true);
 
-    const changes = gooseAdapter.uninstallSkills!(ctx);
-    expect(changes.every((c) => c.platform === "goose")).toBe(true);
+    const changes = codebuffAdapter.uninstallSkills!(ctx);
+    expect(changes.some((c) => c.action === "remove")).toBe(true);
+    expect(changes.every((c) => c.platform === "codebuff")).toBe(true);
     expect(existsSync(skillMd)).toBe(false);
     expect(existsSync(resource)).toBe(false);
     expect(existsSync(join(projectDir, ".agents", "skills", "pdf-tools"))).toBe(false);
   });
 
-  it("honors platforms['goose'].skills === false", () => {
+  it("honors platforms['codebuff'].skills === false", () => {
     const disabled = defineConnector({
       id: CONNECTOR_ID,
       skills: [skill()],
-      platforms: { goose: { skills: false } },
+      platforms: { codebuff: { skills: false } },
     });
     const c2 = buildCtx(projectDir, disabled);
-    const changes = gooseAdapter.installSkills!(c2);
+    const changes = codebuffAdapter.installSkills!(c2);
     expect(changes[0]?.action).toBe("skip");
     expect(existsSync(join(projectDir, ".agents", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
   });
@@ -214,7 +203,7 @@ describe("goose adapter — skills surface", () => {
   it("installSkills with no skills declared returns skip", () => {
     const noSkills = defineConnector({ id: CONNECTOR_ID, memory: [{ content: "placeholder" }] });
     const c2 = buildCtx(projectDir, noSkills);
-    const changes = gooseAdapter.installSkills!(c2);
+    const changes = codebuffAdapter.installSkills!(c2);
     expect(changes[0]?.action).toBe("skip");
   });
 });

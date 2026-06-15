@@ -58,6 +58,22 @@ function buildConnector(): ResolvedConnector {
   });
 }
 
+/** Same connector, plus one skill (drives the inherited installSkills). */
+function buildSkillsConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    skills: [
+      {
+        name: "db-explain",
+        description: "Explain a SQL query plan. Use when the user asks why a query is slow.",
+        body: "# DB Explain\n\nRun EXPLAIN on the query and summarize the plan.",
+      },
+    ],
+  });
+}
+
 /** Same connector, plus PreToolUse + SessionStart hooks (drives installHooks). */
 function buildHooksConnector(): ResolvedConnector {
   return defineConnector({
@@ -251,6 +267,42 @@ describe("nemoclaw adapter — MCP install lands in the WRAPPED openclaw.json", 
     expect(removed[0]?.platform).toBe("nemoclaw");
     const cfg = readJson(configPath);
     expect(cfg.mcp?.servers?.[CONNECTOR_ID]).toBeUndefined();
+  });
+});
+
+describe("nemoclaw adapter — INHERITS OpenClaw's installSkills (does NOT override it)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+  let skillMd: string;
+
+  beforeEach(() => {
+    projectDir = freshHome("ac-nemoclaw-skills-");
+    ctx = buildCtx(projectDir, buildSkillsConnector());
+    // Project scope resolves the workspace to <stateDir>/workspace
+    // (~/.openclaw/workspace) — the inherited OpenClaw path, unchanged by the fork.
+    skillMd = join(projectDir, ".openclaw", "workspace", "skills", "db-explain", "SKILL.md");
+  });
+
+  it("nemoclawAdapter.installSkills writes a SKILL.md too (inheritance), stamped platform=nemoclaw", () => {
+    const changes = nemoclawAdapter.installSkills(ctx);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+    // The inherited method stamps the ChangeRecord with the FORK's id (this.id),
+    // so nemoclaw stamps "nemoclaw" — not "openclaw".
+    expect(changes.every((c) => c.platform === "nemoclaw")).toBe(true);
+
+    expect(existsSync(skillMd)).toBe(true);
+    const src = readFileSync(skillMd, "utf8");
+    expect(src).toMatch(/^name: db-explain$/m);
+    expect(src).toContain("# DB Explain");
+  });
+
+  it("uninstallSkills (inherited) removes the SKILL.md, stamped platform=nemoclaw", () => {
+    nemoclawAdapter.installSkills(ctx);
+    expect(existsSync(skillMd)).toBe(true);
+
+    const changes = nemoclawAdapter.uninstallSkills(ctx);
+    expect(changes.every((c) => c.platform === "nemoclaw")).toBe(true);
+    expect(existsSync(skillMd)).toBe(false);
   });
 });
 

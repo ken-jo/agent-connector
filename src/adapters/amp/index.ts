@@ -24,6 +24,16 @@
  * runtime, so we KEEP env/header/url refs native by rewriting the portable
  * `${env:VAR}` syntax to Amp's `${VAR}` token rather than resolving to literals
  * (secrets stay out of the settings file).
+ *
+ * Skills surface: Amp reads SKILL.md files (dir-per-skill, same shape as
+ * claude-code) from a skill root that is NOT under the config dir
+ * (`~/.config/amp`):
+ *   - user scope    → ~/.config/agents/skills/<name>/SKILL.md  (the sibling
+ *     cross-agent `agents` dir — `~/.config/amp/skills/` is also documented-native,
+ *     but the `agents` root is the cross-agent standard we standardize on)
+ *   - project scope → <projectDir>/.agents/skills/<name>/SKILL.md
+ * Because that root differs from getConfigDir, skills use a dedicated skillDir()
+ * helper rather than reusing getConfigDir.
  */
 
 import { existsSync } from "node:fs";
@@ -40,6 +50,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
   Transport,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
@@ -48,6 +59,7 @@ import {
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import { renderSkillMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "amp";
 /**
@@ -90,6 +102,10 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Amp registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
+    // Skills: Amp reads SKILL.md from ~/.config/agents/skills/<name>/SKILL.md
+    // (user) and <projectDir>/.agents/skills/<name>/SKILL.md (project) — a root
+    // OUTSIDE the config dir, so the skillDir() helper resolves it explicitly.
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -238,6 +254,91 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
   /** Translate `${env:VAR(:-default)}` to Amp's native `${VAR}` token. */
   private rewrite(value: string): string {
     return rewriteEnvRefs(value, ampEnvToken);
+  }
+
+  // ── Skills surface ───────────────────────────────────────────────────────
+  // CONTENT-ONLY: pure native-file writers under the skill root. No runtime
+  // dispatch, no home-bin pointer, no telemetry wrap. Idempotent (byte-identical
+  // → skip) via writeContentFile and reversible via removeContentFile. Honors
+  // platforms["amp"].skills === false to skip.
+  //
+  // QUIRK: the skill root is NOT under getConfigDir (~/.config/amp). Amp reads
+  // SKILL.md from the sibling cross-agent `agents` tree:
+  //   user scope    → ~/.config/agents/skills/<name>/SKILL.md
+  //   project scope → <projectDir>/.agents/skills/<name>/SKILL.md
+  // so skillDir() resolves it explicitly rather than reusing getConfigDir.
+
+  /** Skill root: user `~/.config/agents/skills`, project `<projectDir>/.agents/skills`. */
+  private skillsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".agents", "skills")
+      : join(homedir(), ".config", "agents", "skills");
+  }
+
+  /** Native skill dir: <skillRoot>/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for amp" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /** Render a skill's SKILL.md (delegates to the shared renderer). */
+  private renderSkill(skill: SkillDef): string {
+    return renderSkillMd(skill);
   }
 
   // ── Hooks (unavailable — Amp is mcp-only) ────────────────────────────────

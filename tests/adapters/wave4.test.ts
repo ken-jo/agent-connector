@@ -683,6 +683,112 @@ describe("openclaw adapter (ts-plugin) render + dual registration", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// OpenClaw — skills content surface (dir-per-skill SKILL.md + resources)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A connector declaring one skill (with a bundled resource) — drives skills. */
+function buildSkillsConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    skills: [
+      {
+        name: "db-explain",
+        description: "Explain a SQL query plan. Use when the user asks why a query is slow.",
+        body: "# DB Explain\n\nRun EXPLAIN on the query and summarize the plan.",
+        resources: { "scripts/run.sh": "#!/bin/sh\necho explain\n" },
+      },
+    ],
+  });
+}
+
+describe("openclaw adapter — skills content surface (AgentSkills dir-per-skill SKILL.md)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+  let skillDir: string;
+  let skillMd: string;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-w4-oclaw-skills-");
+    ctx = buildCtx(projectDir, buildSkillsConnector());
+    // Project scope with no agents.defaults.workspace set → the workspace
+    // resolves to <stateDir>/workspace = ~/.openclaw/workspace, and the skill
+    // root is <workspace>/skills/<name> (the highest-priority documented root).
+    skillDir = join(projectDir, ".openclaw", "workspace", "skills", "db-explain");
+    skillMd = join(skillDir, "SKILL.md");
+  });
+
+  it("installSkills writes the SKILL.md (+ bundled resource) at the resolved <workspace>/skills/<name> path, stamped platform=openclaw", () => {
+    const changes = openclawAdapter.installSkills(ctx);
+    // Every record is stamped with this host's id.
+    expect(changes.every((c) => c.platform === "openclaw")).toBe(true);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+
+    expect(existsSync(skillMd)).toBe(true);
+    // The resource lands beside SKILL.md, inside the skill dir.
+    expect(existsSync(join(skillDir, "scripts", "run.sh"))).toBe(true);
+
+    const src = readFileSync(skillMd, "utf8");
+    // AgentSkills frontmatter: single-line name + description keys + body.
+    expect(src.startsWith("---\n")).toBe(true);
+    expect(src).toMatch(/^name: db-explain$/m);
+    expect(src).toMatch(/^description: Explain a SQL query plan\./m);
+    expect(src).toContain("# DB Explain");
+  });
+
+  it("installSkills is idempotent — a second call yields only skips", () => {
+    openclawAdapter.installSkills(ctx);
+    const second = openclawAdapter.installSkills(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+    expect(existsSync(skillMd)).toBe(true);
+  });
+
+  it("installSkills honors platforms['openclaw'].skills === false (skip, no write)", () => {
+    const off = defineConnector({
+      id: CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      skills: [
+        {
+          name: "db-explain",
+          description: "Explain a SQL query plan. Use when the user asks why a query is slow.",
+          body: "x",
+        },
+      ],
+      platforms: { openclaw: { skills: false } },
+    });
+    const offCtx = buildCtx(projectDir, off);
+    const changes = openclawAdapter.installSkills(offCtx);
+    expect(changes[0]?.action).toBe("skip");
+    expect(existsSync(skillMd)).toBe(false);
+  });
+
+  it("uninstallSkills removes SKILL.md, the resource, and the now-empty skill dir (re-read confirms gone)", () => {
+    openclawAdapter.installSkills(ctx);
+    expect(existsSync(skillMd)).toBe(true);
+
+    const changes = openclawAdapter.uninstallSkills(ctx);
+    expect(changes.every((c) => c.platform === "openclaw")).toBe(true);
+    expect(changes.some((c) => c.action === "remove")).toBe(true);
+
+    expect(existsSync(skillMd)).toBe(false);
+    expect(existsSync(join(skillDir, "scripts", "run.sh"))).toBe(false);
+    // The skill dir itself is dropped (we owned its full contents).
+    expect(existsSync(skillDir)).toBe(false);
+  });
+
+  it("user scope targets ~/.openclaw/skills/<name>/SKILL.md (the `--global` install target)", () => {
+    const userCtx: InstallContext = { ...ctx, scope: "user" };
+    openclawAdapter.installSkills(userCtx);
+    // user scope resolves the config dir to ~/.openclaw (HOME is pinned to the
+    // temp project dir), so the skill root is ~/.openclaw/skills/<name>.
+    const userSkillMd = join(projectDir, ".openclaw", "skills", "db-explain", "SKILL.md");
+    expect(existsSync(userSkillMd)).toBe(true);
+  });
+});
+
 describe("openclaw generated plugin — THE BRIDGE WORKS (live, child_process mocked)", () => {
   let projectDir: string;
   let ctx: InstallContext;

@@ -51,6 +51,7 @@ import type {
   SessionEndEvent,
   SessionStartEvent,
   ServerDef,
+  SkillDef,
   StopEvent,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -188,6 +189,12 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "sse", "http"],
+    // Content surfaces: goose reads SKILL.md from the cross-agent .agents dir
+    //   skill → <projectDir>/.agents/skills/<name>/SKILL.md (project)
+    //   skill → ~/.agents/skills/<name>/SKILL.md (user)
+    // (NOT ~/.config/goose). Commands/subagents have no confirmed native dir, so
+    // those flags stay unset and warn-skip via the BaseAdapter default.
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -525,7 +532,7 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     const id = ctx.connector.id;
     const homeBin = ctx.homeBinPath;
     const hookEvents = ctx.connector.hookEvents;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: config.yaml present`,
         check: () =>
@@ -568,6 +575,114 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: assert presence only for skills this connector
+    // declares (goose skills live under the .agents skills dir at either scope).
+    for (const skill of ctx.connector.skills) {
+      const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
+      checks.push({
+        name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
+  }
+
+  // ── Content surface: skills ───────────────────────────────────────────────
+  // CONTENT-ONLY: pure native-file writer. No runtime dispatch, no home-bin
+  // pointer, no telemetry wrap. Idempotent (byte-identical → skip) via
+  // writeContentFile and reversible via removeContentFile + removeDirIfEmpty.
+  // Honors platforms["goose"].skills === false to skip.
+  //
+  // goose reads SKILL.md from the cross-agent .agents dir (NOT ~/.config/goose):
+  //   project scope → <projectDir>/.agents/skills/<name>/SKILL.md
+  //   user scope    → ~/.agents/skills/<name>/SKILL.md
+
+  private skillsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".agents", "skills")
+      : join(homedir(), ".agents", "skills");
+  }
+
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for goose" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with every other
+   * skill-supporting platform — only the parent dir differs.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
   }
 
   // ── Runtime: parse Goose stdin JSON → normalized event ───────────────────
