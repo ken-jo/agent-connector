@@ -178,7 +178,7 @@ Distilled from the union of platform behaviors (report §3).
   only under `install --force` after a timestamped backup). Replacement is
   in-place — zero bytes outside the marker pair ever change; the scanner is
   line-anchored, CRLF-preserving, BOM-safe, and fence-aware. **AGENTS.md-first
-  policy (grammar v1):** 27/29 hosts read the open AGENTS.md standard, so
+  policy (grammar v1):** 29/31 hosts read the open AGENTS.md standard, so
   project scope targets `<projectDir>/AGENTS.md` — with exclusive/first-match
   readers PROBED so the block lands in the file the host will actually read
   (zed's first-match candidate list, warp's WARP.md priority, hermes'

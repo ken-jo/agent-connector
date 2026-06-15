@@ -39,12 +39,14 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookParadigm,
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -124,6 +126,12 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Roo Code registers stdio, SSE, and Streamable HTTP MCP servers.
     transports: ["stdio", "sse", "http"],
+    // Content surfaces: Roo Code reads custom slash commands and AgentSkills from
+    // its `.roo` config dir (BOTH user ~/.roo and project <projectDir>/.roo).
+    //   command → <configDir>/commands/<name>.md  (md+optional frontmatter)
+    //   skill   → <configDir>/skills/<name>/SKILL.md (+ resources)
+    supportsCommands: true,
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -348,6 +356,152 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
         detail: "hooks unavailable (Roo Code is mcp-only)",
       },
     ];
+  }
+
+  // ── Content surfaces: commands / skills ──────────────────────────────────
+  // CONTENT-ONLY: pure native-file writers. No runtime dispatch, no home-bin
+  // pointer, no telemetry wrap. Each method is idempotent (byte-identical →
+  // skip) via writeContentFile and reversible via removeContentFile. Honors
+  // platforms["roo-code"] per-surface false to skip. BOTH scopes are supported:
+  // user → ~/.roo, project → <projectDir>/.roo.
+  //
+  // Native locations (the `.roo` content root, NOT the globalStorage MCP dir):
+  //   command → <rooDir>/commands/<name>.md   md+optional frontmatter
+  //             (description, argument-hint, + `mode` when cmd.extra carries it)
+  //   skill   → <rooDir>/skills/<name>/SKILL.md (+ resources)
+
+  /**
+   * The `.roo` content root for the active scope: ~/.roo (user) or
+   * <projectDir>/.roo (project). Distinct from getConfigDir's user-scope path
+   * (the VS Code globalStorage `settings` dir, which holds MCP settings only).
+   */
+  private rooDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".roo")
+      : join(homedir(), ".roo");
+  }
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.rooDir(ctx), "commands", `${name}.md`);
+  }
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.rooDir(ctx), "skills", name);
+  }
+
+  // ── Commands ─────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[this.id]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for roo-code" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(this.commandPath(ctx, cmd.name), this.renderCommand(cmd), ctx.dryRun),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a command to md+optional frontmatter (description, argument-hint).
+   * Roo Code additionally honors a `mode` frontmatter key; it is passed through
+   * only when cmd.extra carries it (the escape-hatch Object.assign below) — the
+   * standard description/argument-hint shape otherwise.
+   */
+  private renderCommand(cmd: CommandDef): string {
+    const frontmatter: Record<string, unknown> = {};
+    if (cmd.description !== undefined) frontmatter.description = cmd.description;
+    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
+    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
+    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+  }
+
+  // ── Skills ───────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[this.id]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for roo-code" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with every other
+   * skill-supporting platform — only the parent dir differs.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────

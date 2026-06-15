@@ -8,13 +8,13 @@
 
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
-![platforms](https://img.shields.io/badge/platforms-29-2563eb)
+![platforms](https://img.shields.io/badge/platforms-31-2563eb)
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
 ![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-1633%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-1727%20passing-22c55e)
 
 ## Who this is for
 
@@ -57,14 +57,14 @@ agent-connector is the middleware that does it for you:
    registered but **not wrapped** (the proxy cannot intercept remote transports),
    so they yield no per-tool telemetry.
 
-> Status: **29 platforms, all 3 hook paradigms** (exceeds the
+> Status: **31 platforms, all 3 hook paradigms** (exceeds the
 > [tokscale](https://github.com/junhoyeo/tokscale) token-leaderboard coverage).
 >
 > | Paradigm | Platforms |
 > |---|---|
 > | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Droid (Factory) · Antigravity · Antigravity CLI |
 > | `mcp-only` (MCP registration only) | Warp · Kilo · Roo Code · Trae · Zed · Amp · Codebuff · Mux · Pi |
-> | `ts-plugin` (generated bridge module) | OpenCode · Kilo CLI · OMP · OpenClaw |
+> | `ts-plugin` (generated bridge module) | OpenCode · MiMoCode · Kilo CLI · Kilo · OMP · NemoClaw · OpenClaw |
 >
 > …plus the telemetry core. Adding a platform = **one registry entry + one
 > adapter**. (Google Antigravity is now fully supported, including the `agy` CLI,
@@ -72,10 +72,13 @@ agent-connector is the middleware that does it for you:
 
 ## Verification
 
-The full single-API contract is **install-verified across all 29 platforms**. A
+The full single-API contract is **install-verified across the platform set**. A
 sample connector declaring **all four launch surfaces** — MCP server **+**
 lifecycle hooks **+** slash commands **+** tools (skills + subagents) — was
-installed into an isolated environment for every adapter and inspected on disk:
+installed into an isolated environment for every adapter and inspected on disk
+(the 29-platform full sweep below; the two newest adapters — MiMoCode and
+NemoClaw — were added with a focused isolated-HOME install check landing the MCP
+server in the right file + root key):
 
 - **29 / 29 platforms — zero missing, zero failed surfaces.** Each surface is
   written where the host supports it and gracefully *skip-warned* (never silently
@@ -102,7 +105,7 @@ installed into an isolated environment for every adapter and inspected on disk:
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **1633 tests passing** · `tsc` clean · build green.
+- **1727 tests passing** · `tsc` clean · build green.
 
 The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
 `configPatch` — went through the same bar: dogfooded against real connector
@@ -192,7 +195,7 @@ npx @ken-jo/agent-connector install
 
 > `install` targets only the hosts actually **detected** on this machine (or an
 > explicit `--targets` / `connector.targets` list), intersected with the
-> 29-adapter registry — there is no "install to all 29 unconditionally" path.
+> 31-adapter registry — there is no "install to all 31 unconditionally" path.
 
 > **Optional convenience.** A global `npm i -g @ken-jo/agent-connector` is **not**
 > required for the flow above — `npx @ken-jo/agent-connector …` runs it straight from
@@ -434,7 +437,7 @@ memory: [
 ```
 
 **Write the guidance once — it lands in the standard
-[AGENTS.md](https://agents.md) on 27 of the 29 hosts** (the open, Linux
+[AGENTS.md](https://agents.md) on 29 of the 31 hosts** (the open, Linux
 Foundation-stewarded "README for agents" format): project scope targets
 `<projectDir>/AGENTS.md` — and where a host resolves its rules file
 exclusively, the target is *probed* so the block lands in the file the host

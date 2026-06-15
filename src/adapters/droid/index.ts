@@ -41,6 +41,7 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
+  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -51,7 +52,9 @@ import type {
   PostToolUseEvent,
   PreToolUseEvent,
   ServerDef,
+  SkillDef,
   StopEvent,
+  SubagentDef,
   SubagentStopEvent,
   Transport,
   UserPromptSubmitEvent,
@@ -171,6 +174,13 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     // TODO(issue #2): Droid has a real command-driven status contract, but it is
     // unverified against the home-bin statusline wiring — left to the BaseAdapter
     // skip-warn (supportsStatusline unset) until confirmed.
+    // Content surfaces: Droid implements all three (live-confirmed Factory dirs).
+    //   command  → <configDir>/commands/<name>.md   (md+frontmatter: description, argument-hint)
+    //   skill    → <configDir>/skills/<name>/SKILL.md (+ resources)
+    //   subagent → <configDir>/droids/<name>.md      (MARKDOWN — folder is droids/, NOT agents/)
+    supportsCommands: true,
+    supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -461,6 +471,183 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
    *  (anchored so a shared-prefix id can't collide — see isHomeBinHookCommand). */
   private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
+  }
+
+  // ── Content surfaces: commands / skills / subagents ──────────────────────
+  // CONTENT-ONLY: pure native-file writers under <configDir>/{commands,skills,
+  // droids}. No runtime dispatch, no home-bin pointer, no telemetry wrap. Each
+  // method is idempotent (byte-identical → skip) via writeContentFile and
+  // reversible via removeContentFile. Honors platforms["droid"] per-surface
+  // false to skip. Both user and project scope (getConfigDir resolves either).
+  //
+  // Native locations (live-confirmed Factory dirs):
+  //   command  → <configDir>/commands/<name>.md   md+frontmatter(description, argument-hint)
+  //   skill    → <configDir>/skills/<name>/SKILL.md (+ resources)
+  //   subagent → <configDir>/droids/<name>.md      MARKDOWN — folder is droids/, NOT agents/
+
+  /** Native command file path: <configDir>/commands/<name>.md. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), "commands", `${name}.md`);
+  }
+  /** Native skill dir: <configDir>/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), "skills", name);
+  }
+  /** Native subagent file path: <configDir>/droids/<name>.md (folder droids/, NOT agents/). */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), "droids", `${name}.md`);
+  }
+
+  // ── Commands ──────────────────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for droid" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(this.commandPath(ctx, cmd.name), this.renderCommand(cmd), ctx.dryRun),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  /** Render a command to md+frontmatter (description, argument-hint). */
+  private renderCommand(cmd: CommandDef): string {
+    const frontmatter: Record<string, unknown> = {};
+    if (cmd.description !== undefined) frontmatter.description = cmd.description;
+    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
+    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
+    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
+  }
+
+  // ── Skills ───────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for droid" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional
+   * disable-model-invocation) + body. Droid documents disable-model-invocation
+   * as a skill field; it has NO model/allowed-tools skill field, so those are
+   * never emitted (unlike the uniform claude/codex renderer).
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
+  // ── Subagents (MARKDOWN — folder droids/, NOT agents/) ────────────────────
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for droid" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a Droid subagent to a MARKDOWN file (NOT TOML — codex emits TOML,
+   * which is wrong for droid): YAML frontmatter { name, description?, model? }
+   * then the prompt as the markdown body.
+   */
+  private renderSubagent(agent: SubagentDef): string {
+    const frontmatter: Record<string, unknown> = { name: agent.name };
+    if (agent.description !== undefined) frontmatter.description = agent.description;
+    if (agent.model !== undefined) frontmatter.model = agent.model;
+    if (agent.extra) Object.assign(frontmatter, agent.extra);
+    return this.renderFrontmatterMd(frontmatter, agent.prompt);
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────

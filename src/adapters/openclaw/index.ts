@@ -117,6 +117,7 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
+  SkillDef,
   SubagentStartEvent,
   SubagentStopEvent,
 } from "../../core/types.js";
@@ -222,7 +223,10 @@ interface OpenClawPluginEntry {
 
 export class OpenClawAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
-  readonly name = "OpenClaw";
+  // Declared as `string` (not the literal "OpenClaw") so a fork adapter can
+  // override it — NemoClaw extends this class (precedent: AntigravityAdapter,
+  // whose name is likewise typed `string` for AntigravityCliAdapter).
+  readonly name: string = "OpenClaw";
   readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
@@ -258,6 +262,12 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // OpenClaw's MCP sidecar registration is stdio-only in practice.
     transports: ["stdio"],
+    // Content surface: OpenClaw follows the AgentSkills spec (dir-per-skill
+    // SKILL.md with {name, description} frontmatter + body). User scope →
+    // ~/.openclaw/skills (the `openclaw skills install --global` target);
+    // project scope → the resolved <workspace>/skills (the highest-priority
+    // documented skill root, the same workspace the memory surface anchors to).
+    supportsSkills: true,
   };
 
   // ── Tolerant JSON5/JSONC read (override base strict JSON.parse) ──────────
@@ -298,23 +308,31 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
     if (this.memoryOverride(ctx)?.path) return super.memoryTargets(ctx);
     if (ctx.scope !== "project" && ctx.scope !== "user") return [];
-    const configPath = resolveOpenClawConfigPath();
-    const cfg = this.readJson<{ agents?: { defaults?: { workspace?: unknown } } }>(configPath);
-    const declared = cfg?.agents?.defaults?.workspace;
-    const workspace =
-      typeof declared === "string" && declared.trim() !== ""
-        ? declared.startsWith("~")
-          ? resolve(homedir(), declared.replace(/^~[/\\]?/, ""))
-          : resolve(declared)
-        : join(dirname(configPath), "workspace");
     return [
       {
-        path: join(workspace, "AGENTS.md"),
+        path: join(this.resolveWorkspace(), "AGENTS.md"),
         reason:
           "openclaw agent-workspace AGENTS.md (workspace-scoped operating instructions, " +
           "not the project repo — both scopes map here)",
       },
     ];
+  }
+
+  /**
+   * Resolve OpenClaw's AGENT WORKSPACE — `agents.defaults.workspace` in
+   * openclaw.json when set, else `<stateDir>/workspace` (default
+   * ~/.openclaw/workspace). The same root the memory surface and the
+   * project-scope skills surface both anchor to, so they never diverge.
+   */
+  private resolveWorkspace(): string {
+    const configPath = resolveOpenClawConfigPath();
+    const cfg = this.readJson<{ agents?: { defaults?: { workspace?: unknown } } }>(configPath);
+    const declared = cfg?.agents?.defaults?.workspace;
+    return typeof declared === "string" && declared.trim() !== ""
+      ? declared.startsWith("~")
+        ? resolve(homedir(), declared.replace(/^~[/\\]?/, ""))
+        : resolve(declared)
+      : join(dirname(configPath), "workspace");
   }
 
   // ── Detection ──────────────────────────────────────────────────────────
@@ -324,7 +342,15 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const userDir = join(homedir(), ".openclaw");
     const projectConfig = join(projectDir, "openclaw.json");
 
-    const userInstalled = existsSync(userConfig) || existsSync(userDir);
+    // Fork-before-parent at DETECTION: NemoClaw DRIVES ~/.openclaw/openclaw.json,
+    // so on a NemoClaw box (its ~/.nemoclaw/ marker present) the user-scope
+    // OpenClaw config is nemoclaw-OWNED — defer so the planner does not double-
+    // target the shared file as two platforms (an `uninstall openclaw` would
+    // otherwise strip the connector's entries out from under nemoclaw). The
+    // NemoClaw adapter overrides detectInstalled, so it is unaffected by this.
+    const deferToNemoClaw = existsSync(join(homedir(), ".nemoclaw"));
+    const userInstalled =
+      !deferToNemoClaw && (existsSync(userConfig) || existsSync(userDir));
     const projInstalled = existsSync(projectConfig);
     const installed = userInstalled || projInstalled;
 
@@ -415,7 +441,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
 
   /** Resolve the per-platform server override into an effective ServerDef. */
   private effectiveServer(ctx: InstallContext): ServerDef | undefined {
-    const override = ctx.connector.platforms[HOST]?.server;
+    const override = ctx.connector.platforms[this.id]?.server;
     if (override === false) return undefined;
     const base = ctx.connector.server;
     if (!base) return undefined;
@@ -575,9 +601,9 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const pluginPath = this.getHookConfigPath(ctx);
     const configPath = this.getServerConfigPath(ctx);
 
-    if (ctx.connector.platforms[HOST]?.hooks === false) {
+    if (ctx.connector.platforms[this.id]?.hooks === false) {
       return [
-        { platform: this.id, action: "skip", path: pluginPath, detail: "hooks disabled for openclaw" },
+        { platform: this.id, action: "skip", path: pluginPath, detail: `hooks disabled for ${this.id}` },
       ];
     }
     if (ctx.connector.hookEvents.length === 0) {
@@ -808,6 +834,111 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     return paths;
   }
 
+  // ── Content surface: skills (dir-per-skill SKILL.md) ────────────────────
+  // CONTENT-ONLY: pure native-file writers, mirroring codex/claude-code
+  // installSkills + renderSkill. No runtime dispatch, no home-bin pointer, no
+  // telemetry wrap. Each write is idempotent (byte-identical → skip) via
+  // writeContentFile and reversible via removeContentFile + removeDirIfEmpty
+  // (never rm -rf a shared dir). Honors platforms["openclaw"].skills === false.
+  //
+  // Native locations (AgentSkills spec — dir-per-skill SKILL.md + resources):
+  //   user    → ~/.openclaw/skills/<name>/SKILL.md  (`openclaw skills install
+  //             --global` targets this dir)
+  //   project → <workspace>/skills/<name>/SKILL.md  (the highest-priority
+  //             documented skill root; <workspace> is the SAME root the memory
+  //             surface resolves, so both content surfaces stay consistent).
+
+  /**
+   * Per-skill directory for ctx.scope:
+   *   user    → ~/.openclaw/skills/<name>      (`--global` install target)
+   *   project → <workspace>/skills/<name>      (resolved agent workspace —
+   *             consistent with this adapter's memoryTargets resolution).
+   */
+  private skillDir(ctx: InstallContext, name: string): string {
+    const base =
+      ctx.scope === "project"
+        ? join(this.resolveWorkspace(), "skills")
+        : join(dirname(resolveOpenClawConfigPath()), "skills");
+    return join(base, name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[this.id]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: `skills disabled for ${this.id}` }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with codex /
+   * claude-code — only the parent dir differs (single-line frontmatter keys;
+   * OpenClaw follows the AgentSkills spec).
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
   // ── ts-plugin synthesis ────────────────────────────────────────────────
 
   /**
@@ -895,7 +1026,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       "    // On Windows HOME_BIN is the agent-connector.cmd launcher: Node cannot\n" +
       "    // execFile a batch file, and shell+args is deprecated (DEP0190), so run\n" +
       "    // one quoted command line via a shell. POSIX keeps the direct execFile.\n" +
-      '    const args = ["hook", "openclaw", event, "--connector", CONNECTOR_ID];\n' +
+      '    const args = ["hook", ' + JSON.stringify(this.id) + ', event, "--connector", CONNECTOR_ID];\n' +
       '    const opts = { input: JSON.stringify(payload), encoding: "utf8" };\n' +
       "    const stdout =\n" +
       '      process.platform === "win32"\n' +
@@ -1100,7 +1231,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
     const input = (raw ?? {}) as OpenClawBridgePayload;
     const base = {
-      hostPlatform: HOST,
+      hostPlatform: this.id,
       connectorId: "",
       sessionId: typeof input.sessionId === "string" ? input.sessionId : "",
       raw,

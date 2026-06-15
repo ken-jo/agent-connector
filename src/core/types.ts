@@ -37,10 +37,12 @@ export type PlatformId =
   | "copilot-cli"
   | "gemini-cli"
   | "opencode"
+  | "mimo-code"
   | "kilo"
   | "kilo-cli"
   | "warp"
   | "hermes"
+  | "nemoclaw"
   | "openclaw"
   | "zed"
   | "antigravity"
@@ -70,9 +72,10 @@ export type PlatformId =
  *     Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose, Hermes,
  *     Droid (Factory), Antigravity (+ the agy CLI). One universal entrypoint
  *     binary handles all of them.
- *   - "ts-plugin" (4): host loads a JS/TS module exporting lifecycle functions
- *     — OpenCode, Kilo CLI, OMP, OpenClaw. Framework generates the module.
- *   - "mcp-only" (9): no hook layer at all — Warp, Kilo, Roo Code, Trae, Zed,
+ *   - "ts-plugin" (7): host loads a JS/TS module exporting lifecycle functions
+ *     — OpenCode, MiMoCode (an OpenCode fork), Kilo CLI, Kilo, OMP, OpenClaw,
+ *     NemoClaw (an OpenClaw wrapper/fork). Framework generates the module.
+ *   - "mcp-only" (8): no hook layer at all — Warp, Roo Code, Trae, Zed,
  *     Amp, Codebuff, Mux, Pi. Only the MCP server (or skills surface) is
  *     installed; hooks are reported unavailable.
  */
@@ -674,7 +677,7 @@ export interface SubagentDef {
  * writes it as a MANAGED BLOCK (marker-fenced, hash-stamped,
  * uninstall-reversible — see core/managed-block.ts) into the memory/rules file
  * that host actually reads: AGENTS.md wherever the host supports the agents.md
- * standard (27/29 hosts), the host's own file (CLAUDE.md / GEMINI.md)
+ * standard (29/31 hosts), the host's own file (CLAUDE.md / GEMINI.md)
  * otherwise. CONTENT-ONLY like commands/skills/subagents: no runtime dispatch,
  * no telemetry wrapping — a pure, surgical file edit that never touches bytes
  * outside its own marker pair.
