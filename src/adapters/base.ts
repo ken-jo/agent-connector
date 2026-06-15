@@ -32,6 +32,7 @@ import type {
 } from "../core/types.js";
 import { backupsDir, ensureDir } from "../core/paths.js";
 import { parseJsonc } from "../core/jsonc.js";
+import { buildHomeBinActionCommand } from "../core/spawn.js";
 import {
   MEMORY_CONTENT_SOFT_BUDGET_BYTES,
   listManagedBlocks,
@@ -52,6 +53,23 @@ type ContentSurface =
   | "memory"
   | "statusline"
   | "actions";
+
+/**
+ * One resolved action trigger for an EMITTER adapter: the host-native trigger
+ * the adapter writes runs `command`, which re-enters the home binary at the
+ * `action` verb. `label`/`description` fall back to the action id when the
+ * connector declared none. Produced by {@link BaseAdapter.actionTriggers}.
+ */
+export interface ActionTrigger {
+  /** The action id — also the per-action file/key name on most hosts. */
+  id: string;
+  /** Display label (action.description ?? action.id). */
+  label: string;
+  /** One-line description (action.description ?? action.id). */
+  description: string;
+  /** `<homeBin> action <host> <id> --connector <connectorId>` (the verb the host runs). */
+  command: string;
+}
 
 /**
  * Documented USER-scope AGENTS.md locations, per host (the AGENTS.md-first
@@ -539,6 +557,32 @@ export abstract class BaseAdapter implements Adapter {
   }
   uninstallActions(ctx: InstallContext): ChangeRecord[] {
     return this.unsupportedSurface(ctx, "actions", (ctx.connector.actions ?? []).length);
+  }
+
+  /**
+   * Shared, surface-agnostic helper for the action EMITTERS: yield one
+   * {@link ActionTrigger} per declared action, each carrying the home-bin verb
+   * command the host trigger must run
+   * (`<homeBin> action <host> <actionId> --connector <id>`, via
+   * {@link buildHomeBinActionCommand}) plus a `label`/`description` that fall
+   * back to the action id. Each supporting adapter iterates this and writes its
+   * host-native trigger (hermes quick_commands / warp workflow / droid exec
+   * file) — the per-host file shape is NOT this helper's concern, only the
+   * common (id, label, description, command) tuple. Callers own the standard
+   * guards (platforms[id].actions === false / empty actions).
+   */
+  protected actionTriggers(ctx: InstallContext): ActionTrigger[] {
+    return (ctx.connector.actions ?? []).map((action) => ({
+      id: action.id,
+      label: action.description ?? action.id,
+      description: action.description ?? action.id,
+      command: buildHomeBinActionCommand(
+        ctx.homeBinPath,
+        this.id,
+        action.id,
+        ctx.connector.id,
+      ),
+    }));
   }
 
   /**

@@ -597,14 +597,15 @@ export interface PlatformCapabilities {
   supportsStatusline?: boolean;
   /**
    * Action-surface support — can this adapter EMIT a host affordance (slash
-   * command / keybinding / clickable element) bound to the universal
+   * command / palette workflow / exec-file) bound to the universal
    * `<homeBin> action <host> <actionId> --connector <id>` verb? OPTIONAL, read
-   * as `?? false` (supportsStatusline precedent). v1 ships only the dispatch
-   * BACKBONE — no adapter sets this true, because the host-feasibility survey
-   * found no verifiable CLI emission target (slash commands are prompt
-   * templates that cannot run a shell verb; plugin APIs expose no command
-   * registration). It is the flag a future affordance-emitter flips; until then
-   * every adapter's BaseAdapter install/uninstall defaults honestly skip-warn.
+   * as `?? false` (supportsStatusline precedent). The dispatch BACKBONE shipped
+   * first; the EMITTERS now ship on the hosts with a verifiable target: droid
+   * (executable command file), hermes (quick_commands exec slash command), warp
+   * (palette workflow — pastes the command for the user to run). Hosts whose
+   * slash commands are prompt templates that cannot run a shell verb, or whose
+   * plugin APIs expose no command registration, leave this unset — every such
+   * adapter's BaseAdapter install/uninstall defaults honestly skip-warn.
    */
   supportsActions?: boolean;
 }
@@ -830,9 +831,11 @@ export interface StatuslineDef {
 // Like the statusline this is a runtime-dispatched handler (the host execs the
 // home binary, which re-imports the connector module and calls run()), NOT a
 // pure file writer. UNLIKE the statusline it is USER-TRIGGERED: errors are
-// SURFACED (exit 1 + stderr), never failed silently. v1 ships the dispatch
-// backbone only — the affordance EMISSION (binding a host slash/keybinding to
-// the verb) is a later phase, so no adapter sets supportsActions yet.
+// SURFACED (exit 1 + stderr), never failed silently. The dispatch backbone
+// shipped first; the affordance EMITTERS (binding a host slash command / palette
+// workflow / exec-file to the verb) now ship per-host: droid + hermes + warp set
+// supportsActions and override installActions/uninstallActions. Hosts with no
+// verifiable emission target leave supportsActions unset (BaseAdapter skip-warn).
 // ─────────────────────────────────────────────────────────────────────────
 
 /** What an action's run() returns. v1 minimal: an optional user-facing message. */
@@ -1001,6 +1004,8 @@ export interface PlatformOverride {
   memory?: boolean | PlatformMemoryOverride;
   /** false → do not wire the status line on this platform (no object form in v1). */
   statusline?: boolean;
+  /** false → do not emit the action affordance(s) on this platform (no object form in v1). */
+  actions?: boolean;
   /** Verbatim fields merged into the native config (reach platform-exclusive features). */
   extra?: Record<string, unknown>;
 }

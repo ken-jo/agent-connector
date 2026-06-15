@@ -9,8 +9,8 @@
  *     is an identity helper.
  *   • spawn helpers — buildHomeBinActionCommand / isHomeBinActionCommand (the
  *     ` action ` verb + shared-prefix-id anchoring).
- *   • install — EVERY adapter honestly skip-warns when actions are declared
- *     (v1 ships no affordance emitter), and skips silently when none are declared.
+ *   • install — adapters with no action affordance honestly skip-warn when actions
+ *     are declared (droid/hermes/warp now emit); all skip silently when none declared.
  *   • CLI — the `action` command is registered (and its --help never crashes).
  *
  * Isolation: HOME + AGENT_CONNECTOR_DATA_DIR point at fresh temp dirs and are
@@ -36,7 +36,10 @@ import {
 } from "../../src/core/spawn.js";
 import claudeAdapter from "../../src/adapters/claude-code/index.js";
 import codexAdapter from "../../src/adapters/codex/index.js";
-import warpAdapter from "../../src/adapters/warp/index.js";
+// gemini-cli is a permanent-gap host (no verifiable action emission target), so
+// it keeps the BaseAdapter skip-warn default — the right adapter to assert the
+// honest no-emitter behavior on, now that warp/hermes/droid EMIT.
+import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ActionDef, ResolvedConnector } from "../../src/core/types.js";
 import { main } from "../../src/cli/app.js";
@@ -307,22 +310,23 @@ describe("spawn — action command helpers", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// install = honest skip-warn on EVERY host (no affordance emitter in v1)
+// install = honest skip-warn on permanent-gap hosts (droid/hermes/warp emit)
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("install — actions skip-warn on every host (v1)", () => {
-  it("NO adapter advertises supportsActions in v1", () => {
+describe("install — actions skip-warn on a permanent-gap host", () => {
+  it("a permanent-gap host (claude-code/codex/gemini-cli) does NOT advertise supportsActions", () => {
+    // The emitters (droid/hermes/warp) DO set this — see actions-emit.test.ts.
     expect(claudeAdapter.capabilities.supportsActions ?? false).toBe(false);
     expect(codexAdapter.capabilities.supportsActions ?? false).toBe(false);
-    expect(warpAdapter.capabilities.supportsActions ?? false).toBe(false);
+    expect(geminiAdapter.capabilities.supportsActions ?? false).toBe(false);
   });
 
-  it("installActions skip-warns (never silent) when actions are declared — every adapter", () => {
+  it("installActions skip-warns (never silent) when actions are declared — every gap host", () => {
     const connector = actionsConnector("act-warn", [
       { id: "a", run: () => undefined },
       { id: "b", run: () => undefined },
     ]);
-    for (const adapter of [claudeAdapter, codexAdapter, warpAdapter]) {
+    for (const adapter of [claudeAdapter, codexAdapter, geminiAdapter]) {
       const changes = adapter.installActions!(buildCtx(connector));
       expect(changes.some((c) => c.action === "warn")).toBe(true);
       expect(changes.some((c) => c.detail.includes("actions not supported"))).toBe(true);
@@ -335,7 +339,7 @@ describe("install — actions skip-warn on every host (v1)", () => {
       id: "act-none-decl",
       commands: [{ name: "noop", prompt: "p" }],
     });
-    for (const adapter of [claudeAdapter, codexAdapter, warpAdapter]) {
+    for (const adapter of [claudeAdapter, codexAdapter, geminiAdapter]) {
       const changes = adapter.installActions!(buildCtx(connector));
       expect(changes).toHaveLength(1);
       expect(changes[0]!.action).toBe("skip");

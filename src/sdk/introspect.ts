@@ -66,9 +66,9 @@ export const SURFACE_PREDICATES: Record<
   subagents: (c) => c.supportsSubagents ?? false,
   memory: (c) => c.supportsMemory ?? false,
   statusline: (c) => c.supportsStatusline ?? false,
-  // v1: no adapter sets supportsActions (no affordance emitter yet), so this is
-  // false everywhere and explain() marks actions skip-warn on every host — the
-  // honest state until the affordance emitter ships.
+  // Emitters ship on droid + hermes + warp (the hosts with a verifiable target);
+  // every other host leaves supportsActions unset, so explain() marks actions
+  // skip-warn there — the honest state for a host with no emission target.
   actions: (c) => c.supportsActions ?? false,
   configPatch: (c) => c.supportsConfigPatch ?? false,
   nativeHooks: (c) => c.supportsNativeHooks ?? false,

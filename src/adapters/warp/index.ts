@@ -23,6 +23,15 @@
  * (project scope). Skills double as slash-commands in Warp's UI — a skill named
  * "pdf-tools" is invocable as `/pdf-tools`. No user-scope skills dir is
  * documented for Warp; user-scope install reports a skip-warn.
+ *
+ * Actions surface: Warp reads YAML "workflows" from `~/.warp/workflows/<id>.yaml`
+ * (user) / `<projectDir>/.warp/workflows/<id>.yaml` (project), each
+ * `{ name, command, description }`, invocable from the Command Palette
+ * (docs.warp.dev yaml-workflows). HONESTY CAVEAT: selecting a workflow PASTES
+ * its `command` into the terminal input — the user presses Enter to run it; it
+ * is NOT a headless auto-exec. It still qualifies as a user-invokable action
+ * affordance, but the ChangeRecord detail and this comment say so plainly. Each
+ * workflow file is FULLY OWNED (one file per action), so uninstall removes it.
  */
 
 import { existsSync } from "node:fs";
@@ -42,6 +51,8 @@ import type {
   SkillDef,
   Transport,
 } from "../../core/types.js";
+import { stringify as stringifyYaml } from "yaml";
+
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildServeWrapperCommand,
@@ -95,6 +106,12 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
     // Skills: Warp reads SKILL.md from .agents/skills/<name>/SKILL.md (project
     // scope only; user-scope skills dir is not documented for Warp).
     supportsSkills: true,
+    // Actions: Warp reads YAML workflows from ~/.warp/workflows/<id>.yaml (user)
+    // / <projectDir>/.warp/workflows/<id>.yaml (project), invocable from the
+    // Command Palette (docs.warp.dev yaml-workflows). Selecting a workflow PASTES
+    // the command into the terminal input (the user runs it) — not headless
+    // exec, but still a user-invokable affordance. One owned file per action.
+    supportsActions: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -330,6 +347,57 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
 
   private renderSkill(skill: SkillDef): string {
     return renderSkillMd(skill);
+  }
+
+  // ── Action surface (one owned YAML workflow per action) ───────────────────
+  // Warp reads `~/.warp/workflows/<id>.yaml` (user) /
+  // `<projectDir>/.warp/workflows/<id>.yaml` (project): { name, command,
+  // description }, invocable from the Command Palette. PASTE-SEMANTICS: Warp
+  // pastes `command` into the terminal input — the user presses Enter to run it
+  // (not headless exec). Each file is FULLY OWNED → uninstall removes it.
+
+  private workflowPath(ctx: InstallContext, id: string): string {
+    return join(this.getConfigDir(ctx), "workflows", `${id}.yaml`);
+  }
+
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.actions === false) {
+      return [{ platform: this.id, action: "skip", detail: "actions disabled for warp" }];
+    }
+    const triggers = this.actionTriggers(ctx);
+    if (triggers.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+    return triggers.map((trigger) => {
+      const record = this.writeContentFile(
+        this.workflowPath(ctx, trigger.id),
+        this.renderWorkflow(trigger.label, trigger.command, trigger.description),
+        ctx.dryRun,
+      );
+      // HONESTY: stamp the paste-not-exec semantics onto the diff so the user
+      // is never told this auto-runs — but a no-op skip keeps its own detail.
+      if (record.action === "skip") return record;
+      return {
+        ...record,
+        detail: `warp workflow ${trigger.id}.yaml (palette-invokable; pastes the action command for the user to run)`,
+      };
+    });
+  }
+
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.actions.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+    return connector.actions.map((action) =>
+      this.removeContentFile(this.workflowPath(ctx, action.id), ctx.dryRun),
+    );
+  }
+
+  /** Render a Warp workflow YAML: { name, command, description }. */
+  private renderWorkflow(name: string, command: string, description: string): string {
+    return stringifyYaml({ name, command, description });
   }
 
   // ── Hooks (unavailable — Warp is mcp-only) ───────────────────────────────
