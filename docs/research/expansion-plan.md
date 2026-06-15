@@ -1,3 +1,12 @@
+> **HISTORICAL (superseded).** This plan's "9 → 26 = tokscale parity" target is
+> stale on two counts: tokscale's real roster is **29** (a 27-entry `--client`
+> enum + the table-only rows **warp** and **Grok Build**), so 26 was only the
+> original *deployable-parity estimate*, never full parity; and AC has since
+> shipped **32** adapters, covering **26** of tokscale's 29 tracked clients and
+> running **ahead on 5 hosts** tokscale does not track. Treat the "26 / tokscale
+> parity" figures below as the historical target only. See
+> `landscape-audit-2026-06.md` for the current reconciliation.
+
 I now have the existing conventions: `PlatformId` enum, `HookParadigm` = json-stdio|ts-plugin|mcp-only, the mcp-only reference (warp uses `working_directory`; kilo uses `mcp` root key + array command), and the ts-plugin reference (opencode synthesizes a bridge module shelling out to the home binary). I have enough to write a precise, codebase-grounded plan.
 
 ```markdown
