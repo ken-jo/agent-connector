@@ -25,8 +25,11 @@ import { pathToFileURL } from "node:url";
 
 import { loadConnectorFromPath, registerConnector } from "../../src/core/load-connector.js";
 import { runStatusline } from "../../src/runtime/statusline-entrypoint.js";
+import { newRecordId, openStore } from "../../src/telemetry/store.js";
+import type { ToolEventRecord } from "../../src/telemetry/types.js";
 
 const DIST_INDEX = join(__dirname, "..", "..", "dist", "index.js");
+const USAGE_ID = "sl-render-usage";
 const OK_ID = "sl-render-ok";
 const THROW_ID = "sl-render-throw";
 const HOSTS_ID = "sl-render-hosts";
@@ -39,6 +42,7 @@ const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
   DATA_DIR: process.env.AGENT_CONNECTOR_DATA_DIR,
+  TELEMETRY: process.env.AGENT_CONNECTOR_TELEMETRY,
 };
 
 let tmpHome: string;
@@ -76,12 +80,47 @@ export default defineConnector({
   return modPath;
 }
 
+/**
+ * Append one telemetry row for `connectorId` into the isolated data dir.
+ * Matches the ToolEventRecord shape the NDJSON store writes.
+ */
+function seedRow(
+  connectorId: string,
+  inputTokens: number,
+  outputTokens: number,
+  seq: number,
+): void {
+  const row: ToolEventRecord = {
+    id: newRecordId(seq),
+    ts: Date.now(),
+    connectorId,
+    toolName: "some_tool",
+    scope: "call",
+    surfaceKind: "server",
+    hostPlatform: "claude-code",
+    sessionId: "sess-1",
+    projectKey: "k",
+    projectDir: "/p",
+    inputTokens,
+    outputTokens,
+    confidenceSource: "tokenizer-exact",
+    isError: false,
+  };
+  const store = openStore({});
+  try {
+    store.append(row);
+  } finally {
+    store.close();
+  }
+}
+
 beforeEach(async () => {
   tmpHome = mkdtempSync(join(tmpdir(), "ac-slrt-home-"));
   tmpData = mkdtempSync(join(tmpdir(), "ac-slrt-data-"));
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
   process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+  delete process.env.AGENT_CONNECTOR_TELEMETRY;
 
   const okPath = writeFixtureModule(
     tmpData,
@@ -159,6 +198,16 @@ beforeEach(async () => {
   );
   const perHostThrowConn = (await loadConnectorFromPath(perHostThrowPath)).connector;
   registerConnector(perHostThrowConn, perHostThrowPath);
+
+  // A connector whose render returns ctx.usage as a JSON string — used by the
+  // telemetry HUD tests to inspect what the runtime pre-computed on ctx.
+  const usagePath = writeFixtureModule(
+    tmpData,
+    USAGE_ID,
+    "(ctx) => JSON.stringify(ctx.usage)",
+  );
+  const usageConn = (await loadConnectorFromPath(usagePath)).connector;
+  registerConnector(usageConn, usagePath);
 });
 
 afterEach(() => {
@@ -289,5 +338,61 @@ describe("runStatusline", () => {
     });
     expect(res.exitCode).toBe(0);
     expect(res.stdout).toBeUndefined();
+  });
+
+  // ── B1 telemetry HUD: ctx.usage pre-compute ────────────────────────────────
+
+  it("ctx.usage: populated store → render receives summed totalTokens and call count", async () => {
+    // Seed two rows for USAGE_ID (10+3=13 tokens, 20+7=27 tokens → total 40)
+    // and one row for a different connector (must be excluded).
+    seedRow(USAGE_ID, 10, 3, 0);
+    seedRow(USAGE_ID, 20, 7, 1);
+    seedRow(OK_ID, 100, 100, 2); // different connector — must NOT appear in usage
+
+    const res = await runStatusline({
+      platformId: "claude-code",
+      connectorId: USAGE_ID,
+      stdin: JSON.stringify({ cwd: "/x" }),
+    });
+    expect(res.exitCode).toBe(0);
+    const usage = JSON.parse(res.stdout!);
+    expect(usage.inputTokens).toBe(30);
+    expect(usage.outputTokens).toBe(10);
+    expect(usage.totalTokens).toBe(40);
+    expect(usage.calls).toBe(2);
+  });
+
+  it("ctx.usage: empty store → zeros summary, not undefined (the field is always pre-computed to a real summary)", async () => {
+    // No rows seeded; the accessor resolves to a zeros summary, NOT undefined —
+    // proving the runtime always stamps a real summary (never leaves it unset).
+    const res = await runStatusline({
+      platformId: "claude-code",
+      connectorId: USAGE_ID,
+      stdin: JSON.stringify({ cwd: "/x" }),
+    });
+    expect(res.exitCode).toBe(0);
+    // stdout would be "null" only if ctx.usage were undefined; it's a real object.
+    expect(res.stdout).not.toBe("null");
+    const usage = JSON.parse(res.stdout!);
+    expect(usage.totalTokens).toBe(0);
+    expect(usage.calls).toBe(0);
+  });
+
+  it("ctx.usage: AGENT_CONNECTOR_TELEMETRY=0 (kill switch) → zeros summary, not undefined", async () => {
+    // Seed a row that WOULD be summed — kill switch must suppress it.
+    seedRow(USAGE_ID, 50, 50, 0);
+    process.env.AGENT_CONNECTOR_TELEMETRY = "0";
+
+    const res = await runStatusline({
+      platformId: "claude-code",
+      connectorId: USAGE_ID,
+      stdin: JSON.stringify({ cwd: "/x" }),
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).not.toBe("null");
+    const usage = JSON.parse(res.stdout!);
+    expect(usage.totalTokens).toBe(0);
+    expect(usage.calls).toBe(0);
+    // Restore is handled by afterEach via SAVED.TELEMETRY
   });
 });

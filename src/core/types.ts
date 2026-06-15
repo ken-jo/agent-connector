@@ -779,6 +779,16 @@ export interface StatuslineContext extends HostCtx {
   cost?: { totalUsd?: number };
   /** Context-window usage, when the host reports it. */
   context?: { usedTokens?: number; maxTokens?: number; percent?: number };
+  /**
+   * THIS connector's OWN recorded MCP telemetry usage (token sums + call count),
+   * pre-computed by the runtime so render() can read it synchronously. ALL-TIME
+   * for the connector (every stored row) — NOT the host context-window (see
+   * `context`) and NOT session-scoped. When pre-computed it is always a real
+   * summary (zeros when there's no telemetry or it's switched off, never
+   * undefined); it is undefined only for a context that does not pre-compute it.
+   * render() can still `await ctx.telemetry?.()` to fetch a live or custom slice.
+   */
+  usage?: TelemetryUsageSummary;
   /** Path to the session transcript, when the host reports one. */
   transcriptPath?: string;
   /** The host's verbatim status payload (escape hatch). */
