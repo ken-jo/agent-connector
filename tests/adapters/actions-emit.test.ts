@@ -43,6 +43,11 @@ import warpAdapter from "../../src/adapters/warp/index.js";
 const HOME_BIN = "/fake/home/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme";
 
+// The REAL host OS, captured before any per-test process.platform stub. Used to
+// gate POSIX-only filesystem assertions (Windows cannot represent the Unix exec
+// bit, so `chmod 0o755` is a no-op there).
+const REAL_PLATFORM = process.platform;
+
 const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
@@ -302,6 +307,15 @@ describe("warp — actions emitter", () => {
 describe("droid — actions emitter", () => {
   const filePath = (id: string) => join(tmpProject, ".factory", "commands", id);
 
+  // Pin a POSIX platform so the exec-file (shebang) path runs deterministically
+  // on ANY CI host (incl. the native Windows runner) — the win32 skip-warn is
+  // exercised by its own test below that stubs "win32" explicitly.
+  let platformSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  });
+  afterEach(() => platformSpy.mockRestore());
+
   it("advertises supportsActions", () => {
     expect(droidAdapter.capabilities.supportsActions).toBe(true);
   });
@@ -314,8 +328,11 @@ describe("droid — actions emitter", () => {
 
     const body = readFileSync(filePath("deploy"), "utf8");
     expect(body).toBe(`#!/usr/bin/env sh\nexec ${verb("droid", "deploy")} "$@"\n`);
-    // Executable bit set (compare the low 9 perm bits).
-    expect(statSync(filePath("deploy")).mode & 0o777).toBe(0o755);
+    // Executable bit set (POSIX only — a real Windows host cannot represent the
+    // exec bit, and production skip-warns droid actions on win32 anyway).
+    if (REAL_PLATFORM !== "win32") {
+      expect(statSync(filePath("deploy")).mode & 0o777).toBe(0o755);
+    }
     // NO .md extension is written (it would collide with the command surface).
     expect(existsSync(`${filePath("deploy")}.md`)).toBe(false);
   });
