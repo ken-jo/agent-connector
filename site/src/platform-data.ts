@@ -113,21 +113,22 @@ const s = (
  * hostNative PROVENANCE (order: mcp/hooks/commands/skills/subagents/memory).
  * Fact base, strongest-first: the AC research corpus (docs/research/*.json +
  * each adapter's header comment), the 0.2.0 release skills audit, the 20-host
- * hook-extension survey (live official docs, 2026-06-11), the 31-host
+ * hook-extension survey (live official docs, 2026-06-11), the 33-host
  * memory-surface matrix, and targeted official-doc fetches (2026-06-12) for
  * cells the corpus left uncertain. Rule applied throughout: a claimed gap
  * (hostNative=true while surfaces=false) requires positive evidence; genuinely
  * uncertain cells default to matching our support — no guessed gaps.
  *
  * Cross-cutting facts:
- *   - memory: ALL 32 hosts natively read a rules/memory file (32-host memory
- *     matrix; AGENTS.md or a host-specific equivalent). hostNative.memory=true
- *     everywhere.
+ *   - memory: ALL 33 hosts natively read a rules/memory file (33-host memory
+ *     matrix; AGENTS.md or a host-specific equivalent — Amazon Q reads
+ *     .amazonq/rules). hostNative.memory=true everywhere.
  *   - hooks: the 23 json-stdio/ts-plugin hosts all expose a native hook or
- *     plugin layer (hook survey). Of the 9 "mcp-only" hosts the survey lists
- *     as hook-less, ONE is stale: Amp now ships a TypeScript plugin system
- *     with thread-lifecycle events (ampcode.com/manual, Plugins) — so Amp is
- *     hostNative.hooks=true (our gap); the other eight stay false.
+ *     plugin layer (hook survey). Of the 10 "mcp-only" hosts the survey lists
+ *     as hook-less, TWO are gaps: Amp ships a TypeScript plugin system with
+ *     thread-lifecycle events (ampcode.com/manual, Plugins) and Amazon Q has
+ *     the agent-format hooks layer (cli-agents/*.json) — both are
+ *     hostNative.hooks=true (our gaps); the other eight stay false.
  *   - skills: native SKILL.md readers verified by the release audit + official
  *     docs: claude-code, codex, cursor, vscode-copilot, copilot-cli,
  *     gemini-cli, opencode, antigravity(+cli), pi, jetbrains-copilot, PLUS the
@@ -499,6 +500,24 @@ export const platforms: Platform[] = [
     // confirmed): subagents are runtime runs + inline agents.list[] config — no
     // authored-file folder to write into.
     hostNative: s(true, true, false, true, true, true, false, true),
+  },
+  {
+    id: "amazon-q",
+    name: "Amazon Q Developer CLI",
+    paradigm: "mcp-only",
+    surfaces: s(true, false, false, false, false, false, false, false),
+    // mcp-only: AC installs MCP only. MCP at ~/.aws/amazonq/mcp.json (user) and
+    // .amazonq/mcp.json (project), root key "mcpServers". Two surfaces Amazon Q
+    // natively supports but AC DEFERS (rendered as honest host-gaps):
+    //   - hooks: the agent-format hooks layer (cli-agents/*.json:
+    //     agentSpawn/userPromptSubmit/preToolUse/postToolUse, JSON-over-STDIN,
+    //     exit-code 0/2) is primary-verified but not yet wired in AC.
+    //   - memory: Amazon Q reads `.amazonq/rules` (NOT AGENTS.md); the rules
+    //     surface is not yet wired. So memory stays false for the ac surface,
+    //     true for hostNative.
+    // N/A wired: commands/skills/subagents (no documented user-authored dir
+    // verified for the mcp.json scope).
+    hostNative: s(true, true, false, false, false, true, false, false),
   },
 ];
 

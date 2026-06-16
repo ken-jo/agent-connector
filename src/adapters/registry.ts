@@ -205,6 +205,16 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "openclaw",
     load: () => import("./openclaw/index.js").then((m) => m.default),
   },
+  // Wave 5 — mcp-only: Amazon Q Developer CLI. JSON MCP config under ~/.aws/amazonq/
+  // (user) and .amazonq/ (project); root key "mcpServers"; bare stdio entry
+  // { command, args, env, timeout? } or remote entry { type: "http", url } (no
+  // headers) for http. The agent-format hooks layer (cli-agents/*.json) and the
+  // .amazonq/rules memory surface are separate, not-yet-wired surfaces; this
+  // adapter installs MCP entries only.
+  {
+    id: "amazon-q",
+    load: () => import("./amazon-q/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
