@@ -36,16 +36,28 @@
  * resolve all references to literals at install time (the safe path, same as
  * droid/crush).
  *
+ * Memory / rules (primary-verified — docs.aws.amazon.com context-project-rules):
+ *   Project rules are plain Markdown files in <projectDir>/.amazonq/rules; Amazon
+ *   Q "will automatically use them as context whenever a developer chats with
+ *   Amazon Q within your project". NO frontmatter required. We write a DEDICATED
+ *   agent-connector-owned file there (`.amazonq/rules/agent-connector.md`),
+ *   mirroring the cline `.clinerules/agent-connector.md` approach: memoryTargets()
+ *   points at the dedicated file and the base managed-block engine performs the
+ *   surgical, hash-stamped, uninstall-reversible write. PROJECT SCOPE ONLY — the
+ *   AWS docs do not cleanly document a user/global rules directory for the CLI
+ *   (a `~/.aws/amazonq/.../rules` path is unverified), so user scope returns [] →
+ *   the base installMemory skip-warns rather than writing into an unread path.
+ *
  * Hook "config path" is aliased to the MCP file (no separate hook file) so the
  * base doctor/backup helpers behave sensibly.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
@@ -91,10 +103,13 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
-    // Memory surface: DEFERRED to a follow-up PR. Amazon Q reads `.amazonq/rules`
-    // (NOT AGENTS.md), so the AGENTS.md-first BaseAdapter default does not apply.
-    // Leave supportsMemory unset (→ false): memory renders as an honest host-gap
-    // (hostNative true, surfaces false) until the rules surface is wired.
+    // Memory surface: WIRED. Amazon Q reads `.amazonq/rules` (NOT AGENTS.md), so
+    // the AGENTS.md-first BaseAdapter default does not apply — memoryTargets()
+    // below overrides it to write a DEDICATED agent-connector-owned file
+    // (<projectDir>/.amazonq/rules/agent-connector.md, plain Markdown, no
+    // frontmatter — auto-applied as context per the AWS docs). Project scope
+    // only; user scope skip-warns (no verified user/global rules dir).
+    supportsMemory: true,
     //
     // Amazon Q CLI: the hooks layer lives inside per-agent JSON files, not in
     // the global/workspace mcp.json that AC targets. Every hook flag is false
@@ -170,6 +185,72 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
    */
   getHookConfigPath(ctx: InstallContext): string {
     return this.getServerConfigPath(ctx);
+  }
+
+  // ── Memory surface: the `.amazonq/rules` content tree ─────────────────────
+  // Amazon Q uses `.amazonq/rules` (NOT AGENTS.md) for its OWN project rules, so
+  // this override replaces the AGENTS.md base default entirely:
+  //   project → <projectDir>/.amazonq/rules/agent-connector.md  (DEDICATED file
+  //             AC owns; plain Markdown, auto-applied — no frontmatter needed)
+  //   user    → [] (no verified user/global rules dir → base installMemory
+  //             skip-warns rather than guessing a path the CLI may not read)
+  // When `.amazonq/rules` exists as a single FILE (not a directory) we must NOT
+  // create `.amazonq/rules/agent-connector.md` underneath it (that would throw
+  // ENOTDIR), so memoryTargets() returns [] and installMemory() emits a precise
+  // skip-warn rather than crashing (the cline `.clinerules`-is-a-file precedent).
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    // An explicit platforms[amazon-q].memory.path override wins (escape hatch).
+    if (this.memoryOverride(ctx)?.path) return super.memoryTargets(ctx);
+    if (ctx.scope === "project") {
+      if (this.rulesDirIsFile(ctx.projectDir)) return [];
+      return [
+        {
+          path: join(ctx.projectDir, ".amazonq", "rules", "agent-connector.md"),
+          reason: "amazon-q project rules dir (.amazonq/rules; agent-connector-owned file)",
+        },
+      ];
+    }
+    // user scope: no primary-verified user/global rules dir → [] → skip-warn.
+    return [];
+  }
+
+  /**
+   * Override installMemory ONLY to surface a precise warn when `.amazonq/rules`
+   * exists as a single FILE at project scope (so memoryTargets() returned []):
+   * we never write under it. All other behavior delegates to the base
+   * implementation (the cline `.clinerules`-is-a-file precedent).
+   */
+  override installMemory(ctx: InstallContext): ChangeRecord[] {
+    if (
+      ctx.scope === "project" &&
+      !this.memoryOverride(ctx)?.path &&
+      (ctx.connector.memory ?? []).length > 0 &&
+      ctx.connector.platforms[this.id]?.memory !== false &&
+      this.rulesDirIsFile(ctx.projectDir)
+    ) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: join(ctx.projectDir, ".amazonq", "rules"),
+          detail:
+            "existing .amazonq/rules is a file, not a directory; left untouched — " +
+            "convert it to a .amazonq/rules/ directory to receive agent-connector memory",
+        },
+      ];
+    }
+    return super.installMemory(ctx);
+  }
+
+  /** True when `<dir>/.amazonq/rules` exists and is a regular FILE (not a dir). */
+  private rulesDirIsFile(dir: string): boolean {
+    const p = join(dir, ".amazonq", "rules");
+    if (!existsSync(p)) return false;
+    try {
+      return statSync(p).isFile();
+    } catch {
+      return false;
+    }
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────

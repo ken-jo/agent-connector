@@ -26,18 +26,27 @@
  * tokens, but AC does not need to emit those — values are resolved to literals
  * at install time (the safe path, same as droid/crush/amazon-q).
  *
- * Memory: Windsurf natively has a Rules surface (`.windsurfrules` / global
- * rules) that AC does not yet wire — it is NOT AGENTS.md, so the AGENTS.md-first
- * BaseAdapter default does not apply. supportsMemory stays unset (→ false):
- * memory renders as an honest host-gap (hostNative true, surfaces false).
+ * Memory / rules (primary-verified — docs.windsurf.com/windsurf/cascade/rules,
+ * llms-full.txt): a `.windsurf/rules/` workspace directory holds `.md` rule
+ * files, each declaring an activation mode "in its frontmatter via the `trigger`
+ * field". `trigger: always_on` means "full rule content is included in the
+ * system prompt on every message" (the docs' literal Activation-Modes table).
+ * AC owns a DEDICATED file there (`.windsurf/rules/agent-connector.md`) that MUST
+ * LEAD with that always-on frontmatter, so — like the continue adapter and unlike
+ * the cline/amazon-q managed-block targets — we write the WHOLE file
+ * (frontmatter + body) via the content-file writers and own it end-to-end
+ * (install creates, uninstall deletes). The connector's memory `content` is
+ * host-agnostic (MemoryDef forbids its own frontmatter), so the always-on
+ * directive is an adapter-level wrapper. WORKSPACE/PROJECT SCOPE: `global_rules.md`
+ * is a single SHARED global file (not an AC-owned dir), so user scope skip-warns.
  *
  * Hook "config path" is aliased to the MCP file (no separate hook file) so the
  * base doctor/backup helpers behave sensibly (the amazon-q / roo-code idiom).
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext } from "../spi.js";
@@ -83,10 +92,14 @@ export class WindsurfAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
-    // Memory surface: DEFERRED. Windsurf reads `.windsurfrules` / global rules
-    // (NOT AGENTS.md), so the AGENTS.md-first BaseAdapter default does not apply.
-    // Leave supportsMemory unset (→ false): memory renders as an honest host-gap
-    // (hostNative true, surfaces false) until the rules surface is wired.
+    // Memory surface: WIRED. Windsurf reads `.windsurf/rules/*.md` (NOT
+    // AGENTS.md), so the AGENTS.md-first BaseAdapter default does not apply — the
+    // installMemory/uninstallMemory overrides below write a DEDICATED
+    // agent-connector-owned file (<projectDir>/.windsurf/rules/agent-connector.md)
+    // that LEADS with `trigger: always_on` frontmatter (full content in the
+    // system prompt on every message). Workspace/project scope only; user scope
+    // skip-warns (global_rules.md is a shared global file, not an AC-owned dir).
+    supportsMemory: true,
     //
     // mcp-only: Windsurf is a GUI editor with no user-installable hook/plugin
     // layer. Every hook flag is false.
@@ -152,6 +165,94 @@ export class WindsurfAdapter extends BaseAdapter implements Adapter {
    */
   getHookConfigPath(ctx: InstallContext): string {
     return this.getServerConfigPath(ctx);
+  }
+
+  // ── Memory surface: the `.windsurf/rules` content tree ────────────────────
+  // A DEDICATED agent-connector-owned file that MUST LEAD with `trigger:
+  // always_on` frontmatter (full content in the system prompt on every message).
+  // Because of that leading frontmatter we do NOT use the base managed-block
+  // engine — we own the whole file via the content-file writers: install
+  // writes/updates it idempotently, uninstall deletes it. WORKSPACE/PROJECT scope
+  // only (global_rules.md is a shared global file, not an AC-owned dir).
+
+  /** <projectDir>/.windsurf/rules/agent-connector.md — the dedicated owned file. */
+  private memoryFilePath(ctx: InstallContext): string {
+    return join(ctx.projectDir, ".windsurf", "rules", "agent-connector.md");
+  }
+
+  /** True when `<projectDir>/.windsurf/rules` exists and is a regular FILE. */
+  private rulesDirIsFile(ctx: InstallContext): boolean {
+    const p = join(ctx.projectDir, ".windsurf", "rules");
+    if (!existsSync(p)) return false;
+    try {
+      return statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Compose the dedicated rule file: `trigger: always_on` frontmatter (the
+   * always-on activation directive) + every declared memory entry's content,
+   * joined with a blank line. The connector's content is host-agnostic markdown
+   * (MemoryDef forbids its own frontmatter), so the directive is ours to add.
+   */
+  private renderMemoryFile(ctx: InstallContext): string {
+    const body = (ctx.connector.memory ?? [])
+      .map((m) => m.content.trim())
+      .filter((c) => c.length > 0)
+      .join("\n\n");
+    return this.renderFrontmatterMd({ trigger: "always_on" }, body);
+  }
+
+  override installMemory(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    const entries = connector.memory ?? [];
+    if (connector.platforms[this.id]?.memory === false) {
+      return [{ platform: this.id, action: "skip", detail: `memory disabled for ${this.id}` }];
+    }
+    if (entries.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no memory" }];
+    }
+    // Windsurf's verified per-rule `.windsurf/rules` dir is WORKSPACE scope only.
+    if (ctx.scope !== "project") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail:
+            `no ${ctx.scope}-scope rules dir verified for windsurf ` +
+            `(.windsurf/rules is workspace-scope; global_rules.md is a shared file); ` +
+            `${entries.length} skipped`,
+        },
+      ];
+    }
+    // Rules-path collision: never write under a `.windsurf/rules` that is a FILE.
+    if (this.rulesDirIsFile(ctx)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: join(ctx.projectDir, ".windsurf", "rules"),
+          detail:
+            "existing .windsurf/rules is a file, not a directory; left untouched — " +
+            "convert it to a .windsurf/rules/ directory to receive agent-connector memory",
+        },
+      ];
+    }
+    return [this.writeContentFile(this.memoryFilePath(ctx), this.renderMemoryFile(ctx), ctx.dryRun)];
+  }
+
+  override uninstallMemory(ctx: InstallContext): ChangeRecord[] {
+    // Only the project-scope dedicated file was ever written; a `.windsurf/rules`
+    // that is a FILE was never ours (installMemory warned), so leave it.
+    if (ctx.scope !== "project" || this.rulesDirIsFile(ctx)) {
+      const path = this.memoryFilePath(ctx);
+      return [
+        { platform: this.id, action: "skip", path, detail: `${basename(path)} absent` },
+      ];
+    }
+    return [this.removeContentFile(this.memoryFilePath(ctx), ctx.dryRun)];
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────

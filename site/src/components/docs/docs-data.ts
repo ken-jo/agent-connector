@@ -224,7 +224,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 12 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance upserted as a marker-fenced, hash-stamped managed block into the memory/rules file each host actually reads — AGENTS.md on 29 of 35 hosts (the open agents.md standard), CLAUDE.md for Claude Code, GEMINI.md for Gemini CLI, and .clinerules for Cline. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; claude-code in v1, other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; v1 ships the dispatch backbone, no host affordance emitter yet).",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts (29 of 35, the open agents.md standard), and on the non-AGENTS.md exceptions CLAUDE.md (Claude Code) and .clinerules (Cline); the dedicated-file rules hosts each get an agent-connector-owned file in their rules dir — .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf) — plus GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; claude-code in v1, other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; v1 ships the dispatch backbone, no host affordance emitter yet).",
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 9 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -776,7 +776,9 @@ export const memoryDefFields: FieldRow[] = [
 
 /**
  * Memory write targets (llms-full §2.4): the AGENTS.md-first policy plus the
- * two documented exception hosts.
+ * documented non-AGENTS.md exception hosts — claude-code (CLAUDE.md), gemini-cli
+ * (GEMINI.md), and the dedicated rules-dir hosts amazon-q (.amazonq/rules),
+ * continue (.continue/rules), windsurf (.windsurf/rules).
  */
 export const memoryTargetRows: {
   host: string;
@@ -806,6 +808,27 @@ export const memoryTargetRows: {
     user: "~/.gemini/GEMINI.md",
     note:
       'AGENTS.md is targeted instead when the user\'s context.fileName setting includes "AGENTS.md" — probed and respected, never edited by agent-connector.',
+  },
+  {
+    host: "amazon-q",
+    project: "<projectDir>/.amazonq/rules/agent-connector.md",
+    user: "skip-warn",
+    note:
+      'Dedicated rules-dir file AC owns (a marker-fenced managed block inside it). Amazon Q "will automatically use" plain Markdown files in .amazonq/rules as context (AWS context-project-rules docs) — no frontmatter. No verified user/global rules dir, so user scope skip-warns.',
+  },
+  {
+    host: "continue",
+    project: "<projectDir>/.continue/rules/agent-connector.md",
+    user: "skip-warn",
+    note:
+      'Dedicated rules-dir file AC owns end-to-end (install writes, uninstall deletes), leading with `alwaysApply: true` frontmatter — "always included, regardless of file context" (Continue rules docs). The user/global rules dir is unverified → user scope skip-warns.',
+  },
+  {
+    host: "windsurf",
+    project: "<projectDir>/.windsurf/rules/agent-connector.md",
+    user: "skip-warn",
+    note:
+      'Dedicated rules-dir file AC owns end-to-end, leading with `trigger: always_on` frontmatter — full content in the system prompt on every message (Windsurf Cascade rules docs). global_rules.md is a shared global file (not an AC-owned dir) → user scope skip-warns.',
   },
 ];
 

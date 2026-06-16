@@ -122,9 +122,9 @@ describe("continue adapter — identity + capabilities", () => {
     expect(continueAdapter.id).toBe("continue");
     expect(continueAdapter.name).toBe("Continue");
     expect(continueAdapter.paradigm).toBe("mcp-only");
-    // Memory is DEFERRED (Continue's Rules live under .continue, not AGENTS.md):
-    // the adapter must NOT declare supportsMemory → it stays an honest host-gap.
-    expect(continueAdapter.capabilities.supportsMemory ?? false).toBe(false);
+    // Memory is WIRED (Continue reads .continue/rules, not AGENTS.md): the
+    // adapter declares supportsMemory and writes a dedicated always-on rule file.
+    expect(continueAdapter.capabilities.supportsMemory).toBe(true);
     // mcp-only: no hooks
     expect(continueAdapter.capabilities.preToolUse).toBe(false);
     expect(continueAdapter.capabilities.postToolUse).toBe(false);
@@ -473,6 +473,80 @@ describe("continue adapter — env interpolation (resolve to literal)", () => {
     const entry = readMcpServers(join(home, ".continue", "config.yaml"))[0]!;
     expect(entry.env?.MY_VAR).toBe("actual-secret-value");
     expect(entry.env?.LITERAL).toBe("plain");
+  });
+});
+
+// ── memory surface (.continue/rules — dedicated always-on file) ──────────────
+
+describe("continue adapter — memory (.continue/rules/agent-connector.md)", () => {
+  let home: string;
+  let projectDir: string;
+
+  beforeEach(() => {
+    ({ home, projectDir } = freshProject());
+  });
+
+  function memFile(): string {
+    return join(projectDir, ".continue", "rules", "agent-connector.md");
+  }
+
+  /** Split a md+frontmatter document into { frontmatter, body }. */
+  function splitFrontmatter(text: string): { frontmatter: Record<string, unknown>; body: string } {
+    const m = text.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
+    if (!m) throw new Error(`not a frontmatter doc:\n${text}`);
+    return { frontmatter: parse(m[1]!) as Record<string, unknown>, body: m[2]! };
+  }
+
+  it("writes .continue/rules/agent-connector.md with `alwaysApply: true` frontmatter", () => {
+    const ctx = buildCtx(projectDir, buildConnector(), "project");
+    const changes = continueAdapter.installMemory(ctx);
+    expect(changes.every((c) => c.platform === "continue")).toBe(true);
+    expect(changes[0]?.action).toBe("create");
+
+    expect(existsSync(memFile())).toBe(true);
+    const { frontmatter, body } = splitFrontmatter(readFileSync(memFile(), "utf8"));
+    // Always-on directive must be a real YAML boolean (not the string "true").
+    expect(frontmatter.alwaysApply).toBe(true);
+    expect(body).toContain("Project guidance for Continue.");
+  });
+
+  it("is idempotent and uninstall deletes the dedicated file", () => {
+    const ctx = buildCtx(projectDir, buildConnector(), "project");
+    continueAdapter.installMemory(ctx);
+    const second = continueAdapter.installMemory(ctx);
+    expect(second[0]?.action).toBe("skip");
+
+    continueAdapter.uninstallMemory(ctx);
+    expect(existsSync(memFile())).toBe(false);
+  });
+
+  it("user scope skip-warns (no verified user/global rules dir)", () => {
+    const ctx = buildCtx(projectDir, buildConnector(), "user");
+    const changes = continueAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(existsSync(join(home, ".continue", "rules"))).toBe(false);
+  });
+
+  it("does NOT clobber a pre-existing .continue/rules FILE (collision guard)", () => {
+    mkdirSync(join(projectDir, ".continue"), { recursive: true });
+    const rulesFile = join(projectDir, ".continue", "rules");
+    writeFileSync(rulesFile, "# hand-written rules file\n", "utf8");
+
+    const ctx = buildCtx(projectDir, buildConnector(), "project");
+    const changes = continueAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(readFileSync(rulesFile, "utf8")).toBe("# hand-written rules file\n");
+  });
+
+  it("honors platforms['continue'].memory === false", () => {
+    const connector = buildConnector({ platforms: { continue: { memory: false } } });
+    const ctx = buildCtx(projectDir, connector, "project");
+    const changes = continueAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(existsSync(memFile())).toBe(false);
   });
 });
 

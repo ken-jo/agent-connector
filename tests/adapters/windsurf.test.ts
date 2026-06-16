@@ -16,6 +16,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { parse as parseYaml } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
@@ -106,9 +107,9 @@ describe("windsurf adapter — identity + capabilities", () => {
     expect(windsurfAdapter.id).toBe("windsurf");
     expect(windsurfAdapter.name).toBe("Windsurf");
     expect(windsurfAdapter.paradigm).toBe("mcp-only");
-    // Memory is DEFERRED (Windsurf reads .windsurfrules, not AGENTS.md): the
-    // adapter must NOT declare supportsMemory → it stays an honest host-gap.
-    expect(windsurfAdapter.capabilities.supportsMemory ?? false).toBe(false);
+    // Memory is WIRED (Windsurf reads .windsurf/rules, not AGENTS.md): the
+    // adapter declares supportsMemory and writes a dedicated always-on rule file.
+    expect(windsurfAdapter.capabilities.supportsMemory).toBe(true);
     // mcp-only: no hooks
     expect(windsurfAdapter.capabilities.preToolUse).toBe(false);
     expect(windsurfAdapter.capabilities.postToolUse).toBe(false);
@@ -440,6 +441,84 @@ describe("windsurf adapter — remote (http) server", () => {
       mcpServers: Record<string, Record<string, unknown>>;
     };
     expect("headers" in cfg.mcpServers[CONNECTOR_ID]!).toBe(false);
+  });
+});
+
+// ── memory surface (.windsurf/rules — dedicated always-on file) ──────────────
+
+describe("windsurf adapter — memory (.windsurf/rules/agent-connector.md)", () => {
+  let home: string;
+  let projectDir: string;
+
+  beforeEach(() => {
+    ({ home, projectDir } = freshProject());
+  });
+
+  function memConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
+    return buildConnector({ memory: [{ content: "Project guidance for Windsurf." }], ...cfg });
+  }
+
+  function memFile(): string {
+    return join(projectDir, ".windsurf", "rules", "agent-connector.md");
+  }
+
+  /** Split a md+frontmatter document into { frontmatter, body }. */
+  function splitFrontmatter(text: string): { frontmatter: Record<string, unknown>; body: string } {
+    const m = text.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
+    if (!m) throw new Error(`not a frontmatter doc:\n${text}`);
+    return { frontmatter: parseYaml(m[1]!) as Record<string, unknown>, body: m[2]! };
+  }
+
+  it("writes .windsurf/rules/agent-connector.md with `trigger: always_on` frontmatter", () => {
+    const ctx = buildCtx(projectDir, memConnector(), "project");
+    const changes = windsurfAdapter.installMemory(ctx);
+    expect(changes.every((c) => c.platform === "windsurf")).toBe(true);
+    expect(changes[0]?.action).toBe("create");
+
+    expect(existsSync(memFile())).toBe(true);
+    const { frontmatter, body } = splitFrontmatter(readFileSync(memFile(), "utf8"));
+    // Exact always-on activation directive from the Windsurf rules docs.
+    expect(frontmatter.trigger).toBe("always_on");
+    expect(body).toContain("Project guidance for Windsurf.");
+  });
+
+  it("is idempotent and uninstall deletes the dedicated file", () => {
+    const ctx = buildCtx(projectDir, memConnector(), "project");
+    windsurfAdapter.installMemory(ctx);
+    const second = windsurfAdapter.installMemory(ctx);
+    expect(second[0]?.action).toBe("skip");
+
+    windsurfAdapter.uninstallMemory(ctx);
+    expect(existsSync(memFile())).toBe(false);
+  });
+
+  it("user scope skip-warns (global_rules.md is a shared file, not an AC-owned dir)", () => {
+    const ctx = buildCtx(projectDir, memConnector(), "user");
+    const changes = windsurfAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(existsSync(join(home, ".windsurf", "rules"))).toBe(false);
+  });
+
+  it("does NOT clobber a pre-existing .windsurf/rules FILE (collision guard)", () => {
+    mkdirSync(join(projectDir, ".windsurf"), { recursive: true });
+    const rulesFile = join(projectDir, ".windsurf", "rules");
+    writeFileSync(rulesFile, "# hand-written rules file\n", "utf8");
+
+    const ctx = buildCtx(projectDir, memConnector(), "project");
+    const changes = windsurfAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(readFileSync(rulesFile, "utf8")).toBe("# hand-written rules file\n");
+  });
+
+  it("honors platforms['windsurf'].memory === false", () => {
+    const connector = memConnector({ platforms: { windsurf: { memory: false } } });
+    const ctx = buildCtx(projectDir, connector, "project");
+    const changes = windsurfAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(existsSync(memFile())).toBe(false);
   });
 });
 

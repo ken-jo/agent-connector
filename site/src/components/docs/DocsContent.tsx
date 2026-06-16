@@ -767,7 +767,9 @@ export function SurfacesSection() {
         agents&quot; format) — so you write the guidance once and it lands in
         the standard file across every adopter host. agent-connector never flips
         host settings to make AGENTS.md readable (probe-and-respect only), and
-        the two non-reader hosts are wired per their own official docs:
+        the non-reader hosts are wired per their own official docs — CLAUDE.md
+        and GEMINI.md, plus the dedicated rules-dir hosts (.amazonq/rules,
+        .continue/rules, .windsurf/rules):
       </P>
       <DocsTable>
         <thead>

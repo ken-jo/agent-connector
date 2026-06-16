@@ -32,11 +32,25 @@
  * `connectionTimeout`. Per-server block files (.continue/mcpServers/*.yaml)
  * auto-discovery for the `cn` CLI is also unverified — both scopes use the
  * verified config.yaml `mcpServers` array.
+ *
+ * Memory / rules (primary-verified — docs.continue.dev/customize/deep-dives/
+ * rules): a `.continue/rules` folder at the WORKSPACE ROOT holds `.md` rule
+ * files; each carries a YAML frontmatter whose `alwaysApply: true` field makes
+ * the rule "always included, regardless of file context" (the docs' literal
+ * Activation behavior table). AC owns a DEDICATED file there
+ * (`.continue/rules/agent-connector.md`) — unlike the cline/amazon-q memory
+ * targets (which use the base managed-block engine), this file MUST LEAD with
+ * the always-on frontmatter, so we write the WHOLE file (frontmatter + body) via
+ * the content-file writers and own it end-to-end (install creates, uninstall
+ * deletes). The connector's memory `content` is host-agnostic (no frontmatter of
+ * its own — MemoryDef forbids it), so the always-on directive is an adapter-level
+ * wrapper, not part of the connector payload. PROJECT SCOPE ONLY (the `cn` CLI's
+ * user/global rules directory is not primary-verified → user scope skip-warns).
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext } from "../spi.js";
@@ -87,11 +101,13 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
-    // Memory surface: DEFERRED. Continue has a native "Rules" surface, but it
-    // lives under .continue (NOT AGENTS.md), so the AGENTS.md-first BaseAdapter
-    // default does not apply. Leave supportsMemory unset (→ false): memory
-    // renders as an honest host-gap (hostNative true, surfaces false) until the
-    // rules surface is wired.
+    // Memory surface: WIRED. Continue reads `.continue/rules/*.md` (NOT
+    // AGENTS.md), so the AGENTS.md-first BaseAdapter default does not apply — the
+    // installMemory/uninstallMemory overrides below write a DEDICATED
+    // agent-connector-owned file (<projectDir>/.continue/rules/agent-connector.md)
+    // that LEADS with `alwaysApply: true` frontmatter (always-included). Project
+    // scope only; user scope skip-warns (no verified user/global rules dir).
+    supportsMemory: true,
     //
     // mcp-only: there is no primary-verified Continue hook layer, so every hook
     // flag is false (hooks not wired into AC install).
@@ -165,6 +181,94 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
   /** ~/.continue — homedir() covers %USERPROFILE% on Windows. */
   private userConfigDir(): string {
     return join(homedir(), ".continue");
+  }
+
+  // ── Memory surface: the `.continue/rules` content tree ────────────────────
+  // A DEDICATED agent-connector-owned file that MUST LEAD with `alwaysApply:
+  // true` frontmatter (always-included). Because of that leading frontmatter we
+  // do NOT use the base managed-block engine (it appends a block at EOF and
+  // cannot guarantee a leading frontmatter, nor delete a file that retains
+  // frontmatter on uninstall) — instead we own the whole file via the
+  // content-file writers: install writes/updates it idempotently, uninstall
+  // deletes it. PROJECT SCOPE ONLY (the user/global rules dir is unverified).
+
+  /** <projectDir>/.continue/rules/agent-connector.md — the dedicated owned file. */
+  private memoryFilePath(ctx: InstallContext): string {
+    return join(ctx.projectDir, ".continue", "rules", "agent-connector.md");
+  }
+
+  /** True when `<projectDir>/.continue/rules` exists and is a regular FILE. */
+  private rulesDirIsFile(ctx: InstallContext): boolean {
+    const p = join(ctx.projectDir, ".continue", "rules");
+    if (!existsSync(p)) return false;
+    try {
+      return statSync(p).isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Compose the dedicated rule file: `alwaysApply: true` frontmatter (the
+   * always-on activation directive) + every declared memory entry's content,
+   * joined with a blank line. The connector's content is host-agnostic markdown
+   * (MemoryDef forbids its own frontmatter), so the directive is ours to add.
+   */
+  private renderMemoryFile(ctx: InstallContext): string {
+    const body = (ctx.connector.memory ?? [])
+      .map((m) => m.content.trim())
+      .filter((c) => c.length > 0)
+      .join("\n\n");
+    return this.renderFrontmatterMd({ alwaysApply: true }, body);
+  }
+
+  override installMemory(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    const entries = connector.memory ?? [];
+    if (connector.platforms[this.id]?.memory === false) {
+      return [{ platform: this.id, action: "skip", detail: `memory disabled for ${this.id}` }];
+    }
+    if (entries.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no memory" }];
+    }
+    // Continue's verified rules dir is PROJECT scope only.
+    if (ctx.scope !== "project") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail:
+            `no ${ctx.scope}-scope rules dir verified for continue ` +
+            `(.continue/rules is project-scope); ${entries.length} skipped`,
+        },
+      ];
+    }
+    // Rules-path collision: never write under a `.continue/rules` that is a FILE.
+    if (this.rulesDirIsFile(ctx)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: join(ctx.projectDir, ".continue", "rules"),
+          detail:
+            "existing .continue/rules is a file, not a directory; left untouched — " +
+            "convert it to a .continue/rules/ directory to receive agent-connector memory",
+        },
+      ];
+    }
+    return [this.writeContentFile(this.memoryFilePath(ctx), this.renderMemoryFile(ctx), ctx.dryRun)];
+  }
+
+  override uninstallMemory(ctx: InstallContext): ChangeRecord[] {
+    // Only the project-scope dedicated file was ever written; a `.continue/rules`
+    // that is a FILE was never ours (installMemory warned), so leave it.
+    if (ctx.scope !== "project" || this.rulesDirIsFile(ctx)) {
+      const path = this.memoryFilePath(ctx);
+      return [
+        { platform: this.id, action: "skip", path, detail: `${basename(path)} absent` },
+      ];
+    }
+    return [this.removeContentFile(this.memoryFilePath(ctx), ctx.dryRun)];
   }
 
   // ── MCP server install / uninstall (YAML — ARRAY merge) ───────────────────
