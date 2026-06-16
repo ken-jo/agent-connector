@@ -25,9 +25,9 @@
  * place for an env map, so server.env is dropped with no native equivalent.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext } from "../spi.js";
@@ -39,6 +39,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
 } from "../../core/types.js";
 import { resolveEnvRefs, resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
@@ -48,6 +49,15 @@ import {
 
 const HOST: PlatformId = "mux";
 const MCP_ROOT_KEY = "servers";
+
+/**
+ * Mux enforces this exact pattern (1–64 chars) on a SKILL directory name, and
+ * the SKILL.md `name` field MUST equal the directory name
+ * (mux.coder.com/agents/agent-skills). A skill name that does not match is
+ * skip-warned rather than written to a dir Mux would reject.
+ */
+const MUX_SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MUX_SKILL_NAME_MAX = 64;
 
 /** Quote a token only when it contains whitespace (Mux command-string form). */
 function quoteToken(token: string): string {
@@ -82,6 +92,15 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Mux's command-string server entry is stdio-only.
     transports: ["stdio"],
+    // Content surface: Mux auto-discovers dir-per-skill SKILL.md from its
+    // workspace-local and global roots (mux.coder.com/agents/agent-skills,
+    // fetched 2026-06-16):
+    //   project → <projectDir>/.mux/skills/<name>/SKILL.md (workspace-local)
+    //   user    → ~/.mux/skills/<name>/SKILL.md (global, Mux-specific)
+    // The skill directory name MUST match ^[a-z0-9]+(?:-[a-z0-9]+)*$ (1–64
+    // chars) and the SKILL.md `name` field must equal it — a name that cannot
+    // be represented is skip-warned (see installSkills).
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -252,6 +271,168 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
         detail: "hooks unavailable (Mux is mcp-only)",
       },
     ];
+  }
+
+  // ── Content surface: skills (dir-per-skill SKILL.md) ─────────────────────
+  // CONTENT-ONLY: pure native-file writers, mirroring goose/openclaw. No
+  // runtime dispatch, no home-bin pointer, no telemetry wrap. Idempotent
+  // (byte-identical → skip) via writeContentFile and reversible via
+  // removeContentFile + removeDirIfEmpty. Honors platforms["mux"].skills ===
+  // false. No mcp.jsonc entry — Mux auto-discovers the skills dirs.
+  //
+  // Native locations (mux.coder.com/agents/agent-skills):
+  //   project → <projectDir>/.mux/skills/<name>/SKILL.md (workspace-local)
+  //   user    → ~/.mux/skills/<name>/SKILL.md (global, Mux-specific)
+  // The dir name MUST match MUX_SKILL_NAME_RE (1–64 chars) and the SKILL.md
+  // `name` field must equal it — a name that can't be represented is skip-warned.
+
+  /** The skills ROOT dir for ctx.scope (parent of every per-skill dir). */
+  private skillsDir(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "skills");
+  }
+
+  /** Per-skill directory: <skillsDir>/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for mux" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      // Mux REQUIRES the dir name (and SKILL.md `name`) to match its pattern;
+      // a name we cannot represent is skip-warned rather than written to a dir
+      // Mux would reject (the honesty bar — never write an unreadable path).
+      if (!this.isValidSkillName(skill.name)) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          detail:
+            `skill "${skill.name}" cannot be represented on mux ` +
+            `(name must match ${MUX_SKILL_NAME_RE.source}, 1–${MUX_SKILL_NAME_MAX} chars); skipped`,
+        });
+        continue;
+      }
+      const dir = this.skillDir(ctx, skill.name);
+      // Guard a skills path occupied by a regular FILE (mkdir would throw
+      // ENOTDIR): skip-warn rather than crash (cline `.clinerules`-is-a-file
+      // precedent).
+      const blockingFile = this.firstFileOnSkillPath(ctx, dir);
+      if (blockingFile !== null) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: blockingFile,
+          detail: `${blockingFile} is a file, not a directory; skill "${skill.name}" skipped`,
+        });
+        continue;
+      }
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir.
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      // Skip names install never wrote (invalid → never on disk under our dir).
+      if (!this.isValidSkillName(skill.name)) continue;
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    if (changes.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "no installable skills to remove" }];
+    }
+    return changes;
+  }
+
+  /** True when a skill name is representable as a Mux skill directory name. */
+  private isValidSkillName(name: string): boolean {
+    return name.length >= 1 && name.length <= MUX_SKILL_NAME_MAX && MUX_SKILL_NAME_RE.test(name);
+  }
+
+  /**
+   * Walk from the skills root down to `leaf` and return the FIRST segment that
+   * exists as a regular file (a mkdir there throws ENOTDIR), else null — so
+   * installSkills can skip-warn instead of crashing.
+   */
+  private firstFileOnSkillPath(ctx: InstallContext, leaf: string): string | null {
+    const root = this.skillsDir(ctx);
+    const segments: string[] = [];
+    let cur = leaf;
+    while (cur.length >= root.length) {
+      segments.unshift(cur);
+      if (cur === root) break;
+      const parent = dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
+    for (const p of segments) {
+      if (!existsSync(p)) return null;
+      try {
+        if (statSync(p).isFile()) return p;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with every other
+   * skill-supporting platform — only the parent dir differs. Mux requires the
+   * `name` field to equal the directory name, which installSkills guarantees.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────
