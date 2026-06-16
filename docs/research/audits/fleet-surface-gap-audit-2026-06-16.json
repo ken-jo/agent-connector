@@ -1,0 +1,392 @@
+{
+  "generated": "2026-06-16",
+  "method": "local adapter scan + WebSearch-snippet verify (UNVERIFIED claims — each needs primary-source confirmation before wiring)",
+  "scannedHosts": 34,
+  "flaggedSuspects": 82,
+  "confirmedReal": 48,
+  "actionableCount": 46,
+  "actionable": [
+    {
+      "host": "amazon-q",
+      "surface": "hooks-native",
+      "claim": "Amazon Q Developer CLI exposes a REAL native hooks layer (agentSpawn / userPromptSubmit / preToolUse / postToolUse, JSON-over-STDIN, exit-code 0/2 contract) configured inside per-agent JSON files (cli-agents/*.json). The adapter header calls this 'primary-verified' but deliberately leaves it unimplemented ('a separate, unimplemented surface'), so paradigm is mcp-only and every hook capability flag is false. This is a strong nativeHooks-opt-in candidate (map agentSpawn->SessionStart/SubagentStart, userPromptSubmit->UserPromptSubmit, preToolUse->PreToolUse, postToolUse->PostToolUse).",
+      "reason": "Primary docs confirm Amazon Q agent JSON files expose a real `hooks` block (agentSpawn/userPromptSubmit/preToolUse/postToolUse) with JSON event over STDIN and exit 0=succeed / exit 2=block (PreToolUse-only, STDERR→LLM); AC's adapter wires zero hooks (all flags false, installHooks skips) — a genuine nativeHooks-opt-in gap implementable from docs via a managed-block write into cli-agents/*.json.",
+      "source": "https://github.com/aws/amazon-q-developer-cli/blob/main/docs/hooks.md (and docs/agent-format.md, Hooks Field)",
+      "confidence": "high"
+    },
+    {
+      "host": "amazon-q",
+      "surface": "skills",
+      "claim": "Content surfaces (commands/skills/subagents) are left UNSET because 'no documented user-authored commands/skills/subagents directory verified for Amazon Q.' Amazon Q agents do support custom prompts/agents, so one of these surfaces may actually exist.",
+      "reason": "AWS docs document a user-authored prompt library (global ~/.aws/amazonq/prompts/*.md, local <proj>/.amazonq/prompts/*.md, plain Markdown, surfaced via /prompts slash commands) that AC's adapter explicitly leaves UNSET; implementable now via a dedicated agent-connector .md file, mirroring the already-wired .amazonq/rules memory surface.",
+      "source": "https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/context-prompt-library.html",
+      "confidence": "high"
+    },
+    {
+      "host": "antigravity",
+      "surface": "hooks-native",
+      "claim": "Research plan (antigravity-plan.md L35) lists PreInvocation and PostInvocation as documented Antigravity hook events (handler list directly under the event, matcher ignored), but the adapter's SUPPORTED_EVENTS only wires the four matcher-based events and never registers or exposes PreInvocation/PostInvocation.",
+      "reason": "Official Antigravity docs confirm hooks.json accepts PreInvocation/PostInvocation event keys with a matcher-less shape (handler list directly under the event key, matcher ignored), and the adapter's SUPPORTED_EVENTS wires only PreToolUse/PostToolUse/SessionStart/Stop — never these two, so they are a genuine, implementable native-passthrough gap.",
+      "source": "https://antigravity.google/docs/hooks",
+      "confidence": "medium"
+    },
+    {
+      "host": "antigravity",
+      "surface": "hooks-canonical",
+      "claim": "UserPromptSubmit is marked false ('no documented equivalent'), but Antigravity is a json-stdio Gemini-family host with a full lifecycle-hook system; a user-prompt-submit-class hook may exist undocumented in the probed (JS-rendered, medium-confidence) docs.",
+      "reason": "Official Antigravity hooks docs describe a UserPromptSubmit event (fires on prompt submit, delivers a `prompt` field; cadence \"once per turn (UserPromptSubmit, Stop, StopFailure)\") mapping 1:1 to canonical UserPromptSubmit, yet AC sets userPromptSubmit:false and excludes it from SUPPORTED_EVENTS in /home/ubuntu/workspace/github/agent-connector/src/adapters/antigravity/index.ts (lines ~120-125, 196). Implementable now from docs (same json-stdio paradigm as the 4 wired events); confidence medium because the primary evidence is a verbatim snippet of the JS-rendered official doc page, not a byte-verified fetch (the SDK repo README covers a different internal PreToolCall framework, not the IDE hooks.json surface).",
+      "source": "https://antigravity.google/docs/hooks",
+      "confidence": "medium"
+    },
+    {
+      "host": "antigravity-cli",
+      "surface": "other",
+      "claim": "agy ships a first-class plugin system (agy plugin install/uninstall/list/enable/disable) which the adapter explicitly defers ('future work would deploy as an agy plugin; for now ... ride the shared IDE files'). AC packages nothing through this native plugin surface.",
+      "reason": "Official Antigravity docs confirm a first-class plugin system (plugin.json marker + optional mcp_config.json/hooks.json/skills/rules, discovered under .agents/plugins/ or _agents/plugins/, managed via `agy plugin install/uninstall/list/enable/disable`); AC's antigravity-cli adapter explicitly defers it (index.ts L29-31) and instead writes loose ~/.gemini files, so the native plugin surface is genuinely unwired and implementable from docs as a static directory bundle.",
+      "source": "https://antigravity.google/docs/plugins",
+      "confidence": "high"
+    },
+    {
+      "host": "antigravity-cli",
+      "surface": "skills",
+      "claim": "The user-scope skills dir and hooks.json are medium-confidence / path-probed ('NOT present on the observed install', 'verify for your version'); the canonical user skills location and the ~/.gemini/antigravity/skills 'reportedly broken' exclusion are unverified.",
+      "reason": "Official Google Antigravity docs confirm the canonical cross-product global skills dir is ~/.gemini/config/skills/ (and CLI-specific ~/.gemini/antigravity-cli/skills/), with project scope <proj>/.agents/skills/. AC (src/adapters/antigravity/index.ts:333-334) already uses ~/.gemini/antigravity-cli/skills as the preferred user dir (now primary-confirmed, upgrading its medium-confidence), but its FALLBACK is the undocumented ~/.gemini/skills instead of the documented ~/.gemini/config/skills/ — the same ~/.gemini/config/ tree AC already proved for the CLI's mcp_config.json. Fixing that fallback path + upgrading the probed-confidence comments is doable from docs alone. The 'antigravity/skills reportedly broken' exclusion is unverified by docs but harmless (docs never use that path).",
+      "source": "https://antigravity.google/docs/skills (and https://codelabs.developers.google.com/getting-started-with-antigravity-skills)",
+      "confidence": "medium"
+    },
+    {
+      "host": "cline",
+      "surface": "hooks-canonical",
+      "claim": "Cline's VS Code extension may expose a runtime hook/event surface (e.g. a Hooks feature or task-lifecycle callbacks) that AC reports entirely absent (all hook caps false, mcp-only).",
+      "reason": "Cline v3.36 shipped a real filesystem hooks system (PreToolUse/PostToolUse/TaskStart/UserPromptSubmit; executable scripts in .clinerules/hooks/ + ~/Documents/Cline/Rules/Hooks/; JSON stdin, returns cancel + contextModification) but AC's adapter hardcodes paradigm \"mcp-only\" with every hook cap false and asserts \"no lifecycle hook API\" — so the gap is genuine and unwired; implementable from docs alone (script-into-known-dir + JSON contract, like existing content writers), only caveat being the documented macOS/Linux-only support.",
+      "source": "https://docs.cline.bot/features/hooks",
+      "confidence": "high"
+    },
+    {
+      "host": "cline",
+      "surface": "other",
+      "claim": "The newer Cline CLI/SDK host (~/.cline) is explicitly deferred as a 'separate future adapter' and is not covered at all.",
+      "reason": "Official Cline docs confirm a distinct Cline CLI/SDK host (@cline/sdk + `cline` CLI) with its OWN global config at ~/.cline/data/settings/cline_mcp_settings.json (plus providers.json/global-settings.json) and lifecycle hooks (--hook-command / SDK plugin system). AC's current adapter (src/adapters/cline/index.ts lines 11-12) explicitly defers this as \"a separate future adapter\" and only targets the VS Code extension's globalStorage path — so the MCP surface for the CLI host is genuinely uncovered. Implementable now from docs: reuse the same `mcpServers` upsert against ~/.cline/data/settings/cline_mcp_settings.json.",
+      "source": "https://docs.cline.bot/cline-cli/configuration",
+      "confidence": "high"
+    },
+    {
+      "host": "codebuff",
+      "surface": "subagents",
+      "claim": "The adapter comment asserts 'Commands / subagents have no native Codebuff surface', but the research backlog (landing-page-gap-backlog.md:51) says codebuff subagents are 'confirmed real, but an executable .agents/*.ts AgentDefinition module (SDK-schema-coupled), not markdown' — DEFERRED. So a real subagent surface exists but is unwired.",
+      "reason": "Official Codebuff docs confirm custom agents/subagents are real: executable .agents/<kebab-id>.ts modules exporting a default AgentDefinition (id/model/displayName/toolNames/systemPrompt/spawnableAgents/inputSchema), SDK-schema-coupled, no markdown path; AC's adapter (src/adapters/codebuff/index.ts:124) explicitly says \"subagents have no native Codebuff surface\" and wires none — genuine unwired surface. Actionable from docs (path+schema documented) but caveat: emitting a .ts module whose imports resolve against the evolving Codebuff SDK is a riskier shape than AC's markdown/JSON writers.",
+      "source": "https://www.codebuff.com/docs/agents/creating-new-agents",
+      "confidence": "high"
+    },
+    {
+      "host": "codex",
+      "surface": "hooks-native",
+      "claim": "Codex has a separate 'notify' lifecycle mechanism (notify = [\"program\", \"args\"] in config.toml) that fires an 'agent-turn-complete' event with a JSON payload (type, thread-id, turn-id, cwd, input-messages, last-assistant-message). This host-native event is NOT wired by the adapter and supportsNativeHooks is false — a nativeHooks-opt-in candidate to reach Codex's turn-complete lifecycle signal.",
+      "reason": "Vendor docs + openai/codex config.rs confirm config.toml `notify=[...]` is a stable, shipping mechanism distinct from hooks.json, firing `agent-turn-complete` (JSON payload: type/turn-id/cwd/input-messages/last-assistant-message) that maps cleanly to a Stop-style normalized event; AC's codex adapter (src/adapters/codex/index.ts) wires only [mcp_servers] + hooks.json and never registers `notify`, so it is a genuine, implementable-from-docs nativeHooks gap.",
+      "source": "https://developers.openai.com/codex/config-advanced",
+      "confidence": "high"
+    },
+    {
+      "host": "codex",
+      "surface": "mcp",
+      "claim": "config.toml supports streamable HTTP MCP servers (url + bearer_token_env_var + http_headers per research line 568), but installServer skips any non-stdio transport with 'not registrable in config.toml (stdio only)'. The 'http' transport advertised in transports[] is therefore not actually installed into Codex's native config.",
+      "reason": "Official Codex docs confirm config.toml [mcp_servers.<id>] accepts streamable-HTTP entries (url + bearer_token_env_var + http_headers/env_http_headers), but AC's adapter (src/adapters/codex/index.ts:320-327) hard-skips any non-stdio transport with \"not registrable in config.toml (stdio only)\", so the advertised \"http\" transport (line 193) is never wired. Implementable from docs alone — render url-based table for transport===\"http\" (note: OAuth path may need experimental_use_rmcp_client / [features].rmcp_client).",
+      "source": "https://developers.openai.com/codex/config-reference",
+      "confidence": "high"
+    },
+    {
+      "host": "continue",
+      "surface": "commands",
+      "claim": "Continue ships a 'prompts' surface (slash-command / prompt files) that the adapter explicitly leaves unwired (supports* flags unset, base skip-warns).",
+      "reason": "Continue docs confirm a user-installable prompt/command surface (config.yaml `prompts` section + markdown prompt files with `invokable: true` frontmatter that become `/` slash commands in Chat/Plan/Agent and the cn CLR); AC's continue/index.ts deliberately leaves it unwired (lines 130-132: supports* flags UNSET, base skip-warns) — a genuine gap, implementable from docs alone via the same dedicated-content-file pattern AC already uses for .continue/rules.",
+      "source": "https://docs.continue.dev/customize/deep-dives/prompts",
+      "confidence": "high"
+    },
+    {
+      "host": "continue",
+      "surface": "mcp",
+      "claim": "Per-server block files (.continue/mcpServers/*.yaml) auto-discovery for the `cn` CLI is noted as unverified and NOT used — both scopes use the config.yaml mcpServers array.",
+      "reason": "Continue's official docs document standalone block files under .continue/mcpServers/*.yaml (schema v1, top-level mcpServers array) as an auto-discovered MCP install path, and confirm the cn CLI picks up that directory (\"automatically pick them up\") same as the IDE; AC's continue adapter only writes config.yaml's mcpServers array and explicitly marks the block-file path \"unverified ... NOT used\" (src/adapters/continue/index.ts:31-34), so this surface is genuinely unwired and implementable from docs alone.",
+      "source": "https://docs.continue.dev/customize/deep-dives/mcp",
+      "confidence": "high"
+    },
+    {
+      "host": "continue",
+      "surface": "hooks-native",
+      "claim": "Adapter asserts 'NO primary-verified Continue hook/lifecycle layer'; all hook flags false and installHooks skips.",
+      "reason": "REFUTES adapter's \"no Continue hook layer\" claim: continuedev/continue ships a Claude-Code-compatible CLI hooks system (PreToolUse/PostToolUse/UserPromptSubmit/SessionStart/SessionEnd/Stop/Notification + exit 0=proceed/2=block) defined in extensions/cli/src/hooks/types.ts and merged via PR #11029 (2026-03-04); AC currently wires none of it (installHooks skips, all hook flags false). Config is JSON settings.json (~/.continue/settings.json or .continue/settings.json, also .claude variants), separate from the MCP config.yaml — implementable from source alone, no live binary needed.",
+      "source": "https://github.com/continuedev/continue/blob/main/extensions/cli/src/hooks/types.ts (+ PR https://github.com/continuedev/continue/pull/11029, issue https://github.com/continuedev/continue/issues/11678)",
+      "confidence": "high"
+    },
+    {
+      "host": "copilot-cli",
+      "surface": "hooks-native",
+      "claim": "Copilot CLI has a host-native ErrorOccurred/errorOccurred hook event (confirmed in platform-research.json hook_types: 'errorOccurred / ErrorOccurred'). The adapter EVENT_MAP comment explicitly states 'the host also has a broader errorOccurred event we do not register.' supportsNativeHooks is false (flag absent), so this non-canonical native event is unreachable — a nativeHooks opt-in candidate matching the gemini-cli #53 / kimi #54 precedent.",
+      "reason": "Official GitHub docs list errorOccurred as one of Copilot CLI's six native hook events (sessionStart/sessionEnd/userPromptSubmitted/preToolUse/postToolUse/errorOccurred), registerable in ~/.copilot/hooks/*.json with a JSON stdin payload; the adapter's own comment (src/adapters/copilot-cli/index.ts:102) admits it does not register this event and supportsNativeHooks is absent — a valid nativeHooks opt-in candidate per the gemini-cli #53 / kimi #54 precedent. Caveat: docs name errorOccurred (not postToolUseFailure) as the real native error event, so the adapter's assumed postToolUseFailure native analog is doubtful — but errorOccurred itself is documented, distinct, and implementable from docs alone.",
+      "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
+      "confidence": "high"
+    },
+    {
+      "host": "copilot-cli",
+      "surface": "mcp",
+      "claim": "platform-research lists a third MCP transport 'sse (deprecated, legacy support)' for Copilot CLI; the adapter transports[] is only ['stdio','http'], omitting sse. AC opted into SSE for kimi (#51), so this could be a deliberate deprecation-driven omission rather than a true gap.",
+      "reason": "GitHub Docs confirm ~/.copilot/mcp-config.json accepts type \"local\"/\"stdio\"/\"http\"/\"sse\" (\"HTTP or SSE connects to a remote MCP server\"); AC's copilot-cli adapter declares transports:[\"stdio\",\"http\"] (index.ts:209), omitting sse — a genuine, docs-implementable gap (precedent: AC opted into SSE for kimi #51).",
+      "source": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers",
+      "confidence": "high"
+    },
+    {
+      "host": "cursor",
+      "surface": "hooks-native",
+      "claim": "Local research json lists three Cursor-native hook event keys (beforeTabFileRead, afterTabFileEdit, workspaceOpen) that the adapter's native-passthrough comment does not enumerate. They are reachable via the generic nativeHooks verbatim-key path, but are undocumented and their wire payloads are unverified.",
+      "reason": "Primary source (cursor.com/docs/hooks.md) confirms all three are real Cursor hook event names with documented stdin schemas (beforeTabFileRead/afterTabFileEdit = Tab hooks: {file_path, content} and {file_path, edits[]}; workspaceOpen = app-lifecycle: {hook_event_name, cursor_version, workspace_roots, user_email}), and AC's cursor adapter native-passthrough comment (src/adapters/cursor/index.ts lines 215-223) omits all three from its enumerated list — they work via the generic nativeHooks verbatim path but are undocumented; doc-only fix to extend the comment.",
+      "source": "https://cursor.com/docs/hooks.md",
+      "confidence": "high"
+    },
+    {
+      "host": "gemini-cli",
+      "surface": "hooks-canonical",
+      "claim": "Canonical Stop is marked false and skip-warned, but Gemini's native AfterAgent event carries `stop_hook_active` (per platform-research.json token_observability + events list) — the same payload field Claude's Stop hook uses. AfterAgent may be a viable Stop analog the adapter declines to map.",
+      "reason": "Primary-source reference.md confirms Gemini's AfterAgent fires once per turn at the model's final response, carries a stop_hook_active boolean (same field Claude's Stop hook uses), and supports decision:\"deny\" (force retry) + continue:false (halt loop) — a real Stop analog; AC sets stop:false, has no AfterAgent in EVENT_MAP, and skip-warns Stop as \"no Gemini equivalent\", so it's unwired and implementable from docs alone.",
+      "source": "https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md",
+      "confidence": "high"
+    },
+    {
+      "host": "goose",
+      "surface": "hooks-canonical",
+      "claim": "Goose Open Plugins may deliver UserPromptSubmit / Stop / SessionEnd / Notification / PreCompact hook events, but the adapter marks all five capability flags false (warn-skip at install) while still implementing full parseEvent cases for them — a contradiction suggesting these are unverified-deferred rather than confirmed-absent.",
+      "reason": "Goose's official Open Plugins hooks docs enumerate UserPromptSubmit, Stop, and SessionEnd as supported events (also PreCompact/PostCompact in turn-scope), but AC's goose adapter marks userPromptSubmit/stop/sessionEnd/preCompact false (warn-skip at install) while already shipping full parseEvent + formatReply cases for them — confirming the claimed unverified-deferred contradiction. Flipping those flags to true wires them from docs alone (Claude-shaped wire payload already handled). Notification remains unconfirmed by the primary source, so exclude it.",
+      "source": "https://goose-docs.ai/blog/2026/05/14/goose-hooks/",
+      "confidence": "medium"
+    },
+    {
+      "host": "hermes",
+      "surface": "mcp",
+      "claim": "Adapter advertises transports ['stdio','http'] and capabilities.transports includes http, but installServer rejects any non-stdio transport ('transport not registrable in mcp_servers (stdio only)'), so HTTP MCP servers are never written. Research confirms Hermes natively supports Streamable HTTP via url+headers (static) or url+auth:oauth under the same mcp_servers key.",
+      "reason": "Hermes' own docs repo shows mcp_servers accepting remote HTTP entries `{ url, headers }` (static bearer) and `{ url, auth: oauth }` (Streamable HTTP / OAuth 2.1), but AC's hermes adapter advertises transports ['stdio','http'] (index.ts:194) while installServer skip-warns every non-stdio transport (index.ts:313-322), so http connectors are never emitted; implementable from docs alone (YAML writer, no live binary needed).",
+      "source": "https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md",
+      "confidence": "high"
+    },
+    {
+      "host": "jetbrains-copilot",
+      "surface": "hooks-canonical",
+      "claim": "Adapter wires only 4 events (PreToolUse, PostToolUse, PreCompact, SessionStart) but the comment calls the runtime 'Preview' and aliases it to vscode-copilot. The Copilot Preview hooks schema may also deliver SessionEnd, UserPromptSubmit, and/or Stop — the adapter already parses prompt/reason/stop_hook_active defensively, suggesting the host wire carries them.",
+      "reason": "GitHub's official Copilot hooks-reference documents sessionEnd and userPromptSubmitted as real .github/hooks/ events for the JetBrains-IDE Preview surface, but the adapter sets sessionEnd:false and userPromptSubmit:false and omits both from EVENT_MAP — a genuine, docs-implementable gap. (Stop is refuted: Issue #1157 shows it is an unimplemented feature request, not in the documented schema; the claim is an OR and two of three events are confirmed. Caveat lowering confidence: docs use camelCase sessionEnd/userPromptSubmitted while the adapter models Claude-compatible PascalCase and even wires a PreCompact that is absent from the documented six-event set, so exact wire-name mapping needs care.)",
+      "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
+      "confidence": "medium"
+    },
+    {
+      "host": "jetbrains-copilot",
+      "surface": "hooks-native",
+      "claim": "supportsNativeHooks is not set (false / no opt-in). Because the host is an alias of vscode-copilot and shares its Preview hook paradigm, any host-native (non-canonical) Copilot hook events would be unreachable. If the Copilot Preview schema exposes events beyond the canonical 13, jetbrains-copilot is a nativeHooks opt-in candidate.",
+      "reason": "GitHub's own JetBrains-Copilot changelog lists agent-hook events as userPromptSubmitted/preToolUse/postToolUse/errorOccurred in .github/hooks/; errorOccurred is a host-native event with NO equivalent in AC's canonical set (PostToolUseFailure is tool-scoped, not a session-wide error event), and AC's adapter neither maps it nor sets supportsNativeHooks — a valid nativeHooks opt-in candidate implementable from docs alone.",
+      "source": "https://github.blog/changelog/2026-03-11-major-agentic-capabilities-improvements-in-github-copilot-for-jetbrains-ides/",
+      "confidence": "medium"
+    },
+    {
+      "host": "jetbrains-copilot",
+      "surface": "mcp",
+      "claim": "transports=['stdio'] and MCP is declared UI-only (no file written). GitHub Copilot's MCP registration may also support remote HTTP/SSE transports via the same Settings UI, which the adapter omits.",
+      "reason": "GitHub Copilot docs confirm JetBrains IDEs' \"Add MCP Tools\" UI supports remote HTTP/SSE servers (server types STDIO + HTTP/SSE), but AC declares transports:[\"stdio\"] only (src/adapters/jetbrains-copilot/index.ts:161); fixable from docs alone since install is UI-only-warn (capability array + warn wording, no file-write infra needed).",
+      "source": "https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/extend-copilot-chat-with-mcp",
+      "confidence": "high"
+    },
+    {
+      "host": "kilo",
+      "surface": "hooks-native",
+      "claim": "EVENT_TO_KILO maps only 3 canonical events. The kilo-cli backend (shared layer) may expose additional plugin event names beyond tool.execute.before/after and experimental.chat.system.transform that could map to canonical UserPromptSubmit/Stop/SessionEnd.",
+      "reason": "Real gap: the @kilocode/plugin Hooks object (kilo doc defers to OpenCode's model) exposes chat.message (→ UserPromptSubmit, post-submit/pre-agent, supports prompt rewrite) and the generic `event` bus handler receiving session.idle/deleted (→ Stop/SessionEnd) plus permission.ask — but AC's EVENT_TO_KILO (src/adapters/kilo/index.ts:109-113) wires only PreToolUse/PostToolUse/SessionStart and sets userPromptSubmit/stop/sessionEnd capabilities to false. Actionable from docs alone since AC already synthesizes this exact ts-plugin shape; only the precise Stop trigger event (session.idle vs deleted) needs a final confirm.",
+      "source": "https://kilo.ai/docs/automate/extending/plugins (defers to https://opencode.ai/docs/plugins/)",
+      "confidence": "medium"
+    },
+    {
+      "host": "kilo-cli",
+      "surface": "hooks-canonical",
+      "claim": "preCompact:false with comment 'The fork's compaction hook is experimental and not wired here' implies a real (experimental) compaction hook exists in the fork that could back canonical PreCompact/PostCompact.",
+      "reason": "OpenCode's official plugin docs document an `experimental.session.compacting` hook (fires pre-summary; payload exposes output.context.push() + output.prompt) plus a post `session.compacted` event; Kilo CLI is a confirmed OpenCode fork inheriting that plugin model (Kilo plugin docs also list \"compaction events\"/session.compacted), and AC currently sets preCompact:false with no handler — so the experimental compaction hook is real, unwired, and maps to canonical PreCompact/PostCompact. Wireable from docs (event name+payload known); medium confidence because the hook is upstream-`experimental` and its presence on the Kilo fork binary specifically is inferred from the shared model rather than fork-confirmed.",
+      "source": "https://opencode.ai/docs/plugins/ (also kilo.ai/docs/automate/extending/plugins)",
+      "confidence": "medium"
+    },
+    {
+      "host": "kilo-cli",
+      "surface": "hooks-native",
+      "claim": "Per the OpenCode parent (platform-research.json L687: '~25+ lifecycle events plus tool.execute.before/after, chat.message, chat.params, permission.ask'), the kilo-cli fork likely exposes additional lifecycle hooks (chat.message, chat.params, session lifecycle) beyond the 3 wired, none surfaced as native events.",
+      "reason": "Kilo CLI vendor docs confirm @kilocode/plugin exposes an `event` bus hook (session.created/idle/error/deleted, message.updated/removed, etc.) plus chat.message/chat.params/permission.ask — tracking OpenCode's ~25+ event set; AC's EVENT_TO_KILO wires only tool.execute.before/after + system.transform (3), so the additional lifecycle/permission surfaces are genuinely unwired and mappable via the existing bridge synthesis from docs alone.",
+      "source": "https://kilo.ai/docs/automate/extending/plugins",
+      "confidence": "medium"
+    },
+    {
+      "host": "kimi",
+      "surface": "other",
+      "claim": "Kimi has a PLUGIN system at <base>/plugins/<name>/kimi.plugin.json that the adapter explicitly flags as 'not yet surfaced' (header line 54-55). AC does not install/manage Kimi plugins.",
+      "reason": "Official Kimi Code CLI docs confirm a real plugin system installed at ~/.kimi/plugins/<name>/ with a documented manifest at <plugin_root>/kimi.plugin.json (or .kimi-plugin/plugin.json), schema = name/version/description/skills/sessionStart.skill/mcpServers; AC's adapter header lines 54-55 explicitly mark it \"not yet surfaced\" and the adapter only wires mcp.json/config.toml/skills, never ~/.kimi/plugins. Full manifest schema + install path are documented, so a manifest can be written from docs alone (no live binary needed).",
+      "source": "https://moonshotai.github.io/kimi-cli/en/customization/plugins.html (also https://www.kimi.com/code/docs/en/kimi-code-cli/customization/plugins.html)",
+      "confidence": "high"
+    },
+    {
+      "host": "kiro",
+      "surface": "mcp",
+      "claim": "transports=['stdio','http'] only; renderServerEntry maps any non-stdio transport to a URL entry. An SSE transport (separate from streamable http) may be a distinct Kiro mcp.json shape not represented.",
+      "reason": "Kiro docs document a distinct SSE remote-server shape `{ \"type\": \"sse\", \"url\": \".../sse\", \"headers\" }` (separate from `type: \"streamable-http\"`); AC declares transports=[\"stdio\",\"http\"] and renderServerEntry emits a bare `{ url, headers }` with NO `type` discriminator, so it cannot express an SSE-typed Kiro entry — native key shape is fully documented, implementable from docs alone (gated only on a core `sse` transport to map from). Source: https://kiro.dev/docs/mcp/configuration/",
+      "source": "https://kiro.dev/docs/mcp/configuration/",
+      "confidence": "medium"
+    },
+    {
+      "host": "mimo-code",
+      "surface": "hooks-canonical",
+      "claim": "OpenCode's ts-plugin runtime (which MiMoCode forks 1:1) exposes lifecycle hooks beyond the 3 wired here. OpenCode plugins commonly expose a bus 'event' subscription (session.idle/session.error), 'chat.message'/'chat.params', and a 'permission.ask' hook that could map to canonical Stop/UserPromptSubmit/PermissionRequest. The adapter wires none and marks them false.",
+      "reason": "OpenCode's plugin API (which MiMoCode forks 1:1 — only @opencode-ai/* → @mimo-ai/* import changes) officially exposes `chat.message` (fires after user submission, before agent processing → canonical UserPromptSubmit) and an `event` hook with `session.idle` (agent finished → Stop) and `session.error` (→ Notification); AC's mimo-code adapter wires none of these and marks stop/userPromptSubmit/notification all false, so the gap is real and implementable from docs alone (chat.message + event/session.idle are the solid, actionable mappings). Caveat: the `permission.ask`→PermissionRequest sub-claim is refuted — OpenCode issues #7006 and #19927 show that hook is defined in the SDK types but never reliably triggered, so do not wire PermissionRequest.",
+      "source": "https://opencode.ai/docs/plugins/ (also github.com/anomalyco/opencode SDK; chat.message text input: github.com/anomalyco/opencode/issues/17637; permission.ask non-firing: github.com/anomalyco/opencode/issues/7006)",
+      "confidence": "high"
+    },
+    {
+      "host": "nemoclaw",
+      "surface": "mcp",
+      "claim": "renderServerEntry writes transport:'http' for http servers, but the inline validator comment names the accepted remote value as 'streamable-http'. The literal 'http' may be rejected by `openclaw config validate`.",
+      "reason": "OpenClaw's official docs confirm the canonical remote enum is transport:\"streamable-http\" (or \"sse\"); \"http\" is only a CLI-native alias under the `type` key, NOT a valid `transport` value. AC's inherited renderServerEntry (openclaw/index.ts:504-507, inherited unchanged by nemoclaw) emits transport:\"http\", which is neither canonical nor the documented alias — so for HTTP MCP servers AC writes a non-accepted value that embedded OpenClaw/NemoClaw consumes directly (only `doctor --fix`/`mcp set` normalize, not raw config). Fix: emit transport:\"streamable-http\". The adapter's own comment already names \"streamable-http\" as the accepted value, confirming the inconsistency.",
+      "source": "https://docs.openclaw.ai/gateway/configuration-reference",
+      "confidence": "medium"
+    },
+    {
+      "host": "nemoclaw",
+      "surface": "hooks-native",
+      "claim": "before_prompt_build is a real OpenClaw host-native hook the generated plugin already calls (for SessionStart context injection), and OpenClaw exposes a typed lifecycle hook surface (api.on) — but supportsNativeHooks is false, so any OpenClaw/NemoClaw-native hook events beyond the 5 canonical ones are not promoted. Possible nativeHooks-opt-in candidate (precedent: kimi/gemini-cli opted in).",
+      "reason": "OpenClaw's primary plugin-hooks docs confirm api.on(...) exposes many typed lifecycle events (session_end, agent_end, before_agent_run [blockable], before_agent_reply/finalize, before_compaction/after_compaction, llm_input/llm_output, agent_turn_prepare) far beyond the 6 AC wires; the openclaw caps block has supportsNativeHooks unset (defaults false) and sessionEnd/userPromptSubmit/stop/notification=false, so NemoClaw (inheriting OpenClaw's ts-plugin bridge) does NOT promote these host-native events — a real nativeHooks opt-in candidate per the kimi/gemini-cli precedent, implementable from the published event reference alone.",
+      "source": "https://docs.openclaw.ai/plugins/hooks",
+      "confidence": "medium"
+    },
+    {
+      "host": "omp",
+      "surface": "hooks-native",
+      "claim": "OMP exposes native main-loop lifecycle hooks agent_start, agent_end and turn_* (e.g. turn_start/turn_end) that the adapter names but deliberately leaves unwired; supportsNativeHooks is false, making these a nativeHooks opt-in candidate (like the recent kimi/gemini-cli opt-ins).",
+      "reason": "Primary source (can1357/oh-my-pi types.ts pi.on overloads L500-504 + docs/hooks.md L97-101) confirms native main-loop hooks before_agent_start/agent_start/agent_end/turn_start/turn_end; before_agent_start carries prompt:string + injectable message (a real UserPromptSubmit analog) and agent_end carries messages[] (a real Stop analog). AC's adapter (src/adapters/omp/index.ts EVENT_TO_OMP L100-105) wires none of these (stop/userPromptSubmit/sessionEnd all false, no supportsNativeHooks field), naming them as the unwired MAIN loop at L146-152 — so this is a genuine nativeHooks opt-in candidate implementable from docs alone via the existing pi.on synthesizer. Caveat: SubagentStart/SubagentStop have NO OMP analog (zero subagent/task events across all source files), so the useful maps are UserPromptSubmit+Stop only, not the subagent events.",
+      "source": "https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/src/extensibility/hooks/types.ts (pi.on overloads L500-504) and https://github.com/can1357/oh-my-pi/blob/main/docs/hooks.md (L97-101); event-data in packages/coding-agent/src/extensibility/shared-events.ts L174-197",
+      "confidence": "high"
+    },
+    {
+      "host": "omp",
+      "surface": "mcp",
+      "claim": "renderServerEntry's remote branch comment says 'remote (http / sse / ws)' and emits a plain { url, headers } entry, but transports[] declares only ['stdio','http'] — sse/ws may be registerable but are advertised as unsupported.",
+      "reason": "OMP's official docs/mcp-config.md defines `sse` as a distinct, documented transport (`type:\"sse\"` + url/headers, \"still supported for compatibility\"); AC declares only transports:[\"stdio\",\"http\"] and its remote branch emits a plain {url,headers} with NO type field, so it can never register an SSE server — a real unwired surface, implementable from docs alone. Note: the `ws` half of the claim is REFUTED (OMP has no websocket transport; the adapter's \"http / sse / ws\" comment is wrong), and AC's http entry also omits the doc-required `type:\"http\"` discriminator.",
+      "source": "https://github.com/can1357/oh-my-pi/blob/main/docs/mcp-config.md",
+      "confidence": "high"
+    },
+    {
+      "host": "openclaw",
+      "surface": "mcp",
+      "claim": "OpenClaw accepts remote MCP servers (sse / streamable-http transport) per the adapter's own validator comment and renderServerEntry's remote branch, but the transports capability declares only ['stdio'], so the planner advertises stdio-only.",
+      "reason": "OpenClaw docs confirm mcp.servers accepts remote servers with transport \"streamable-http\" (canonical) / \"sse\"; AC's renderServerEntry already writes a remote branch BUT capabilities.transports=[\"stdio\"] (line 264) under-declares it, so the planner advertises stdio-only. Fixable from docs alone: add sse/http to transports (and align the literal to the canonical \"streamable-http\" — the OpenClawRemoteServer interface at line 207 and line 504 emit \"http\", which the doc comment at lines 196-198/462 says is not the canonical accepted literal).",
+      "source": "https://docs.openclaw.ai/gateway/configuration-reference",
+      "confidence": "high"
+    },
+    {
+      "host": "openclaw",
+      "surface": "mcp",
+      "claim": "The remote-server renderer writes transport: \"http\" for the http case, but the adapter's own comment says OpenClaw only accepts the literal \"streamable-http\" (not \"http\") — a value the validator may reject.",
+      "reason": "OpenClaw's official config reference documents remote mcp.servers transport enum as \"streamable-http\"|\"sse\" (example shows transport:\"streamable-http\"); AC's renderServerEntry (src/adapters/openclaw/index.ts:504) writes transport:\"http\" for the remote-http case, contradicting both the docs and AC's OWN comments (lines 197, 463, 491) — a value the validator does not accept. Fix: map http→\"streamable-http\" in the OpenClawRemoteServer renderer/type.",
+      "source": "https://docs.openclaw.ai/gateway/configuration-reference",
+      "confidence": "high"
+    },
+    {
+      "host": "openclaw",
+      "surface": "hooks-native",
+      "claim": "before_prompt_build is a real host-native hook the adapter already calls (for SessionStart context injection); it fires at prompt assembly per user turn, so it could back a canonical UserPromptSubmit, which is currently false/unmapped.",
+      "reason": "Official hooks.md confirms a per-turn prompt hook that backs canonical UserPromptSubmit: before_agent_run \"receives the current user input as `prompt`\" and returns `{ outcome: \"block\", reason, message? }` to stop the run before the model reads it (blocking + user message), while before_prompt_build/agent_turn_prepare inject per-turn context (`prependContext`). The claim's named hook (before_prompt_build) is context-injection-ONLY with no block field, but the sibling before_agent_run supplies the blocking gate the verify question allowed for. AC currently sets userPromptSubmit:false and has no UserPromptSubmit entry in EVENT_TO_OPENCLAW, so it does not wire it. The adapter already synthesizes api.on(...) handlers, so adding before_agent_run (block) + before_prompt_build (context) for UserPromptSubmit is the same pattern — implementable from docs alone. Caveat: known bug openclaw#65157 means these per-request hooks may not dispatch under the claude-cli provider (host runner limitation, not an AC blocker).",
+      "source": "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/plugins/hooks.md",
+      "confidence": "high"
+    },
+    {
+      "host": "opencode",
+      "surface": "hooks-canonical",
+      "claim": "PermissionRequest is unset (capabilities.permissionRequest false) but the adapter comment states OpenCode HAS a decision-capable `permission.ask` plugin hook upstream, deliberately left unwired ('E1 keeps this adapter degrade-only'). A real host hook mapped to a canonical event but skipped — the strongest gap.",
+      "reason": "OpenCode plugin SDK defines a decision-capable \"permission.ask\" hook (input: Permission, output: {status:\"ask\"|\"deny\"|\"allow\"}) — plugin mutates output.status to deny/allow, same mutation paradigm AC already uses for tool.execute.before. AC leaves permissionRequest unset and the bridge never references permission.ask, so PermissionRequest could be wired natively instead of degrading ask→block. Implementable from docs alone; only caveat is an upstream if(!needsAsk) guard (issues #7006/#19927) limiting first-encounter firing.",
+      "source": "https://opencode.ai/docs/plugins/ (hook signature confirmed in https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/index.ts: \"permission.ask\"?: (input: Permission, output: { status: \"ask\" | \"deny\" | \"allow\" }) => Promise<void>)",
+      "confidence": "high"
+    },
+    {
+      "host": "opencode",
+      "surface": "hooks-native",
+      "claim": "supportsNativeHooks is false (flag absent) and the adapter wires only 3 of OpenCode's '25+ lifecycle events'; native non-canonical events (chat.message, chat.params, message.updated, session.idle, session.error) plus permission.ask are reachable but never opted into via nativeHooks — a nativeHooks-opt-in candidate (same pattern as the recent gemini-cli/kimi opt-ins).",
+      "reason": "OpenCode's official plugin docs + anomalyco/opencode source confirm hooks beyond AC's wired 3 (tool.execute.before/after, experimental.chat.system.transform): permission.ask, chat.message, chat.params, plus event-bus events (message.updated/session.idle/session.error). AC's opencode adapter has NO supportsNativeHooks flag and EVENT_TO_OPENCODE maps only those 3, so the nativeHooks opt-in is genuinely missing. Actionable from docs via the existing shell-out bridge pattern, BUT permission.ask has open upstream firing bugs (#7006 not-triggered, #19927 first-encounter bypass), so the decision-capable wiring is risky without a live binary — hence medium confidence.",
+      "source": "https://opencode.ai/docs/plugins/",
+      "confidence": "medium"
+    },
+    {
+      "host": "opencode",
+      "surface": "hooks-canonical",
+      "claim": "SessionStart is wired only via the experimental.chat.system.transform surrogate (no real SessionStart hook, per #14808/#5409). If upstream added a true session-start hook, the surrogate (which only injects into the system-prompt array) is weaker than a real lifecycle event.",
+      "reason": "OpenCode's session.created is a real, working plugin/bus event: issue #14808 (the exact one AC cites as proof of \"no real SessionStart hook\") was CLOSED as COMPLETED 2026-05-04 with a collaborator confirming it fires on new-session creation via the generic event handler. AC still wires SessionStart ONLY via the experimental.chat.system.transform surrogate (src/adapters/opencode/index.ts line 112) and its comments asserting \"no real SessionStart hook (#14808/#5409)\" are now stale. Caveat: session.created is observe-only (no output to mutate; fires lazily on first prompt), so it adds a true fire-on-start NOTIFY lane but does not replace system.transform for context injection — implementable from docs alone.",
+      "source": "https://github.com/anomalyco/opencode/issues/14808",
+      "confidence": "high"
+    },
+    {
+      "host": "pi",
+      "surface": "hooks-native",
+      "claim": "Adapter asserts Pi 'has no lifecycle hook system in the json-stdio or ts-plugin sense'; research hooks_support.supported=false at 'low' confidence with 'No hook configs found'. Determined by absence of observed config, not by confirmed product docs.",
+      "reason": "Vendor repo docs (pi-mono extensions.md) confirm Pi HAS a native ts-plugin-style lifecycle hook system — TypeScript extensions export an ExtensionAPI factory and call pi.on(\"session_start\"|\"tool_call\"|\"session_end\"|\"agent_start\"|\"turn_start\"|\"turn_end\", ...), auto-discovered from ~/.pi/agent/extensions/*.ts & .pi/extensions/*.ts or registered via settings.json \"extensions\":[...] (also --extension/-e). This refutes the adapter's \"no lifecycle hook system in the json-stdio or ts-plugin sense\" claim. AC's pi/index.ts does NOT wire it (paradigm mcp-only, all hook caps false, installHooks returns skip, no supportsNativeHooks) — so this is a genuine supportsNativeHooks ts-plugin opt-in candidate matching the gemini-cli/kimi pattern (commits #53/#54). Actionable from docs: events list, registration paths, and settings.json extensions[] are all documented, and AC already has ts-plugin nativeHooks infra in-repo (does require shipping a TS extension module template).",
+      "source": "https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md",
+      "confidence": "high"
+    },
+    {
+      "host": "qwen-code",
+      "surface": "hooks-canonical",
+      "claim": "PostCompact capability is set false with comment 'Qwen does not fire PostCompact natively', yet Qwen is Claude-wire-compatible and the adapter already parses PostCompact defensively. If a recent Qwen release added a post-compaction hook event, AC would silently not wire it.",
+      "reason": "qwen-code official docs/users/features/hooks.md documents a PostCompact hook event (purpose, compact_summary payload, trigger matcher, config example), but AC's qwen-code adapter leaves capabilities.postCompact unset so installHooks warn-skips it and never wires a connector's PostCompact hook on Qwen — a real, doc-implementable gap (existing PreCompact-identical plumbing).",
+      "source": "https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md",
+      "confidence": "high"
+    },
+    {
+      "host": "qwen-code",
+      "surface": "hooks-native",
+      "claim": "Adapter comments repeatedly assert Qwen has a '16-event surface strictly wider than the canonical union' but wire only 12 canonical events. With 16 native vs ~13 canonical, ~3-4 host-native events exist that AC neither names nor wires, and supportsNativeHooks is not set — a nativeHooks opt-in candidate (like the recent gemini-cli/kimi opt-ins).",
+      "reason": "Official qwen-code hooks.md enumerates a 16-event native surface; AC wires only 12 canonical events and never names/wires the host-native StopFailure, TodoCreated, TodoCompleted (nor sets supportsNativeHooks) — a real nativeHooks opt-in candidate like the gemini-cli/kimi opt-ins, implementable from the documented wire shapes alone.",
+      "source": "https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/hooks.md",
+      "confidence": "high"
+    },
+    {
+      "host": "trae",
+      "surface": "hooks-native",
+      "claim": "Adapter declares Trae has no lifecycle hook system at all (all 8 canonical hook caps false, paradigm mcp-only). Trae is an active ByteDance IDE-style agent product that may expose hook/automation or lifecycle event mechanisms not yet surveyed.",
+      "reason": "Multiple independent searches confirm official Trae IDE docs ship a dedicated \"Hooks\" page + \"Hook configuration reference\" (commands at lifecycle points: before/after tool use, on error, on prompt submit), refuting AC's trae/index.ts claim of mcp-only with all 8 hook caps false; AC does not wire it. Actionable as a docs-extraction task (no live binary needed), but the exact hooks.json schema lives on an HTML config-ref page I was constrained from fetching, so field-level wiring needs one more docs read — hence medium confidence.",
+      "source": "https://docs.trae.ai/ide/hooks (and Hook configuration reference under docs.trae.ai/ide)",
+      "confidence": "medium"
+    },
+    {
+      "host": "trae",
+      "surface": "commands",
+      "claim": "Adapter asserts commands/subagents have \"no native file surface\" in Trae, enabling only skills. A Trae slash-command or prompt-template file surface may exist and be unwired.",
+      "reason": "Trae officially documents a native custom slash-command file surface (project command files under .trae/commands/, markdown, up to 3 nested levels) that AC's trae adapter explicitly denies (\"Commands/subagents have no native file surface here\") and does not wire (grep confirms zero commands wiring); it is a pure native-file writer implementable now from docs alone, mirroring AC's existing .trae/skills/ writer.",
+      "source": "https://docs.trae.ai/ide/ (Commands docs; .trae/commands/ markdown command files, per docs.trae.ai/ide changelog + commands page)",
+      "confidence": "medium"
+    },
+    {
+      "host": "windsurf",
+      "surface": "commands",
+      "claim": "Windsurf (Cascade) supports user-authored workflows/commands (e.g. .windsurf/workflows/*.md) that AC does not wire; the adapter explicitly leaves commands UNSET as 'no documented directory verified'.",
+      "reason": "Official Windsurf/Devin docs document user-authored workflows as .windsurf/workflows/*.md (workspace) + ~/.codeium/windsurf/global_workflows/ (global) with name/description/auto_execute_steps frontmatter, invoked as /name slash commands — a real \"commands\" surface AC explicitly leaves UNSET (src/adapters/windsurf/index.ts lines 121-122); directly parallel to the .windsurf/rules/*.md memory dir AC already wires, so implementable from docs alone.",
+      "source": "https://docs.windsurf.com/windsurf/cascade/workflows",
+      "confidence": "high"
+    },
+    {
+      "host": "windsurf",
+      "surface": "skills",
+      "claim": "Adapter leaves skills/subagents UNSET citing 'no documented directory verified'; Windsurf may expose a skills or rules-based agent-config surface beyond .windsurf/rules.",
+      "reason": "Official Windsurf docs now document a Cascade Skills surface — .windsurf/skills/[name]/SKILL.md (workspace) + global_skills (frontmatter name/description, @skill invocation) — plus .windsurf/workflows/ slash-commands; AC's adapter explicitly leaves skills/commands UNSET (src/adapters/windsurf/index.ts:121-122 \"no documented directory verified\"), so the comment is stale and a markdown content-file surface is implementable from docs alone using AC's existing content-file writer pattern.",
+      "source": "https://docs.windsurf.com/windsurf/cascade/skills (also https://docs.windsurf.com/windsurf/cascade/workflows)",
+      "confidence": "high"
+    }
+  ],
+  "confirmedNonActionable": [
+    {
+      "host": "cursor",
+      "surface": "other",
+      "claim": "Cursor has a command-driven statusline (statusLine in ~/.cursor/cli-config.json, global scope) that the adapter explicitly defers — config-key shape and stdin payload field names are from a community tool, not first-party docs.",
+      "reason": "Cursor's first-party docs confirm a /statusline command + global cli-config.json, but they do NOT document the statusLine JSON key shape or the stdin payload field names (model.display_name/workspace/cost are the Claude Code contract, sourced from community tools/Claude docs only); AC's cursor adapter (index.ts L225-230) explicitly defers this surface and does not wire it, so the gap is real but blocked on a live cursor-agent capture rather than implementable from docs."
+    },
+    {
+      "host": "kilo-cli",
+      "surface": "hooks-native",
+      "claim": "kilo-cli is a confirmed OpenCode fork shipping a decision-capable native `permission.ask` plugin hook upstream, but the adapter does not wire it and has NO supportsNativeHooks opt-in; canonical PermissionRequest is left false and 'ask' decisions are degraded to a hard block. nativeHooks opt-in candidate (mirrors recent OpenCode/Kimi/Gemini nativeHooks promotions).",
+      "reason": "OpenCode's permission.ask plugin hook (allow/deny/ask via output.status) is primary-source confirmed and Kilo CLI is a confirmed OpenCode fork inheriting that plugin runtime; AC's kilo-cli adapter leaves permissionRequest unset and degrades 'ask' to a hard block with no supportsNativeHooks opt-in — so the gap is real. BUT not actionable from docs alone: no Kilo-specific primary source confirms @kilocode/plugin exposes permission.ask, and OpenCode's own open issues (#7006 'defined but not triggered', #19927 'bypassed for first-encounter needsAsk=true') show the hook is unreliable, so correctness needs live-binary verification before wiring a nativeHooks promotion."
+    }
+  ]
+}

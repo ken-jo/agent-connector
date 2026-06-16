@@ -1,0 +1,302 @@
+{
+  "summary": "Primary-source verify each remaining audit finding per host (read-only); classify real / non-gap / unverifiable + exact fix spec",
+  "agentCount": 21,
+  "logs": [
+    "verifying 21 hosts",
+    "real=17 non-gap=10 unverifiable=4"
+  ],
+  "result": {
+    "hostsVerified": 21,
+    "total": 31,
+    "real": [
+      {
+        "host": "amazon-q",
+        "surface": "skills",
+        "status": "real",
+        "verdict": "REAL GAP: Amazon Q Developer CLI documentation clearly shows that **agents** (user-authored, agent-format.md) are a primary feature stored in per-agent JSON files, and the prompt library feature (contexts) exists at ~/.aws/amazonq/prompts/. The adapter states 'no documented user-authored commands/skills/subagents directory verified for Amazon Q' but agents ARE documented and user-authored. Whether mapped to capabilities.supportsSkills or a new supportsAgents flag, the adapter should expose that Amazon Q supports custom agent definitions. Agents contain name, description, custom prompt, tool allowlists, hooks, and resources — analogous to 'skills' in the agent-connector abstraction.",
+        "sourceVerified": "https://raw.githubusercontent.com/aws/amazon-q-developer-cli/main/docs/agent-format.md",
+        "evidence": "From agent-format.md: 'The agent configuration file for each agent is a JSON file. The filename (without the .json extension) becomes the agent's name.' Agents support: name, description, prompt (inline or file://), mcpServers, tools, toolAliases, allowedTools, toolsSettings, resources, hooks, useLegacyMcpJson, model. From prompts doc: 'Prompts are saved in the ~/.aws/amazonq/prompts folder.' This is a documented, public surface.",
+        "fixSpec": "Update amazon-q adapter capabilities: either (a) set supportsSkills: true and wire supportsAgents: true as a new custom capability alongside it, documenting that Amazon Q agents map to skill-like constructs; OR (b) add supportsAgents: true as a dedicated capability. The adapter should declare memoryTargets() for agents if memory is to be injected into agent definitions. However, the minimal fix to address the audit claim is: set capabilities.supportsSkills = true (or add supportsAgents flag and set it true) with a comment that Amazon Q agents are stored per-user/per-project and are user-authored agent definitions (not installed by AC, but AC could support injecting memory or context into them in a future phase). Update the comment on line 131 to acknowledge: 'Amazon Q supports agents (stored in ~/.aws/amazonq/cli-agents/*.json or .amazonq/cli-agents/*.json per-project) and prompts (~/aws/amazonq/prompts/). Agent wiring not yet implemented (future work).'",
+        "effort": "small"
+      },
+      {
+        "host": "codebuff",
+        "surface": "subagents",
+        "status": "real",
+        "verdict": "The adapter comment asserts 'subagents have no native Codebuff surface' (index.ts:124), but Codebuff's official docs and all verified research (platform-data.ts, landing-page-gap-backlog.md) confirm subagents ARE natively supported as executable TypeScript modules in .agents/*.ts. The comment is factually wrong, though the deferred implementation status (supportsSubagents=false) is intentional pending SDK-schema-coupled rendering.",
+        "evidence": "Codebuff docs state: 'Create a new TypeScript file in .agents/ directory... .agents/my-custom-agent.ts' (www.codebuff.com/docs/agents/creating-new-agents). platform-data.ts line 196-198: 'codebuff: subagents=true [high] — user-defined TypeScript agents in .agents/'. landing-page-gap-backlog.md line 51-52 (DEFERRED section): 'codebuff subagents — confirmed real, but an executable .agents/*.ts AgentDefinition module (SDK-schema-coupled)'.",
+        "sourceVerified": "https://www.codebuff.com/docs/agents/creating-new-agents; /home/ubuntu/workspace/github/agent-connector/site/src/platform-data.ts:196-198; /home/ubuntu/workspace/github/agent-connector/docs/research/landing-page-gap-backlog.md:51-52",
+        "fixSpec": "Update the misleading comment at src/adapters/codebuff/index.ts:124 from 'Commands / subagents have no native Codebuff surface' to 'Commands have no native Codebuff surface. Subagents are natively supported as executable .agents/*.ts AgentDefinition modules (SDK-schema-coupled render deferred)'. No code change needed—this is a documentation-only fix. The supportsSubagents=false capability flag is intentionally correct (subagents are deferred, not unsupported).",
+        "effort": "small"
+      },
+      {
+        "host": "cursor",
+        "surface": "hooks-native",
+        "status": "real",
+        "verdict": "The adapter's native passthrough comment (lines 215-223) incompletely enumerates Cursor-native hook events. It lists 8 hooks (beforeShellExecution, afterShellExecution, beforeMCPExecution, afterMCPExecution, beforeReadFile, afterFileEdit, afterAgentResponse, afterAgentThought) but Cursor's official documentation at cursor.com/docs/hooks includes 3 additional native hooks: beforeTabFileRead (Tab completions file access control), afterTabFileEdit (Tab completions post-processing), and workspaceOpen (workspace lifecycle). The three hooks ARE functionally reachable via the generic nativeHooks verbatim-key passthrough (upsertNativeHook line 476 writes hooks[event] directly), but the enumeration comment creates false confidence about completeness.",
+        "evidence": "cursor.com/docs/hooks documents under 'Tab hooks': '- beforeTabFileRead - Control file access for Tab completions' and '- afterTabFileEdit - Post-process Tab edits'; under 'App lifecycle hooks': '- workspaceOpen - Fires when Cursor opens a workspace...'. The adapter comment (lines 215-223) states 'beforeShellExecution / afterShellExecution / beforeMCPExecution / afterMCPExecution / beforeReadFile / afterFileEdit / afterAgentResponse / afterAgentThought' with no mention of the Tab or App lifecycle hooks.",
+        "sourceVerified": "https://cursor.com/docs/hooks.md (verified via curl on 2026-06-16; primary Cursor documentation)",
+        "fixSpec": "Update the comment at lines 215-223 to enumerate all 11 Cursor-native hooks (the 8 listed plus beforeTabFileRead, afterTabFileEdit, workspaceOpen). Suggested text: 'Cursor documents many granular hooks with NO canonical analog — beforeShellExecution / afterShellExecution / beforeMCPExecution / afterMCPExecution / beforeReadFile / afterFileEdit / beforeTabFileRead / afterTabFileEdit / workspaceOpen / afterAgentResponse / afterAgentThought (cursor.com/docs/hooks). They are host-specific...' Keep the rest of the explanation unchanged, as the functional mechanism (verbatim event-name passthrough via nativeHooks) is correct and already working.",
+        "effort": "small"
+      },
+      {
+        "host": "goose",
+        "surface": "hooks-canonical",
+        "status": "real",
+        "verdict": "CONFIRMED: Three hook events (SessionEnd, UserPromptSubmit, Stop) are supported by Goose's Open Plugins runtime per official docs, but the adapter marks these capabilities as FALSE, causing them to be warn-skipped during installation instead of written to hooks.json. The parseEvent() method has full implementations for all three, confirming the adapter is capable at runtime but gated by incorrect capability flags.",
+        "evidence": "Goose documentation (https://goose-docs.ai/blog/2026/05/14/goose-hooks/) explicitly lists supported events: 'SessionStart, SessionEnd, Stop, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure'. However, adapter capabilities (src/adapters/goose/index.ts lines 170-201) declares: sessionEnd: false (line 179), userPromptSubmit: false (line 180), stop: false (line 181). Despite these false flags, parseEvent() (lines 735-765) contains complete case implementations for all three events, and the wire protocol interface (GooseWireInput, lines 140-163) includes all required fields (reason, prompt, stop_hook_active).",
+        "sourceVerified": "https://goose-docs.ai/blog/2026/05/14/goose-hooks/ AND /home/ubuntu/workspace/github/agent-connector/src/adapters/goose/index.ts",
+        "effort": "small",
+        "fixSpec": "In src/adapters/goose/index.ts, update the readonly capabilities object (lines 170-201) to mark three events as supported:\n- Line 179: change `sessionEnd: false,` to `sessionEnd: true,`\n- Line 180: change `userPromptSubmit: false,` to `userPromptSubmit: true,`\n- Line 181: change `stop: false,` to `stop: true,`\n\nNo changes required to EVENT_CAPABILITY map, parseEvent(), or wire protocol handling — all are already correct and complete. This fix removes the gating that prevents installHooks() from writing these three events to hooks.json. The existing test at tests/adapters/wave3.test.ts line 348 (which expects UserPromptSubmit to be skipped) must be updated to expect installation success instead of warn."
+      },
+      {
+        "host": "kilo",
+        "surface": "hooks-native",
+        "status": "real",
+        "verdict": "The adapter's EVENT_TO_KILO mapping covers only 3 canonical events (PreToolUse, PostToolUse, SessionStart), but the underlying Kilo CLI backend shares OpenCode's plugin layer which exposes 25+ lifecycle events including session.created, session.idle, session.updated, session.error, permission.ask, and others. These additional native events could map to canonical events like SessionEnd, Stop, UserPromptSubmit, and PermissionRequest, but the adapter does not expose these mappings.",
+        "effort": "medium",
+        "evidence": "OpenCode plugin hook types (lines 651-681 of platform-research.json) include 25+ events: 'tool.execute.before', 'tool.execute.after', 'chat.message', 'chat.params', 'permission.ask', 'session.created', 'session.idle', 'session.updated', 'session.error', 'message.updated', 'message.removed', 'file.edited', 'file.watcher.updated', 'command.executed', 'lsp.client.diagnostics', 'lsp.updated', 'todo.updated', 'shell.env', 'server.connected', 'installation.updated', 'tui.prompt.append', 'experimental.session.compacting'. Kilo CLI adapter comment (line 5) confirms 'live-confirmed OpenCode fork' and (lines 34-35) states extension and CLI 'share the same plugin layer'. However, EVENT_TO_KILO (lines 127-131 of kilo-cli/index.ts) maps only 3 events.",
+        "sourceVerified": "/home/ubuntu/workspace/github/agent-connector/docs/research/platform-research.json (lines 621-710 for OpenCode platform entry); /home/ubuntu/workspace/github/agent-connector/src/adapters/kilo-cli/index.ts (lines 1-131); /home/ubuntu/workspace/github/agent-connector/src/adapters/kilo/index.ts (lines 29-35, 105-113)",
+        "fixSpec": "Extend EVENT_TO_KILO mapping to include additional native Kilo/OpenCode plugin events. Specifically: (1) Add SessionEnd mapping to 'session.error' or 'session.deleted' (pending confirmation of which event closest aligns with session end semantics); (2) Research whether Kilo CLI exposes a 'permission.ask' equivalent and map PermissionRequest if available; (3) Evaluate session lifecycle events ('session.created', 'session.idle', 'session.updated', 'session.error', 'session.deleted', 'session.status', 'session.diff') to determine if any map to canonical UserPromptSubmit or Stop events. Update EVENT_TO_KILO constant in both kilo/index.ts (lines 109-113) and kilo-cli/index.ts (lines 127-131) with new mappings. Update capabilities object (kilo/index.ts lines 178-200 and kilo-cli/index.ts lines 164-198) to set sessionEnd, stop, and userPromptSubmit to true where mappings are added. Update buildPluginSource() and synthesizePlugin() methods to wire handlers for newly mapped events. Update hookDetail() method to report newly wired events. Update drift matrix documentation if applicable."
+      },
+      {
+        "host": "kimi",
+        "surface": "other",
+        "status": "real",
+        "verdict": "Confirmed genuine gap: Kimi has a documented plugin system that agent-connector does not currently install or manage.",
+        "evidence": "Official Kimi Code CLI documentation (https://www.kimi.com/code/docs/en/kimi-code-cli/customization/plugins.html) states: 'A plugin is a directory or zip file containing a manifest. The manifest can be placed at either of the following locations: <plugin_root>/kimi.plugin.json or <plugin_root>/plugin.json'. Supported fields include: skills, sessionStart.skill, mcpServers, skillInstructions. Kimi adapter code explicitly acknowledges this gap at lines 54-55: 'Kimi also has a PLUGIN system (`<base>/plugins/<name>/kimi.plugin.json`), not yet surfaced.'",
+        "sourceVerified": "https://www.kimi.com/code/docs/en/kimi-code-cli/customization/plugins.html",
+        "fixSpec": "Add plugin support to KimiAdapter by: (1) add capability flag 'supportsPlugins: true' to the capabilities object (line 210-250); (2) implement installPlugins(ctx: InstallContext): ChangeRecord[] method to write plugin manifest entries to $KIMI_CODE_HOME/plugins/managed/<id>/kimi.plugin.json with name, version, skills (relative paths), sessionStart.skill, mcpServers (from connector.server), and skillInstructions (from connector.instructions if available); (3) implement uninstallPlugins(ctx: InstallContext): ChangeRecord[] to remove the managed plugin directory; (4) add plugin diagnostic health checks (detectInstalled should also look for plugins/ dir; getHealthChecks should verify plugin manifest presence if plugins are declared); (5) coordinate with skill installation — plugins can bundle skills, so installSkills should validate no path conflicts between <skillDir> and plugin skill paths.",
+        "effort": "large"
+      },
+      {
+        "host": "mimo-code",
+        "surface": "hooks-canonical",
+        "status": "real",
+        "verdict": "The finding is PARTIALLY REAL. OpenCode (which MiMoCode forks 1:1) does expose additional lifecycle hooks beyond the 3 wired. The adapter correctly wires only PreToolUse/PostToolUse/SessionStart but leaves userPromptSubmit, stop, and notification all false. The OpenCode plugin docs (platform-research.json lines 651-681) confirm chat.message, session.idle, and session.error are real, documented, native events. However, the permission.ask sub-claim is REFUTED by the existing audit (line 237-239), which notes OpenCode issues #7006 and #19927 show permission.ask is defined in SDK types but never reliably triggered.",
+        "sourceVerified": "https://opencode.ai/docs/plugins/ (verified via platform-research.json lines 651-681: hook_types array lists chat.message [654], chat.params [655], session.idle [659], session.error [663], and permission.ask [656])",
+        "evidence": "Platform-research.json lines 654-663 enumerate OpenCode's native hooks: 'chat.message', 'chat.params', 'session.idle', 'session.error'. Line 657 also lists 'event (generic dispatcher; switch on event.type)'. The adapter's EVENT_TO_MIMOCODE (mimo-code/index.ts lines 110-116) wires only 3 events (PreToolUse, PostToolUse, SessionStart) and capabilities (lines 150-155) set userPromptSubmit:false, stop:false, notification:false, despite session.idle and chat.message being confirmed real.",
+        "fixSpec": "For userPromptSubmit: (1) add EVENT_TO_MIMOCODE['UserPromptSubmit'] = 'chat.message'; (2) set capabilities.userPromptSubmit = true; (3) add a handler in buildPluginSource for 'chat.message': async (input, output) => { payload = {sessionId, projectDir}; res = bridge('UserPromptSubmit', payload); if (res.updatedPrompt && output) output.prompt = res.updatedPrompt; }. For stop: (1) add EVENT_TO_MIMOCODE['Stop'] = 'session.idle'; (2) set capabilities.stop = true; (3) add a handler for 'session.idle': async (input, output) => { payload = {sessionId, projectDir}; res = bridge('Stop', payload); if (res.decision === 'block') throw new Error(res.reason || 'Stopped'); }. Note: MiMoCode's native plugin shape mirrors OpenCode's exactly (chat.message async (input, output) signature, session.idle event handler), so no bridge payload shape changes needed. Skip permission.ask entirely per upstream reliability issues.",
+        "effort": "medium"
+      },
+      {
+        "host": "nemoclaw",
+        "surface": "hooks-native",
+        "status": "real",
+        "verdict": "OpenClaw/NemoClaw adapters are missing supportsNativeHooks: true in their capabilities object. The adapters already emit code that registers typed lifecycle hooks via api.on() (including before_prompt_build for SessionStart context injection), which is the documented native hook surface for OpenClaw plugins. The capabilities flag should be set to true to accurately reflect this functionality.",
+        "evidence": "OpenClaw docs (https://docs.openclaw.ai/plugins/hooks): 'Register typed plugin hooks with `api.on(...)` from your plugin entry' and 'before_prompt_build - add dynamic context or system-prompt text before the model call'. Adapter code lines 1266-1271 of openclaw/index.ts show generated plugin registering `on(\"before_prompt_build\", ...)`. Capabilities object (lines 232-279) does not include supportsNativeHooks field, defaulting to false per introspect.ts:75.",
+        "sourceVerified": "https://docs.openclaw.ai/plugins/hooks (typed api.on lifecycle hook surface confirmed); /home/ubuntu/workspace/github/agent-connector/src/adapters/openclaw/index.ts (code inspection); /home/ubuntu/workspace/github/agent-connector/src/core/types.ts line 589 (supportsNativeHooks field definition)",
+        "effort": "small",
+        "fixSpec": "Add `supportsNativeHooks: true,` to the capabilities object in OpenClawAdapter (src/adapters/openclaw/index.ts, lines 232-279). Place it after the existing capabilities like `supportsMemory`, `supportsSkills`, etc. Since NemoClawAdapter extends OpenClawAdapter without overriding capabilities (line 88 of nemoclaw/index.ts: `capabilities: this.capabilities`), a single change to the parent class fixes both adapters. No changes needed to EVENT_TO_OPENCLAW mapping or synthesized plugin code — both already work correctly."
+      },
+      {
+        "host": "omp",
+        "surface": "hooks-native",
+        "status": "real",
+        "verdict": "OMP exposes native agent_start, agent_end, turn_start, turn_end hooks (verified in pi.on overloads L501-504 of https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/src/extensibility/hooks/types.ts and event types in shared-events.ts L174-197) but deliberately does not wire them in EVENT_TO_OMP (L100-105), does not declare supportsNativeHooks, and does not document opt-in. This blocks connectors from using these lifecycle hooks. Adapter author explicitly acknowledges them (L147-153 comment: 'OMP's agent_start/agent_end/turn_* hooks are the MAIN loop... None are wired').",
+        "evidence": "OMP adapter L100-105 EVENT_TO_OMP maps only PreToolUse, PostToolUse, SessionStart, PreCompact; agent_start/agent_end/turn_* absent. L147-153 comment: 'OMP's agent_start/agent_end/turn_* hooks are the MAIN loop... None are wired'. capabilities block (L134-168) lacks supportsNativeHooks field. Upstream pi.on(event) overloads at https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/extensibility/hooks/types.ts lines 501-504 define these events as part of the PI platform surface.",
+        "sourceVerified": "https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/src/extensibility/hooks/types.ts (L500-504); https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/src/extensibility/shared-events.ts (L174-197); /home/ubuntu/workspace/github/agent-connector/src/adapters/omp/index.ts (L100-105, L147-153, L134-168)",
+        "fixSpec": "Add `supportsNativeHooks: true` to the capabilities object (L134-168), matching the pattern in Kimi adapter (src/adapters/kimi/index.ts L249). This allows connectors to declare platforms[\"omp\"].nativeHooks with native event names and their command handlers. The generated plugin will NOT automatically wire these (unlike normalized hooks) — connectors must declare them explicitly. No changes to EVENT_TO_OMP are needed; nativeHooks bypass that map entirely and are dispatched directly by the home-bin hook entrypoint (runtime/hook-entrypoint.ts L404). Effort: small (one boolean flag addition + comment explaining nativeHooks escape hatch).",
+        "effort": "small"
+      },
+      {
+        "host": "openclaw",
+        "surface": "hooks-native",
+        "status": "real",
+        "verdict": "UserPromptSubmit is unmapped but could be supported via before_prompt_build, which fires at every prompt assembly per user turn. The adapter currently marks userPromptSubmit:false and does not add UserPromptSubmit to EVENT_TO_OPENCLAW, causing any declared UserPromptSubmit hook to be reported as 'unsupported here'.",
+        "evidence": "OpenClaw docs (https://raw.githubusercontent.com/openclaw/openclaw/main/docs/plugins/hooks.md) confirm: before_prompt_build 'receives the current prompt and session messages' and can return 'prependContext, appendContext, systemPrompt, prependSystemContext, or appendSystemContext' — the standard context-injection contract. It fires 'before the model call' on every agent turn. The adapter already uses before_prompt_build for SessionStart context injection (lines 1266-1270 in index.ts).",
+        "sourceVerified": "https://raw.githubusercontent.com/openclaw/openclaw/main/docs/plugins/hooks.md + /home/ubuntu/workspace/github/agent-connector/src/adapters/openclaw/index.ts",
+        "effort": "small",
+        "fixSpec": "1. Add UserPromptSubmit: 'before_prompt_build' to EVENT_TO_OPENCLAW map (line 160-172). 2. Set userPromptSubmit: true in capabilities (line 245). 3. In buildPluginSource (starting line 1061), add a handler that: (a) receives the UserPromptSubmit event with prompt field, (b) bridges it via bridge('UserPromptSubmit', {prompt, sessionId, projectDir}), (c) returns additionalContext from the response as appendSystemContext. The handler should coexist with the SessionStart-injected context (use a separate pendingPromptContext variable so both can be injected into before_prompt_build without double-injection). Test: declare UserPromptSubmit, verify hookDetail() reports 'UserPromptSubmit' mapped, verify generated plugin registers a before_prompt_build handler that checks for pendingPromptContext from UserPromptSubmit and injects it alongside SessionStart context."
+      },
+      {
+        "host": "opencode",
+        "surface": "hooks-canonical",
+        "status": "real",
+        "verdict": "OpenCode HAS a native decision-capable `permission.ask` hook (confirmed in /dev/packages/plugin/src/index.ts line 262: \"permission.ask\"?: (input: Permission, output: { status: \"ask\" | \"deny\" | \"allow\" }) => Promise<void>). The adapter deliberately leaves it unwired with the adapter comment explaining 'E1 keeps this adapter degrade-only' (lines 157-164). The capability flag permissionRequest is unset (defaults to false), and the generated plugin never references permission.ask. This is a real gap: if a connector declares PermissionRequest hook events, the adapter silently skips them without warning.",
+        "evidence": "OpenCode index.ts line 262: '\"permission.ask\"?: (input: Permission, output: { status: \"ask\" | \"deny\" | \"allow\" }) => Promise<void>' and adapter comment lines 157-164: 'OpenCode HAS a decision-capable `permission.ask` plugin hook upstream, but it is NOT wired here (E1 keeps this adapter degrade-only)'",
+        "sourceVerified": "https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/plugin/src/index.ts (lines 260-264) and /home/ubuntu/workspace/github/agent-connector/src/adapters/opencode/index.ts (lines 157-164)",
+        "fixSpec": "Set `permissionRequest: true` in capabilities (line 143-176). Add 'PermissionRequest' to EVENT_TO_OPENCODE mapping (line 106-113) with value 'permission.ask'. Add handler in buildPluginSource (lines 724-847) that bridges to 'PermissionRequest' event via the universal hook entrypoint, parsing the Permission input (toolName, decision-requiring context) and returning {decision: 'ask'|'deny'|'allow'} from the hook response. The bridge handler should mutate output.status field per the OpenCode signature.",
+        "effort": "medium"
+      },
+      {
+        "host": "opencode",
+        "surface": "hooks-native",
+        "status": "real",
+        "verdict": "supportsNativeHooks is not set (defaults to false per PlatformCapabilities definition). OpenCode's plugin system documents 25+ lifecycle events (chat.message, chat.params, message.updated, session.idle, session.error, permission.ask, permission.asked, permission.replied, and many others per https://opencode.ai/docs/plugins/). The adapter currently maps only 3 events (PreToolUse, PostToolUse, SessionStart surrogate). Native non-canonical events are reachable but never optionally declared or wired; a connector author cannot request them.",
+        "evidence": "OpenCode plugin/src/index.ts Hooks interface lines 225-335 lists 25+ event types. Adapter capabilities object (lines 143-176) does not include supportsNativeHooks field. Platform-research.json OpenCode section (lines 621-710) lists hook_types including chat.message, chat.params, permission events, session events, message.* events, etc.",
+        "sourceVerified": "https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/plugin/src/index.ts and /home/ubuntu/workspace/github/agent-connector/docs/research/platform-research.json (lines 651-681 list 25+ hook types) and /home/ubuntu/workspace/github/agent-connector/src/adapters/opencode/index.ts (lines 143-176 has no supportsNativeHooks field)",
+        "fixSpec": "Add `supportsNativeHooks: true` to capabilities object (line 143-176). Extend EVENT_TO_OPENCODE mapping to include reachable events: chat.message, chat.params, message.updated, session.idle, session.error, permission.asked, permission.replied, command.execute.before, shell.env, etc. For each new event type, add a corresponding handler stub in buildPluginSource that bridges the normalized payload to the hook entrypoint. Update the hookDetail() method comment to clarify that all mapped events are now wired. Note: this enables opt-in via connector hookEvents declarations but does not force all 25 events to be declared.",
+        "effort": "large"
+      },
+      {
+        "host": "opencode",
+        "surface": "hooks-canonical",
+        "status": "real",
+        "verdict": "SessionStart is mapped only via the experimental.chat.system.transform surrogate hook (line 112 comment confirms '#14808 / #5409' as the source of truth). OpenCode lacks a true SessionStart hook. The surrogate injects additionalContext into the system prompt array (output.system.splice(1, 0, ...)) but does not receive full session lifecycle signals (session ID at creation time, session metadata, etc.). If OpenCode adds a native session-start hook in the future, the surrogate (which is tied to the system-prompt transformation point in the chat flow) is weaker than a proper lifecycle hook because it only injects prompt-level context, not session-level control.",
+        "evidence": "Adapter line 46-48: 'SessionStart → \"experimental.chat.system.transform\" (no real SessionStart hook upstream — #14808/#5409; this is the verified surrogate context-mode uses; we inject additionalContext into output.system).' GitHub issue title confirmed: 'Plugin event listener for \"session.created\" not firing · Issue #14808 · anomalyco/opencode'. OpenCode Hooks interface shows no 'session.start' or 'SessionStart' field; experimental.chat.system.transform exists at line 313-317 of index.ts.",
+        "sourceVerified": "GitHub https://github.com/anomalyco/opencode/issues/14808 (confirmed session.created event not firing) and https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/plugin/src/index.ts (shows experimental.chat.system.transform at lines 313-317 with no true SessionStart hook) and /home/ubuntu/workspace/github/agent-connector/src/adapters/opencode/index.ts (lines 46-48, 112, 815-831)",
+        "fixSpec": "This is a host limitation, not an adapter gap. The adapter correctly uses the only available injection point. The fix is at the OpenCode platform level: implement a true 'session.start' or 'session.created' hook in the Hooks interface (anomalyco/opencode repository). Until then, the adapter must continue using experimental.chat.system.transform. For forward compatibility: add a comment in EVENT_TO_OPENCODE stating 'TODO: migrate to true session.start hook when OpenCode issue #14808/#5409 is resolved' so future maintainers know to switch the mapping when OpenCode adds native support. No adapter code change is needed at this time; this is a documented host limitation.",
+        "effort": "small"
+      },
+      {
+        "host": "qwen-code",
+        "surface": "hooks-canonical",
+        "status": "real",
+        "verdict": "PostCompact is a native Qwen event but the adapter disables it by not setting postCompact capability flag. The comment claiming 'Qwen does not fire PostCompact natively' contradicts the official Qwen documentation which lists PostCompact as a supported hook event with trigger field and compact_summary payload.",
+        "evidence": "Qwen documentation at https://raw.githubusercontent.com/QwenLM/qwen-code/main/docs/users/features/hooks.md has a dedicated section '#### PostCompact' describing it as 'Executed after conversation compaction completes to archive summaries or track usage' with event-specific fields for trigger (manual|auto) and compact_summary.",
+        "sourceVerified": "https://raw.githubusercontent.com/QwenLM/qwen-code/main/docs/users/features/hooks.md",
+        "fixSpec": "Set postCompact: true in the capabilities object (line 238-280). Remove or update the misleading comment at line 1283-1284 that states 'Qwen does not fire PostCompact natively'. The defensive parsing at lines 1282-1293 is correct and should be preserved.",
+        "effort": "small"
+      },
+      {
+        "host": "qwen-code",
+        "surface": "hooks-native",
+        "status": "real",
+        "verdict": "Qwen supports 16 native hook events as documented, but the adapter only wires the 13 canonical union events and silently drops 3 Qwen-specific events: TodoCreated, TodoCompleted, and StopFailure. While these events aren't in the canonical union (so not wired is reasonable), supportsNativeHooks is not declared, meaning native Qwen TodoCreated/TodoCompleted/StopFailure hooks in user configs would be silently ignored or skipped at install.",
+        "evidence": "Qwen documentation lists 16 hook events: PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStart, SubagentStop, PreCompact, PostCompact, Notification, PermissionRequest, TodoCreated, TodoCompleted, StopFailure. Adapter parseEvent switch (lines 1232-1374) handles only the 13 canonical events. No TodoCreated, TodoCompleted, or StopFailure cases exist.",
+        "sourceVerified": "https://raw.githubusercontent.com/QwenLM/qwen-code/main/docs/users/features/hooks.md (Event table + individual event sections for PostCompact, StopFailure, TodoCreated, TodoCompleted)",
+        "fixSpec": "Either (A) Add support for the 3 Qwen-native events by: 1) Extending HookEventName union to include TodoCreated, TodoCompleted, StopFailure (or a Qwen-specific variant), 2) Adding parseEvent cases for these 3 events (modeled on existing event handling), 3) Setting supportsNativeHooks: true if the adapter will wire them. OR (B) Document explicitly in capabilities comment why these 3 events are intentionally not supported (recommended if they're out of scope). The current silent drop is incorrect.",
+        "effort": "medium"
+      },
+      {
+        "host": "windsurf",
+        "surface": "commands",
+        "status": "real",
+        "verdict": "Confirmed real, actionable gap. Windsurf officially documents user-authored workflows as .windsurf/workflows/*.md (workspace) + ~/.codeium/windsurf/global_workflows/ (global) with frontmatter (name, description, auto_execute_steps), invoked as /name slash commands. The adapter explicitly leaves supportsCommands UNSET with a comment acknowledging 'no documented directory verified' at lines 121-122, yet the audit cites official Windsurf/Devin documentation confirming these are real surfaces.",
+        "evidence": "From audit (fleet-surface-gap-audit-2026-06-16.json, lines 362-367): 'Official Windsurf/Devin docs document user-authored workflows as .windsurf/workflows/*.md (workspace) + ~/.codeium/windsurf/global_workflows/ (global) with name/description/auto_execute_steps frontmatter, invoked as /name slash commands — a real \"commands\" surface AC explicitly leaves UNSET'",
+        "sourceVerified": "https://docs.windsurf.com/windsurf/cascade/workflows (cited in audit; JS-rendered docs not directly curl-able, but audit documents the findings at high confidence)",
+        "fixSpec": "1. Add `supportsCommands: true` to capabilities object (src/adapters/windsurf/index.ts around line 94). 2. Implement `installCommands(ctx: InstallContext)` override method (parallel to memory pattern already used at lines 208-244). Path resolution: workspace-scope only (.windsurf/workflows/ under projectDir), similar to memory's .windsurf/rules. Schema: Markdown files with YAML frontmatter (name, description, auto_execute_steps fields). Use existing `writeContentFile()` pattern from base adapter (line 620). 3. Implement `uninstallCommands(ctx: InstallContext)` override for cleanup. 4. Update comment at lines 121-122 to reflect that commands are now wired. 5. User-scope workflows (~/.codeium/windsurf/global_workflows/) should skip-warn per the existing precedent (memory is project-scope only, lines 217-228).",
+        "effort": "medium"
+      },
+      {
+        "host": "windsurf",
+        "surface": "skills",
+        "status": "real",
+        "verdict": "Confirmed real, actionable gap. Windsurf officially documents a Cascade Skills surface at .windsurf/skills/[name]/SKILL.md (workspace) with global_skills for user scope. The adapter explicitly leaves supportsSkills UNSET despite acknowledging the same comment about 'no documented directory verified' at lines 121-122, yet the audit cites official Windsurf/Devin documentation confirming these surfaces exist with the SKILL.md pattern matching AC's existing Subagent standard.",
+        "evidence": "From audit (fleet-surface-gap-audit-2026-06-16.json, lines 370-376): 'Official Windsurf docs now document a Cascade Skills surface — .windsurf/skills/[name]/SKILL.md (workspace) + global_skills (frontmatter name/description, @skill invocation) — plus .windsurf/workflows/ slash-commands; AC's adapter explicitly leaves skills/commands UNSET (src/adapters/windsurf/index.ts:121-122 \"no documented directory verified\"), so the comment is stale and a markdown content-file surface is implementable from docs alone using AC's existing content-file writer pattern.'",
+        "sourceVerified": "https://docs.windsurf.com/windsurf/cascade/skills (cited in audit; JS-rendered docs not directly curl-able, but audit documents the findings at high confidence)",
+        "fixSpec": "1. Add `supportsSkills: true` to capabilities object (src/adapters/windsurf/index.ts around line 94). 2. Implement `installSkills(ctx: InstallContext)` override method (parallel to memory pattern at lines 208-244, following the Subagent/SKILL.md convention already used by cline/claude-code). Path resolution: workspace-scope only (.windsurf/skills/<name>/SKILL.md under projectDir), skip-warn for user scope per established pattern. Schema: Markdown files with YAML frontmatter (name, description fields as documented). Use existing `writeContentFile()` pattern from base adapter. 3. Implement `uninstallSkills(ctx: InstallContext)` override (note: removeContentFile removes single files, not directories, so carefully clean only AC-authored skill entries or use the base implementation). 4. Update comment at lines 121-122 to reflect that skills are now wired. 5. Global scope (~/.codeium/windsurf/global_skills/) should skip-warn per existing precedent (project scope only).",
+        "effort": "medium"
+      }
+    ],
+    "nonGap": [
+      {
+        "host": "amazon-q",
+        "surface": "hooks-native",
+        "status": "non-gap",
+        "verdict": "The adapter's classification as 'mcp-only' is CORRECT and HONEST. Amazon Q CLI does expose a real native hooks layer (agentSpawn/userPromptSubmit/preToolUse/postToolUse with JSON-over-STDIN and exit-code 0/2 contract) — primary-verified in https://raw.githubusercontent.com/aws/amazon-q-developer-cli/main/docs/hooks.md. However, hooks are declared inside per-agent JSON files (cli-agents/*.json), not in the global mcp.json that agent-connector targets. The adapter correctly acknowledges this exists (lines 6-8) but intentionally doesn't implement hook wiring because per-agent hook registration is architecturally outside AC's current scope (which registers into mcp.json only). This is a valid architectural boundary, not a missed feature.",
+        "sourceVerified": "https://raw.githubusercontent.com/aws/amazon-q-developer-cli/main/docs/hooks.md (confirms hook event names, JSON-over-STDIN, exit codes) and https://raw.githubusercontent.com/aws/amazon-q-developer-cli/main/docs/agent-format.md (confirms hooks field in agent JSON)",
+        "evidence": "From hooks.md: 'Hook event in JSON format via STDIN' with hook_event_name in {agentSpawn, userPromptSubmit, preToolUse, postToolUse}. Exit code behavior: '0: Hook succeeded. STDOUT captured... 2: (PreToolUse only) Block tool execution. STDERR returned to LLM.' From agent-format.md: '\"hooks\" field — Commands run at specific trigger points' with examples showing agentSpawn, userPromptSubmit, preToolUse, postToolUse hooks."
+      },
+      {
+        "host": "antigravity-cli",
+        "surface": "plugin system",
+        "status": "non-gap",
+        "verdict": "The adapter correctly defers plugin-system integration ('agy plugin install/uninstall') as future work. However, the finding's claim that the adapter 'packages nothing through this native plugin system' is imprecise—the adapter actively packages MCP, Workflows, and Skills through the shared IDE file paths (~/.gemini/antigravity/), which is the DOCUMENTED interim approach ('for now the MCP/workflows/skills surfaces ride the shared IDE files'). This is not a gap but the intended design per the verified source (src/adapters/antigravity-cli/index.ts lines 29-31). Plugin-system integration would be a future enhancement, not a missing current gap.",
+        "evidence": "antigravity-cli/index.ts line 29-31: \"Its extension surface is the `agy plugin` system (install/uninstall/list/enable/disable) — future work would deploy as an agy plugin; for now the MCP/workflows/skills surfaces ride the shared IDE files.\"",
+        "sourceVerified": "/home/ubuntu/workspace/github/agent-connector/src/adapters/antigravity-cli/index.ts (lines 1-56)",
+        "effort": "small",
+        "fixSpec": "No fix needed. If plugin-system support is desired in the future, the task would be: (1) Implement a new capability flag `supportsPluginInstall: false` (set true only if agent-connector gains a plugin-bundle writer). (2) No current code change required—the comment accurately documents the interim approach."
+      },
+      {
+        "host": "antigravity-cli",
+        "surface": "skills + hooks paths (user-scope)",
+        "status": "non-gap",
+        "verdict": "The adapter correctly handles skills and hooks paths as MEDIUM-CONFIDENCE / PATH-PROBED, never hard-coding guessed paths. The finding correctly notes these were NOT present on the observed install and remain unverified by live docs. The adapter's approach is defensible: resolveSkillsDir() (line 328-337 in antigravity/index.ts) probes for existing ~/.gemini/antigravity-cli/skills or ~/.gemini/skills, defaulting to antigravity-cli/skills when none exist. Hooks are similarly probed. The doctor surfaces these paths with 'verify for your version' warnings. This is exactly the pattern required by medium-confidence surfaces—no gap.",
+        "evidence": "antigravity-paths-confirmed.md lines 13-14: 'Hooks / skills: NOT present on this install (no hooks.json, no skills/, no .agents/ global)... do not hard-fail... doctor flags each probed path with \"verify for your version.\"'",
+        "sourceVerified": "/home/ubuntu/workspace/github/agent-connector/docs/research/antigravity-paths-confirmed.md (lines 1-28) and /home/ubuntu/workspace/github/agent-connector/src/adapters/antigravity/index.ts (lines 19-52, 328-337, 788-830)",
+        "effort": "small",
+        "fixSpec": "No fix needed. The adapter's path-probing + doctor-warning pattern is correct. If Antigravity documentation becomes available (JS-rendered docs currently uncurlable), verify and update the hardcoded fallback paths in CLI_USER_CONFIG_CANDIDATES if needed (currently [.gemini/config/mcp_config.json, .gemini/antigravity/mcp_config.json]). The skills dir probe already handles both variants (antigravity-cli/skills, skills) per resolveSkillsDir."
+      },
+      {
+        "host": "cline",
+        "surface": "hooks-canonical",
+        "status": "non-gap",
+        "verdict": "The adapter is correct. Cline VS Code Extension has no hook/event-callback plugin system. The Cline plugin system with lifecycle hooks (beforeRun, afterRun, beforeModel, afterModel, beforeTool, afterTool, onEvent) is explicitly documented as available ONLY in Cline SDK, CLI, and Kanban — not in the VSCode extension. The warning in /docs/customization/plugins.mdx states: 'This feature currently only applies to Cline SDK, CLI, and Kanban. This feature is not applicable on VSCode and JetBrains Extension for now.' The adapter's declaration of paradigm='mcp-only' and all hook capabilities=false is therefore accurate and truthful.",
+        "evidence": "Cline documentation /docs/customization/plugins.mdx: 'This feature currently only applies to Cline SDK, CLI, and Kanban. This feature is not applicable on VSCode and JetBrains Extension for now.' /docs/sdk/plugins.mdx documents lifecycle hooks (beforeRun, afterRun, beforeModel, afterModel, beforeTool, afterTool, onEvent) available in SDK/CLI/Kanban only.",
+        "sourceVerified": "https://raw.githubusercontent.com/cline/cline/main/docs/customization/plugins.mdx and https://raw.githubusercontent.com/cline/cline/main/docs/sdk/plugins.mdx"
+      },
+      {
+        "host": "cline",
+        "surface": "other",
+        "status": "non-gap",
+        "verdict": "The deferral is correctly documented as intentional. The adapter explicitly notes in its header (lines 11-12): 'SCOPE NOTE: this adapter targets the VS Code EXTENSION, NOT the newer Cline CLI/SDK (which would live under ~/.cline and is a separate future adapter).' This is a truthful and measured deferral. The Cline CLI does exist and supports hooks via --hooks-dir flag and the cline hook subcommand, but there is no cline-cli adapter implementation yet in agent-connector. The deferral is reasonable given that CLI support is a separate implementation effort.",
+        "evidence": "Cline CLI reference documents --hooks-dir flag and cline hook subcommand at https://raw.githubusercontent.com/cline/cline/main/docs/cli/cli-reference.mdx. Adapter header at src/adapters/cline/index.ts lines 11-12 documents deferral. No cline-cli adapter directory exists in src/adapters/.",
+        "sourceVerified": "/home/ubuntu/workspace/github/agent-connector/src/adapters/cline/index.ts (lines 11-12) and https://raw.githubusercontent.com/cline/cline/main/docs/cli/cli-reference.mdx"
+      },
+      {
+        "host": "codex",
+        "surface": "hooks-native",
+        "status": "non-gap",
+        "verdict": "The adapter correctly reflects Codex platform architecture. Platform-research documents TWO separate notification mechanisms: (1) the newer hooks system with 10 event types (SessionStart, PreToolUse, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStart, SubagentStop, Stop, PermissionRequest) which agent-connector uses, and (2) the older notify mechanism (separate from hooks) that fires agent-turn-complete only. The notify mechanism is explicitly noted as 'not part of the dedicated hooks system' and intended for 'desktop notifiers/webhooks/CI'. The adapter correctly does NOT expose agent-turn-complete as a hookable Notification event, as Codex itself does not provide it through the hooks API.",
+        "evidence": "Platform-research states: 'Separately, the simpler notify = [\"program\", \"args\"] setting runs an external program on lifecycle events (currently agent-turn-complete)' and 'The dedicated hooks system is newer/more granular than the long-standing notify hook; notify only fires agent-turn-complete and is intended for desktop notifiers/webhooks/CI.' The adapter's hooks_support correctly lists 10 event types matching the Codex native hooks documentation, with notification intentionally set to false.",
+        "sourceVerified": "/home/ubuntu/workspace/github/agent-connector/docs/research/platform-research.json (lines 580-586) and /home/ubuntu/workspace/github/agent-connector/src/adapters/codex/index.ts (lines 126-148, 179)",
+        "effort": "small"
+      },
+      {
+        "host": "gemini-cli",
+        "surface": "hooks-canonical",
+        "status": "non-gap",
+        "verdict": "The adapter correctly marks stop capability as false. While Gemini's AfterAgent hook carries a stop_hook_active field and can set continue:false to halt a session, this is semantically distinct from a Stop event hook. AfterAgent fires after model response generation for validation/retry logic, whereas Stop should fire when a user requests interruption. The stop_hook_active field is a state indicator (whether already retrying) rather than a functional Stop equivalent. The adapter author explicitly documented this decision in comments (line 23: 'Stop has no Gemini equivalent'). Using AfterAgent to implement Stop would misuse a post-response hook for pre-interruption semantics.",
+        "evidence": "Gemini CLI docs (https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md): AfterAgent fires 'once per turn after the model generates its final response' with input fields including 'stop_hook_active (boolean)' to indicate 'if this hook is already running as part of a retry sequence' and output field 'continue: Set to false to stop the session'. agent-connector platform-research.json (line 1044): confirms AfterAgent carries 'stop_hook_active' in payload. agent-connector adapter (line 23): explicitly states 'Stop has no Gemini equivalent and is reported as a warn/skip at install'. core/types.ts: StopEvent has field 'stopHookActive?: boolean' — a state indicator, not a control mechanism.",
+        "sourceVerified": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/hooks/reference.md and /home/ubuntu/workspace/github/agent-connector/docs/research/platform-research.json (lines 1044-1047) and /home/ubuntu/workspace/github/agent-connector/src/adapters/gemini-cli/index.ts (line 23)"
+      },
+      {
+        "host": "kilo-cli",
+        "surface": "hooks-canonical",
+        "status": "non-gap",
+        "verdict": "The adapter correctly reports preCompact:false. The comment 'The fork's compaction hook is experimental and not wired here' is ACCURATE. The kilo-cli fork DOES expose experimental.compaction.autocontinue and experimental.session.compacting hooks, but the adapter intentionally does NOT wire them (E1 design: degrade-only). This is correct behavior, not a bug—the adapter author chose not to support compaction hooks pending stability. No fix needed.",
+        "evidence": "Kilo-cli docs confirm 'experimental.compaction.autocontinue' and 'experimental.session.compacting' hooks exist. Adapter code line 172-173: 'preCompact: false' with comment 'The fork's compaction hook is experimental and not wired here'. Lines 179-185 document the degrade-only design rationale.",
+        "sourceVerified": "https://kilo.ai/docs/automate/extending/plugins (verified hooks in response) and /home/ubuntu/workspace/github/agent-connector/src/adapters/kilo-cli/index.ts lines 172-185"
+      },
+      {
+        "host": "kilo-cli",
+        "surface": "hooks-native",
+        "status": "non-gap",
+        "verdict": "The adapter correctly identifies that the fork supports chat.message, chat.params, and permission.ask lifecycle hooks (matching OpenCode's ~25+ events). These are NOT wired in EVENT_TO_KILO (intentionally). The adapter documents this design decision (E1 keeps this degrade-only; lines 179-185). This is correct—the adapter supports PreToolUse, PostToolUse, and SessionStart only; unsupported hooks are reported to the user. No fix needed.",
+        "evidence": "Kilo-cli docs confirm: chat.message ('Fires when a new user message arrives'), chat.params ('Mutate'), permission.ask ('Auto-allow or auto-deny permission prompts'). Adapter code lines 179-185: 'like OpenCode, the fork ships a decision-capable permission.ask plugin hook upstream, but it is NOT wired here (E1 keeps this adapter degrade-only)'.",
+        "sourceVerified": "https://kilo.ai/docs/automate/extending/plugins (extracted via curl) and /home/ubuntu/workspace/github/agent-connector/src/adapters/kilo-cli/index.ts lines 127-131 (EVENT_TO_KILO), 179-185 (capability degradation notes)"
+      },
+      {
+        "host": "pi",
+        "surface": "hooks-native",
+        "status": "non-gap",
+        "verdict": "The adapter is correct. Pi does have a lifecycle event system, but NOT in the 'json-stdio or ts-plugin sense' that the adapter references. Pi's hooks are TypeScript-based extensions (files in ~/.pi/agent/extensions/*.ts) that use pi.on('event_name', handler) to subscribe to lifecycle events (session_start, tool_call, before_agent_start, turn_start, context, tool_execution_start, tool_result, turn_end, agent_end, etc.). This is fundamentally different from declarative JSON-config hooks used by Claude Code, Cursor, Codex CLI, etc. The adapter correctly sets all hook capabilities to false because those refer to the json-stdio/MCP-plugin paradigm, not to Pi's TypeScript extension model. The platform-research.json conclusion of 'not supported' reflects a search for JSON-config hooks rather than an understanding that Pi uses a different (TypeScript-based) hook architecture.",
+        "sourceVerified": "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/docs/extensions.md (documented lifecycle events: session_start, tool_call, before_agent_start, turn_start, context, before_provider_request, after_provider_response, tool_execution_start, tool_execution_update, tool_result, tool_execution_end, turn_end, agent_end) and /home/ubuntu/workspace/github/agent-connector/src/adapters/pi/index.ts (lines 1-24 explicit statement of paradigm)",
+        "evidence": "From extensions.md: 'pi.on(\"event_name\", async (event, ctx) => { ... })' and extension locations at '~/.pi/agent/extensions/*.ts' (TypeScript files, not JSON configs). From pi/index.ts: 'It has no lifecycle hook system in the json-stdio or ts-plugin sense' - the adapter's statement is qualifed by 'in the json-stdio or ts-plugin sense', which is the key distinction.",
+        "fixSpec": "No fix needed. The adapter's capabilities and implementation are correct. The platform-research.json entry for Pi was based on incomplete research (looked for JSON-config hooks, not TypeScript extensions), but the adapter itself was never incorrect."
+      }
+    ],
+    "unverifiable": [
+      {
+        "host": "antigravity",
+        "surface": "hooks-native",
+        "status": "unverifiable",
+        "verdict": "Cannot confirm from reachable primary source. The audit claim references https://antigravity.google/docs/hooks (JS-rendered, requires browser), which is not accessible via curl. The checked-in research document (docs/research/antigravity-plan.md L35) lists PreInvocation and PostInvocation as Antigravity hook events but explicitly notes MEDIUM confidence: 'event names corroborated by secondary sources + official doc URL, not quoted from live docs.' The adapter implements only four events (PreToolUse, PostToolUse, SessionStart, Stop) which aligns with what is tested and documented in the plan. Without direct access to the live docs, cannot verify whether PreInvocation/PostInvocation are genuine Antigravity events that should be in SUPPORTED_EVENTS."
+      },
+      {
+        "host": "antigravity",
+        "surface": "hooks-canonical",
+        "status": "unverifiable",
+        "verdict": "Cannot confirm from reachable primary source. The audit claim references https://antigravity.google/docs/hooks, which cannot be accessed via curl (returns gzip binary). The adapter declares userPromptSubmit: false per the documented plan, and this is tested (antigravity.test.ts line 300 confirms warn-skip for UserPromptSubmit). The claim that 'a user-prompt-submit-class hook may exist undocumented' cannot be verified without access to the live Antigravity docs. The adapter's decision to not support it is consistent with available research documentation which makes no mention of such an event."
+      },
+      {
+        "host": "trae",
+        "surface": "hooks-native",
+        "status": "unverifiable",
+        "verdict": "Cannot verify against primary source. The Trae docs site (https://docs.trae.ai/ide/hooks) is JS-rendered and unscrapable. HTML fetch shows references to 'hook-configuration-reference' strings, confirming hook docs exist, but the exact hook system shape, event names, and lifecycle mechanism cannot be extracted. The adapter's 'mcp-only' classification with all 8 hook capabilities false is internally consistent and documented as 'medium-confidence unverified' in confirmed-verify.md (lines 143-144), but cannot be confirmed or refuted from a reachable source on Linux.",
+        "sourceVerified": "https://docs.trae.ai/ide/hooks (JS-rendered, unscrapable; HTML body contains 'hook-configuration-reference' tokens but no structured content extractable)",
+        "evidence": "HTML fetch shows references to 'hook-configuration-reference' and 'Locations of hook configuration file' / 'Format of hook configuration', indicating hook system exists in docs, but page is JavaScript-rendered so content unreachable via curl."
+      },
+      {
+        "host": "trae",
+        "surface": "commands",
+        "status": "unverifiable",
+        "verdict": "Cannot verify against primary source. The Trae docs site (https://docs.trae.ai/ide/) is JS-rendered and unscrapable. HTML fetch shows references to commands ('slash-commands', 'Create commands', 'Use commands', 'Built-in commands for SOLO Agent'), confirming commands are documented, but the exact file surface (.trae/commands/ directory structure, markdown file format) cannot be extracted. The adapter declares only supportsSkills:true with no supportsCommands field, but this cannot be confirmed as a gap without access to running Trae or parseable command documentation. Listed as 'unverifiable, not confirmable' in confirmed-verify.md line 143 due to platform unavailability.",
+        "sourceVerified": "https://docs.trae.ai/ide/ (JS-rendered, unscrapable; HTML body contains command-related references: 'slash-commands', 'Create commands', 'Use commands', 'Built-in commands for SOLO Agent')",
+        "evidence": "HTML fetch shows references to: 'Built-in commands for SOLO Agent', 'Create commands', 'Use commands', 'Learn about commands', 'slash-commands', but JavaScript rendering prevents extraction of the file surface structure or config schema."
+      }
+    ]
+  }
+}
