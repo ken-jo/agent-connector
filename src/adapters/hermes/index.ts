@@ -201,6 +201,16 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     // project skills dir (~/.agents/skills is the cross-tool external dir, not
     // ours), so a project-scope install skip-warns via the base default.
     supportsSkills: true,
+    // Native passthrough hooks: Hermes documents many host-specific lifecycle
+    // events with NO canonical analog — pre_llm_call / post_llm_call /
+    // on_session_finalize / on_session_reset / pre_gateway_dispatch /
+    // pre_approval_request / post_approval_response / transform_tool_result
+    // (docs/research/platform-research.json). They are host-specific (below the
+    // >=3-host core bar; docs/research/host-specific-hook-events-design.md). A
+    // connector reaches them by declaring platforms["hermes"].nativeHooks;
+    // installHooks files those event-name keys verbatim into the YAML hooks map,
+    // and the generic uninstall reverses them.
+    supportsNativeHooks: true,
     // Actions surface: Hermes ships `quick_commands.<id>: { type: "exec",
     // command }` — a `/<id>` slash command that runs the shell command directly,
     // bypassing the LLM (hermes-agent.nousresearch.com/docs/user-guide/cli:
@@ -398,13 +408,24 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
   override installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector, dryRun } = ctx;
     const path = this.getHookConfigPath(ctx);
+    const override = connector.platforms[HOST];
 
-    if (connector.platforms[HOST]?.hooks === false) {
-      return [{ platform: this.id, action: "skip", path, detail: "hooks disabled for hermes" }];
-    }
-    const events = connector.hookEvents;
-    if (events.length === 0) {
-      return [{ platform: this.id, action: "skip", path, detail: "connector declares no hooks" }];
+    // `hooks: false` disables only the NORMALIZED events. nativeHooks is a
+    // sibling, hermes-scoped declaration on the same override and installs
+    // regardless.
+    const events = override?.hooks === false ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
+    if (events.length === 0 && nativeEvents.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path,
+          detail: override?.hooks === false ? "hooks disabled for hermes" : "connector declares no hooks",
+        },
+      ];
     }
 
     const cfg = readYaml<Record<string, unknown>>(path) ?? {};
@@ -450,6 +471,35 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
         changes.push({ platform: this.id, action: "create", path, detail: `${HOOKS_KEY}.${hermesEvent}` });
       }
       mutated = true;
+    }
+
+    // NATIVE passthrough events: Hermes-native event-name keys (e.g. pre_llm_call,
+    // transform_tool_result) filed VERBATIM into the YAML hooks map — no
+    // EVENT_TO_HERMES mapping, since they ARE Hermes events. Same entry shape +
+    // idempotency, matched by EXACT command so a native key coinciding with a
+    // mapped canonical key never clobbers it.
+    for (const event of nativeEvents) {
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
+      const matcher = nativeHooks[event]?.matcher ?? "";
+      const timeout = this.hookTimeout(connector.server);
+      const desired: HermesHookEntry = { matcher, command, timeout };
+      const bucket = Array.isArray(hooks[event])
+        ? (hooks[event] as HermesHookEntry[])
+        : (hooks[event] = [] as HermesHookEntry[]);
+      const idx = bucket.findIndex((e) => e?.command === command);
+      if (idx >= 0) {
+        if (JSON.stringify(bucket[idx]) === JSON.stringify(desired)) {
+          changes.push({ platform: this.id, action: "skip", path, detail: `${HOOKS_KEY}.${event} (native)` });
+        } else {
+          bucket[idx] = desired;
+          changes.push({ platform: this.id, action: "update", path, detail: `${HOOKS_KEY}.${event} (native)` });
+          mutated = true;
+        }
+      } else {
+        bucket.push(desired);
+        changes.push({ platform: this.id, action: "create", path, detail: `${HOOKS_KEY}.${event} (native)` });
+        mutated = true;
+      }
     }
 
     if (mutated) writeYaml(path, cfg, dryRun);
