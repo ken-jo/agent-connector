@@ -33,9 +33,10 @@
  *   - command  → project <projectDir>/.clinerules/workflows/<name>.md; user
  *                ~/Documents/Cline/Workflows/<name>.md. (Cline "Workflows" are the
  *                slash-command equivalent.) Plain markdown (frontmatter + body).
- *   - skill    → project <projectDir>/.clinerules/skills/<name>/SKILL.md
- *                (SKILL.md-in-named-dir, YAML frontmatter). User-scope skills for
- *                the VS Code ext are NOT documented, so user scope skip-warns.
+ *   - skill    → project <projectDir>/.clinerules/skills/<name>/SKILL.md;
+ *                user ~/.cline/skills/<name>/SKILL.md (homedir/.cline, cross-OS)
+ *                (SKILL.md-in-named-dir, YAML frontmatter; both scopes are
+ *                documented in cline/cline docs/customization/skills.mdx).
  *
  * READ-ONLY interop (NEVER written under this adapter): Cline also reads
  * `.cursor/rules`, `AGENTS.md`, `.claude/skills`, `.agents/skills` for cross-tool
@@ -469,6 +470,13 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
   }
 
   private skillDir(ctx: InstallContext, name: string): string {
+    // User/global scope → ~/.cline/skills/<name> (homedir/.cline, cross-OS via
+    // homedir(); primary-verified cline/cline docs/customization/skills.mdx).
+    // Project scope → <projectDir>/.clinerules/skills/<name> (a documented
+    // project skills location alongside .cline/skills; AC owns the .clinerules tree).
+    if (ctx.scope !== "project") {
+      return join(homedir(), ".cline", "skills", name);
+    }
     return join(this.clineRulesDir(ctx), "skills", name);
   }
 
@@ -506,7 +514,7 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
     return this.renderFrontmatterMd(frontmatter, cmd.prompt);
   }
 
-  // ── Skills (project scope only) ──────────────────────────────────────────
+  // ── Skills (project .clinerules/skills + user ~/.cline/skills) ────────────
 
   override installSkills(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
@@ -515,17 +523,6 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
     }
     if (connector.skills.length === 0) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
-    }
-    // User-scope skills for the Cline VS Code extension are not documented —
-    // skip-warn rather than write into a path the host may not read.
-    if (ctx.scope !== "project") {
-      return [
-        {
-          platform: this.id,
-          action: "warn",
-          detail: `cline skills are project-scope only (.clinerules/skills); ${connector.skills.length} skipped at ${ctx.scope} scope`,
-        },
-      ];
     }
     const changes: ChangeRecord[] = [];
     for (const skill of connector.skills) {
@@ -556,15 +553,6 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
     const { connector } = ctx;
     if (connector.skills.length === 0) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
-    }
-    if (ctx.scope !== "project") {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          detail: `cline skills are project-scope only; nothing to clean at ${ctx.scope} scope`,
-        },
-      ];
     }
     const changes: ChangeRecord[] = [];
     for (const skill of connector.skills) {
