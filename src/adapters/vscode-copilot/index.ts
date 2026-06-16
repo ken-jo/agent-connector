@@ -124,7 +124,7 @@ interface VSCodeStdioServer {
   cwd?: string;
 }
 interface VSCodeHttpServer {
-  type: "http";
+  type: "http" | "sse";
   url: string;
   headers?: Record<string, string>;
 }
@@ -198,7 +198,7 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: true,
     canModifyOutput: false,
     canInjectSessionContext: true,
-    transports: ["stdio", "http"],
+    transports: ["stdio", "http", "sse"],
     // Content surfaces: VS Code Copilot authors prompt files, Agent Skills, and
     // chat-mode agent files under the workspace .github/ tree (see content-file
     // path helpers below). All three are supported.
@@ -345,9 +345,11 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
       return entry;
     }
 
-    // http (and any other remote transport we surface) — VS Code registers a URL.
+    // Remote transports — VS Code registers a URL. An explicit `sse` forces an
+    // SSE-only connection; `http` (Streamable HTTP) auto-falls-back to SSE when a
+    // server doesn't support it (code.visualstudio.com/docs/agents/reference/mcp-configuration).
     const entry: VSCodeHttpServer = {
-      type: "http",
+      type: transport === "sse" ? "sse" : "http",
       url: this.rewrite(server.url ?? ""),
     };
     const headers = this.renderEnv(server.headers);
