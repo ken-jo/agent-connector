@@ -244,6 +244,10 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
+    // Qwen fires PostCompact natively (observe-only — "not in the decision mode
+    // supported events list"; QwenLM/qwen-code docs/users/features/hooks.md
+    // "#### PostCompact", trigger + compact_summary payload).
+    postCompact: true,
     sessionStart: true,
     sessionEnd: true,
     userPromptSubmit: true,
@@ -1280,9 +1284,8 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostCompact": {
-        // Qwen does not fire PostCompact natively (postCompact unset → warn-skip
-        // at install). Parsed defensively, mirroring PreCompact, so a manual/
-        // mis-routed dispatch normalizes instead of hitting the guard.
+        // Qwen fires PostCompact natively (observe-only). Parsed like PreCompact:
+        // normalize the trigger (auto|manual); compact_summary rides on `raw`.
         const ev: PostCompactEvent = {
           ...base,
           ...(input.trigger === "auto" || input.trigger === "manual"
