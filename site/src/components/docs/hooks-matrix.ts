@@ -1078,6 +1078,34 @@ export const platforms: PlatformHookEntry[] = [
     notes:
       "mcp-only: no primary-verified Continue hook/lifecycle layer; installHooks 'skip' ('hooks unavailable (Continue is mcp-only)'); all events null. MCP config is YAML at ~/.continue/config.yaml (user) and <projectDir>/.continue/config.yaml (project) — root key 'mcpServers' is a YAML ARRAY of { name, command, type?, args?, env?, cwd?, url } entries (NOT a keyed map). stdio omits 'type' (the default); remote entry is { name, type: \"sse\"|\"streamable-http\", url }. Set-if-absent by 'name' (= connector id), siblings preserved. NO apiKey/requestOptions/connectionTimeout (not primary-verified). The Rules/memory surface is a not-yet-wired host-gap. All hook capabilities false.",
   },
+  {
+    platform: "windsurf",
+    displayName: "Windsurf",
+    paradigm: "mcp-only",
+    hasHooks: false,
+    configPath: "—",
+    capabilities: {
+      canModifyArgs: false,
+      canModifyOutput: false,
+      canInjectSessionContext: false,
+    },
+    events: {
+      SessionStart: null,
+      SessionEnd: null,
+      UserPromptSubmit: null,
+      PreToolUse: null,
+      PostToolUse: null,
+      PreCompact: null,
+      Stop: null,
+      Notification: null,
+      PermissionRequest: null,
+      PostToolUseFailure: null,
+      SubagentStart: null,
+      SubagentStop: null,
+    },
+    notes:
+      "Windsurf (Codeium / Cognition's Cascade agent). mcp-only: GUI editor with no user-installable hook/plugin layer; installHooks 'skip' ('hooks unavailable (Windsurf is mcp-only)'); all events null. MCP config is USER/GLOBAL scope ONLY — JSON at ~/.codeium/windsurf/mcp_config.json (the docs document no project/workspace path; a project-scope install returns 'skip'). Root key 'mcpServers' is a Claude-Desktop-style OBJECT map keyed by server name (like cursor) — set-if-absent by connector id, siblings preserved, malformed-non-object skip-warn. stdio entry { command, args?, env? }; remote entry { serverUrl, headers? } (the documented `serverUrl`, NOT `url`; NO type/disabled keys). The .windsurfrules / global-rules memory surface is a not-yet-wired host-gap. All hook capabilities false.",
+  },
 ];
 
 export const hooksMatrix: HooksMatrix = { canonicalEvents, platforms };

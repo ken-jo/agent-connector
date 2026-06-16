@@ -67,6 +67,7 @@ const ALL_PLATFORM_IDS_MAP: Record<PlatformId, true> = {
   goose: true,
   "amazon-q": true,
   continue: true,
+  windsurf: true,
   synthetic: true,
   unknown: true,
 };
