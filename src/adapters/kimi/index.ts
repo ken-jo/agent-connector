@@ -322,12 +322,25 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
         ? { ...connector.server, ...override }
         : connector.server;
 
+    const changes: ChangeRecord[] = [];
+    // Honesty: Kimi documents only stdio/http/sse. A connector declaring another
+    // transport (e.g. the non-spec "ws") is still rendered best-effort as a bare
+    // URL entry, but the mismatch is REPORTED rather than silently misregistered
+    // — same "degradation is never silent" posture as the hook warn-skips.
+    if (!this.capabilities.transports.includes(server.transport)) {
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        detail: `transport "${server.transport}" is not a Kimi MCP transport (stdio/http/sse); registered best-effort as a URL entry`,
+      });
+    }
+
     const serverPath = this.getServerConfigPath(ctx);
     const entry = this.renderServerEntry(ctx, server);
-
-    return [
+    changes.push(
       this.upsertServerInJson(serverPath, MCP_ROOT_KEY, connector.id, entry, ctx.dryRun),
-    ];
+    );
+    return changes;
   }
 
   uninstallServer(ctx: InstallContext): ChangeRecord[] {

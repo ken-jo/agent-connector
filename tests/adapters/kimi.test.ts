@@ -246,7 +246,7 @@ describe("kimi adapter — MCP transports", () => {
     projectDir = freshProject();
   });
 
-  function serverConnector(transport: "http" | "sse"): ResolvedConnector {
+  function serverConnector(transport: "http" | "sse" | "ws"): ResolvedConnector {
     return defineConnector({
       id: CONNECTOR_ID,
       displayName: "Acme Remote",
@@ -281,5 +281,18 @@ describe("kimi adapter — MCP transports", () => {
     const entry = readServerEntry();
     expect(entry.url).toBe("https://mcp.example.com/v1");
     expect(entry.transport).toBe("sse");
+  });
+
+  it("unsupported transport (ws) → best-effort bare { url } + a reported warn (never silent)", () => {
+    const ctx = buildCtx(projectDir, serverConnector("ws"));
+    const changes = kimiAdapter.installServer(ctx);
+    // Degradation is reported, not silent.
+    const warn = changes.find((c) => c.action === "warn");
+    expect(warn, "expected a warn for the unsupported ws transport").toBeDefined();
+    expect(warn?.detail).toContain("ws");
+    // Still written best-effort as a bare url (no bogus transport field).
+    const entry = readServerEntry();
+    expect(entry.url).toBe("https://mcp.example.com/v1");
+    expect(entry.transport).toBeUndefined();
   });
 });
