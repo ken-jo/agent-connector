@@ -192,6 +192,13 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     // Merge into existing YAML, preserving every other config key + sibling
     // mcpServers entry. mcpServers is a YAML ARRAY; we key on `name`.
     const cfg = readYaml<Record<string, unknown>>(path) ?? {};
+    // NEVER clobber a malformed `mcpServers`: if it exists and is not an array,
+    // skip-and-warn (symmetric with uninstallServer) rather than silently
+    // replacing the user's hand-written value.
+    const existingRoot = cfg[MCP_ROOT_KEY];
+    if (existingRoot !== undefined && !Array.isArray(existingRoot)) {
+      return [{ platform: this.id, action: "skip", path, detail: `${MCP_ROOT_KEY} is not a YAML array — left untouched (manual fix needed)` }];
+    }
     const list = this.serverArray(cfg);
     const idx = list.findIndex((e) => this.entryName(e) === connector.id);
 

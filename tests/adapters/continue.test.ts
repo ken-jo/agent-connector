@@ -311,6 +311,21 @@ describe("continue adapter — MCP install (array, user scope)", () => {
     expect(other.command).toBe("other");
   });
 
+  it("skip-and-warn on a malformed (non-array) mcpServers — never clobbers it", () => {
+    const path = userCfgPath();
+    mkdirSync(join(home, ".continue"), { recursive: true });
+    // A hand-written non-array mcpServers (e.g. a JSON-style map). Install must
+    // NOT silently replace it.
+    const original = stringify({ mcpServers: { "other-tool": { command: "x" } } });
+    writeFileSync(path, original);
+
+    const ctx = buildCtx(projectDir, buildConnector(), "user");
+    const changes = continueAdapter.installServer(ctx);
+    expect(changes[0]?.action).toBe("skip");
+    // File is byte-for-byte untouched.
+    expect(readFileSync(path, "utf8")).toBe(original);
+  });
+
   it("install is idempotent: second install returns skip", () => {
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     continueAdapter.installServer(ctx);
