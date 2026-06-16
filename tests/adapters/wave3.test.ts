@@ -345,7 +345,7 @@ describe("goose adapter render + round-trip", () => {
   // declared events against the adapter capabilities BEFORE writing — a
   // connector that declares an UNSUPPORTED event (UserPromptSubmit) must NOT
   // get that event written into hooks.json, only a graceful warn ChangeRecord.
-  it("installHooks SKIPS an unsupported event (UserPromptSubmit) with a warn but still writes PreToolUse", () => {
+  it("installHooks SKIPS an unsupported event (PreCompact) with a warn but still writes PreToolUse", () => {
     const upsConnector = defineConnector({
       id: CONNECTOR_ID,
       displayName: "Acme DB Tools",
@@ -357,7 +357,7 @@ describe("goose adapter render + round-trip", () => {
             return { decision: "allow" };
           },
         },
-        UserPromptSubmit: {
+        PreCompact: {
           handler() {
             return { decision: "allow" };
           },
@@ -368,9 +368,9 @@ describe("goose adapter render + round-trip", () => {
 
     const changes = gooseAdapter.installHooks(upsCtx);
 
-    // UserPromptSubmit is unsupported → a warn ChangeRecord, never written.
+    // PreCompact is unsupported on goose → a warn ChangeRecord, never written.
     const warn = changes.find(
-      (c) => c.action === "warn" && c.detail?.includes("UserPromptSubmit"),
+      (c) => c.action === "warn" && c.detail?.includes("PreCompact"),
     );
     expect(warn).toBeTruthy();
     expect(warn?.detail).toContain("unsupported on goose");
@@ -378,11 +378,11 @@ describe("goose adapter render + round-trip", () => {
     expect(
       changes.some((c) => c.action === "create" && c.detail === "hooks.PreToolUse"),
     ).toBe(true);
-    // No change record was emitted that would write hooks.UserPromptSubmit.
+    // No change record was emitted that would write hooks.PreCompact.
     expect(
       changes.some(
         (c) =>
-          c.action !== "warn" && c.detail === "hooks.UserPromptSubmit",
+          c.action !== "warn" && c.detail === "hooks.PreCompact",
       ),
     ).toBe(false);
 

@@ -176,9 +176,12 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     postToolUse: true,
     preCompact: false,
     sessionStart: true,
-    sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
+    // Goose's Open Plugins runtime fires SessionEnd / UserPromptSubmit / Stop
+    // (goose-docs.ai/blog/2026/05/14/goose-hooks/); parseEvent + the wire types
+    // already handle all three, so they are wired (were incorrectly gated false).
+    sessionEnd: true,
+    userPromptSubmit: true,
+    stop: true,
     notification: false,
     // Newer events: Goose ships a dedicated PostToolUseFailure hook (feedback
     // beside the error; the failure itself is not blockable). Goose has no
