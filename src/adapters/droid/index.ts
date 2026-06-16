@@ -18,15 +18,18 @@
  *        { hooks: { <Event>: [ { matcher?, hooks:[{ type:"command", command }] } ] } }
  *
  * Supported events (Claude-compatible): PreToolUse, PostToolUse,
- * UserPromptSubmit, Stop, SubagentStop (stop-only — no SubagentStart). Droid
- * exposes no PreCompact / SessionStart / SessionEnd / Notification /
- * PermissionRequest / PostToolUseFailure / SubagentStart, so those degrade to
- * a warn/skip at install time.
+ * UserPromptSubmit, Stop, SubagentStop (stop-only — no SubagentStart), plus the
+ * full lifecycle set Notification, PreCompact, SessionStart, SessionEnd
+ * (docs.factory.ai/reference/hooks-reference — Claude-identical PascalCase 1:1
+ * with the same snake_case stdin wire). Droid exposes no PermissionRequest /
+ * PostToolUseFailure / SubagentStart, so those degrade to a warn/skip at
+ * install time.
  *
  * Reply protocol is Claude-shaped JSON on stdout (exit 0 + `hookSpecificOutput`
  * with permissionDecision allow|deny|ask, plus additionalContext). Droid cannot
  * rewrite already-emitted tool output, so canModifyOutput is false; it CAN
- * inject session context (additionalContext) so canInjectSessionContext is true.
+ * inject session context (additionalContext) so canInjectSessionContext is true
+ * (SessionStart honors hookSpecificOutput.additionalContext per the same docs).
  *
  * Env handling: env/header/url refs are resolved to literals at install time via
  * resolveEnvRefsDeep — the safe default matching the Kiro/Qwen adapters. Droid
@@ -47,11 +50,15 @@ import type {
   HookEventName,
   HookParadigm,
   HookResponse,
+  NotificationEvent,
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
+  PreCompactEvent,
   PreToolUseEvent,
   ServerDef,
+  SessionEndEvent,
+  SessionStartEvent,
   SkillDef,
   StopEvent,
   SubagentDef,
@@ -73,13 +80,14 @@ const MCP_ROOT_KEY = "mcpServers";
 /**
  * Canonical events Droid actually fires. Droid's hook event names are
  * Claude-identical (PascalCase), so the canonical name is registered directly.
- * PreCompact / SessionStart / SessionEnd / Notification have no Droid equivalent
- * and are reported as a warn/skip at install time.
+ * Notification / PreCompact / SessionStart / SessionEnd are all documented
+ * Droid lifecycle hooks (docs.factory.ai/reference/hooks-reference) and so are
+ * wired here too.
  *
  * Droid is a STOP-ONLY subagent host: its live hooks-reference lists
  * SubagentStop but NO SubagentStart, and it has no permission-dialog
  * (PermissionRequest) or tool-failure (PostToolUseFailure) events — those
- * three warn/skip as well.
+ * three warn/skip at install time.
  */
 const SUPPORTED_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
   "PreToolUse",
@@ -87,6 +95,10 @@ const SUPPORTED_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
   "UserPromptSubmit",
   "Stop",
   "SubagentStop",
+  "Notification",
+  "PreCompact",
+  "SessionStart",
+  "SessionEnd",
 ]);
 
 /**
@@ -130,6 +142,14 @@ interface DroidWireInput {
   tool_input?: Record<string, unknown>;
   tool_response?: unknown;
   prompt?: string;
+  /** Notification — the user-facing notification text. */
+  message?: string;
+  /** PreCompact — compaction trigger (manual = /compact, auto = full context). */
+  trigger?: "auto" | "manual";
+  /** SessionStart — startup | resume | clear | compact (matcher source). */
+  source?: string;
+  /** SessionEnd — clear | logout | prompt_input_exit | other. */
+  reason?: string;
   /** Stop / SubagentStop loop guard. */
   stop_hook_active?: boolean;
   // SubagentStop — Claude-compatible snake_case fields. agent_type is
@@ -153,12 +173,15 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     supportsMemory: true,
     preToolUse: true,
     postToolUse: true,
-    preCompact: false,
-    sessionStart: false,
-    sessionEnd: false,
+    // Notification / PreCompact / SessionStart / SessionEnd are documented Droid
+    // lifecycle hooks (docs.factory.ai/reference/hooks-reference) with the same
+    // Claude-shaped snake_case stdin wire — all four fire natively.
+    preCompact: true,
+    sessionStart: true,
+    sessionEnd: true,
     userPromptSubmit: true,
     stop: true,
-    notification: false,
+    notification: true,
     // Newer events: Droid ships SubagentStop (stop-only — no SubagentStart).
     // permissionRequest / postToolUseFailure / subagentStart stay unset (no
     // Droid analog); install reports the standard skip-warn for them.
@@ -859,11 +882,50 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "Notification": {
+        // Droid Notification: { …, hook_event_name:"Notification", message }
+        // (docs.factory.ai/reference/hooks-reference). Only `message` maps.
+        const ev: NotificationEvent = {
+          ...base,
+          message: typeof input.message === "string" ? input.message : "",
+        };
+        return ev;
+      }
+      case "PreCompact": {
+        // Droid PreCompact: { …, trigger:"manual"|"auto", custom_instructions }.
+        // Only the documented `trigger` enum maps; custom_instructions rides on
+        // base.raw (no normalized field).
+        const ev: PreCompactEvent = {
+          ...base,
+          ...(input.trigger === "auto" || input.trigger === "manual"
+            ? { trigger: input.trigger }
+            : {}),
+        };
+        return ev;
+      }
+      case "SessionStart": {
+        // Droid SessionStart: { …, source:"startup"|"resume"|"clear"|"compact" }.
+        // Coerce the documented matcher source onto the normalized enum.
+        const ev: SessionStartEvent = {
+          ...base,
+          source: normalizeSessionSource(input.source),
+        };
+        return ev;
+      }
+      case "SessionEnd": {
+        // Droid SessionEnd: { …, reason:"clear"|"logout"|"prompt_input_exit"|
+        // "other" }. Only the documented `reason` maps.
+        const ev: SessionEndEvent = {
+          ...base,
+          ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
+        };
+        return ev;
+      }
       default: {
-        // Droid never delivers PreCompact / SessionStart / SessionEnd /
-        // Notification / PermissionRequest / PostToolUseFailure / SubagentStart
-        // (no native equivalent). If the runtime dispatches one anyway, surface
-        // it loudly rather than silently mis-parse.
+        // Droid never delivers PermissionRequest / PostToolUseFailure /
+        // SubagentStart (no native equivalent — see SUPPORTED_EVENTS). If the
+        // runtime dispatches one anyway, surface it loudly rather than silently
+        // mis-parse.
         throw new Error(`unsupported droid hook event: ${String(event)}`);
       }
     }
@@ -874,6 +936,16 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
   formatReply(event: HookEventName, response: HookResponse): HookReply {
     const hookEventName = event;
     const decision = response.decision ?? "allow";
+
+    // Notification / PreCompact / SessionEnd are observe-only: per
+    // docs.factory.ai/reference/hooks-reference their Decision Control is "N/A"
+    // (cannot block) and they carry no context-injection surface, so every
+    // decision is an unconditional no-op passthrough (mirrors Stop). SessionStart
+    // is deliberately NOT here — it honors hookSpecificOutput.additionalContext,
+    // so it falls through to the generic `context` branch below.
+    if (event === "Notification" || event === "PreCompact" || event === "SessionEnd") {
+      return { exitCode: 0 };
+    }
 
     // deny → block the action with a reason (exit 0; JSON carries the decision).
     if (decision === "deny") {
@@ -921,6 +993,24 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
 
   private stdout(payload: unknown): HookReply {
     return { exitCode: 0, stdout: JSON.stringify(payload) };
+  }
+}
+
+/**
+ * Coerce Droid's SessionStart `source` matcher value onto the normalized
+ * SessionStartEvent enum. Droid documents startup | resume | clear | compact
+ * (docs.factory.ai/reference/hooks-reference); anything else defaults to startup.
+ */
+function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
+  switch (source) {
+    case "compact":
+      return "compact";
+    case "resume":
+      return "resume";
+    case "clear":
+      return "clear";
+    default:
+      return "startup";
   }
 }
 
