@@ -632,7 +632,7 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "experimental.chat.system.transform",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "chat.message",
       PreToolUse: "tool.execute.before",
       PostToolUse: "tool.execute.after",
       PreCompact: null,
@@ -645,7 +645,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "Xiaomi MiMoCode (@mimo-ai/cli, bin `mimo`) — an OpenCode FORK; STANDALONE adapter mirroring OpenCode's render logic with mimocode paths so detection, the runtime bridge, and per-platform overrides route to the mimo-code id (NOT opencode). EVENT_TO_MIMOCODE identical to OpenCode: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (inject into output.system); rest null. MCP in mimocode.json root key 'mcp' (command ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). ask degrades to a thrown block. Bridge shells out to <homeBin> hook mimo-code <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
+      "Xiaomi MiMoCode (@mimo-ai/cli, bin `mimo`) — an OpenCode FORK; STANDALONE adapter mirroring OpenCode's render logic with mimocode paths so detection, the runtime bridge, and per-platform overrides route to the mimo-code id (NOT opencode). EVENT_TO_MIMOCODE: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (inject into output.system), UserPromptSubmit->chat.message (push a {type:'text'} part onto output.parts to inject additionalContext; no block/abort so deny degrades to a no-op); rest null. MCP in mimocode.json root key 'mcp' (command ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). ask degrades to a thrown block. Bridge shells out to <homeBin> hook mimo-code <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
   },
   {
     platform: "kilo-cli",
