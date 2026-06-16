@@ -589,7 +589,7 @@ describe("kimi adapter render + round-trip", () => {
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
 
-  it("installHooks writes a [[hooks]] table in config.toml (TOML); SessionStart dropped (PreToolUse only)", () => {
+  it("installHooks writes a [[hooks]] table in config.toml (TOML); PreToolUse + SessionStart both registered", () => {
     const changes = kimiAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
 
@@ -599,13 +599,15 @@ describe("kimi adapter render + round-trip", () => {
 
     const cfg = readToml(hookPath);
     expect(Array.isArray(cfg.hooks)).toBe(true);
-    // Kimi honors PreToolUse ONLY — SessionStart must not be registered.
-    expect(cfg.hooks).toHaveLength(1);
-    const entry = cfg.hooks[0];
-    expect(entry.event).toBe("PreToolUse");
-    expect(entry.command).toContain(HOME_BIN);
-    expect(entry.command).toContain("hook kimi PreToolUse");
-    expect(entry.command).toContain(`--connector ${CONNECTOR_ID}`);
+    // Kimi now supports every canonical event — both register (PascalCase 1:1).
+    expect(cfg.hooks).toHaveLength(2);
+    const byEvent = new Map(cfg.hooks.map((h: any) => [h.event, h]));
+    const pre = byEvent.get("PreToolUse") as any;
+    expect(pre, "PreToolUse entry").toBeDefined();
+    expect(pre.command).toContain(HOME_BIN);
+    expect(pre.command).toContain("hook kimi PreToolUse");
+    expect(pre.command).toContain(`--connector ${CONNECTOR_ID}`);
+    expect((byEvent.get("SessionStart") as any)?.command).toContain("hook kimi SessionStart");
   });
 
   it("installHooks is idempotent (skip on second run); uninstallHooks removes the [[hooks]] table", () => {
@@ -614,11 +616,11 @@ describe("kimi adapter render + round-trip", () => {
     expect(second.every((c) => c.action === "skip")).toBe(true);
 
     const hookPath = join(projectDir, ".kimi", "config.toml");
-    expect(readToml(hookPath).hooks).toHaveLength(1);
+    expect(readToml(hookPath).hooks).toHaveLength(2);
 
     kimiAdapter.uninstallHooks(ctx);
     const after = readToml(hookPath);
-    // The hooks key is dropped entirely once our only entry is removed.
+    // The hooks key is dropped entirely once our entries are removed.
     expect(after.hooks).toBeUndefined();
   });
 

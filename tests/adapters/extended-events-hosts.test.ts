@@ -88,7 +88,7 @@ function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
   });
 }
 
-/** A connector declaring ONLY the event a host cannot fire (warn-skip path). */
+/** A connector declaring ONLY one hook event — exercises a host's single-event install path. */
 function buildSingleEventConnector(
   id: string,
   event: "PostToolUseFailure" | "PermissionRequest",
@@ -623,24 +623,41 @@ describe("kimi E1 events", () => {
     ctx = buildCtx(projectDir, buildConnector(), "user");
   });
 
-  it("capabilities: failure + subagent events native; permissionRequest unset", () => {
-    expect(kimiAdapter.capabilities.postToolUseFailure).toBe(true);
-    expect(kimiAdapter.capabilities.subagentStart).toBe(true);
-    expect(kimiAdapter.capabilities.subagentStop).toBe(true);
-    expect(kimiAdapter.capabilities.permissionRequest ?? false).toBe(false);
+  it("capabilities: every canonical event wired (full coverage incl. permissionRequest)", () => {
+    const c = kimiAdapter.capabilities;
+    expect(c.preToolUse).toBe(true);
+    expect(c.postToolUse).toBe(true);
+    expect(c.userPromptSubmit).toBe(true);
+    expect(c.stop).toBe(true);
+    expect(c.sessionStart).toBe(true);
+    expect(c.sessionEnd).toBe(true);
+    expect(c.preCompact).toBe(true);
+    expect(c.postCompact ?? false).toBe(true);
+    expect(c.notification).toBe(true);
+    expect(c.permissionRequest ?? false).toBe(true);
+    expect(c.postToolUseFailure).toBe(true);
+    expect(c.subagentStart).toBe(true);
+    expect(c.subagentStop).toBe(true);
   });
 
-  it("installHooks writes one [[hooks]] entry PER EVENT (no clobber) + warns on PermissionRequest", () => {
+  it("installHooks writes one [[hooks]] entry PER declared event (no clobber); no warn now PermissionRequest is supported", () => {
     const changes = kimiAdapter.installHooks(ctx);
 
-    const warns = changes.filter((c) => c.action === "warn");
-    expect(warns).toHaveLength(1);
-    expect(warns[0]?.detail).toContain("PermissionRequest");
+    // PermissionRequest is now a supported (observation-only) event → no warn-skip.
+    expect(changes.filter((c) => c.action === "warn")).toHaveLength(0);
 
     const cfg = readToml(join(projectDir, ".kimi", "config.toml"));
-    expect(cfg.hooks).toHaveLength(4);
+    // The connector declares 5 events (PreToolUse, PermissionRequest,
+    // PostToolUseFailure, SubagentStart, SubagentStop) — all wired now.
+    expect(cfg.hooks).toHaveLength(5);
     const byEvent = new Map(cfg.hooks.map((h: any) => [h.event, h]));
-    for (const event of ["PreToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop"]) {
+    for (const event of [
+      "PreToolUse",
+      "PermissionRequest",
+      "PostToolUseFailure",
+      "SubagentStart",
+      "SubagentStop",
+    ]) {
       const entry = byEvent.get(event) as any;
       expect(entry, `missing [[hooks]] entry for ${event}`).toBeDefined();
       expect(entry.command).toContain(`hook kimi ${event}`);
@@ -649,28 +666,31 @@ describe("kimi E1 events", () => {
     // Only the PreToolUse deny gate carries the native tool matcher.
     expect((byEvent.get("PreToolUse") as any).matcher).toContain("mcp__");
     expect((byEvent.get("SubagentStop") as any).matcher).toBe("");
+    expect((byEvent.get("PermissionRequest") as any).matcher).toBe("");
   });
 
   it("installHooks is idempotent across multiple events; uninstall removes them all", () => {
     kimiAdapter.installHooks(ctx);
     const second = kimiAdapter.installHooks(ctx);
-    expect(second.every((c) => c.action === "skip" || c.action === "warn")).toBe(true);
-    expect(readToml(join(projectDir, ".kimi", "config.toml")).hooks).toHaveLength(4);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+    expect(readToml(join(projectDir, ".kimi", "config.toml")).hooks).toHaveLength(5);
 
     kimiAdapter.uninstallHooks(ctx);
     expect(readToml(join(projectDir, ".kimi", "config.toml")).hooks).toBeUndefined();
   });
 
-  it("a PermissionRequest-only connector warns WITHOUT creating config.toml", () => {
+  it("a PermissionRequest-only connector now installs a hook + creates config.toml (gap closed)", () => {
     const only = buildCtx(
       projectDir,
       buildSingleEventConnector("acme-perm", "PermissionRequest"),
       "user",
     );
     const changes = kimiAdapter.installHooks(only);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("warn");
-    expect(existsSync(join(projectDir, ".kimi", "config.toml"))).toBe(false);
+    expect(changes.filter((c) => c.action === "warn")).toHaveLength(0);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+    const cfg = readToml(join(projectDir, ".kimi", "config.toml"));
+    expect(cfg.hooks).toHaveLength(1);
+    expect(cfg.hooks[0].event).toBe("PermissionRequest");
   });
 
   it("parseEvent maps Kimi's wire: agent_name → agentType, response → lastAssistantMessage", () => {
@@ -744,7 +764,8 @@ describe("kimi E1 events", () => {
     expect(ctxReply.stdout).toBe("wrap-up notes");
   });
 
-  it("formatReply PermissionRequest degrades to a silent allow (no Kimi analog)", () => {
+  it("formatReply PermissionRequest degrades to silent allow (fired, but observation-only)", () => {
+    // Kimi fires PermissionRequest but it is NOT blockable, so a deny degrades.
     const reply = kimiAdapter.formatReply!("PermissionRequest", {
       decision: "deny",
       reason: "would block if it could",
@@ -752,5 +773,47 @@ describe("kimi E1 events", () => {
     expect(reply.exitCode).toBe(0);
     expect(reply.stdout).toBeUndefined();
     expect(reply.stderr).toBeUndefined();
+  });
+
+  it("formatReply Stop: deny → EXIT 2 + stderr (continue); context → exit-0 stdout", () => {
+    const deny = kimiAdapter.formatReply!("Stop", {
+      decision: "deny",
+      reason: "keep going — task incomplete",
+    });
+    expect(deny.exitCode).toBe(2);
+    expect(deny.stderr).toBe("keep going — task incomplete");
+    expect(deny.stdout).toBeUndefined();
+
+    const ctxReply = kimiAdapter.formatReply!("Stop", {
+      decision: "context",
+      additionalContext: "remaining checklist",
+    });
+    expect(ctxReply.exitCode).toBe(0);
+    expect(ctxReply.stdout).toBe("remaining checklist");
+  });
+
+  it("formatReply UserPromptSubmit: deny → EXIT 2 + stderr (block turn); context → exit-0 stdout", () => {
+    const deny = kimiAdapter.formatReply!("UserPromptSubmit", {
+      decision: "deny",
+      reason: "prompt rejected by policy",
+    });
+    expect(deny.exitCode).toBe(2);
+    expect(deny.stderr).toBe("prompt rejected by policy");
+    expect(deny.stdout).toBeUndefined();
+
+    const ctxReply = kimiAdapter.formatReply!("UserPromptSubmit", {
+      decision: "context",
+      additionalContext: "appended preamble",
+    });
+    expect(ctxReply.exitCode).toBe(0);
+    expect(ctxReply.stdout).toBe("appended preamble");
+  });
+
+  it("formatReply observation-only events (PostToolUse/SessionStart/etc.) degrade to exit-0 allow", () => {
+    for (const ev of ["PostToolUse", "SessionStart", "SessionEnd", "PreCompact", "PostCompact", "Notification"] as const) {
+      const reply = kimiAdapter.formatReply!(ev, { decision: "deny", reason: "x" });
+      expect(reply.exitCode, `${ev} should degrade to allow`).toBe(0);
+      expect(reply.stderr).toBeUndefined();
+    }
   });
 });
