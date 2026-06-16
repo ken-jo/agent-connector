@@ -121,6 +121,7 @@ interface OmpStdioServer {
   env?: Record<string, string>;
 }
 interface OmpRemoteServer {
+  type: "http" | "sse";
   url: string;
   headers?: Record<string, string>;
 }
@@ -157,8 +158,8 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     // No session_start context-injection surface upstream.
     canInjectSessionContext: false,
-    // OMP registers stdio and remote (http) MCP servers.
-    transports: ["stdio", "http"],
+    // OMP registers stdio and remote (streamable http + sse) MCP servers.
+    transports: ["stdio", "sse", "http"],
     // Action surface: each declared action becomes a user-invokable slash
     // command registered INSIDE the generated plugin module (pi.registerCommand),
     // shelling out to the home-bin `action` verb. supportsActions → the
@@ -261,8 +262,23 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
+    const changes: ChangeRecord[] = [];
+    // Honesty: OMP documents stdio/sse/http. A connector declaring another
+    // transport (e.g. the non-spec "ws") is still rendered best-effort — the
+    // remote branch coerces it to type:"http" (OMP rejects an unknown `type`) —
+    // but the mismatch is REPORTED, never silently downgraded (same "degradation
+    // is never silent" posture as the hook warn-skips).
+    if (!this.capabilities.transports.includes(server.transport)) {
+      changes.push({
+        platform: this.id,
+        action: "warn",
+        path: serverPath,
+        detail: `transport "${server.transport}" is not an OMP MCP transport (stdio/sse/http); registered best-effort as type:"http"`,
+      });
+    }
+
     const entry = this.renderServerEntry(ctx, server);
-    return [
+    changes.push(
       this.upsertServerInJson(
         serverPath,
         MCP_ROOT_KEY,
@@ -270,7 +286,8 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
         entry,
         ctx.dryRun,
       ),
-    ];
+    );
+    return changes;
   }
 
   uninstallServer(ctx: InstallContext): ChangeRecord[] {
@@ -299,8 +316,10 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
   /**
    * Render a normalized ServerDef into OMP's native "mcpServers" entry.
    *
-   * stdio  → { command, args, env }  (portable field names)
-   * remote → { url, headers? }
+   * stdio  → { command, args, env }  (portable field names; `type` omitted —
+   *          OMP defaults an entry with no `type` to stdio)
+   * remote → { type: "http"|"sse", url, headers? }  (`type` is REQUIRED for a
+   *          URL server — without it OMP would mis-parse the entry as stdio)
    *
    * Telemetry wrapping routes the real command through
    * `<homeBin> serve --connector <id> -- <command> <args...>`. OMP has no native
@@ -339,8 +358,12 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
       return entry;
     }
 
-    // remote (http / sse / ws) — OMP registers a URL.
+    // remote (http / sse) — OMP registers a URL with an explicit `type`
+    // discriminator. OMP defaults a type-less entry to stdio (docs/mcp-config.md
+    // "stdio is the default when type is omitted"), so a URL server MUST carry
+    // its type or it is mis-parsed as a command.
     const entry: OmpRemoteServer = {
+      type: server.transport === "sse" ? "sse" : "http",
       url: resolveEnvRefsDeep(server.url ?? ""),
     };
     const headers = this.renderEnv(server.headers);
