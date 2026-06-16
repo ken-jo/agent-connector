@@ -165,6 +165,14 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     // shelling out to the home-bin `action` verb. supportsActions → the
     // installActions/uninstallActions overrides below.
     supportsActions: true,
+    // Native passthrough hooks: OMP's main-loop lifecycle events —
+    // agent_start, agent_end, turn_start, turn_end — have NO canonical
+    // HookEventName analog (verified in oh-my-pi shared-events.ts). A connector
+    // reaches them by declaring platforms["omp"].nativeHooks; the generated
+    // plugin registers + bridges each declared native event verbatim
+    // (buildPluginSource native loop), and the home-bin runtime dispatches it
+    // host-generically via runNativeHook.
+    supportsNativeHooks: true,
   };
 
   // ── Native paths ───────────────────────────────────────────────────────
@@ -384,7 +392,15 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const entryPath = this.getHookConfigPath(ctx);
 
-    if (ctx.connector.platforms[HOST]?.hooks === false) {
+    // Native passthrough events are a sibling, omp-scoped declaration: `hooks:
+    // false` disables only the CANONICAL events, and the generated native loop
+    // reads platforms.omp.nativeHooks directly (independent of hookEvents). So
+    // whenever native events exist the plugin must still be synthesized.
+    const nativeEvents = Object.keys(
+      ctx.connector.platforms[HOST]?.nativeHooks ?? {},
+    );
+
+    if (ctx.connector.platforms[HOST]?.hooks === false && nativeEvents.length === 0) {
       return [
         {
           platform: this.id,
@@ -398,8 +414,9 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     // a connector with actions-but-no-hooks still needs it written — but that is
     // installActions' job. installHooks itself only writes when there ARE hooks,
     // so its skip detail stays honest about why (no hooks) while admitting the
-    // plugin may still exist for actions.
-    if (ctx.connector.hookEvents.length === 0) {
+    // plugin may still exist for actions. Native events are a third reason to
+    // write it, so they suppress the skip too.
+    if (ctx.connector.hookEvents.length === 0 && nativeEvents.length === 0) {
       return [
         {
           platform: this.id,
@@ -512,10 +529,20 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
    * "unsupported here" so the detail never overstates coverage.
    */
   private hookDetail(ctx: InstallContext): string {
-    const declared = ctx.connector.hookEvents;
+    // `hooks: false` suppresses the canonical handlers (buildPluginSource), so
+    // the detail must not claim them. Native events are still reported below.
+    const canonicalOff = ctx.connector.platforms[HOST]?.hooks === false;
+    const declared = canonicalOff ? [] : ctx.connector.hookEvents;
     const mapped = declared.filter((e) => EVENT_TO_OMP[e] !== undefined);
     const unsupported = declared.filter((e) => EVENT_TO_OMP[e] === undefined);
-    const base = mapped.join(",");
+    const nativeEvents = Object.keys(
+      ctx.connector.platforms[HOST]?.nativeHooks ?? {},
+    );
+    const parts = [mapped.join(",")].filter((p) => p !== "");
+    if (nativeEvents.length > 0) {
+      parts.push(`native: ${nativeEvents.join(",")}`);
+    }
+    const base = parts.join("; ");
     return unsupported.length > 0
       ? `${base}; unsupported here: ${unsupported.join(",")}`
       : base;
@@ -603,9 +630,17 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     const homeBin = JSON.stringify(ctx.homeBinPath);
     const connectorId = JSON.stringify(ctx.connector.id);
 
-    const events = ctx.connector.hookEvents.filter(
-      (e): e is HookEventName => EVENT_TO_OMP[e] !== undefined,
-    );
+    // `platforms.omp.hooks === false` disables only the CANONICAL events (the
+    // native loop below reads platforms.omp.nativeHooks directly and is a
+    // sibling, unaffected). When canonical hooks are off the module may still be
+    // synthesized for native events and/or actions, so the canonical handler set
+    // collapses to empty here rather than short-circuiting the whole plugin.
+    const canonicalOff = ctx.connector.platforms[HOST]?.hooks === false;
+    const events = canonicalOff
+      ? []
+      : ctx.connector.hookEvents.filter(
+          (e): e is HookEventName => EVENT_TO_OMP[e] !== undefined,
+        );
     const has = (e: HookEventName) => events.includes(e);
 
     const header = `/**
@@ -727,6 +762,23 @@ function deriveSessionId(ctx) {
       handlers.push(`  // PreCompact → notify before OMP compacts the context window.
   pi.on("session_before_compact", () => {
     bridge("PreCompact", { sessionId: SESSION_ID, projectDir: PROJECT_DIR });
+    return undefined;
+  });`);
+    }
+
+    // NATIVE passthrough events: OMP's main-loop lifecycle hooks (agent_start,
+    // agent_end, turn_start, turn_end) have NO canonical analog, so they are not
+    // in EVENT_TO_OMP. Each declared native event registers a pi.on(...) handler
+    // that bridges the NATIVE event name verbatim to the home-bin → runNativeHook
+    // dispatches it host-generically. Read straight off platforms.omp.nativeHooks
+    // (independent of hookEvents), so they install even with hooks:false.
+    const nativeEvents = Object.keys(
+      ctx.connector.platforms[HOST]?.nativeHooks ?? {},
+    );
+    for (const ev of nativeEvents) {
+      handlers.push(`  // nativeHooks passthrough → ${ev}
+  pi.on(${JSON.stringify(ev)}, (event) => {
+    bridge(${JSON.stringify(ev)}, { sessionId: SESSION_ID, projectDir: PROJECT_DIR, raw: event });
     return undefined;
   });`);
     }
