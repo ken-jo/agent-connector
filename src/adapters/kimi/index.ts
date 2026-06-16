@@ -240,6 +240,13 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     // (user scope) and .kimi/skills/<name>/SKILL.md (project scope).
     // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
     supportsSkills: true,
+    // Native passthrough hooks: Kimi's observation-only single-host events —
+    // StopFailure, PermissionResult, Interrupt — have NO normalized HookEventName
+    // (below the >=3-host core bar; see
+    // docs/research/host-specific-hook-events-design.md). A connector reaches them
+    // by declaring platforms["kimi"].nativeHooks; installHooks writes those
+    // event-name [[hooks]] entries verbatim, and the generic uninstall reverses them.
+    supportsNativeHooks: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -485,16 +492,26 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
-    if (connector.platforms[HOST]?.hooks === false) {
-      return [{ platform: this.id, action: "skip", detail: "hooks disabled for kimi" }];
-    }
+    const override = connector.platforms[HOST];
 
+    // `hooks: false` disables only the NORMALIZED events (effectiveHookEvents /
+    // warnSkipHookEvents already return [] for it). nativeHooks is a sibling,
+    // kimi-scoped declaration on the same override and installs regardless.
     const events = this.effectiveHookEvents(ctx);
     const dropped = this.warnSkipHookEvents(ctx);
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
     const path = this.getHookConfigPath(ctx);
 
-    if (events.length === 0 && dropped.length === 0) {
-      return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
+    if (events.length === 0 && dropped.length === 0 && nativeEvents.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path,
+          detail: override?.hooks === false ? "hooks disabled for kimi" : "no hooks declared",
+        },
+      ];
     }
 
     const cfg = this.readToml(path);
@@ -527,6 +544,28 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
         mutated = true;
       } else {
         changes.push({ platform: this.id, action: "skip", path, detail: `hooks.${event}` });
+      }
+    }
+
+    // NATIVE passthrough events: Kimi-native event names (e.g. StopFailure,
+    // PermissionResult, Interrupt) written VERBATIM as [[hooks]] entries — no
+    // canonical mapping, same command shape + idempotency. Matched by EXACT
+    // command so a native name that coincides with a canonical event never
+    // clobbers it.
+    for (const event of nativeEvents) {
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
+      const desired = { event, matcher: nativeHooks[event]?.matcher ?? "", command };
+      const idx = hooks.findIndex((h) => h?.event === event && h?.command === command);
+      if (idx < 0) {
+        hooks.push(desired);
+        changes.push({ platform: this.id, action: "create", path, detail: `hooks.${event} (native)` });
+        mutated = true;
+      } else if (JSON.stringify(hooks[idx]) !== JSON.stringify(desired)) {
+        hooks[idx] = desired;
+        changes.push({ platform: this.id, action: "update", path, detail: `hooks.${event} (native)` });
+        mutated = true;
+      } else {
+        changes.push({ platform: this.id, action: "skip", path, detail: `hooks.${event} (native)` });
       }
     }
 
