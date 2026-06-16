@@ -215,11 +215,11 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "SessionStart",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "UserPromptSubmit",
       PreToolUse: "PreToolUse",
       PostToolUse: "PostToolUse",
       PreCompact: "PreCompact",
-      Stop: null,
+      Stop: "Stop",
       Notification: null,
       PermissionRequest: null,
       PostToolUseFailure: null,
@@ -228,7 +228,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "EVENT_MAP PascalCase: PreToolUse, PostToolUse, PreCompact, SessionStart, SubagentStart, SubagentStop (1:1 — Subagent* are in VS Code's live Preview event list). SessionEnd/UserPromptSubmit/Stop/Notification warn-skip (null); PermissionRequest & PostToolUseFailure have no VS Code analog -> warn-skip. Hook file is per-connector under the WORKSPACE .github/hooks tree (project-rooted both scopes); top-level version:1 REQUIRED. FLAT { type:'command', command } entries; matchers parsed but IGNORED. Reply (Claude-compatible, stdout exit 0): hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse); additionalContext }. SubagentStart is context-only (deny degrades to additionalContext); SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (keeps the subagent running). canModifyOutput false.",
+      "EVENT_MAP PascalCase 1:1 — all EIGHT events in VS Code's official Hook Events table (microsoft/vscode-copilot-chat hooks.md): SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop, SubagentStart, SubagentStop. SessionEnd/Notification + PermissionRequest/PostToolUseFailure are NOT in the list -> warn-skip (null). Hook file is per-connector under the WORKSPACE .github/hooks tree (project-rooted both scopes); top-level version:1 REQUIRED. FLAT { type:'command', command } entries; matchers parsed but IGNORED. Reply (Claude-compatible, stdout exit 0): tool-permission events use hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse); additionalContext }; the turn-control events Stop / UserPromptSubmit / SubagentStop deny -> TOP-LEVEL { decision:'block', reason } per the Output Contract (Stop/SubagentStop keep running with reason; UserPromptSubmit blocks the prompt). SubagentStart is context-only (deny degrades to additionalContext). canModifyOutput false.",
   },
   {
     platform: "jetbrains-copilot",

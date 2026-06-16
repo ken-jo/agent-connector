@@ -90,16 +90,20 @@ const VSCODE_HOOKS_VERSION = 1;
  * registered; everything else has no Copilot equivalent and is reported as a
  * warn/skip at install time.
  *
- * SubagentStart / SubagentStop are in VS Code's live Preview event list
- * (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop,
- * SubagentStart, SubagentStop, PreCompact). PermissionRequest and
- * PostToolUseFailure are NOT — they have no VS Code analog and skip-warn.
+ * VS Code's official Hook Events table (microsoft/vscode-copilot-chat:
+ * assets/prompts/skills/agent-customization/references/hooks.md) is, verbatim
+ * (PascalCase): SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,
+ * PreCompact, SubagentStart, SubagentStop, Stop — all eight now wired 1:1.
+ * SessionEnd, Notification, PermissionRequest and PostToolUseFailure are NOT in
+ * the list — they have no VS Code analog and skip-warn.
  */
 const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PreToolUse: "PreToolUse",
   PostToolUse: "PostToolUse",
   PreCompact: "PreCompact",
   SessionStart: "SessionStart",
+  UserPromptSubmit: "UserPromptSubmit",
+  Stop: "Stop",
   SubagentStart: "SubagentStart",
   SubagentStop: "SubagentStop",
 };
@@ -179,15 +183,17 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
-    // VS Code Copilot's Preview hooks runtime delivers Pre/PostToolUse,
-    // PreCompact, and SessionStart (the four events its schema documents).
+    // VS Code Copilot's Preview hooks runtime delivers all eight events in its
+    // official Hook Events table: Pre/PostToolUse, PreCompact, SessionStart,
+    // UserPromptSubmit, Stop, and Subagent Start/Stop. UserPromptSubmit + Stop
+    // are BLOCKABLE (deny → top-level {decision:"block"}, per the Output Contract).
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
     sessionStart: true,
     sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
+    userPromptSubmit: true,
+    stop: true,
     notification: false,
     // Newer events: VS Code's Preview hooks runtime delivers SubagentStart /
     // SubagentStop (Claude-compatible). permissionRequest / postToolUseFailure
@@ -989,13 +995,14 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     }
 
     // deny → block the action with a reason (exit 0; JSON carries the decision).
-    // VS Code Copilot is Claude-compatible: the decision lives inside
-    // `hookSpecificOutput`, keyed by the PascalCase event name — EXCEPT
-    // SubagentStop, which (like Claude's Stop class) honors only the TOP-LEVEL
-    // {"decision":"block","reason"}: the block keeps the subagent running with
-    // `reason` as its next instruction (Stop semantics).
+    // Per VS Code's Output Contract, `hookSpecificOutput.permissionDecision` is
+    // read for the TOOL-permission events (PreToolUse). The turn-control events —
+    // Stop, UserPromptSubmit and SubagentStop — block via the TOP-LEVEL
+    // {"decision":"block","reason"} instead: Stop/SubagentStop keep the (sub)agent
+    // running with `reason` as the next instruction; UserPromptSubmit blocks the
+    // prompt with `reason`.
     if (decision === "deny") {
-      if (event === "SubagentStop") {
+      if (event === "SubagentStop" || event === "Stop" || event === "UserPromptSubmit") {
         return this.stdout({
           decision: "block",
           reason: response.reason ?? "Blocked by hook",
