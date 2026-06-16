@@ -81,17 +81,20 @@ function buildCtx(
 let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
 let savedXdg: string | undefined;
+let savedLocalAppData: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedUserProfile = process.env.USERPROFILE;
   savedXdg = process.env.XDG_CONFIG_HOME;
+  savedLocalAppData = process.env.LOCALAPPDATA;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
   restore("USERPROFILE", savedUserProfile);
   restore("XDG_CONFIG_HOME", savedXdg);
+  restore("LOCALAPPDATA", savedLocalAppData);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -106,6 +109,9 @@ function freshProject(): string {
   // Crush's user dir is home.Config()/crush = ~/.config/crush; pin XDG into the
   // sandbox so the test never reads or writes the real user config dir.
   delete process.env.XDG_CONFIG_HOME;
+  // Windows: crush's user dir is %LOCALAPPDATA%\crush — isolate it into the
+  // sandbox too, or the adapter writes to the real user AppData/Local.
+  process.env.LOCALAPPDATA = join(dir, "AppData", "Local");
   return dir;
 }
 
@@ -163,8 +169,13 @@ describe("crush adapter — skills surface", () => {
     const changes = crushAdapter.installSkills!(userCtx);
     expect(changes[0]?.action).toBe("create");
 
-    // HOME redirected to projectDir → ~/.config/crush === projectDir/.config/crush
-    const skillMd = join(projectDir, ".config", "crush", "skills", "pdf-tools", "SKILL.md");
+    // crush user dir: POSIX ~/.config/crush, Windows %LOCALAPPDATA%\crush — both
+    // isolated into projectDir via the HOME + LOCALAPPDATA redirects.
+    const userCrushDir =
+      process.platform === "win32"
+        ? join(projectDir, "AppData", "Local", "crush")
+        : join(projectDir, ".config", "crush");
+    const skillMd = join(userCrushDir, "skills", "pdf-tools", "SKILL.md");
     expect(changes[0]?.path).toBe(skillMd);
     expect(existsSync(skillMd)).toBe(true);
     // It must NOT leak into the project .crush tree.
