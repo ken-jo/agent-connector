@@ -34,6 +34,7 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   PermissionRequestEvent,
+  PostCompactEvent,
   PostToolUseFailureEvent,
   ResolvedConnector,
   SubagentStartEvent,
@@ -329,6 +330,101 @@ describe("codex E1 events", () => {
     });
     expect(ctxReply.exitCode).toBe(0);
     expect(ctxReply.stdout).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// codex — PostCompact (post-compaction sibling of PreCompact, observe-only)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A connector declaring both PreCompact and PostCompact (the compaction pair). */
+function buildCompactionConnector(id = "acme-compact"): ResolvedConnector {
+  return defineConnector({
+    id,
+    hooks: {
+      PreCompact: {
+        handler() {
+          return {};
+        },
+      },
+      PostCompact: {
+        handler() {
+          return {};
+        },
+      },
+    },
+  });
+}
+
+describe("codex PostCompact", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-ext-codex-pc-");
+    ctx = buildCtx(projectDir, buildCompactionConnector());
+  });
+
+  it("capabilities: postCompact native (sibling of preCompact)", () => {
+    expect(codexAdapter.capabilities.postCompact ?? false).toBe(true);
+    expect(codexAdapter.capabilities.preCompact).toBe(true);
+  });
+
+  it("installHooks writes hooks.PostCompact (and PreCompact) with the codex command + empty matcher", () => {
+    const changes = codexAdapter.installHooks(ctx);
+    // No warn-skip: both compaction events are native to codex.
+    expect(changes.some((c) => c.action === "warn")).toBe(false);
+
+    const cfg = readJson(join(projectDir, ".codex", "hooks.json"));
+    expect(cfg.hooks.PostCompact).toHaveLength(1);
+    expect(cfg.hooks.PreCompact).toHaveLength(1);
+    expect(cfg.hooks.PostCompact[0].matcher).toBe("");
+    expect(cfg.hooks.PostCompact[0].hooks[0].command).toContain("hook codex PostCompact");
+  });
+
+  it("uninstallHooks removes the PostCompact entry", () => {
+    codexAdapter.installHooks(ctx);
+    codexAdapter.uninstallHooks(ctx);
+    const cfg = readJson(join(projectDir, ".codex", "hooks.json"));
+    expect(JSON.stringify(cfg.hooks ?? {})).not.toContain("PostCompact");
+  });
+
+  it("parseEvent maps the `trigger` enum (manual|auto); unknown/missing coerces to auto", () => {
+    const manual = codexAdapter.parseEvent!("PostCompact", {
+      session_id: "cx-pc",
+      cwd: projectDir,
+      trigger: "manual",
+    }) as PostCompactEvent;
+    expect(manual.hostPlatform).toBe("codex");
+    expect(manual.trigger).toBe("manual");
+
+    const auto = codexAdapter.parseEvent!("PostCompact", {
+      session_id: "cx-pc",
+      trigger: "auto",
+    }) as PostCompactEvent;
+    expect(auto.trigger).toBe("auto");
+
+    // Codex's compaction events default an unknown/missing trigger to "auto"
+    // (same normalization the PreCompact case uses).
+    const unknown = codexAdapter.parseEvent!("PostCompact", {
+      session_id: "cx-pc",
+      trigger: "nonsense",
+    }) as PostCompactEvent;
+    expect(unknown.trigger).toBe("auto");
+    const none = codexAdapter.parseEvent!("PostCompact", { session_id: "cx-pc" }) as PostCompactEvent;
+    expect(none.trigger).toBe("auto");
+  });
+
+  it("formatReply is an observe-only passthrough (any decision → exit 0, no stdout)", () => {
+    for (const response of [
+      {},
+      { decision: "deny" as const, reason: "cannot block a completed compaction" },
+      { decision: "context" as const, additionalContext: "ignored on PostCompact" },
+    ]) {
+      const reply = codexAdapter.formatReply!("PostCompact", response);
+      expect(reply.exitCode).toBe(0);
+      expect(reply.stdout).toBeUndefined();
+    }
   });
 });
 

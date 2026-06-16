@@ -156,7 +156,7 @@ const hookableHosts: PlatformHookEntry[] = [
 const matrixStarter = ["claude-code", "codex", "gemini-cli", "opencode", "kilo-cli"];
 
 /**
- * The mapping matrix as an interactive, column-toggled table: rows are the 12
+ * The mapping matrix as an interactive, column-toggled table: rows are the 13
  * canonical events, columns are the platforms you switch ON via the chips
  * (All | <platform> …) — they append to the right, so you build exactly the
  * comparison you want instead of scrolling one giant fixed table.
@@ -732,7 +732,7 @@ export function HooksGuideSection() {
       <H3 id="single-wrapper">The single-wrapper hook API</H3>
       <P>
         In <C>defineConnector(&#123; hooks &#125;)</C> you declare one{" "}
-        <C>handler</C> per normalized event (the 12 canonical events). The
+        <C>handler</C> per normalized event (the 13 canonical events). The
         framework looks at each detected host&apos;s paradigm and synthesizes the
         right delivery; a universal home-bin <C>hook</C> entrypoint dispatches the
         payload into your one handler and formats the reply back into the
@@ -799,7 +799,7 @@ export function HooksGuideSection() {
       {/* b. the big mapping matrix */}
       <H3 id="mapping-matrix">The mapping matrix</H3>
       <P>
-        Rows are the 12 canonical events; columns are the platforms, grouped by
+        Rows are the 13 canonical events; columns are the platforms, grouped by
         paradigm. A cell shows the <strong>native event name</strong> the
         connector writes for that host, or a muted <C>—</C> when the host has no
         equivalent (graceful skip-warn). The first column is sticky; scroll

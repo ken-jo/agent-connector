@@ -62,6 +62,7 @@ const ALL_EVENTS: HookEventName[] = [
   "PostToolUseFailure",
   "SubagentStart",
   "SubagentStop",
+  "PostCompact",
 ];
 
 /** Thrown on an invalid connector configuration. */

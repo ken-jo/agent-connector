@@ -152,10 +152,12 @@ export interface ServerDef {
 /**
  * Canonical, platform-agnostic lifecycle event names.
  *
- * The last four (PermissionRequest / PostToolUseFailure / SubagentStart /
- * SubagentStop) are newer additions with cross-host analogs; hosts without a
- * native analog mark them unsupported in capabilities and the install reports
- * a skip-warn — an event is never silently dropped.
+ * The newer additions (PermissionRequest / PostToolUseFailure / SubagentStart /
+ * SubagentStop and the trailing PostCompact) have cross-host analogs; hosts
+ * without a native analog mark them unsupported in capabilities and the install
+ * reports a skip-warn — an event is never silently dropped. PostCompact is
+ * observational only (the post-compaction sibling of PreCompact; cannot
+ * block/modify) and is appended LAST to keep the canonical order append-only.
  */
 export type HookEventName =
   | "SessionStart"
@@ -169,7 +171,8 @@ export type HookEventName =
   | "PermissionRequest"
   | "PostToolUseFailure"
   | "SubagentStart"
-  | "SubagentStop";
+  | "SubagentStop"
+  | "PostCompact";
 
 interface BaseEvent {
   /** Which host produced this event (from runtime detection). */
@@ -220,6 +223,18 @@ export interface UserPromptSubmitEvent extends BaseEvent {
 }
 
 export interface PreCompactEvent extends BaseEvent {
+  trigger?: "auto" | "manual";
+}
+
+/**
+ * PostCompact — the post-compaction sibling of {@link PreCompactEvent}. Fires
+ * AFTER the host finishes compacting/summarizing the conversation. Observational
+ * only: it cannot block or modify (compaction already happened), exactly like
+ * PreCompact's reply contract. The single normalized field is `trigger`
+ * (manual|auto); everything else rides on `raw`. Codex is the verified firing
+ * host (its hook system ships PreCompact AND PostCompact).
+ */
+export interface PostCompactEvent extends BaseEvent {
   trigger?: "auto" | "manual";
 }
 
@@ -315,6 +330,7 @@ export interface EventPayloadMap {
   PostToolUseFailure: PostToolUseFailureEvent;
   SubagentStart: SubagentStartEvent;
   SubagentStop: SubagentStopEvent;
+  PostCompact: PostCompactEvent;
 }
 
 /**
@@ -394,6 +410,7 @@ export interface HooksConfig {
   PostToolUseFailure?: HookDefinition<"PostToolUseFailure">;
   SubagentStart?: HookDefinition<"SubagentStart">;
   SubagentStop?: HookDefinition<"SubagentStop">;
+  PostCompact?: HookDefinition<"PostCompact">;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -545,6 +562,14 @@ export interface PlatformCapabilities {
   postToolUseFailure?: boolean;
   subagentStart?: boolean;
   subagentStop?: boolean;
+  /**
+   * PostCompact — observational post-compaction event (the sibling of
+   * preCompact). OPTIONAL, read as `?? false`: a host that leaves it unset does
+   * not fire PostCompact natively and a declared hook for it warn-skips at
+   * install. v1: codex only (its hook system ships both PreCompact and
+   * PostCompact).
+   */
+  postCompact?: boolean;
   /** Can a PreToolUse hook rewrite tool arguments? */
   canModifyArgs: boolean;
   /** Can a PostToolUse hook rewrite tool output? */
@@ -978,13 +1003,13 @@ export interface PlatformOverride {
    * VERBATIM. This immediately covers all 30 current Claude Code events (e.g.
    * TaskCreated, TaskCompleted, TeammateIdle, StopFailure, MessageDisplay,
    * WorktreeCreate/WorktreeRemove, Elicitation/ElicitationResult,
-   * InstructionsLoaded, ConfigChange, FileChanged, PostCompact, …) and any
+   * InstructionsLoaded, ConfigChange, FileChanged, CwdChanged, …) and any
    * future event a host adds — with zero agent-connector releases.
    *
    * Scoping: per-platform-keyed, so a declaration only ever applies to the
    * platform it is declared under. Adapters without
    * {@link PlatformCapabilities.supportsNativeHooks} report a skip-warn
-   * ChangeRecord at install (never silent). Declaring one of the 12 normalized
+   * ChangeRecord at install (never silent). Declaring one of the 13 normalized
    * event names here is a ConnectorConfigError — use the normalized `hooks`
    * API for those.
    *

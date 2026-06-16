@@ -30,6 +30,9 @@
  *     {"decision":"block","reason"} (Stop semantics: keeps the subagent going).
  *   - PostToolUseFailure — NO Codex analog (PostToolUse only); declared hooks
  *     for it warn-skip at install and the capability flag stays unset.
+ *   - PostCompact — native (Codex's hook system fires both PreCompact and
+ *     PostCompact); observe-only, normalizing the `trigger` (manual|auto)
+ *     exactly like PreCompact, with a passthrough formatReply.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -130,6 +133,7 @@ const CODEX_HOOK_EVENTS = [
   "PermissionRequest",
   "SubagentStart",
   "SubagentStop",
+  "PostCompact",
 ] as const;
 
 type CodexHookEventName = (typeof CODEX_HOOK_EVENTS)[number];
@@ -179,6 +183,10 @@ export class CodexAdapter extends BaseAdapter {
     permissionRequest: true,
     subagentStart: true,
     subagentStop: true,
+    // PostCompact: Codex's hook system fires both PreCompact and PostCompact
+    // (developers.openai.com/codex/hooks). Observational only — the reply
+    // contract mirrors PreCompact (cannot block/modify a completed compaction).
+    postCompact: true,
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: true,
@@ -368,7 +376,7 @@ export class CodexAdapter extends BaseAdapter {
   // ── Install hooks (hooks.json) ──────────────────────────────────────────
 
   override installHooks(ctx: InstallContext): ChangeRecord[] {
-    const { connector, dryRun } = ctx;
+    const { dryRun } = ctx;
     const path = this.getHookConfigPath(ctx);
     const events = this.effectiveHookEvents(ctx);
     const dropped = this.warnSkipHookEvents(ctx);
@@ -726,6 +734,11 @@ export class CodexAdapter extends BaseAdapter {
       case "UserPromptSubmit":
         return { ...base, prompt: input.prompt ?? "" };
       case "PreCompact":
+        return { ...base, trigger: input.trigger === "manual" ? "manual" : "auto" };
+      case "PostCompact":
+        // Post-compaction sibling of PreCompact — same `trigger` normalization
+        // (manual|auto), observe-only. Codex's PostCompact payload mirrors
+        // PreCompact's; everything else rides on `raw`.
         return { ...base, trigger: input.trigger === "manual" ? "manual" : "auto" };
       case "Stop":
         return { ...base, stopHookActive: input.stop_hook_active ?? false };
