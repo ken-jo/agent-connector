@@ -127,7 +127,8 @@ interface CopilotLocalServer {
   tools: string[];
 }
 interface CopilotHttpServer {
-  type: "http";
+  /** Remote transport: "http" (Streamable HTTP) or "sse" (legacy). */
+  type: "http" | "sse";
   url: string;
   headers?: Record<string, string>;
   tools: string[];
@@ -207,7 +208,9 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: true,
     canModifyOutput: false,
     canInjectSessionContext: true,
-    transports: ["stdio", "http"],
+    // Copilot CLI's mcp-config.json `type` accepts stdio (written "local"),
+    // http (Streamable HTTP), and sse (legacy) — per GitHub's add-mcp-servers docs.
+    transports: ["stdio", "http", "sse"],
     // Content surfaces: Copilot CLI exposes skills + subagents, but has no
     // prompt-file command surface, so commands stay false (inherits BaseAdapter
     // skip/warn).
@@ -360,9 +363,10 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
       return entry;
     }
 
-    // http (and any other remote transport we surface) — Copilot registers a URL.
+    // remote (Streamable http / legacy sse) — Copilot registers a URL keyed by
+    // its `type`. AC's canonical "sse" → "sse"; everything else → "http".
     const entry: CopilotHttpServer = {
-      type: "http",
+      type: server.transport === "sse" ? "sse" : "http",
       url: resolveEnvRefsDeep(server.url ?? ""),
       tools,
     };
