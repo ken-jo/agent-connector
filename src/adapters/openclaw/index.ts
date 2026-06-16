@@ -1063,9 +1063,18 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     const connectorId = JSON.stringify(ctx.connector.id);
     const connectorName = JSON.stringify(ctx.connector.displayName || ctx.connector.id);
 
-    const events = ctx.connector.hookEvents.filter(
-      (e): e is HookEventName => EVENT_TO_OPENCLAW[e] !== undefined,
-    );
+    // `platforms[host].hooks === false` disables the CANONICAL events. The
+    // plugin module may still be synthesized for ACTIONS (installActions writes
+    // it independently of hooks), so the canonical handler set collapses to []
+    // here rather than letting a live before_tool_call/after_tool_call gate leak
+    // into a hooks-disabled plugin. Mirrors omp/opencode. Uses this.id so the
+    // NemoClaw fork checks platforms.nemoclaw.hooks.
+    const canonicalOff = ctx.connector.platforms[this.id]?.hooks === false;
+    const events = canonicalOff
+      ? []
+      : ctx.connector.hookEvents.filter(
+          (e): e is HookEventName => EVENT_TO_OPENCLAW[e] !== undefined,
+        );
     const has = (e: HookEventName) => events.includes(e);
 
     const header =

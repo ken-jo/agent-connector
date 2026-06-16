@@ -71,17 +71,17 @@ export type PlatformId =
  * Hook I/O paradigm — the deepest cross-platform divergence (report §4).
  * Canonical shipped sets (keep in sync with src/adapters/registry.ts — this
  * comment once drifted and seeded a docs-wide misclassification):
- *   - "json-stdio" (16): host pipes JSON to a command on stdin, reads
+ *   - "json-stdio" (17): host pipes JSON to a command on stdin, reads
  *     JSON/exit-code back — Claude Code, Codex, Cursor, VS Code/JetBrains
  *     Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose, Hermes,
- *     Droid (Factory), Antigravity (+ the agy CLI). One universal entrypoint
- *     binary handles all of them.
+ *     Droid (Factory), Antigravity (+ the agy CLI), Continue. One universal
+ *     entrypoint binary handles all of them.
  *   - "ts-plugin" (7): host loads a JS/TS module exporting lifecycle functions
  *     — OpenCode, MiMoCode (an OpenCode fork), Kilo CLI, Kilo, OMP, OpenClaw,
  *     NemoClaw (an OpenClaw wrapper/fork). Framework generates the module.
- *   - "mcp-only" (12): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
- *     Amp, Codebuff, Mux, Pi, Amazon Q, Continue, Windsurf. Only the MCP server
- *     (or skills surface) is installed; hooks are reported unavailable.
+ *   - "mcp-only" (11): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
+ *     Amp, Codebuff, Mux, Pi, Amazon Q, Windsurf. Only the MCP server (or skills
+ *     surface) is installed; hooks are reported unavailable.
  */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";
 

@@ -208,20 +208,21 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
   // Wave 5 — mcp-only: Amazon Q Developer CLI. JSON MCP config under ~/.aws/amazonq/
   // (user) and .amazonq/ (project); root key "mcpServers"; bare stdio entry
   // { command, args, env, timeout? } or remote entry { type: "http", url } (no
-  // headers) for http. The agent-format hooks layer (cli-agents/*.json) and the
-  // .amazonq/rules memory surface are separate, not-yet-wired surfaces; this
-  // adapter installs MCP entries only.
+  // headers) for http. The agent-format hooks layer (cli-agents/*.json) +
+  // agents/prompts content surfaces are separate, not-yet-wired surfaces; this
+  // adapter installs MCP entries + the .amazonq/rules memory surface.
   {
     id: "amazon-q",
     load: () => import("./amazon-q/index.js").then((m) => m.default),
   },
   // Continue (the `cn` terminal agent / Continue.dev, npm @continuedev/cli) —
-  // mcp-only. MCP config is YAML at ~/.continue/config.yaml (user) and
+  // json-stdio (Claude-compatible hooks). MCP config is YAML at ~/.continue/config.yaml (user) and
   // <projectDir>/.continue/config.yaml (project); root key "mcpServers" is a
   // YAML ARRAY of { name, command, type?, args?, env?, cwd?, url } entries (NOT a
-  // keyed map). No primary-verified hook layer; the Rules/memory surface is a
-  // not-yet-wired host-gap. Distinct ~/.continue marker — no fork-ordering
-  // constraint vs any sibling.
+  // keyed map). Hooks: a Claude-compatible json-stdio layer in settings.json
+  // (~/.continue/settings.json — separate from the MCP config.yaml; PR #11029) +
+  // nativeHooks for the host-specific events. Distinct ~/.continue marker — no
+  // fork-ordering constraint vs any sibling.
   {
     id: "continue",
     load: () => import("./continue/index.js").then((m) => m.default),
@@ -231,9 +232,11 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
   // document no project/workspace path), root key "mcpServers" is a Claude-
   // Desktop-style OBJECT map keyed by server name (like cursor). stdio entry
   // { command, args?, env? }; remote entry { serverUrl, headers? } (NOT `url`;
-  // no type/disabled). No user-installable hook/plugin layer (GUI editor). The
-  // .windsurfrules / global-rules memory surface is a not-yet-wired host-gap.
-  // Distinct ~/.codeium marker — no fork-ordering constraint vs any sibling.
+  // no type/disabled). No user-installable hook/plugin layer (GUI editor), so it
+  // stays mcp-only paradigm — but content surfaces ARE wired: workflows
+  // (.windsurf/workflows + ~/.codeium/windsurf/global_workflows), skills
+  // (.windsurf/skills + ~/.codeium/windsurf/skills), and the .windsurf/rules
+  // memory surface. Distinct ~/.codeium marker — no fork-ordering constraint.
   {
     id: "windsurf",
     load: () => import("./windsurf/index.js").then((m) => m.default),
