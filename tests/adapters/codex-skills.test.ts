@@ -13,7 +13,7 @@
  * must not move it.
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -173,8 +173,9 @@ describe("codex adapter — skills surface", () => {
   });
 
   it("user-scope .agents path is anchored to the OS home, NOT $CODEX_HOME", () => {
-    // A custom CODEX_HOME must move ~/.codex/* but NOT the .agents skills root,
-    // which the loader anchors to home_dir (loader.rs:322-324).
+    // A custom CODEX_HOME must move ~/.codex/* but NOT the .agents skills root:
+    // loader.rs `skill_roots_from_layer_stack_inner` (ConfigLayerSource::User arm)
+    // anchors .agents to home_dir, not the config folder ($CODEX_HOME).
     const codexHome = join(projectDir, "custom-codex-home");
     process.env.CODEX_HOME = codexHome;
 
@@ -186,6 +187,40 @@ describe("codex adapter — skills surface", () => {
     // Never under CODEX_HOME (neither the deprecated skills dir nor a .agents there).
     expect(existsSync(join(codexHome, "skills", "pdf-tools", "SKILL.md"))).toBe(false);
     expect(existsSync(join(codexHome, ".agents", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
+  });
+
+  it("migrates an AC-owned skill away from the deprecated ~/.codex/skills on user install", () => {
+    const userCtx = buildCtx(projectDir, buildConnector(), "user");
+    // Seed the deprecated user root with the EXACT rendered SKILL.md, as a prior
+    // AC version's user-scope install would have left it (AC-owned).
+    codexAdapter.installSkills!(userCtx);
+    const newPath = join(projectDir, ".agents", "skills", "pdf-tools", "SKILL.md");
+    const rendered = readFileSync(newPath, "utf8");
+    const deprecatedDir = join(projectDir, ".codex", "skills", "pdf-tools");
+    mkdirSync(deprecatedDir, { recursive: true });
+    writeFileSync(join(deprecatedDir, "SKILL.md"), rendered, "utf8");
+    expect(existsSync(join(deprecatedDir, "SKILL.md"))).toBe(true);
+
+    // Re-install: new root already current (skip), AC-owned deprecated copy removed
+    // so codex won't double-register the skill across two user roots.
+    const changes = codexAdapter.installSkills!(userCtx);
+    expect(existsSync(join(deprecatedDir, "SKILL.md"))).toBe(false);
+    expect(existsSync(deprecatedDir)).toBe(false); // empty dir cleaned up too
+    expect(existsSync(newPath)).toBe(true); // current copy untouched
+    expect(changes.some((c) => c.action === "remove")).toBe(true);
+  });
+
+  it("does NOT remove a hand-authored skill at the deprecated path (content differs)", () => {
+    const userCtx = buildCtx(projectDir, buildConnector(), "user");
+    const deprecatedDir = join(projectDir, ".codex", "skills", "pdf-tools");
+    mkdirSync(deprecatedDir, { recursive: true });
+    const handAuthored = "---\nname: pdf-tools\ndescription: hand-edited\n---\n\n# Mine\n";
+    writeFileSync(join(deprecatedDir, "SKILL.md"), handAuthored, "utf8");
+
+    codexAdapter.installSkills!(userCtx);
+    // Untouched — not byte-identical to our render, so it was never AC-owned.
+    expect(existsSync(join(deprecatedDir, "SKILL.md"))).toBe(true);
+    expect(readFileSync(join(deprecatedDir, "SKILL.md"), "utf8")).toBe(handAuthored);
   });
 
   it("installSkills is idempotent — second call yields skip", () => {
