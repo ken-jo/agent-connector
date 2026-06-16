@@ -204,6 +204,31 @@ describe("vscode-copilot adapter render/round-trip", () => {
     expect(entry.cwd).toBe(SERVER_CWD);
   });
 
+  it("remote transports: sse → type:'sse', http → type:'http' (URL entry, no command)", () => {
+    const mk = (transport: "sse" | "http", url: string) =>
+      defineConnector({
+        id: CONNECTOR_ID,
+        displayName: "Remote",
+        version: "1.0.0",
+        server: { transport, url, tools: { include: ["*"] } },
+      });
+
+    // SSE → explicit type:"sse" (forces SSE-only, no Streamable-HTTP attempt).
+    const ssePd = freshProject();
+    vscodeCopilotAdapter.installServer(buildCtx(ssePd, mk("sse", "https://ex.com/sse")));
+    const sse = readJson(join(ssePd, ".vscode", "mcp.json")).servers[CONNECTOR_ID];
+    expect(sse.type).toBe("sse");
+    expect(sse.url).toBe("https://ex.com/sse");
+    expect("command" in sse).toBe(false);
+
+    // HTTP → type:"http".
+    const httpPd = freshProject();
+    vscodeCopilotAdapter.installServer(buildCtx(httpPd, mk("http", "https://ex.com/mcp")));
+    const http = readJson(join(httpPd, ".vscode", "mcp.json")).servers[CONNECTOR_ID];
+    expect(http.type).toBe("http");
+    expect(http.url).toBe("https://ex.com/mcp");
+  });
+
   it("installHooks writes a .github/hooks/<id>.json with PascalCase event names + version 1, command at the home bin", () => {
     const changes = vscodeCopilotAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
