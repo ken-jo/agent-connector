@@ -66,6 +66,7 @@ const ALL_PLATFORM_IDS_MAP: Record<PlatformId, true> = {
   crush: true,
   goose: true,
   "amazon-q": true,
+  continue: true,
   synthetic: true,
   unknown: true,
 };

@@ -495,7 +495,7 @@ Marker + edit-detection semantics:
   matches); stray lone markers are recovered (backup + strip the marker line
   only), and duplicate pairs from past bugs collapse into one on every upsert.
 
-**AGENTS.md-first policy (where the block goes).** 29 of the 33 registered
+**AGENTS.md-first policy (where the block goes).** 29 of the 34 registered
 hosts read the open AGENTS.md standard (https://agents.md — plain-markdown "README
 for agents", stewarded by the Agentic AI Foundation under the Linux Foundation),
 so the default target is the standard file. Project scope →
@@ -1261,7 +1261,7 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 
 ---
 
-## 6. Supported platforms (33, by hook paradigm)
+## 6. Supported platforms (34, by hook paradigm)
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
@@ -1288,7 +1288,7 @@ One universal hook entrypoint binary handles all of them.
 | Antigravity (IDE) | `antigravity` | `~/.gemini/antigravity/mcp_config.json` → `mcpServers` (hooks.json) |
 | Antigravity CLI (`agy`) | `antigravity-cli` | shares `~/.gemini/antigravity/` |
 
-### `mcp-only` — MCP registration only, no hook layer (10)
+### `mcp-only` — MCP registration only, no hook layer (11)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
@@ -1303,6 +1303,7 @@ Detection surfaces "hooks unavailable here."
 | Mux | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 | Amazon Q Developer CLI | `amazon-q` | `~/.aws/amazonq/mcp.json` (user) / `.amazonq/mcp.json` (project) → `mcpServers` |
+| Continue | `continue` | `~/.continue/config.yaml` (user) / `<projectDir>/.continue/config.yaml` (project) → `mcpServers` (YAML ARRAY, keyed by `name`) |
 
 ### `ts-plugin` — framework-generated bridge module (7)
 
