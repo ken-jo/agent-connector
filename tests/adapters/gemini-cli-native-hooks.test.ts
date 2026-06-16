@@ -114,6 +114,26 @@ describe("gemini-cli adapter — nativeHooks passthrough", () => {
     expect(cfg.hooks.BeforeTool).toBeUndefined();
   });
 
+  it("hooks: false suppresses the host-native usage hook even with telemetry opt-in (parity)", () => {
+    // Regression guard: pre-change, `hooks: false` returned early before the usage
+    // sink was ever computed. The refactor preserves that — `hostNative` is gated on
+    // `!hooksDisabled`, so a hooks:false connector never installs the AfterModel sink,
+    // even with telemetry opt-in. nativeHooks (the sibling) still install.
+    const projectDir = freshProject();
+    const connector = defineConnector({
+      id: CONNECTOR_ID,
+      hooks: { PreToolUse: { handler: () => ({ decision: "allow" }) } },
+      telemetry: { hostNativeUsage: true },
+      platforms: {
+        "gemini-cli": { hooks: false, nativeHooks: { BeforeModel: { handler: () => ({}) } } },
+      },
+    });
+    geminiAdapter.installHooks(buildCtx(projectDir, connector));
+    const cfg = readJson(settingsFile(projectDir));
+    expect(cfg.hooks.BeforeModel).toBeDefined(); // sibling native still installs
+    expect(cfg.hooks.AfterModel).toBeUndefined(); // usage sink suppressed by hooks:false
+  });
+
   it("a native key coinciding with a normalized event's mapped key does NOT clobber it", () => {
     // Normalized PreToolUse maps to "BeforeTool"; also declare a native "BeforeTool".
     const projectDir = freshProject();
