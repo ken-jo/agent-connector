@@ -81,6 +81,7 @@ const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PostToolUse: "PostToolUse",
   PreCompact: "PreCompact",
   SessionStart: "SessionStart",
+  SessionEnd: "SessionEnd",
 };
 
 /** A single JetBrains Copilot native hook entry — a flat command object. */
@@ -137,13 +138,15 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
     // JetBrains Copilot's Preview hooks runtime delivers Pre/PostToolUse,
-    // PreCompact, and SessionStart (the four events its schema documents) —
-    // same surface as VS Code Copilot.
+    // PreCompact, SessionStart, and SessionEnd (GitHub's hooks-reference) —
+    // same surface as VS Code Copilot. UserPromptSubmit is documented too but
+    // stays unwired here: its blocking Output Contract (top-level decision:block
+    // vs hookSpecificOutput) is not byte-verifiable from the JS-rendered docs.
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
     sessionStart: true,
-    sessionEnd: false,
+    sessionEnd: true,
     userPromptSubmit: false,
     stop: false,
     notification: false,
@@ -156,9 +159,11 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: true,
-    // MCP is managed via the IDE Settings UI; the only transport that surfaces
-    // there is a local stdio server.
-    transports: ["stdio"],
+    // MCP is managed via the IDE Settings UI (Settings > Tools > GitHub Copilot
+    // > MCP). The UI accepts local stdio servers AND remote Streamable HTTP / SSE
+    // servers; AC writes no file, so this list only describes what the UI accepts
+    // (install reports a UI-managed warn for every transport).
+    transports: ["stdio", "http", "sse"],
     // Content surfaces: JetBrains Copilot consumes the GitHub Copilot .github/
     // files (it has no distinct authoring location), so it is an ALIAS of the
     // vscode-copilot writer for prompt files and Agent Skills. It has no native
@@ -167,6 +172,14 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: false,
+    // Native passthrough: GitHub's JetBrains-Copilot changelog documents an
+    // errorOccurred / ErrorOccurred lifecycle event with NO canonical
+    // HookEventName analog (PostToolUseFailure is tool-scoped, not a session-wide
+    // error event). A connector reaches it via platforms["jetbrains-copilot"].
+    // nativeHooks; installHooks files the event-name key VERBATIM and the generic
+    // uninstall reverses it. PascalCase ErrorOccurred matches the adapter's
+    // Claude-compatible payload dialect (GitHub hooks-reference accepts both).
+    supportsNativeHooks: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -289,13 +302,24 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
-    if (connector.platforms[HOST]?.hooks === false) {
+    const override = connector.platforms[HOST];
+    const hooksDisabled = override?.hooks === false;
+    // `hooks: false` disables only the NORMALIZED events; nativeHooks is a
+    // sibling, jetbrains-copilot-scoped declaration that installs regardless.
+    const normalizedEvents = hooksDisabled ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
+    if (normalizedEvents.length === 0 && nativeEvents.length === 0) {
       return [
-        { platform: this.id, action: "skip", detail: "hooks disabled for jetbrains-copilot" },
+        {
+          platform: this.id,
+          action: "skip",
+          detail: hooksDisabled
+            ? "hooks disabled for jetbrains-copilot"
+            : "connector declares no hooks",
+        },
       ];
-    }
-    if (connector.hookEvents.length === 0) {
-      return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
     }
 
     const hooksPath = this.getHookConfigPath(ctx);
@@ -305,7 +329,7 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
-    for (const event of connector.hookEvents) {
+    for (const event of normalizedEvents) {
       const jetbrainsEvent = EVENT_MAP[event];
       if (!jetbrainsEvent) {
         // No JetBrains Copilot equivalent for this normalized event — report+skip.
@@ -350,6 +374,45 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
           action: "create",
           path: hooksPath,
           detail: `hooks.${jetbrainsEvent}`,
+        });
+      }
+      mutated = true;
+    }
+
+    // NATIVE passthrough events: jetbrains-copilot-native event-name keys (e.g.
+    // ErrorOccurred) filed VERBATIM into the hooks map — no EVENT_MAP, since they
+    // ARE Copilot events. Flat { type, command } entry (matchers are ignored);
+    // matched by EXACT command so a native key coinciding with a normalized one
+    // never clobbers it.
+    for (const nativeEvent of nativeEvents) {
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, nativeEvent, connector.id);
+      const entry: JetBrainsHookEntry = { type: "command", command };
+      const bucket = (hooks[nativeEvent] ??= []);
+      const existingIdx = bucket.findIndex((e) => e.command === command);
+      if (existingIdx >= 0) {
+        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: hooksPath,
+            detail: `hooks.${nativeEvent} (native) already registered`,
+          });
+          continue;
+        }
+        bucket[existingIdx] = entry;
+        changes.push({
+          platform: this.id,
+          action: "update",
+          path: hooksPath,
+          detail: `hooks.${nativeEvent} (native)`,
+        });
+      } else {
+        bucket.push(entry);
+        changes.push({
+          platform: this.id,
+          action: "create",
+          path: hooksPath,
+          detail: `hooks.${nativeEvent} (native)`,
         });
       }
       mutated = true;
