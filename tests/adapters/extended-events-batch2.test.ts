@@ -440,6 +440,140 @@ describe("droid — extended-event parse + replies", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// Droid (Factory) — lifecycle events Notification/PreCompact/SessionStart/
+// SessionEnd (docs.factory.ai/reference/hooks-reference — Claude-shaped 1:1)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A connector declaring exactly the four droid lifecycle events. */
+function buildLifecycleConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme Lifecycle",
+    version: "1.2.3",
+    hooks: {
+      Notification: {
+        handler() {
+          return {};
+        },
+      },
+      PreCompact: {
+        handler() {
+          return {};
+        },
+      },
+      SessionStart: {
+        handler() {
+          return { decision: "context", additionalContext: "session ctx" };
+        },
+      },
+      SessionEnd: {
+        handler() {
+          return {};
+        },
+      },
+    },
+  });
+}
+
+describe("droid — lifecycle-event install", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject();
+    ctx = buildCtx(projectDir, buildLifecycleConnector());
+  });
+
+  it("writes hooks.{Notification,PreCompact,SessionStart,SessionEnd} natively (no longer skip-warns)", () => {
+    const changes = droidAdapter.installHooks(ctx);
+
+    const hooksPath = join(projectDir, ".factory", "hooks.json");
+    expect(existsSync(hooksPath)).toBe(true);
+    const cfg = readJson(hooksPath);
+
+    for (const event of ["Notification", "PreCompact", "SessionStart", "SessionEnd"]) {
+      const bucket = cfg.hooks[event];
+      expect(Array.isArray(bucket), `${event} bucket`).toBe(true);
+      expect(bucket[0].hooks[0].command).toContain(`hook droid ${event}`);
+      // The event must NOT surface a warn-skip anymore.
+      const warn = changes.find((c) => c.action === "warn" && c.detail?.includes(event));
+      expect(warn, `${event} should not warn-skip`).toBeUndefined();
+    }
+  });
+});
+
+describe("droid — lifecycle-event parse + replies", () => {
+  const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
+
+  it("Notification maps `message`", () => {
+    const evt = droidAdapter.parseEvent!("Notification", {
+      ...COMMON,
+      hook_event_name: "Notification",
+      message: "Task completed successfully",
+    }) as any;
+    expect(evt.hostPlatform).toBe("droid");
+    expect(evt.message).toBe("Task completed successfully");
+    expect(evt.projectDir).toBe("/home/dev/acme");
+    // missing message → empty string
+    expect((droidAdapter.parseEvent!("Notification", COMMON) as any).message).toBe("");
+  });
+
+  it("PreCompact maps the `trigger` enum (manual|auto); unknown trigger is omitted", () => {
+    const manual = droidAdapter.parseEvent!("PreCompact", {
+      ...COMMON,
+      trigger: "manual",
+      custom_instructions: "",
+    }) as any;
+    expect(manual.trigger).toBe("manual");
+    const auto = droidAdapter.parseEvent!("PreCompact", { ...COMMON, trigger: "auto" }) as any;
+    expect(auto.trigger).toBe("auto");
+    const none = droidAdapter.parseEvent!("PreCompact", COMMON) as any;
+    expect("trigger" in none).toBe(false);
+  });
+
+  it("SessionStart coerces `source` onto the normalized enum (default startup)", () => {
+    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "resume" }) as any).source).toBe("resume");
+    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "clear" }) as any).source).toBe("clear");
+    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "compact" }) as any).source).toBe("compact");
+    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "startup" }) as any).source).toBe("startup");
+    // unknown/missing source → startup
+    expect((droidAdapter.parseEvent!("SessionStart", COMMON) as any).source).toBe("startup");
+  });
+
+  it("SessionEnd maps `reason` when present", () => {
+    expect((droidAdapter.parseEvent!("SessionEnd", { ...COMMON, reason: "other" }) as any).reason).toBe("other");
+    expect("reason" in (droidAdapter.parseEvent!("SessionEnd", COMMON) as any)).toBe(false);
+  });
+
+  it("SessionStart context → hookSpecificOutput.additionalContext (injection honored)", () => {
+    const reply = parseStdout(
+      droidAdapter.formatReply!("SessionStart", {
+        decision: "context",
+        additionalContext: "load issues",
+      }),
+    );
+    expect(reply.hookSpecificOutput).toEqual({
+      hookEventName: "SessionStart",
+      additionalContext: "load issues",
+    });
+  });
+
+  it("Notification / PreCompact / SessionEnd are observe-only: any decision → passthrough exit 0", () => {
+    for (const event of ["Notification", "PreCompact", "SessionEnd"] as const) {
+      // a deny that other events would render as a block is a no-op here
+      expect(droidAdapter.formatReply!(event, { decision: "deny", reason: "x" })).toEqual({
+        exitCode: 0,
+      });
+      // a context decision can't inject on these events either
+      expect(
+        droidAdapter.formatReply!(event, { decision: "context", additionalContext: "y" }),
+      ).toEqual({ exitCode: 0 });
+      expect(droidAdapter.formatReply!(event, {})).toEqual({ exitCode: 0 });
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // Hermes — stop-only subagent host; pre_approval_request is observe-only
 // ─────────────────────────────────────────────────────────────────────────
 
