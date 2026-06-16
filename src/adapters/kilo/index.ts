@@ -35,9 +35,9 @@
  *   "experimental.chat.system.transform"). Bridge shims to "kilo" (not "kilo-cli").
  *
  * Content surfaces:
- *   Commands  → .kilocode/commands (project) / ~/.kilocode/commands (user)
+ *   Commands  → .kilo/commands (project) / ~/.config/kilo/commands (user)
  *   Skills    → .kilo/skills/<name>/SKILL.md (project) / ~/.kilo/skills (user)
- *   Subagents → .kilocode/agents (project) / ~/.kilocode/agents (user)
+ *   Subagents → .kilo/agents (project) / ~/.config/kilo/agents (user)
  */
 
 import {
@@ -800,16 +800,15 @@ export default plugin;
   // skip) via BaseAdapter.writeContentFile and reversible via removeContentFile.
   // Honors platforms["kilo"] per-surface false to skip.
   //
-  // NOTE on dirs: the .kilocode/ tree is the EXTENSION's legacy content surface
-  // — kept SEPARATE from the MCP/hooks backend dir (~/.config/kilo). Commands
-  // live under .kilocode/commands (project) / ~/.kilocode/commands (user);
-  // subagents live under .kilocode/agents (project) / ~/.kilocode/agents (user).
-  // Skills use the newer .kilo/skills tree (project) / ~/.kilo/skills (user).
-
-  /** The extension's user-scope legacy content home (~/.kilocode). */
-  private userContentDir(): string {
-    return join(homedir(), ".kilocode");
-  }
+  // NOTE on dirs: the CURRENT kilo backend (7.x, shared with kilo-cli) reads
+  // commands, subagents, and skills from the .kilo/ tree (project) + the XDG
+  // backend config dir ~/.config/kilo (user) — NOT the .kilocode/ VS Code
+  // extension legacy tree (which only carries legacy workflows). Verified against
+  // kilo.ai/docs/customize/{custom-subagents,workflows,skills} (2026-06-16):
+  //   commands  → <projectDir>/.kilo/commands | ~/.config/kilo/commands
+  //   subagents → <projectDir>/.kilo/agents   | ~/.config/kilo/agents
+  //   skills    → <projectDir>/.kilo/skills   | ~/.kilo/skills (skills keep the
+  //               ~/.kilo user root per the docs — surface-specific).
 
   /** Skills root: project → <projectDir>/.kilo/skills; user → ~/.kilo/skills. */
   private skillsRootDir(ctx: InstallContext): string {
@@ -818,18 +817,18 @@ export default plugin;
       : join(homedir(), ".kilo", "skills");
   }
 
-  /** Commands root: project → <projectDir>/.kilocode/commands; user → ~/.kilocode/commands. */
+  /** Commands root: project → <projectDir>/.kilo/commands; user → ~/.config/kilo/commands. */
   private commandsDir(ctx: InstallContext): string {
     return ctx.scope === "project"
-      ? join(ctx.projectDir, ".kilocode", "commands")
-      : join(this.userContentDir(), "commands");
+      ? join(ctx.projectDir, ".kilo", "commands")
+      : join(kiloConfigDir(), "commands");
   }
 
-  /** Subagents root: project → <projectDir>/.kilocode/agents; user → ~/.kilocode/agents. */
+  /** Subagents root: project → <projectDir>/.kilo/agents; user → ~/.config/kilo/agents. */
   private agentsDir(ctx: InstallContext): string {
     return ctx.scope === "project"
-      ? join(ctx.projectDir, ".kilocode", "agents")
-      : join(this.userContentDir(), "agents");
+      ? join(ctx.projectDir, ".kilo", "agents")
+      : join(kiloConfigDir(), "agents");
   }
 
   /** Native command file path: <commandsDir>/<name>.md. */
