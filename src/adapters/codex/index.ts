@@ -113,9 +113,15 @@ interface CodexHooksFile {
 
 /** Rendered `[mcp_servers.<id>]` table — string env table, no interpolation. */
 interface CodexMcpEntry {
-  command: string;
+  // stdio transport
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  // streamable HTTP transport (remote): codex infers the transport from `url`
+  // (no explicit transport key). Verified against codex-cli 0.139.0.
+  url?: string;
+  bearer_token_env_var?: string;
+  http_headers?: Record<string, string>;
 }
 
 /**
@@ -317,14 +323,17 @@ export class CodexAdapter extends BaseAdapter {
     if (!server) {
       return [{ platform: this.id, action: "skip", path, detail: "no server declared" }];
     }
-    if (server.transport !== "stdio" || !server.command) {
-      // Codex config.toml [mcp_servers] is stdio-only; remote transports skip here.
+    const isStdio = server.transport === "stdio" && !!server.command;
+    const isHttp = server.transport === "http" && !!server.url;
+    if (!isStdio && !isHttp) {
+      // Codex config.toml [mcp_servers] supports stdio (command) + streamable
+      // HTTP (url). Other remote transports (sse/ws) have no codex analog.
       return [
         {
           platform: this.id,
           action: "skip",
           path,
-          detail: `transport "${server.transport}" not registrable in config.toml (stdio only)`,
+          detail: `transport "${server.transport}" not registrable in config.toml (stdio + streamable-http only)`,
         },
       ];
     }
@@ -972,6 +981,27 @@ export class CodexAdapter extends BaseAdapter {
    * plain string→string map. Honors the telemetry serve-wrapper.
    */
   private renderMcpEntry(ctx: InstallContext, server: ServerDef): CodexMcpEntry {
+    // Streamable HTTP server: codex infers the transport from `url` (no explicit
+    // transport key). VERIFIED against codex-cli 0.139.0 — `codex mcp add <id>
+    // --url <U> --bearer-token-env-var <E>` writes:
+    //   [mcp_servers.<id>]
+    //   url = "…"
+    //   bearer_token_env_var = "…"   (only with bearerEnv auth)
+    // Telemetry serve-wrapping is stdio-only (remote cannot be intercepted).
+    if (server.transport !== "stdio") {
+      const remote: CodexMcpEntry = { url: resolveEnvRefsDeep(server.url ?? "") };
+      if (server.auth?.type === "bearerEnv" && server.auth.bearerEnvVar) {
+        remote.bearer_token_env_var = server.auth.bearerEnvVar;
+      }
+      if (server.headers && Object.keys(server.headers).length > 0) {
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(resolveEnvRefsDeep(server.headers))) {
+          headers[k] = String(v);
+        }
+        remote.http_headers = headers;
+      }
+      return remote;
+    }
     let command = server.command as string;
     let args = [...(server.args ?? [])];
 
