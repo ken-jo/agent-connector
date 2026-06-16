@@ -3,12 +3,13 @@
  * report only the events they ACTUALLY wire in their installHooks change detail.
  *
  * A connector may declare more canonical hook events than a given ts-plugin host
- * can map. OpenCode / Kilo CLI / OpenClaw have NO mapping for UserPromptSubmit;
- * OMP additionally maps PreCompact but not UserPromptSubmit. The change detail
- * must therefore list ONLY the mapped/wired events and call out any declared-but-
- * unsupported event separately, e.g.:
+ * can map. OpenCode has NO mapping for UserPromptSubmit; OMP maps PreCompact but
+ * not UserPromptSubmit; Kilo / Kilo CLI / OpenClaw now map UserPromptSubmit but
+ * NOT PreCompact. The change detail must therefore list ONLY the mapped/wired
+ * events and call out any declared-but-unsupported event separately, e.g.:
  *   "opencode plugin module (SessionStart,PreToolUse,PostToolUse; unsupported here: UserPromptSubmit)"
- * — it must NOT list UserPromptSubmit as if it were wired.
+ *   "kilo plugin module (SessionStart,UserPromptSubmit,PreToolUse,PostToolUse; unsupported here: PreCompact)"
+ * — it must NOT list an unsupported event as if it were wired.
  *
  * The synthesized module already wires only mapped events (asserted elsewhere);
  * here we lock the human-facing detail to match that reality.
@@ -112,13 +113,13 @@ describe("ts-plugin installHooks change detail reports MAPPED events only", () =
     expect(wired).not.toContain("PreCompact");
   });
 
-  it("kilo-cli lists SessionStart,PreToolUse,PostToolUse and flags the unsupported events", () => {
+  it("kilo-cli lists SessionStart,UserPromptSubmit,PreToolUse,PostToolUse and flags PreCompact unsupported", () => {
     const detail = moduleDetail(kiloCliAdapter.installHooks(ctx));
-    expect(detail).toContain("SessionStart,PreToolUse,PostToolUse");
+    expect(detail).toContain("SessionStart,UserPromptSubmit,PreToolUse,PostToolUse");
     expect(detail).toContain("unsupported here:");
-    expect(detail).toContain("UserPromptSubmit");
+    expect(detail).toContain("PreCompact");
     const wired = detail.split("; unsupported here:")[0]!;
-    expect(wired).not.toContain("UserPromptSubmit");
+    expect(wired).not.toContain("PreCompact");
   });
 
   it("omp maps PreCompact too, so only UserPromptSubmit is unsupported", () => {
@@ -132,13 +133,13 @@ describe("ts-plugin installHooks change detail reports MAPPED events only", () =
     expect(wired).toContain("PreCompact");
   });
 
-  it("openclaw lists SessionStart,PreToolUse,PostToolUse and flags the unsupported events", () => {
+  it("openclaw lists SessionStart,UserPromptSubmit,PreToolUse,PostToolUse and flags PreCompact unsupported", () => {
     const detail = moduleDetail(openclawAdapter.installHooks(ctx));
-    expect(detail).toContain("SessionStart,PreToolUse,PostToolUse");
+    expect(detail).toContain("SessionStart,UserPromptSubmit,PreToolUse,PostToolUse");
     expect(detail).toContain("unsupported here:");
-    expect(detail).toContain("UserPromptSubmit");
+    expect(detail).toContain("PreCompact");
     const wired = detail.split("; unsupported here:")[0]!;
-    expect(wired).not.toContain("UserPromptSubmit");
+    expect(wired).not.toContain("PreCompact");
   });
 
   it("a fully-mapped connector emits no 'unsupported here' suffix", () => {
