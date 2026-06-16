@@ -233,3 +233,66 @@ describe("kimi adapter — skills surface", () => {
     expect(existsSync(skillMd)).toBe(true);
   });
 });
+
+// ── kimi MCP transports (stdio / http / sse) ───────────────────────────────
+// Kimi docs: "supports three MCP server connection methods: stdio, HTTP, SSE".
+// A bare `url` (no transport) is HTTP; a legacy HTTP+SSE endpoint needs
+// transport:"sse". These pin the http-stays-bare / sse-gets-the-field contract.
+
+describe("kimi adapter — MCP transports", () => {
+  let projectDir: string;
+
+  beforeEach(() => {
+    projectDir = freshProject();
+  });
+
+  function serverConnector(transport: "http" | "sse" | "ws"): ResolvedConnector {
+    return defineConnector({
+      id: CONNECTOR_ID,
+      displayName: "Acme Remote",
+      version: "1.0.0",
+      server: { transport, url: "https://mcp.example.com/v1" },
+    });
+  }
+
+  function readServerEntry(): Record<string, unknown> {
+    const cfg = JSON.parse(
+      readFileSync(join(projectDir, ".kimi", "mcp.json"), "utf8"),
+    ) as { mcpServers: Record<string, Record<string, unknown>> };
+    return cfg.mcpServers[CONNECTOR_ID]!;
+  }
+
+  it("declares sse among supported transports", () => {
+    expect(kimiAdapter.capabilities.transports).toContain("sse");
+  });
+
+  it("http server → bare { url } entry (NO transport field, per docs)", () => {
+    const ctx = buildCtx(projectDir, serverConnector("http"));
+    kimiAdapter.installServer(ctx);
+    const entry = readServerEntry();
+    expect(entry.url).toBe("https://mcp.example.com/v1");
+    expect(entry.transport).toBeUndefined();
+    expect(entry.command).toBeUndefined();
+  });
+
+  it("sse server → { url, transport: 'sse' } entry (legacy HTTP+SSE)", () => {
+    const ctx = buildCtx(projectDir, serverConnector("sse"));
+    kimiAdapter.installServer(ctx);
+    const entry = readServerEntry();
+    expect(entry.url).toBe("https://mcp.example.com/v1");
+    expect(entry.transport).toBe("sse");
+  });
+
+  it("unsupported transport (ws) → best-effort bare { url } + a reported warn (never silent)", () => {
+    const ctx = buildCtx(projectDir, serverConnector("ws"));
+    const changes = kimiAdapter.installServer(ctx);
+    // Degradation is reported, not silent.
+    const warn = changes.find((c) => c.action === "warn");
+    expect(warn, "expected a warn for the unsupported ws transport").toBeDefined();
+    expect(warn?.detail).toContain("ws");
+    // Still written best-effort as a bare url (no bogus transport field).
+    const entry = readServerEntry();
+    expect(entry.url).toBe("https://mcp.example.com/v1");
+    expect(entry.transport).toBeUndefined();
+  });
+});
