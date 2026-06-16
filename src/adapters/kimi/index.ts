@@ -154,6 +154,12 @@ interface KimiStdioServer {
 /** Native remote MCP server entry under `mcpServers`. */
 interface KimiHttpServer {
   url: string;
+  /**
+   * Present only for a legacy SSE endpoint. Per the kimi mcp docs a bare `url`
+   * (no transport) IS an HTTP server; `transport:"sse"` selects the older
+   * HTTP+SSE transport.
+   */
+  transport?: "sse";
   headers?: Record<string, string>;
 }
 
@@ -226,7 +232,10 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: false,
-    transports: ["stdio", "http"],
+    // Kimi documents three MCP transports: stdio, HTTP and (legacy) SSE — a
+    // url entry with transport:"sse" (kimi.com/code/docs/en/kimi-code-cli/
+    // customization/mcp.html: "supports three MCP server connection methods").
+    transports: ["stdio", "http", "sse"],
     // Skills surface: Kimi reads SKILL.md from ~/.kimi/skills/<name>/SKILL.md
     // (user scope) and .kimi/skills/<name>/SKILL.md (project scope).
     // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
@@ -368,8 +377,11 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       return entry;
     }
 
-    // http (and any other remote transport) — Kimi registers a URL entry.
+    // Remote transports — Kimi registers a URL entry. A bare `url` is an HTTP
+    // server; a legacy HTTP+SSE endpoint needs transport:"sse". (ws is not a
+    // Kimi-documented transport — it falls through as a plain url, best-effort.)
     const entry: KimiHttpServer = { url: resolveEnvRefsDeep(server.url ?? "") };
+    if (transport === "sse") entry.transport = "sse";
     const headers = this.renderEnv(server.headers);
     if (headers) entry.headers = headers;
     return entry;
