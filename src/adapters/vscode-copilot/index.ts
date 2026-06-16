@@ -185,8 +185,10 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     supportsMemory: true,
     // VS Code Copilot's Preview hooks runtime delivers all eight events in its
     // official Hook Events table: Pre/PostToolUse, PreCompact, SessionStart,
-    // UserPromptSubmit, Stop, and Subagent Start/Stop. UserPromptSubmit + Stop
-    // are BLOCKABLE (deny → top-level {decision:"block"}, per the Output Contract).
+    // UserPromptSubmit, Stop, and Subagent Start/Stop. PostToolUse, UserPromptSubmit,
+    // Stop and SubagentStop are BLOCKABLE via the top-level {decision:"block"} shape;
+    // PreToolUse permission flows through hookSpecificOutput.permissionDecision (per
+    // the Output Contract — see formatReply).
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
@@ -996,13 +998,23 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
 
     // deny → block the action with a reason (exit 0; JSON carries the decision).
     // Per VS Code's Output Contract, `hookSpecificOutput.permissionDecision` is
-    // read for the TOOL-permission events (PreToolUse). The turn-control events —
-    // Stop, UserPromptSubmit and SubagentStop — block via the TOP-LEVEL
-    // {"decision":"block","reason"} instead: Stop/SubagentStop keep the (sub)agent
-    // running with `reason` as the next instruction; UserPromptSubmit blocks the
-    // prompt with `reason`.
+    // read ONLY for the pre-execution TOOL-permission event (PreToolUse). The
+    // post-execution / turn-control events — PostToolUse, Stop, UserPromptSubmit
+    // and SubagentStop — block via the TOP-LEVEL {"decision":"block","reason"}
+    // instead: PostToolUse blocks further processing (hooks.md: "PostToolUse
+    // output can block further processing with decision: block") with `reason` as
+    // feedback; Stop/SubagentStop keep the (sub)agent running with `reason` as the
+    // next instruction; UserPromptSubmit blocks the prompt with `reason`. The tool
+    // already ran by PostToolUse, so there is no permission left to grant — a
+    // permissionDecision there is silently ignored (the old behaviour dropped the
+    // deny).
     if (decision === "deny") {
-      if (event === "SubagentStop" || event === "Stop" || event === "UserPromptSubmit") {
+      if (
+        event === "PostToolUse" ||
+        event === "SubagentStop" ||
+        event === "Stop" ||
+        event === "UserPromptSubmit"
+      ) {
         return this.stdout({
           decision: "block",
           reason: response.reason ?? "Blocked by hook",
