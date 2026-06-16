@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.4.1 — 2026-06-16
+
+A hooks-depth release: the lifecycle-hook model is completed across every
+paradigm, a full fleet surface-gap audit was primary-source-verified and its real
+gaps supplemented (10 false-positives rejected with evidence), and **Continue**
+graduates from mcp-only to a full hooks host. **35 platforms**, **2109 tests**,
+verified end-to-end against real host CLIs.
+
+### Continue — mcp-only → json-stdio hooks
+
+- **continue** now installs a Claude-Code-compatible lifecycle-hook layer
+  (`~/.continue/settings.json`, separate from the MCP `config.yaml`): the 12
+  canonical events Continue supports + PreCompact, plus a nativeHooks passthrough
+  for its 5 host-specific events (ConfigChange / TeammateIdle / TaskCompleted /
+  WorktreeCreate / WorktreeRemove). The MCP install is byte-untouched
+  (continuedev/continue PR #11029, primary-source verified).
+
+### Hook-event model — completed across paradigms
+
+- **PostCompact** joins the normalized union (13 canonical events).
+- **vscode-copilot** / **jetbrains-copilot**: a post-execution / turn-control deny
+  (PostToolUse / UserPromptSubmit / Stop / SubagentStop) now blocks via the
+  top-level `{decision:"block"}` contract — a `permissionDecision` there was a
+  silent no-op. jetbrains-copilot reaches full vscode-copilot parity (SessionEnd,
+  UserPromptSubmit, ErrorOccurred nativeHook).
+- **nativeHooks** opt-ins for host-specific events with no canonical analog:
+  copilot-cli + jetbrains-copilot (`ErrorOccurred`), qwen-code (`TodoCreated` /
+  `TodoCompleted` / `StopFailure`), and — via the generated ts-plugin bridge —
+  omp (`agent_start` / `turn_*`) and opencode (25+ host events).
+- **goose** (SessionEnd / UserPromptSubmit / Stop), **qwen-code** (PostCompact),
+  **opencode** (PermissionRequest → `permission.ask`), and **mimo-code**
+  (UserPromptSubmit → `chat.message`) wired.
+
+### MCP transport correctness
+
+- **openclaw** / **nemoclaw** emit the canonical `streamable-http` remote literal
+  (the validator rejects a bare `http`); **omp** emits the required `type`
+  discriminator (a type-less remote entry was mis-parsed as stdio); **hermes**
+  registers remote HTTP servers (advertised but previously skipped); **copilot-cli**
+  adds the legacy `sse` transport.
+
+### Content surfaces
+
+- **windsurf** commands (workflows: `.windsurf/workflows` + `~/.codeium/windsurf/
+  global_workflows`) and skills (`.windsurf/skills` + the global dir), workspace +
+  user scope, honoring the documented 12,000-char workflow limit.
+
+### Surface-gap audit + verification
+
+- A full fleet surface-gap audit (all hosts) was primary-source-verified before any
+  fix: 17 real gaps supplemented, 10 false-positives **rejected with evidence**
+  (e.g. amazon-q / cline hooks, gemini AfterAgent ≠ Stop), and the genuinely-
+  deferred items documented under `docs/research/audits/`.
+- A real-CLI runtime-verification harness validated hook dispatch end-to-end as
+  real processes against installed host CLIs.
+- Hardening: `hooks:false` now reliably disables canonical handlers on the ts-plugin
+  hosts even when a plugin is synthesized for actions (openclaw/nemoclaw).
+
+### Docs
+
+- Adapter capability comments corrected (codebuff subagents, cursor native hooks,
+  amazon-q agents/prompts); paradigm tables + event/platform counts synced across
+  README, llms.txt, `types.ts`, and the hooks matrix.
+
 ## 0.4.0 — 2026-06-15
 
 The largest release since the public launch: **29 → 31 platforms**, ten
