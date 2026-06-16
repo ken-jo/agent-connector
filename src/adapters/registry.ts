@@ -215,6 +215,17 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "amazon-q",
     load: () => import("./amazon-q/index.js").then((m) => m.default),
   },
+  // Continue (the `cn` terminal agent / Continue.dev, npm @continuedev/cli) —
+  // mcp-only. MCP config is YAML at ~/.continue/config.yaml (user) and
+  // <projectDir>/.continue/config.yaml (project); root key "mcpServers" is a
+  // YAML ARRAY of { name, command, type?, args?, env?, cwd?, url } entries (NOT a
+  // keyed map). No primary-verified hook layer; the Rules/memory surface is a
+  // not-yet-wired host-gap. Distinct ~/.continue marker — no fork-ordering
+  // constraint vs any sibling.
+  {
+    id: "continue",
+    load: () => import("./continue/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
