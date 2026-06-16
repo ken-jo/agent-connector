@@ -204,7 +204,7 @@ interface OpenClawStdioServer {
 }
 interface OpenClawRemoteServer {
   url: string;
-  transport: "sse" | "http";
+  transport: "sse" | "streamable-http";
   headers?: Record<string, string>;
   enabled?: boolean;
 }
@@ -260,8 +260,10 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     // injected via before_prompt_build at prompt assembly.
     canInjectSessionContext: true,
-    // OpenClaw's MCP sidecar registration is stdio-only in practice.
-    transports: ["stdio"],
+    // stdio sidecars + remote servers. OpenClaw's validator accepts a remote
+    // transport of "sse" | "streamable-http" (AC "http" → "streamable-http");
+    // verified against OpenClaw 2026.6.1 + docs.openclaw.ai/gateway/configuration-reference.
+    transports: ["stdio", "sse", "http"],
     // Content surface: OpenClaw follows the AgentSkills spec (dir-per-skill
     // SKILL.md with {name, description} frontmatter + body). User scope →
     // ~/.openclaw/skills (the `openclaw skills install --global` target);
@@ -460,7 +462,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
    * stdio  → { command, args?, env? }  (NO transport key — a stdio sidecar is
    *          inferred from `command`; OpenClaw's validator rejects
    *          transport:"stdio" and only accepts "sse"/"streamable-http")
-   * remote → { url, transport: "sse"|"http", headers? }
+   * remote → { url, transport: "sse"|"streamable-http", headers? }
    *
    * OpenClaw documents no native ${env:VAR} token, so refs resolve to literals.
    */
@@ -500,8 +502,11 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       return entry;
     }
 
-    // sse / http / ws → OpenClaw registers a remote URL sidecar.
-    const transport: "sse" | "http" = server.transport === "http" ? "http" : "sse";
+    // sse / http → OpenClaw registers a remote URL sidecar. AC's canonical
+    // "http" (streamable HTTP) maps to OpenClaw's literal "streamable-http" — its
+    // validator rejects a bare "http" transport value.
+    const transport: "sse" | "streamable-http" =
+      server.transport === "http" ? "streamable-http" : "sse";
     const entry: OpenClawRemoteServer = {
       url: resolveEnvRefsDeep(server.url ?? ""),
       transport,
