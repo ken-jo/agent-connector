@@ -342,6 +342,20 @@ describe("windsurf adapter — MCP install (user scope)", () => {
     expect(Array.isArray(cfg.mcpServers)).toBe(true);
     expect((cfg.mcpServers as unknown[]).length).toBe(0);
   });
+
+  it("uninstall NEVER clobbers a malformed (non-object) mcpServers — skip-warn (symmetric)", () => {
+    const mcpPath = userMcpPath(home);
+    mkdirSync(join(home, ".codeium", "windsurf"), { recursive: true });
+    const original = JSON.stringify({ mcpServers: [] });
+    writeFileSync(mcpPath, original);
+
+    const ctx = buildCtx(projectDir, buildConnector(), "user");
+    const changes = windsurfAdapter.uninstallServer(ctx);
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.detail).toContain("not an object");
+    // Byte-for-byte untouched.
+    expect(readFileSync(mcpPath, "utf8")).toBe(original);
+  });
 });
 
 // ── project scope (user-only host) ───────────────────────────────────────────
