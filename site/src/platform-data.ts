@@ -570,10 +570,12 @@ export const platforms: Platform[] = [
     // agent-connector.md (workspace) with `trigger: always_on` frontmatter (full
     // content in the system prompt every message —
     // docs.windsurf.com/windsurf/cascade/rules).
-    // commands WIRED: user-authored WORKFLOWS at .windsurf/workflows/<name>.md
-    // (each a /<name> slash command). skills WIRED: Agent SKILLS at
-    // .windsurf/skills/<name>/SKILL.md. Both WORKSPACE scope only (no user dir) —
-    // docs.windsurf.com.
+    // commands WIRED: user-authored WORKFLOWS (each a /<name> slash command) at
+    // project .windsurf/workflows/<name>.md AND user
+    // ~/.codeium/windsurf/global_workflows/<name>.md (user dir is
+    // `global_workflows`). skills WIRED: Agent SKILLS at project
+    // .windsurf/skills/<name>/SKILL.md AND user
+    // ~/.codeium/windsurf/skills/<name>/SKILL.md. Both scopes — docs.windsurf.com.
     // hooks: Windsurf is a GUI editor with no user-installable hook/plugin layer
     // → hostNative.hooks stays false (NOT a gap — there is no host hook surface).
     // N/A wired: subagents (no AC-wired user-authored dir).

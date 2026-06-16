@@ -124,11 +124,21 @@ function freshProject(): { home: string; projectDir: string } {
   return { home, projectDir };
 }
 
+// Project-scope native paths.
 function workflowPath(projectDir: string, name: string): string {
   return join(projectDir, ".windsurf", "workflows", `${name}.md`);
 }
 function skillMdPath(projectDir: string, name: string): string {
   return join(projectDir, ".windsurf", "skills", name, "SKILL.md");
+}
+// User/global-scope native paths (HOME is redirected to the temp dir, so these
+// resolve under it). NOTE: the user workflows dir is `global_workflows`, the user
+// skills dir is `skills`.
+function userWorkflowPath(home: string, name: string): string {
+  return join(home, ".codeium", "windsurf", "global_workflows", `${name}.md`);
+}
+function userSkillMdPath(home: string, name: string): string {
+  return join(home, ".codeium", "windsurf", "skills", name, "SKILL.md");
 }
 
 // ── capability flags ──────────────────────────────────────────────────────────
@@ -146,10 +156,11 @@ describe("windsurf content — capability flags", () => {
 // ── commands (workflows) ──────────────────────────────────────────────────────
 
 describe("windsurf content — commands (workflows)", () => {
+  let home: string;
   let projectDir: string;
 
   beforeEach(() => {
-    ({ projectDir } = freshProject());
+    ({ home, projectDir } = freshProject());
   });
 
   it("installCommands writes .windsurf/workflows/<name>.md (project scope)", () => {
@@ -176,13 +187,35 @@ describe("windsurf content — commands (workflows)", () => {
     expect(records.every((r) => r.action === "skip")).toBe(true);
   });
 
-  it("user scope skip-warns (no user/global workflows dir) and writes nothing", () => {
+  it("user scope writes ~/.codeium/windsurf/global_workflows/<name>.md", () => {
     const ctx = buildCtx(projectDir, buildConnector({ commands: [command()] }), "user");
     const records = windsurfAdapter.installCommands(ctx);
-    expect(records).toHaveLength(1);
-    expect(records[0]!.action).toBe("warn");
-    expect(records[0]!.detail).toContain("workspace-scope");
+    const file = userWorkflowPath(home, COMMAND.name);
+    expect(existsSync(file)).toBe(true);
+    expect(records.some((r) => r.action === "create" && r.path === file)).toBe(true);
+    expect(readFileSync(file, "utf8")).toContain(COMMAND.prompt);
+    // The user dir is `global_workflows`, NOT a project-style `.windsurf/workflows`.
     expect(existsSync(join(projectDir, ".windsurf", "workflows"))).toBe(false);
+  });
+
+  it("warns (but still writes) when a rendered workflow exceeds 12,000 chars", () => {
+    const big = { name: "huge", prompt: "x".repeat(13000) };
+    const ctx = buildCtx(projectDir, buildConnector({ commands: [big] }));
+    const records = windsurfAdapter.installCommands(ctx);
+    const file = workflowPath(projectDir, big.name);
+    // File is written despite the overflow.
+    expect(existsSync(file)).toBe(true);
+    expect(records.some((r) => r.action === "create" && r.path === file)).toBe(true);
+    // An additional warn flags the cap.
+    const warn = records.find((r) => r.action === "warn");
+    expect(warn).toBeTruthy();
+    expect(warn!.detail).toContain("12000");
+  });
+
+  it("does not warn for a workflow comfortably under 12,000 chars", () => {
+    const ctx = buildCtx(projectDir, buildConnector({ commands: [command()] }));
+    const records = windsurfAdapter.installCommands(ctx);
+    expect(records.some((r) => r.action === "warn")).toBe(false);
   });
 
   it("honors platforms['windsurf'].commands === false", () => {
@@ -219,21 +252,26 @@ describe("windsurf content — commands (workflows)", () => {
     expect(records.some((r) => r.action === "remove" && r.path === file)).toBe(true);
   });
 
-  it("uninstallCommands in user scope is a no-op skip (nothing was written)", () => {
+  it("uninstallCommands (user scope) removes the global_workflows file", () => {
     const ctx = buildCtx(projectDir, buildConnector({ commands: [command()] }), "user");
+    windsurfAdapter.installCommands(ctx);
+    const file = userWorkflowPath(home, COMMAND.name);
+    expect(existsSync(file)).toBe(true);
+
     const records = windsurfAdapter.uninstallCommands(ctx);
-    expect(records).toHaveLength(1);
-    expect(records[0]!.action).toBe("skip");
+    expect(existsSync(file)).toBe(false);
+    expect(records.some((r) => r.action === "remove" && r.path === file)).toBe(true);
   });
 });
 
 // ── skills ─────────────────────────────────────────────────────────────────────
 
 describe("windsurf content — skills", () => {
+  let home: string;
   let projectDir: string;
 
   beforeEach(() => {
-    ({ projectDir } = freshProject());
+    ({ home, projectDir } = freshProject());
   });
 
   it("installSkills writes .windsurf/skills/<name>/SKILL.md + resources (project scope)", () => {
@@ -256,12 +294,18 @@ describe("windsurf content — skills", () => {
     expect(readFileSync(resource, "utf8")).toBe(SKILL.resources["scripts/extract.sh"]);
   });
 
-  it("user scope skip-warns (no user/global skills dir) and writes nothing", () => {
+  it("user scope writes ~/.codeium/windsurf/skills/<name>/SKILL.md + resources", () => {
     const ctx = buildCtx(projectDir, buildConnector({ skills: [skill()] }), "user");
     const records = windsurfAdapter.installSkills(ctx);
-    expect(records).toHaveLength(1);
-    expect(records[0]!.action).toBe("warn");
-    expect(records[0]!.detail).toContain("workspace-scope");
+    const file = userSkillMdPath(home, SKILL.name);
+    expect(existsSync(file)).toBe(true);
+    expect(records.some((r) => r.action === "create" && r.path === file)).toBe(true);
+    expect(readFileSync(file, "utf8")).toContain(SKILL.body);
+
+    const resource = join(home, ".codeium", "windsurf", "skills", SKILL.name, "scripts", "extract.sh");
+    expect(existsSync(resource)).toBe(true);
+    expect(readFileSync(resource, "utf8")).toBe(SKILL.resources["scripts/extract.sh"]);
+    // Nothing written into the project tree at user scope.
     expect(existsSync(join(projectDir, ".windsurf", "skills"))).toBe(false);
   });
 
@@ -298,10 +342,15 @@ describe("windsurf content — skills", () => {
     expect(records.some((r) => r.action === "remove" && r.path === file)).toBe(true);
   });
 
-  it("uninstallSkills in user scope is a no-op skip (nothing was written)", () => {
+  it("uninstallSkills (user scope) removes the ~/.codeium/windsurf skill dir", () => {
     const ctx = buildCtx(projectDir, buildConnector({ skills: [skill()] }), "user");
+    windsurfAdapter.installSkills(ctx);
+    const file = userSkillMdPath(home, SKILL.name);
+    expect(existsSync(file)).toBe(true);
+
     const records = windsurfAdapter.uninstallSkills(ctx);
-    expect(records).toHaveLength(1);
-    expect(records[0]!.action).toBe("skip");
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(join(home, ".codeium", "windsurf", "skills", SKILL.name))).toBe(false);
+    expect(records.some((r) => r.action === "remove" && r.path === file)).toBe(true);
   });
 });
