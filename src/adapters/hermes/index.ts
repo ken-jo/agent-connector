@@ -119,6 +119,17 @@ interface HermesStdioServer {
   env?: Record<string, string>;
 }
 
+/**
+ * Hermes remote HTTP MCP entry — `{ url, headers? }` under the SAME mcp_servers
+ * key (no transport/type discriminator). Per the Hermes Agent docs
+ * (website/docs/user-guide/features/mcp.md "HTTP servers"); OAuth servers add
+ * `auth: oauth`, which AC's static-header model does not express.
+ */
+interface HermesHttpServer {
+  url: string;
+  headers?: Record<string, string>;
+}
+
 /** One Hermes shell-hook entry. */
 interface HermesHookEntry {
   /** Tool-name matcher (empty = all). Tool events only; "" elsewhere. */
@@ -310,13 +321,19 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
         },
       ];
     }
-    if (server.transport !== "stdio" || !server.command) {
+    // Hermes registers stdio sidecars ({command,args,env}) AND remote HTTP
+    // servers ({url,headers}) under the same mcp_servers key. It has no SSE
+    // transport (docs: website/docs/user-guide/features/mcp.md), so anything
+    // else is reported, never silently dropped.
+    const isStdio = server.transport === "stdio" && !!server.command;
+    const isHttp = server.transport === "http" && !!server.url;
+    if (!isStdio && !isHttp) {
       return [
         {
           platform: this.id,
           action: "skip",
           path,
-          detail: `transport "${server.transport}" not registrable in ${MCP_ROOT_KEY} (stdio only)`,
+          detail: `transport "${server.transport}" not registrable in ${MCP_ROOT_KEY} (stdio + http only)`,
         },
       ];
     }
@@ -368,10 +385,29 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Render the stdio MCP entry. Hermes has no native interpolation, so env-refs
-   * resolve to literals here. Honors the telemetry serve-wrapper.
+   * Render the MCP entry — a remote HTTP `{ url, headers? }` or a stdio sidecar
+   * `{ command, args, env }`. Hermes has no native interpolation, so env-refs
+   * resolve to literals here. The stdio path honors the telemetry serve-wrapper.
    */
-  private renderServerEntry(ctx: InstallContext, server: ServerDef): HermesStdioServer {
+  private renderServerEntry(
+    ctx: InstallContext,
+    server: ServerDef,
+  ): HermesStdioServer | HermesHttpServer {
+    // Remote HTTP — { url, headers? }. Never telemetry-wrapped (a URL has no
+    // local command to route through the serve proxy). Hermes has no native env
+    // token, so ${env:VAR} refs in url/headers resolve to literals.
+    if (server.transport === "http") {
+      const entry: HermesHttpServer = { url: resolveEnvRefsDeep(server.url ?? "") };
+      if (server.headers && Object.keys(server.headers).length > 0) {
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(resolveEnvRefsDeep(server.headers))) {
+          headers[k] = String(v);
+        }
+        entry.headers = headers;
+      }
+      return entry;
+    }
+
     let command = server.command as string;
     let args = [...(server.args ?? [])];
 
