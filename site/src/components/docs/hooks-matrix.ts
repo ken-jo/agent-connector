@@ -722,7 +722,7 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "session_start",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "before_prompt_build",
       PreToolUse: "before_tool_call",
       PostToolUse: "after_tool_call",
       PreCompact: null,
@@ -735,7 +735,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "NVIDIA NemoClaw WRAPS OpenClaw — a thin FORK of the OpenClaw adapter (extends OpenClawAdapter, overriding only id/name/detection). It inherits OpenClaw's hook machinery verbatim, so the event map + capabilities are OpenClaw's: PreToolUse->before_tool_call (modify mutates event.params; deny/ask block), PostToolUse->after_tool_call (observe-only -> canModifyOutput false), SessionStart->session_start + before_prompt_build injection, SubagentStart/Stop->subagent_spawned/ended (observe-only). NemoClaw ships NO Claude-style hooks of its own, but the inherited bridge writes the same DUAL REGISTRATION into the WRAPPED ~/.openclaw/openclaw.json (the agent NemoClaw runs). Detection keys on the NemoClaw-specific ~/.nemoclaw/ marker: OpenClaw's detection BOWS OUT when ~/.nemoclaw/ is present (and nemoclaw is registered BEFORE openclaw), so a real NemoClaw box — which has BOTH markers — is never double-targeted. The inherited bridge is HOST-BOUND to this id: <homeBin> hook nemoclaw <event> (NOT openclaw — events route back to the nemoclaw adapter); formatReply emits NORMALIZED HookResponse.",
+      "NVIDIA NemoClaw WRAPS OpenClaw — a thin FORK of the OpenClaw adapter (extends OpenClawAdapter, overriding only id/name/detection). It inherits OpenClaw's hook machinery verbatim, so the event map + capabilities are OpenClaw's: PreToolUse->before_tool_call (modify mutates event.params; deny/ask block), PostToolUse->after_tool_call (observe-only -> canModifyOutput false), SessionStart->session_start + before_prompt_build injection, UserPromptSubmit->before_prompt_build (per-turn context injection, context-only — before_prompt_build cannot block, so a deny degrades to a no-op), SubagentStart/Stop->subagent_spawned/ended (observe-only), plus supportsNativeHooks (platforms.nemoclaw.nativeHooks bridged verbatim). NemoClaw ships NO Claude-style hooks of its own, but the inherited bridge writes the same DUAL REGISTRATION into the WRAPPED ~/.openclaw/openclaw.json (the agent NemoClaw runs). Detection keys on the NemoClaw-specific ~/.nemoclaw/ marker: OpenClaw's detection BOWS OUT when ~/.nemoclaw/ is present (and nemoclaw is registered BEFORE openclaw), so a real NemoClaw box — which has BOTH markers — is never double-targeted. The inherited bridge is HOST-BOUND to this id: <homeBin> hook nemoclaw <event> (NOT openclaw — events route back to the nemoclaw adapter); formatReply emits NORMALIZED HookResponse.",
   },
   {
     platform: "openclaw",
@@ -752,7 +752,7 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "session_start",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "before_prompt_build",
       PreToolUse: "before_tool_call",
       PostToolUse: "after_tool_call",
       PreCompact: null,
@@ -765,7 +765,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "EVENT_TO_OPENCLAW (api.on targets): PreToolUse->before_tool_call (block via { block, blockReason }, deny/ask both block; modify mutates event.params), PostToolUse->after_tool_call (observe only -> canModifyOutput false), SessionStart->session_start (records id) PLUS before_prompt_build (the actual context-injection point via { appendSystemContext }), SubagentStart->subagent_spawned + SubagentStop->subagent_ended (BOTH observe-only — no decision or context payload, so a SubagentStop deny cannot keep the subagent running here). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification null; PermissionRequest null (the permission gate is the requireApproval RETURN VALUE of before_tool_call, not an event); PostToolUseFailure null (failures arrive merged into after_tool_call). DUAL REGISTRATION in openclaw.json (JSON5): plugins.entries.<id>={enabled:true} + plugins.load.paths[dir] (LOAD) AND mcp.servers.<id> (SURFACE TOOLS) — both required. Generated index.mjs + openclaw.plugin.json manifest. Bridge -> <homeBin> hook openclaw <event> --connector <id>; formatReply emits NORMALIZED HookResponse.",
+      "EVENT_TO_OPENCLAW (api.on targets): PreToolUse->before_tool_call (block via { block, blockReason }, deny/ask both block; modify mutates event.params), PostToolUse->after_tool_call (observe only -> canModifyOutput false), SessionStart->session_start (records id) PLUS before_prompt_build (the actual context-injection point via { appendSystemContext }), UserPromptSubmit->before_prompt_build (per-turn context injection via { appendContext }; before_prompt_build fires every prompt build and CANNOT block, so a deny/block decision degrades to a no-op — context-injection only; coexists with SessionStart in one handler via separate state so the once-only SessionStart flag never suppresses the per-turn injection), SubagentStart->subagent_spawned + SubagentStop->subagent_ended (BOTH observe-only — no decision or context payload, so a SubagentStop deny cannot keep the subagent running here). supportsNativeHooks: platforms.openclaw.nativeHooks bridge verbatim via the same on(...) helper (host-generic runNativeHook dispatch). SessionEnd/PreCompact/Stop/Notification null; PermissionRequest null (the permission gate is the requireApproval RETURN VALUE of before_tool_call, not an event); PostToolUseFailure null (failures arrive merged into after_tool_call). DUAL REGISTRATION in openclaw.json (JSON5): plugins.entries.<id>={enabled:true} + plugins.load.paths[dir] (LOAD) AND mcp.servers.<id> (SURFACE TOOLS) — both required. Generated index.mjs + openclaw.plugin.json manifest. Bridge -> <homeBin> hook openclaw <event> --connector <id>; formatReply emits NORMALIZED HookResponse.",
   },
   {
     platform: "amp",
