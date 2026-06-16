@@ -108,6 +108,27 @@ describe("vscode-copilot adapter — UserPromptSubmit + Stop", () => {
     expect(st.hookSpecificOutput).toBeUndefined();
   });
 
+  it("formatReply: PostToolUse deny -> TOP-LEVEL {decision:block} but PreToolUse keeps permissionDecision", () => {
+    // hooks.md Output Contract: permissionDecision is read ONLY for PreToolUse
+    // (pre-execution). PostToolUse "can block further processing with decision:
+    // block" — the post-execution event uses the top-level shape, and emitting a
+    // permissionDecision there is a silent no-op (the bug this guards against).
+    const post = JSON.parse(
+      vscodeAdapter.formatReply!("PostToolUse", { decision: "deny", reason: "bad output" }).stdout ?? "{}",
+    );
+    expect(post.decision).toBe("block");
+    expect(post.reason).toBe("bad output");
+    expect(post.hookSpecificOutput).toBeUndefined();
+
+    // PreToolUse is the permission event — it MUST still use permissionDecision.
+    const pre = JSON.parse(
+      vscodeAdapter.formatReply!("PreToolUse", { decision: "deny", reason: "no" }).stdout ?? "{}",
+    );
+    expect(pre.decision).toBeUndefined();
+    expect(pre.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(pre.hookSpecificOutput.permissionDecisionReason).toBe("no");
+  });
+
   it("formatReply: UserPromptSubmit context -> hookSpecificOutput.additionalContext", () => {
     const out = JSON.parse(
       vscodeAdapter.formatReply!("UserPromptSubmit", {
