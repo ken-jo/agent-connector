@@ -1282,6 +1282,12 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     id: "antigravity-cli",
     target: "shares ~/.gemini/antigravity/",
   },
+  {
+    name: "Continue",
+    id: "continue",
+    target:
+      "~/.continue/config.yaml → mcpServers (YAML ARRAY; hooks in separate settings.json, honors CONTINUE_GLOBAL_DIR)",
+  },
 ];
 
 export const mcpOnlyPlatforms: PlatformEntry[] = [
@@ -1311,12 +1317,6 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     name: "Amazon Q Developer CLI",
     id: "amazon-q",
     target: "~/.aws/amazonq/mcp.json (user) / .amazonq/mcp.json (project) → mcpServers",
-  },
-  {
-    name: "Continue",
-    id: "continue",
-    target:
-      "~/.continue/config.yaml (user) / <projectDir>/.continue/config.yaml (project) → mcpServers (YAML ARRAY, keyed by name)",
   },
   {
     name: "Windsurf",
