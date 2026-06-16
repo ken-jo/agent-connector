@@ -277,6 +277,13 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     // top-level `statusLine`. Confirmed config key + stdin payload against the
     // qwen-code status-line docs (shipped v0.14.3, PR #2923).
     supportsStatusline: true,
+    // Native passthrough: Qwen's 16-event surface includes 3 host-specific events
+    // with NO canonical HookEventName analog — TodoCreated / TodoCompleted /
+    // StopFailure (QwenLM/qwen-code docs/users/features/hooks.md). A connector
+    // reaches them via platforms["qwen-code"].nativeHooks; installHooks files the
+    // PascalCase event key VERBATIM into settings.json hooks, and the generic
+    // uninstall reverses it.
+    supportsNativeHooks: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -456,11 +463,22 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
-    if (connector.platforms[HOST]?.hooks === false) {
-      return [{ platform: this.id, action: "skip", detail: "hooks disabled for qwen-code" }];
-    }
-    if (connector.hookEvents.length === 0) {
-      return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
+    const override = connector.platforms[HOST];
+    const hooksDisabled = override?.hooks === false;
+    // `hooks: false` disables only the NORMALIZED events; nativeHooks is a
+    // sibling, qwen-scoped declaration that installs regardless.
+    const normalizedEvents = hooksDisabled ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
+    if (normalizedEvents.length === 0 && nativeEvents.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: hooksDisabled ? "hooks disabled for qwen-code" : "connector declares no hooks",
+        },
+      ];
     }
 
     const settingsPath = this.getHookConfigPath(ctx);
@@ -472,7 +490,7 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
-    for (const event of connector.hookEvents) {
+    for (const event of normalizedEvents) {
       // Qwen's hook event names are Claude-identical (PascalCase) — register the
       // canonical event name directly. Write-all is AUDITED here: every canonical
       // event (incl. PermissionRequest / PostToolUseFailure / SubagentStart /
@@ -513,6 +531,37 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
           path: settingsPath,
           detail: `hooks.${event}`,
         });
+      }
+      mutated = true;
+    }
+
+    // NATIVE passthrough events: qwen-native event-name keys (e.g. TodoCreated,
+    // TodoCompleted, StopFailure) filed VERBATIM into settings.json hooks — no
+    // EVENT_MAP, since they ARE Qwen events. Same nested entry shape; matched by
+    // EXACT command so a native key coinciding with a normalized one never clobbers.
+    for (const nativeEvent of nativeEvents) {
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, nativeEvent, connector.id);
+      const entry: QwenHookEntry = {
+        matcher: nativeHooks[nativeEvent]?.matcher ?? "",
+        hooks: [{ type: "command", command }],
+      };
+      const bucket = (hooks[nativeEvent] ??= []);
+      const existingIdx = bucket.findIndex((e) => e.hooks?.[0]?.command === command);
+      if (existingIdx >= 0) {
+        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: settingsPath,
+            detail: `hooks.${nativeEvent} (native) already registered`,
+          });
+          continue;
+        }
+        bucket[existingIdx] = entry;
+        changes.push({ platform: this.id, action: "update", path: settingsPath, detail: `hooks.${nativeEvent} (native)` });
+      } else {
+        bucket.push(entry);
+        changes.push({ platform: this.id, action: "create", path: settingsPath, detail: `hooks.${nativeEvent} (native)` });
       }
       mutated = true;
     }
