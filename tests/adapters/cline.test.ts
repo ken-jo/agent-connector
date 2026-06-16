@@ -16,7 +16,7 @@
  */
 
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { platform as osPlatform, tmpdir } from "node:os";
+import { homedir, platform as osPlatform, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parse as parseYaml } from "yaml";
@@ -433,11 +433,19 @@ describe("cline adapter — skills (.clinerules/skills)", () => {
     expect(existsSync(resource)).toBe(true);
   });
 
-  it("user scope skips with a warn (undocumented for the VS Code ext)", () => {
+  it("user scope writes ~/.cline/skills/<name>/SKILL.md (homedir/.cline) + uninstall removes it", () => {
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     const changes = clineAdapter.installSkills(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("warn");
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+
+    const skillMd = join(homedir(), ".cline", "skills", "pdf-tools", "SKILL.md");
+    expect(existsSync(skillMd)).toBe(true);
+    expect(readFileSync(skillMd, "utf8")).toContain("# PDF Tools");
+    // user-scope skills live under ~/.cline/skills, NOT the project .clinerules tree
+    expect(existsSync(join(projectDir, ".clinerules", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
+
+    clineAdapter.uninstallSkills(ctx);
+    expect(existsSync(skillMd)).toBe(false);
   });
 
   it("is idempotent and uninstall removes SKILL.md, resource, and the empty dir", () => {
