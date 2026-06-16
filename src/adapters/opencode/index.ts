@@ -46,10 +46,23 @@
  *   SessionStart → "experimental.chat.system.transform"  (no real SessionStart
  *     hook upstream — #14808/#5409; this is the verified surrogate context-mode
  *     uses; we inject additionalContext into output.system).
+ *   PermissionRequest → "permission.ask"  (decision-capable gate; the handler
+ *     MUTATES output.status ("ask"|"deny"|"allow") rather than returning — like
+ *     tool.execute.before mutates output.args. Verified against
+ *     anomalyco/opencode packages/plugin/src/index.ts).
+ *
+ * Native passthrough hooks (supportsNativeHooks):
+ *   - Host-specific OpenCode plugin events with no normalized HookEventName
+ *     (chat.message, session.idle, permission.replied, command.execute.before,
+ *     shell.env, …) are reachable via platforms["opencode"].nativeHooks. The
+ *     generated plugin emits a fire-and-forget bridge registration for each; the
+ *     home-bin's runNativeHook dispatches them host-generically.
  *
  * Capability degradations (documented, never thrown):
- *   - OpenCode has no "ask" gate. A decision of "ask" degrades to a block (throw
- *     with the reason) in tool.execute.before — the safe direction.
+ *   - For tool.execute.before OpenCode has no "ask" gate. A decision of "ask"
+ *     degrades to a block (throw with the reason) — the safe direction.
+ *     (permission.ask DOES have a real "ask" status, so PermissionRequest "ask"
+ *     is honored verbatim there.)
  */
 
 import {
@@ -80,6 +93,7 @@ import type {
   HookEventName,
   HookParadigm,
   HookResponse,
+  PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
@@ -110,6 +124,11 @@ const EVENT_TO_OPENCODE: Partial<Record<HookEventName, string>> = {
   // surrogate is experimental.chat.system.transform, which receives the system
   // prompt array; we inject additionalContext there.
   SessionStart: "experimental.chat.system.transform",
+  // OpenCode's decision-capable permission gate. The "permission.ask" plugin
+  // hook MUTATES output.status ("ask"|"deny"|"allow") rather than returning a
+  // value (mirrors tool.execute.before mutating output.args); verified against
+  // anomalyco/opencode packages/plugin/src/index.ts.
+  PermissionRequest: "permission.ask",
 };
 
 /** Raw payload the generated plugin posts to the universal hook entrypoint. */
@@ -155,13 +174,13 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
     stop: false,
     notification: false,
     // Newer events: OpenCode HAS a decision-capable `permission.ask` plugin
-    // hook upstream, but it is NOT wired here (E1 keeps this adapter
-    // degrade-only); subagents run as child sessions (bus events only — no
-    // dedicated lifecycle hook) and tool failure is merged into
-    // tool.execute.after / session.error. permissionRequest /
-    // postToolUseFailure / subagentStart / subagentStop stay unset — the
-    // generated bridge never references them and install reports them as
-    // "unsupported here".
+    // hook upstream — now wired (PermissionRequest → permission.ask, which
+    // mutates output.status). subagents run as child sessions (bus events only
+    // — no dedicated lifecycle hook) and tool failure is merged into
+    // tool.execute.after / session.error, so postToolUseFailure / subagentStart
+    // / subagentStop stay unset — the generated bridge never references them and
+    // install reports them as "unsupported here".
+    permissionRequest: true,
     // tool.execute.before mutates output.args → input rewrite supported.
     canModifyArgs: true,
     // tool.execute.after mutates output.output → output rewrite supported.
@@ -173,6 +192,13 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // Native passthrough hooks: OpenCode's host-specific plugin events that have
+    // NO normalized HookEventName (chat.message, session.idle, permission.replied,
+    // command.execute.before, shell.env, …) are reachable by declaring
+    // platforms["opencode"].nativeHooks. The generated plugin emits a bridge
+    // registration for each, and the home-bin's runNativeHook dispatches them
+    // host-generically (raw payload → handler → verbatim reply).
+    supportsNativeHooks: true,
   };
 
   // ── Detection ──────────────────────────────────────────────────────────
@@ -395,23 +421,21 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const pluginPath = this.getHookConfigPath(ctx);
 
-    if (ctx.connector.platforms[HOST]?.hooks === false) {
+    // `hooks: false` disables only the canonical (normalized) events; nativeHooks
+    // is a sibling, opencode-scoped declaration on the same override.
+    const canonicalDisabled = ctx.connector.platforms[HOST]?.hooks === false;
+    const hasCanonical = !canonicalDisabled && ctx.connector.hookEvents.length > 0;
+    const hasNative = this.nativeHookEvents(ctx).length > 0;
+
+    if (!hasCanonical && !hasNative) {
       return [
         {
           platform: this.id,
           action: "skip",
           path: pluginPath,
-          detail: "hooks disabled for opencode",
-        },
-      ];
-    }
-    if (ctx.connector.hookEvents.length === 0) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path: pluginPath,
-          detail: "connector declares no hooks",
+          detail: canonicalDisabled
+            ? "hooks disabled for opencode"
+            : "connector declares no hooks",
         },
       ];
     }
@@ -455,13 +479,29 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
    * as "unsupported here" so the detail never overstates coverage.
    */
   private hookDetail(ctx: InstallContext): string {
-    const declared = ctx.connector.hookEvents;
+    const declared = ctx.connector.platforms[HOST]?.hooks === false
+      ? []
+      : ctx.connector.hookEvents;
     const mapped = declared.filter((e) => EVENT_TO_OPENCODE[e] !== undefined);
     const unsupported = declared.filter((e) => EVENT_TO_OPENCODE[e] === undefined);
-    const base = mapped.join(",");
+    const native = this.nativeHookEvents(ctx);
+    const parts: string[] = [];
+    if (mapped.length > 0) parts.push(mapped.join(","));
+    if (native.length > 0) parts.push(`native: ${native.join(",")}`);
+    const base = parts.join("; ") || "no canonical hooks";
     return unsupported.length > 0
       ? `${base}; unsupported here: ${unsupported.join(",")}`
       : base;
+  }
+
+  /**
+   * OpenCode-native passthrough events declared on platforms["opencode"]
+   * .nativeHooks (host event names with no normalized HookEventName, e.g.
+   * session.idle / chat.message). Emitted as generic bridge registrations and
+   * dispatched host-generically by the home-bin's runNativeHook.
+   */
+  private nativeHookEvents(ctx: InstallContext): string[] {
+    return Object.keys(ctx.connector.platforms[HOST]?.nativeHooks ?? {});
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
@@ -726,9 +766,14 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
     const connectorId = JSON.stringify(ctx.connector.id);
 
     // The OpenCode event keys this connector declares (and that we can map).
-    const events = ctx.connector.hookEvents.filter(
-      (e): e is HookEventName => EVENT_TO_OPENCODE[e] !== undefined,
-    );
+    // `hooks: false` disables the canonical events but leaves nativeHooks (a
+    // sibling, opencode-scoped declaration) intact.
+    const canonicalDisabled = ctx.connector.platforms[HOST]?.hooks === false;
+    const events = canonicalDisabled
+      ? []
+      : ctx.connector.hookEvents.filter(
+          (e): e is HookEventName => EVENT_TO_OPENCODE[e] !== undefined,
+        );
     const has = (e: HookEventName) => events.includes(e);
 
     const header = `/**
@@ -831,6 +876,44 @@ function bridge(event, payload) {
     },`);
     }
 
+    if (has("PermissionRequest")) {
+      handlers.push(`    // PermissionRequest → decision-capable permission gate.
+    // OpenCode's "permission.ask" MUTATES output.status ("ask"|"deny"|"allow")
+    // — it does NOT return a value (mirrors tool.execute.before/output.args).
+    // A normalized "deny" maps to output.status "deny"; "ask" to "ask";
+    // allow/void leave the default status untouched.
+    "permission.ask": async (input, output) => {
+      const payload = {
+        toolName: (input && (input.type || input.tool)) ?? "",
+        toolInput: (input && (input.metadata || input.args)) ?? {},
+        sessionId: (input && input.sessionID) ?? "",
+        projectDir: PROJECT_DIR,
+      };
+      const res = bridge("PermissionRequest", payload);
+      if (!res || !output) return;
+      if (res.decision === "deny") output.status = "deny";
+      else if (res.decision === "ask") output.status = "ask";
+    },`);
+    }
+
+    // NATIVE PASSTHROUGH events: OpenCode-native plugin event names declared on
+    // platforms["opencode"].nativeHooks (chat.message, session.idle,
+    // permission.replied, command.execute.before, shell.env, …). No canonical
+    // mapping — each is emitted as a fire-and-forget bridge registration; the
+    // home-bin's runNativeHook dispatches them host-generically (raw payload →
+    // handler → verbatim reply). Keys are computed → emitted as quoted keys.
+    for (const nativeEvent of this.nativeHookEvents(ctx)) {
+      const key = JSON.stringify(nativeEvent);
+      handlers.push(`    // native passthrough → ${nativeEvent} (runNativeHook host-generic dispatch).
+    [${key}]: async (input, output) => {
+      bridge(${key}, {
+        sessionId: (input && input.sessionID) ?? "",
+        projectDir: PROJECT_DIR,
+        raw: input,
+      });
+    },`);
+    }
+
     const factory = `
 export default async function (ctx) {
   // ctx.directory is the OpenCode project root; fall back to cwd.
@@ -886,6 +969,17 @@ ${handlers.join("\n")}
           ...(typeof input.isError === "boolean"
             ? { isError: input.isError }
             : {}),
+        };
+        return ev;
+      }
+      case "PermissionRequest": {
+        // Our generated bridge posts the same {toolName,toolInput,...} shape it
+        // posts for PreToolUse, so this maps straight through (no host-native
+        // permission_suggestions are surfaced through the plugin payload).
+        const ev: PermissionRequestEvent = {
+          ...base,
+          toolName: input.toolName ?? "",
+          toolInput: input.toolInput ?? {},
         };
         return ev;
       }

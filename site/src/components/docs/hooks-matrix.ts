@@ -608,14 +608,14 @@ export const platforms: PlatformHookEntry[] = [
       PreCompact: null,
       Stop: null,
       Notification: null,
-      PermissionRequest: null,
+      PermissionRequest: "permission.ask",
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
       PostCompact: null,
     },
     notes:
-      "Reference ts-plugin host. EVENT_TO_OPENCODE: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (surrogate; inject additionalContext into output.system). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification and all four newer events null (subagents run as child sessions — only bus events, no dedicated hook). MCP in opencode.json root key 'mcp' (command is ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). No 'ask' gate -> ask degrades to a thrown block. Bridge shells out to <homeBin> hook opencode <event> --connector <id>; formatReply emits the NORMALIZED HookResponse on stdout (the bridge parses it directly).",
+      "Reference ts-plugin host. EVENT_TO_OPENCODE: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (surrogate; inject additionalContext into output.system), PermissionRequest->permission.ask (decision-capable gate that MUTATES output.status 'ask'|'deny'|'allow' — it does NOT return a value, mirroring tool.execute.before mutating output.args; verified against anomalyco/opencode packages/plugin/src/index.ts). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification and the remaining newer events null (subagents run as child sessions — only bus events, no dedicated hook). OpenCode also opts into nativeHooks: host-specific plugin events with no normalized name (chat.message, session.idle, permission.replied, command.execute.before, shell.env, …) are reachable via platforms['opencode'].nativeHooks and dispatched host-generically by the home-bin's runNativeHook. MCP in opencode.json root key 'mcp' (command is ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). tool.execute.before has no 'ask' gate -> ask degrades to a thrown block (permission.ask HAS a real 'ask' status, honored verbatim). Bridge shells out to <homeBin> hook opencode <event> --connector <id>; formatReply emits the NORMALIZED HookResponse on stdout (the bridge parses it directly).",
   },
   {
     platform: "mimo-code",
