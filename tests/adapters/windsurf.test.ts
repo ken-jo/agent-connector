@@ -116,9 +116,11 @@ describe("windsurf adapter — identity + capabilities", () => {
     expect(windsurfAdapter.capabilities.canModifyArgs).toBe(false);
     expect(windsurfAdapter.capabilities.canModifyOutput).toBe(false);
     expect(windsurfAdapter.capabilities.canInjectSessionContext).toBe(false);
-    // No unverified content surfaces
-    expect(windsurfAdapter.capabilities.supportsCommands ?? false).toBe(false);
-    expect(windsurfAdapter.capabilities.supportsSkills ?? false).toBe(false);
+    // Content surfaces: commands (workflows) + skills are WIRED (workspace
+    // scope); subagents stay unverified. See windsurf-content.test.ts for the
+    // install/uninstall behavior.
+    expect(windsurfAdapter.capabilities.supportsCommands ?? false).toBe(true);
+    expect(windsurfAdapter.capabilities.supportsSkills ?? false).toBe(true);
     expect(windsurfAdapter.capabilities.supportsSubagents ?? false).toBe(false);
     // Transports: stdio + remote
     expect(windsurfAdapter.capabilities.transports).toContain("stdio");

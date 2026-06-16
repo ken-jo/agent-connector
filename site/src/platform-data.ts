@@ -560,20 +560,26 @@ export const platforms: Platform[] = [
     id: "windsurf",
     name: "Windsurf",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true, false, false),
-    // mcp-only: AC installs MCP + memory. MCP config is JSON — USER/GLOBAL scope
-    // ONLY at ~/.codeium/windsurf/mcp_config.json (the docs document no project
-    // path); root key "mcpServers" is a Claude-Desktop-style OBJECT map keyed by
-    // server name (like cursor). stdio { command, args?, env? }; remote
-    // { serverUrl, headers? } (NOT `url`; no type/disabled).
+    surfaces: s(true, false, true, true, false, true, false, false),
+    // mcp-only: AC installs MCP + memory + commands + skills. MCP config is JSON
+    // — USER/GLOBAL scope ONLY at ~/.codeium/windsurf/mcp_config.json (the docs
+    // document no project path); root key "mcpServers" is a Claude-Desktop-style
+    // OBJECT map keyed by server name (like cursor). stdio { command, args?, env? };
+    // remote { serverUrl, headers? } (NOT `url`; no type/disabled).
     // docs.devin.ai/desktop/cascade/mcp. memory WIRED: .windsurf/rules/
     // agent-connector.md (workspace) with `trigger: always_on` frontmatter (full
     // content in the system prompt every message —
     // docs.windsurf.com/windsurf/cascade/rules).
+    // commands WIRED: user-authored WORKFLOWS (each a /<name> slash command) at
+    // project .windsurf/workflows/<name>.md AND user
+    // ~/.codeium/windsurf/global_workflows/<name>.md (user dir is
+    // `global_workflows`). skills WIRED: Agent SKILLS at project
+    // .windsurf/skills/<name>/SKILL.md AND user
+    // ~/.codeium/windsurf/skills/<name>/SKILL.md. Both scopes — docs.windsurf.com.
     // hooks: Windsurf is a GUI editor with no user-installable hook/plugin layer
     // → hostNative.hooks stays false (NOT a gap — there is no host hook surface).
-    // N/A wired: commands/skills/subagents (no AC-wired user-authored dir).
-    hostNative: s(true, false, false, false, false, true, false, false),
+    // N/A wired: subagents (no AC-wired user-authored dir).
+    hostNative: s(true, false, true, true, false, true, false, false),
   },
 ];
 

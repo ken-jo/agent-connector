@@ -2,9 +2,10 @@
  * adapters/windsurf — Windsurf (Codeium / Cognition's Cascade agent) adapter.
  *
  * Windsurf is an mcp-only host from agent-connector's perspective: there is no
- * user-installable hook/plugin layer (it is a GUI editor), so only the MCP
- * server is registered. The config is a Claude-Desktop-style OBJECT map keyed
- * by server name (exactly like the cursor adapter's `mcpServers`), NOT an array.
+ * user-installable hook/plugin layer (it is a GUI editor). AC registers the MCP
+ * server PLUS three content surfaces (memory, workflows, skills — see below). The
+ * MCP config is a Claude-Desktop-style OBJECT map keyed by server name (exactly
+ * like the cursor adapter's `mcpServers`), NOT an array.
  *
  * MCP config (primary-verified — docs.devin.ai/desktop/cascade/mcp, formerly
  * docs.windsurf.com):
@@ -40,6 +41,18 @@
  * directive is an adapter-level wrapper. WORKSPACE/PROJECT SCOPE: `global_rules.md`
  * is a single SHARED global file (not an AC-owned dir), so user scope skip-warns.
  *
+ * Content surfaces — workflows (slash commands) + skills, BOTH project AND user
+ * scope:
+ *   - workflows → project `<projectDir>/.windsurf/workflows/<name>.md`,
+ *     user `~/.codeium/windsurf/global_workflows/<name>.md` (the user dir is
+ *     `global_workflows`, NOT `workflows`). Each becomes a `/<name>` slash
+ *     command. Windsurf caps each workflow file at 12,000 chars — over-budget
+ *     files are still written but warned.
+ *   - skills → project `<projectDir>/.windsurf/skills/<name>/SKILL.md`,
+ *     user `~/.codeium/windsurf/skills/<name>/SKILL.md` (the dir is `skills` in
+ *     BOTH scopes). Same SKILL.md convention cline/claude-code/qwen-code use.
+ * Both reuse the shared claude-code renderers (renderCommandMd/renderSkillMd).
+ *
  * Hook "config path" is aliased to the MCP file (no separate hook file) so the
  * base doctor/backup helpers behave sensibly (the amazon-q / roo-code idiom).
  */
@@ -49,6 +62,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
+import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
 import type { Adapter, InstallContext } from "../spi.js";
 import type {
   ChangeRecord,
@@ -68,6 +82,14 @@ import {
 
 const HOST: PlatformId = "windsurf";
 const MCP_ROOT_KEY = "mcpServers";
+
+/**
+ * Windsurf caps each workflow (slash-command) file at 12,000 characters
+ * (docs.windsurf.com). We still write an over-budget file but emit a warn so the
+ * author can trim it, mirroring base.ts's memory soft-budget warn. Skills have no
+ * documented size cap, so they are not guarded.
+ */
+const WORKFLOW_MAX_CHARS = 12000;
 
 /**
  * Native MCP server entry shapes Windsurf accepts under `mcpServers` (an OBJECT
@@ -118,8 +140,17 @@ export class WindsurfAdapter extends BaseAdapter implements Adapter {
     // Windsurf registers stdio + remote (http/sse) MCP servers; the remote
     // entry is distinguished by `serverUrl` (vs stdio's `command`).
     transports: ["stdio", "http", "sse"],
-    // Content surfaces: no documented user-authored commands/skills/subagents
-    // directory verified for Windsurf. Leave UNSET (base skip-warns).
+    // Content surfaces: WIRED in BOTH scopes. Windsurf reads user-authored
+    // WORKFLOWS (each becomes a `/<name>` slash command) and Agent SKILLS (the
+    // same SKILL.md frontmatter convention cline/claude-code/qwen-code use):
+    //   workflows → project .windsurf/workflows/<name>.md,
+    //               user ~/.codeium/windsurf/global_workflows/<name>.md
+    //   skills    → project .windsurf/skills/<name>/SKILL.md,
+    //               user ~/.codeium/windsurf/skills/<name>/SKILL.md
+    // The install overrides below branch the path on ctx.scope and write at both.
+    // Subagents stay UNSET (no documented user-authored dir): base skip-warns.
+    supportsCommands: true,
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -253,6 +284,138 @@ export class WindsurfAdapter extends BaseAdapter implements Adapter {
       ];
     }
     return [this.removeContentFile(this.memoryFilePath(ctx), ctx.dryRun)];
+  }
+
+  // ── Content surfaces: commands (workflows) + skills ───────────────────────
+  // CONTENT-ONLY native-file writers, structured like installMemory: dedicated-
+  // file ownership, dryRun honored via writeContentFile/removeContentFile. Both
+  // reuse the shared claude-code renderers (renderCommandMd / renderSkillMd) — no
+  // new markdown serializer. BOTH scopes write (the project dir AND the
+  // ~/.codeium/windsurf user/global dirs are documented surfaces):
+  //
+  //   commands (workflows)
+  //     - project → <projectDir>/.windsurf/workflows/<name>.md
+  //     - user    → ~/.codeium/windsurf/global_workflows/<name>.md
+  //       (NOTE: the user dir is `global_workflows`, NOT `workflows`.)
+  //   skills
+  //     - project → <projectDir>/.windsurf/skills/<name>/SKILL.md
+  //     - user    → ~/.codeium/windsurf/skills/<name>/SKILL.md
+  //       (the dir is `skills` in BOTH scopes; same SKILL.md convention
+  //       cline/claude-code/qwen-code use.)
+  //
+  // renderCommandMd emits Claude-flavored frontmatter keys (argument-hint, model,
+  // allowed-tools); Windsurf ignores unknown frontmatter keys, so they are inert/
+  // tolerated — no Windsurf-specific renderer is needed.
+
+  /** Workflow file: project `.windsurf/workflows`, user `~/.codeium/windsurf/global_workflows`. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    const dir =
+      ctx.scope === "project"
+        ? join(ctx.projectDir, ".windsurf", "workflows")
+        : join(homedir(), ".codeium", "windsurf", "global_workflows");
+    return join(dir, `${name}.md`);
+  }
+
+  /** Skill dir: project `.windsurf/skills/<name>`, user `~/.codeium/windsurf/skills/<name>`. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    const base =
+      ctx.scope === "project"
+        ? join(ctx.projectDir, ".windsurf", "skills")
+        : join(homedir(), ".codeium", "windsurf", "skills");
+    return join(base, name);
+  }
+
+  // ── Commands (workflows) ──────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for windsurf" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const cmd of connector.commands) {
+      const rendered = renderCommandMd(cmd);
+      changes.push(this.writeContentFile(this.commandPath(ctx, cmd.name), rendered, ctx.dryRun));
+      // Windsurf caps each workflow file at 12,000 characters (docs.windsurf.com).
+      // Still write the file — warn so the author can trim it (Windsurf may reject
+      // or truncate the overflow), mirroring base.ts's memory soft-budget warn.
+      if (rendered.length > WORKFLOW_MAX_CHARS) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: this.commandPath(ctx, cmd.name),
+          detail:
+            `workflow "${cmd.name}" is ${rendered.length} chars ` +
+            `(Windsurf caps each workflow at ${WORKFLOW_MAX_CHARS}); ` +
+            `the host may reject or truncate it — trim the command`,
+        });
+      }
+    }
+    return changes;
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for windsurf" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), renderSkillMd(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────
