@@ -49,6 +49,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
+import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
 import type { Adapter, InstallContext } from "../spi.js";
 import type {
   ChangeRecord,
@@ -118,8 +119,15 @@ export class WindsurfAdapter extends BaseAdapter implements Adapter {
     // Windsurf registers stdio + remote (http/sse) MCP servers; the remote
     // entry is distinguished by `serverUrl` (vs stdio's `command`).
     transports: ["stdio", "http", "sse"],
-    // Content surfaces: no documented user-authored commands/skills/subagents
-    // directory verified for Windsurf. Leave UNSET (base skip-warns).
+    // Content surfaces: WIRED. Windsurf reads user-authored WORKFLOWS at
+    // <projectDir>/.windsurf/workflows/<name>.md (each becomes a `/<name>` slash
+    // command) and Agent SKILLS at <projectDir>/.windsurf/skills/<name>/SKILL.md
+    // (the same SKILL.md frontmatter convention cline/claude-code/qwen-code use).
+    // Both are WORKSPACE/PROJECT scope only (no user/global dir) — the install
+    // overrides below skip-warn user scope, exactly like installMemory. Subagents
+    // stay UNSET (no documented user-authored dir): base skip-warns.
+    supportsCommands: true,
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -253,6 +261,133 @@ export class WindsurfAdapter extends BaseAdapter implements Adapter {
       ];
     }
     return [this.removeContentFile(this.memoryFilePath(ctx), ctx.dryRun)];
+  }
+
+  // ── Content surfaces: commands (workflows) + skills ───────────────────────
+  // CONTENT-ONLY native-file writers, structured exactly like installMemory:
+  // dedicated-file ownership, dryRun honored via writeContentFile/removeContentFile,
+  // and the SAME workspace-only skip-warn (Windsurf documents NO user/global dir
+  // for either surface). Both reuse the shared claude-code renderers
+  // (renderCommandMd / renderSkillMd) — no new markdown serializer.
+  //
+  //   - commands → <projectDir>/.windsurf/workflows/<name>.md (each is a /<name>
+  //     slash command).
+  //   - skills   → <projectDir>/.windsurf/skills/<name>/SKILL.md (the same
+  //     SKILL.md convention cline/claude-code/qwen-code use).
+
+  /** <projectDir>/.windsurf/workflows/<name>.md — a workspace-scope workflow. */
+  private commandPath(ctx: InstallContext, name: string): string {
+    return join(ctx.projectDir, ".windsurf", "workflows", `${name}.md`);
+  }
+
+  /** <projectDir>/.windsurf/skills/<name> — a workspace-scope skill dir. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(ctx.projectDir, ".windsurf", "skills", name);
+  }
+
+  /**
+   * Windsurf documents no user/global commands or skills dir — both are workspace
+   * scope only. Mirrors installMemory's skip-warn so a user-scope install reports
+   * a warn (with the skipped count) rather than writing into the home tree.
+   */
+  private workspaceOnlyWarn(ctx: InstallContext, surface: string, count: number): ChangeRecord {
+    return {
+      platform: this.id,
+      action: "warn",
+      detail:
+        `no ${ctx.scope}-scope ${surface} dir verified for windsurf ` +
+        `(.windsurf/${surface} is workspace-scope only); ${count} skipped`,
+    };
+  }
+
+  // ── Commands (workflows) ──────────────────────────────────────────────────
+
+  override installCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.commands === false) {
+      return [{ platform: this.id, action: "skip", detail: "commands disabled for windsurf" }];
+    }
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    if (ctx.scope !== "project") {
+      return [this.workspaceOnlyWarn(ctx, "workflows", connector.commands.length)];
+    }
+    return connector.commands.map((cmd) =>
+      this.writeContentFile(this.commandPath(ctx, cmd.name), renderCommandMd(cmd), ctx.dryRun),
+    );
+  }
+
+  override uninstallCommands(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.commands.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
+    }
+    // Only project-scope files were ever written (installCommands warned user scope).
+    if (ctx.scope !== "project") {
+      return [{ platform: this.id, action: "skip", detail: "no user-scope workflows written" }];
+    }
+    return connector.commands.map((cmd) =>
+      this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
+    );
+  }
+
+  // ── Skills ────────────────────────────────────────────────────────────────
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for windsurf" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    if (ctx.scope !== "project") {
+      return [this.workspaceOnlyWarn(ctx, "skills", connector.skills.length)];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), renderSkillMd(skill), ctx.dryRun),
+      );
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    // Only project-scope files were ever written (installSkills warned user scope).
+    if (ctx.scope !== "project") {
+      return [{ platform: this.id, action: "skip", detail: "no user-scope skills written" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue;
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────
