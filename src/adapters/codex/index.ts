@@ -193,7 +193,7 @@ export class CodexAdapter extends BaseAdapter {
     transports: ["stdio", "http"],
     // Content surfaces: Codex implements all three.
     //   command  → ~/.codex/prompts/<name>.md   (md+frontmatter, USER SCOPE ONLY)
-    //   skill    → <codexDir>/skills/<name>/SKILL.md (+ resources)
+    //   skill    → project: .codex/skills/<name>/SKILL.md · user: ~/.agents/skills/<name>/SKILL.md
     //   subagent → <codexDir>/agents/<name>.toml (TOML)
     supportsCommands: true,
     supportsSkills: true,
@@ -527,7 +527,8 @@ export class CodexAdapter extends BaseAdapter {
   // Native locations:
   //   command  → ~/.codex/prompts/<name>.md   md+frontmatter(description,argument-hint)
   //              USER SCOPE ONLY — project scope yields a single "warn".
-  //   skill    → <codexDir>/skills/<name>/SKILL.md (+ resources)
+  //   skill    → project: <projectDir>/.codex/skills/<name>/SKILL.md (+ resources)
+  //              user:    ~/.agents/skills/<name>/SKILL.md (~/.codex/skills is deprecated)
   //   subagent → <codexDir>/agents/<name>.toml  TOML via writeTomlString
 
   /** Command files always live under the USER codex dir: ~/.codex/prompts. */
@@ -535,7 +536,16 @@ export class CodexAdapter extends BaseAdapter {
     return join(this.userConfigDir(), "prompts", `${name}.md`);
   }
   private skillDir(ctx: InstallContext, name: string): string {
-    return join(this.getConfigDir(ctx), "skills", name);
+    // Project scope: <projectDir>/.codex/skills/<name> — the Project config-layer
+    // skills root (codex-rs/core-skills/src/loader.rs, ConfigLayerSource::Project),
+    // NOT deprecated. User scope: $HOME/.agents/skills/<name> — codex's CURRENT
+    // user skills root. The older $CODEX_HOME/skills (~/.codex/skills) is still
+    // read but the loader labels it a "Deprecated user skills location, kept for
+    // backward compatibility". .agents is anchored to the OS home (home_dir), NOT
+    // $CODEX_HOME — so use homedir() here, never userConfigDir() (which honors
+    // CODEX_HOME).
+    if (ctx.scope === "project") return join(this.getConfigDir(ctx), "skills", name);
+    return join(homedir(), ".agents", "skills", name);
   }
   private subagentPath(ctx: InstallContext, name: string): string {
     return join(this.getConfigDir(ctx), "agents", `${name}.toml`);
@@ -594,9 +604,8 @@ export class CodexAdapter extends BaseAdapter {
     const changes: ChangeRecord[] = [];
     for (const skill of connector.skills) {
       const dir = this.skillDir(ctx, skill.name);
-      changes.push(
-        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
-      );
+      const rendered = this.renderSkill(skill);
+      changes.push(this.writeContentFile(join(dir, "SKILL.md"), rendered, ctx.dryRun));
       // Bundle any resource files beside SKILL.md (relative path → contents).
       // Defense-in-depth: skip+warn on any key that escapes the skill dir
       // (config-time validation already rejects these, but never trust input).
@@ -612,8 +621,40 @@ export class CodexAdapter extends BaseAdapter {
         }
         changes.push(this.writeContentFile(target, contents, ctx.dryRun));
       }
+      // Migrate away an AC-owned copy at the deprecated user skills root so the
+      // skill is not double-registered after the move to ~/.agents/skills.
+      changes.push(...this.migrateDeprecatedUserSkill(ctx, skill, rendered));
     }
     return changes;
+  }
+
+  /**
+   * One-time, opt-out-safe migration: prior AC versions wrote user-scope skills
+   * to the now-deprecated $CODEX_HOME/skills/<name> root, which codex STILL reads
+   * (kept for backward compatibility). Once we write the same skill to the current
+   * ~/.agents/skills root, codex would register it TWICE (same frontmatter name,
+   * two User-scope roots). If a SKILL.md exists at the deprecated path AND is
+   * byte-identical to what we render — i.e. AC-owned, not hand-authored — remove
+   * it (and its now-empty dir). The content-equality guard guarantees we never
+   * delete a skill a user placed there by hand. No-op for project scope (where
+   * .codex/skills is the valid, non-deprecated Project config-layer path) and when
+   * a custom CODEX_HOME would make the deprecated path coincide with the new one.
+   */
+  private migrateDeprecatedUserSkill(
+    ctx: InstallContext,
+    skill: SkillDef,
+    rendered: string,
+  ): ChangeRecord[] {
+    if (ctx.scope === "project") return [];
+    const deprecated = join(this.userConfigDir(), "skills", skill.name, "SKILL.md");
+    // Never touch the file we just wrote (pathological CODEX_HOME === ~/.agents).
+    if (deprecated === join(this.skillDir(ctx, skill.name), "SKILL.md")) return [];
+    if (!existsSync(deprecated)) return [];
+    if (readFileSync(deprecated, "utf8") !== rendered) return []; // hand-authored — leave it
+    return [
+      this.removeContentFile(deprecated, ctx.dryRun),
+      this.removeDirIfEmpty(dirname(deprecated), ctx.dryRun),
+    ];
   }
 
   override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
