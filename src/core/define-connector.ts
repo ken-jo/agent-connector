@@ -215,7 +215,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   return resolved;
 }
 
-/** The 12 normalized event names, for the nativeHooks collision check. */
+/** The 13 normalized event names, for the nativeHooks collision check. */
 const NORMALIZED_EVENT_SET: ReadonlySet<string> = new Set(ALL_EVENTS);
 
 /**
