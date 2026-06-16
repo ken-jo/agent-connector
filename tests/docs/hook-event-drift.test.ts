@@ -51,6 +51,7 @@ const EVENT_FLAG: Record<HookEventName, keyof PlatformCapabilities> = {
   PostToolUseFailure: "postToolUseFailure",
   SubagentStart: "subagentStart",
   SubagentStop: "subagentStop",
+  PostCompact: "postCompact",
 };
 
 describe("hook-event drift guard (core + adapter registry are the source of truth)", () => {

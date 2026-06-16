@@ -19,7 +19,11 @@ import { isNativeHookDeclared, runHook, runNativeHook } from "../../runtime/inde
 import type { RunHookResult } from "../../runtime/index.js";
 import { fail } from "../app.js";
 
-const HOOK_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
+// The CLI hook-dispatch gate: every normalized HookEventName the entrypoint
+// accepts. MUST stay in sync with HookEventName / define-connector ALL_EVENTS —
+// a missing member silently rejects an installed hook at runtime. The
+// hook-dispatch-events test pins this set ⊇ ALL_EVENTS so it cannot drift.
+export const HOOK_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
   "SessionStart",
   "SessionEnd",
   "UserPromptSubmit",
@@ -32,6 +36,7 @@ const HOOK_EVENTS: ReadonlySet<string> = new Set<HookEventName>([
   "PostToolUseFailure",
   "SubagentStart",
   "SubagentStop",
+  "PostCompact",
 ]);
 
 /** Read all of a readable stream to a UTF-8 string. */

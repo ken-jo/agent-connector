@@ -223,6 +223,7 @@ interface HooksConfig {
   PostToolUseFailure?: HookDefinition<"PostToolUseFailure">;
   SubagentStart?:      HookDefinition<"SubagentStart">;
   SubagentStop?:       HookDefinition<"SubagentStop">;
+  PostCompact?:        HookDefinition<"PostCompact">;
 }
 
 interface HookDefinition<E> {
@@ -254,6 +255,7 @@ when the host provides none; `raw` is the verbatim host payload for escape-hatch
 | `PostToolUseFailure` | `toolName`, `toolInput`, `toolUseId?`, `error: string`, `isInterrupt?: boolean`, `durationMs?: number` |
 | `SubagentStart` | `agentId?: string`, `agentType?: string` |
 | `SubagentStop` | `agentId?`, `agentType?` (both optional — hosts don't reliably populate them on stop), `agentTranscriptPath?`, `lastAssistantMessage?`, `stopHookActive?` |
+| `PostCompact` | `trigger?: "auto" \| "manual"` (observational post-compaction sibling of `PreCompact`; cannot block/modify — codex is the verified firing host) |
 
 **Normalized `HookResponse`** (return a subset; the adapter formats it into the
 host's native reply — exit codes / JSON / control fields — and **drops fields the host
@@ -298,12 +300,12 @@ Fail-open is the runtime contract: the hook entrypoint never rejects, so a frame
 or handler bug can't wedge a host's tool call.
 
 **Native hooks passthrough (`platforms.<id>.nativeHooks`)** — the platform-scoped
-escape hatch for host hook events OUTSIDE the normalized 12-event union. Hosts ship
+escape hatch for host hook events OUTSIDE the normalized 13-event union. Hosts ship
 far more events than the union normalizes: Claude Code alone has **30** hook events,
-18 of them with no normalized analog (Setup, UserPromptExpansion, PermissionDenied,
+17 of them with no normalized analog (Setup, UserPromptExpansion, PermissionDenied,
 PostToolBatch, MessageDisplay, TaskCreated, TaskCompleted, StopFailure, TeammateIdle,
 InstructionsLoaded, ConfigChange, CwdChanged, FileChanged, WorktreeCreate,
-WorktreeRemove, PostCompact, Elicitation, ElicitationResult). `nativeHooks` wires any
+WorktreeRemove, Elicitation, ElicitationResult). `nativeHooks` wires any
 of them — and any future event a host adds — with zero agent-connector releases:
 
 ```ts
@@ -345,7 +347,7 @@ worktree creation on any non-zero exit and reads a bare path from stdout — may
 be fully drivable.
 
 Validation (`define-connector.ts`): each handler must be a function; `matcher`, when
-present, must be a string; a key that collides with one of the 12 normalized
+present, must be a string; a key that collides with one of the 13 normalized
 `HookEventName` values throws `ConnectorConfigError` — use the normalized `hooks`
 API for those (it gets normalization, matcher evaluation, and HookResponse mapping).
 A connector whose ONLY payload is a `nativeHooks` declaration is valid.
@@ -1142,9 +1144,10 @@ Two detection layers (from `src/adapters/detect.ts`):
 the required per-event booleans (`preToolUse`, `postToolUse`, `preCompact`,
 `sessionStart`, `sessionEnd`, `userPromptSubmit`, `stop`, `notification`),
 `canModifyArgs`, `canModifyOutput`, `canInjectSessionContext`, and
-`transports: Transport[]`; plus OPTIONAL flags (each read `?? false`): the 4
+`transports: Transport[]`; plus OPTIONAL flags (each read `?? false`): the 5
 newer per-event flags `permissionRequest` / `postToolUseFailure` /
-`subagentStart` / `subagentStop` (1:1 with the 12-member `HookEventName` union),
+`subagentStart` / `subagentStop` / `postCompact` (1:1 with the 13-member
+`HookEventName` union),
 the content-surface flags `supportsCommands` / `supportsSkills` /
 `supportsSubagents` / `supportsMemory`, and the handler/escape-hatch surface
 flags `supportsStatusline` / `supportsConfigPatch` / `supportsNativeHooks` /

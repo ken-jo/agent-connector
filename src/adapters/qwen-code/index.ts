@@ -67,6 +67,7 @@ import type {
   PlatformId,
   PostToolUseEvent,
   PostToolUseFailureEvent,
+  PostCompactEvent,
   PreCompactEvent,
   PreToolUseEvent,
   ServerDef,
@@ -1271,6 +1272,18 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
       }
       case "PreCompact": {
         const ev: PreCompactEvent = {
+          ...base,
+          ...(input.trigger === "auto" || input.trigger === "manual"
+            ? { trigger: input.trigger }
+            : {}),
+        };
+        return ev;
+      }
+      case "PostCompact": {
+        // Qwen does not fire PostCompact natively (postCompact unset → warn-skip
+        // at install). Parsed defensively, mirroring PreCompact, so a manual/
+        // mis-routed dispatch normalizes instead of hitting the guard.
+        const ev: PostCompactEvent = {
           ...base,
           ...(input.trigger === "auto" || input.trigger === "manual"
             ? { trigger: input.trigger }

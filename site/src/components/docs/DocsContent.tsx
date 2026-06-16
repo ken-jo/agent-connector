@@ -633,7 +633,7 @@ export function HooksSection() {
         is the verbatim stdout JSON reply. <C>void</C> → exit 0 with no output;
         any throw fails open. Exit-2 blocking semantics are{" "}
         <strong>not modeled</strong> in v1 — JSON-on-exit-0 decision control
-        covers Claude Code&apos;s events. Declaring one of the 12 normalized
+        covers Claude Code&apos;s events. Declaring one of the 13 normalized
         event names here is a <C>ConnectorConfigError</C> (use <C>hooks</C> for
         those). Only claude-code sets <C>supportsNativeHooks</C> today; other
         adapters skip-warn, never silently. An event is promoted into the

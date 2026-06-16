@@ -36,6 +36,7 @@ import type {
   PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
+  PostCompactEvent,
   PostToolUseEvent,
   PostToolUseFailureEvent,
   PreCompactEvent,
@@ -1826,6 +1827,22 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
             : {}),
           ...(typeof input.stop_hook_active === "boolean"
             ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      case "PostCompact": {
+        // Claude Code does NOT wire PostCompact as a normalized lifecycle hook
+        // (capabilities.postCompact is unset, so installHooks never registers
+        // it) — but the exhaustive guard below requires a case for every
+        // HookEventName. This arm is a SAFE passthrough: it normalizes the
+        // PreCompact-shaped `trigger` defensively, so a manual
+        // `hook claude-code PostCompact` invocation normalizes instead of
+        // throwing. It mirrors the PreCompact case byte-for-byte.
+        const ev: PostCompactEvent = {
+          ...base,
+          ...(input.trigger === "auto" || input.trigger === "manual"
+            ? { trigger: input.trigger }
             : {}),
         };
         return ev;

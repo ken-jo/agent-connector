@@ -135,6 +135,7 @@ export const CLAUDE_MAPPED_EVENTS: ReadonlySet<HookEventName> =
     "PostToolUseFailure",
     "SubagentStart",
     "SubagentStop",
+    "PostCompact",
   ]);
 
 /** A single hooks.json entry (identical in shape to a settings.json hooks block). */

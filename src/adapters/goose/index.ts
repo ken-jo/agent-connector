@@ -94,6 +94,9 @@ const EVENT_CAPABILITY: Record<HookEventName, keyof PlatformCapabilities> = {
   PostToolUseFailure: "postToolUseFailure",
   SubagentStart: "subagentStart",
   SubagentStop: "subagentStop",
+  // Goose has no post-compaction hook either — postCompact stays unset on
+  // `capabilities`, so a declared PostCompact warn-skips at install.
+  PostCompact: "postCompact",
 };
 
 /**
@@ -788,10 +791,11 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
       }
       case "PermissionRequest":
       case "SubagentStart":
-      case "SubagentStop": {
+      case "SubagentStop":
+      case "PostCompact": {
         // No Goose analog (no permission-dialog event, no subagent lifecycle
-        // hooks). Install already skip-warns these via EVENT_CAPABILITY; a
-        // runtime dispatch is a mis-route — fail loudly.
+        // hooks, no post-compaction hook). Install already skip-warns these via
+        // EVENT_CAPABILITY; a runtime dispatch is a mis-route — fail loudly.
         throw new Error(`unsupported goose hook event: ${String(event)}`);
       }
       default: {

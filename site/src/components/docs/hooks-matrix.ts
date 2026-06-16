@@ -10,10 +10,12 @@
  */
 
 /**
- * The 12 normalized lifecycle events a developer writes once against. The last
- * four (PermissionRequest / PostToolUseFailure / SubagentStart / SubagentStop)
- * are newer additions with cross-host analogs; hosts without a native analog
- * mark them unsupported and the install reports a skip-warn.
+ * The 13 normalized lifecycle events a developer writes once against. The newer
+ * additions (PermissionRequest / PostToolUseFailure / SubagentStart /
+ * SubagentStop and the trailing PostCompact) have cross-host analogs; hosts
+ * without a native analog mark them unsupported and the install reports a
+ * skip-warn. PostCompact is observational only (the post-compaction sibling of
+ * PreCompact; codex is the verified firing host).
  */
 export type CanonicalEvent =
   | "SessionStart"
@@ -27,7 +29,8 @@ export type CanonicalEvent =
   | "PermissionRequest"
   | "PostToolUseFailure"
   | "SubagentStart"
-  | "SubagentStop";
+  | "SubagentStop"
+  | "PostCompact";
 
 /** The three host hook paradigms (the deepest cross-platform divergence). */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";
@@ -68,7 +71,7 @@ export interface HooksMatrix {
   platforms: PlatformHookEntry[];
 }
 
-/** Ordered list of the 12 canonical events (matrix row order = core ALL_EVENTS order). */
+/** Ordered list of the 13 canonical events (matrix row order = core ALL_EVENTS order). */
 export const canonicalEvents: CanonicalEvent[] = [
   "SessionStart",
   "SessionEnd",
@@ -82,6 +85,7 @@ export const canonicalEvents: CanonicalEvent[] = [
   "PostToolUseFailure",
   "SubagentStart",
   "SubagentStop",
+  "PostCompact",
 ];
 
 /** Display order for the paradigm groups. */
@@ -132,9 +136,10 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: "PostToolUseFailure",
       SubagentStart: "SubagentStart",
       SubagentStop: "SubagentStop",
+      PostCompact: null,
     },
     notes:
-      "Reference json-stdio host. All 12 canonical events map 1:1 (PascalCase). Reply: stdout JSON hookSpecificOutput{ hookEventName, permissionDecision: deny|ask + permissionDecisionReason; or updatedInput (PreToolUse only); or additionalContext } with exit 0. allow/void = exit 0. Event-specific shapes: PermissionRequest uses the nested decision{ behavior:'allow'|'deny' } envelope — an EXPLICIT allow is an active grant that suppresses the dialog (+updatedInput; never overrides host deny rules), deny carries message, and ask/context/void emit NO decision (fall through to the native dialog). PostToolUseFailure & SubagentStart are context-only (deny degrades to additionalContext carrying the reason). Stop/SubagentStop/UserPromptSubmit/PostToolUse deny = TOP-LEVEL { decision:'block', reason } (a SubagentStop block keeps the subagent running). canModifyOutput false (cannot rewrite emitted tool output). Each settings.json hook value is { matcher, hooks:[{type:'command',command}] }.",
+      "Reference json-stdio host. The first 12 canonical events map 1:1 (PascalCase); PostCompact is NOT wired as a normalized hook here (reachable via nativeHooks instead — capability unset, matrix cell null). Reply: stdout JSON hookSpecificOutput{ hookEventName, permissionDecision: deny|ask + permissionDecisionReason; or updatedInput (PreToolUse only); or additionalContext } with exit 0. allow/void = exit 0. Event-specific shapes: PermissionRequest uses the nested decision{ behavior:'allow'|'deny' } envelope — an EXPLICIT allow is an active grant that suppresses the dialog (+updatedInput; never overrides host deny rules), deny carries message, and ask/context/void emit NO decision (fall through to the native dialog). PostToolUseFailure & SubagentStart are context-only (deny degrades to additionalContext carrying the reason). Stop/SubagentStop/UserPromptSubmit/PostToolUse deny = TOP-LEVEL { decision:'block', reason } (a SubagentStop block keeps the subagent running). canModifyOutput false (cannot rewrite emitted tool output). Each settings.json hook value is { matcher, hooks:[{type:'command',command}] }.",
   },
   {
     platform: "codex",
@@ -160,9 +165,10 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: "SubagentStart",
       SubagentStop: "SubagentStop",
+      PostCompact: "PostCompact",
     },
     notes:
-      "CODEX_HOOK_EVENTS = SessionStart, PreToolUse, PostToolUse, PreCompact, UserPromptSubmit, Stop, PermissionRequest, SubagentStart, SubagentStop (PascalCase, Claude-compatible names). SessionEnd & Notification dropped (capabilities false; never written); PostToolUseFailure has NO Codex analog -> warn-skip at install. MCP in config.toml [mcp_servers]. Reply: PreToolUse deny -> stdout hookSpecificOutput{ permissionDecision:'deny' }; PermissionRequest deny/allow -> nested hookSpecificOutput.decision{ behavior, message? } (updatedInput/updatedPermissions/interrupt FAIL CLOSED on Codex, so never emitted); SubagentStart context -> additionalContext; SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (keeps the subagent going); additionalContext honored on SessionStart & PostToolUse; modify/ask unsupported -> exit 0 passthrough. PreToolUse matcher is a charset-clean regex string.",
+      "CODEX_HOOK_EVENTS = SessionStart, PreToolUse, PostToolUse, PreCompact, UserPromptSubmit, Stop, PermissionRequest, SubagentStart, SubagentStop, PostCompact (PascalCase, Claude-compatible names). PostCompact is the observe-only post-compaction sibling of PreCompact (Codex fires both) — normalizes `trigger` (manual|auto), passthrough reply. SessionEnd & Notification dropped (capabilities false; never written); PostToolUseFailure has NO Codex analog -> warn-skip at install. MCP in config.toml [mcp_servers]. Reply: PreToolUse deny -> stdout hookSpecificOutput{ permissionDecision:'deny' }; PermissionRequest deny/allow -> nested hookSpecificOutput.decision{ behavior, message? } (updatedInput/updatedPermissions/interrupt FAIL CLOSED on Codex, so never emitted); SubagentStart context -> additionalContext; SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (keeps the subagent going); additionalContext honored on SessionStart & PostToolUse; modify/ask unsupported -> exit 0 passthrough. PreToolUse matcher is a charset-clean regex string.",
   },
   {
     platform: "cursor",
@@ -189,6 +195,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: "postToolUseFailure",
       SubagentStart: "subagentStart",
       SubagentStop: "subagentStop",
+      PostCompact: null,
     },
     notes:
       "EVENT_MAP lower-camel: PreToolUse->preToolUse, PostToolUse->postToolUse, SessionStart->sessionStart, Stop->stop, plus the documented Subagent (Task tool) lifecycle + tool-failure hooks SubagentStart->subagentStart, SubagentStop->subagentStop, PostToolUseFailure->postToolUseFailure, and the v1.7 lifecycle/prompt events SessionEnd->sessionEnd, PreCompact->preCompact, UserPromptSubmit->beforeSubmitPrompt (Cursor matches beforeSubmitPrompt against the value 'UserPromptSubmit'). Notification/PermissionRequest have no Cursor equivalent -> warn-skip (null); Cursor's permission gate is the OUTPUT field `permission` of its before* hooks, not an observable event. FLAT entry { command, matcher? } (no nested hooks[]). Reply (stdout JSON, exit 0): deny/ask -> { permission:'deny'|'ask', user_message } (a SubagentStop deny rides the same shape with Stop semantics); modify -> { updated_input } (PreToolUse); context -> { agent_message } (PreToolUse) or { additional_context } (Post/SessionStart). postToolUseFailure & subagentStart are observe/context-only -> { additional_context } (deny degrades to it carrying the reason). beforeSubmitPrompt is a BLOCK gate -> deny emits { continue:false, user_message }, otherwise { continue:true } (no context-injection field). sessionEnd (fire-and-forget) & preCompact (observational, cannot block) are no-op passthroughs (exit 0). Emits non-empty JSON even on no-op (Cursor rejects empty stdout).",
@@ -218,6 +225,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: "SubagentStart",
       SubagentStop: "SubagentStop",
+      PostCompact: null,
     },
     notes:
       "EVENT_MAP PascalCase: PreToolUse, PostToolUse, PreCompact, SessionStart, SubagentStart, SubagentStop (1:1 — Subagent* are in VS Code's live Preview event list). SessionEnd/UserPromptSubmit/Stop/Notification warn-skip (null); PermissionRequest & PostToolUseFailure have no VS Code analog -> warn-skip. Hook file is per-connector under the WORKSPACE .github/hooks tree (project-rooted both scopes); top-level version:1 REQUIRED. FLAT { type:'command', command } entries; matchers parsed but IGNORED. Reply (Claude-compatible, stdout exit 0): hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse); additionalContext }. SubagentStart is context-only (deny degrades to additionalContext); SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (keeps the subagent running). canModifyOutput false.",
@@ -247,6 +255,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Same Copilot Preview hooks file/shape as vscode-copilot (PascalCase PreToolUse/PostToolUse/PreCompact/SessionStart 1:1; rest — including all four newer events — warn-skip null: only those four are confirmed delivered on JetBrains). DIFFERENCE: deny/ask-only -> canModifyArgs FALSE, so a 'modify' decision degrades to allow (no updatedInput). MCP is UI-managed (no writable file): installServer emits a 'warn' telling the user to add it via Settings > Tools > GitHub Copilot > MCP. Matchers IGNORED so omitted entirely. Reply: stdout hookSpecificOutput{ permissionDecision deny|ask + reason; additionalContext }, exit 0. Empty connector hooks file is deleted on uninstall.",
@@ -276,6 +285,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: "PostToolUseFailure",
       SubagentStart: "SubagentStart",
       SubagentStop: "SubagentStop",
+      PostCompact: null,
     },
     notes:
       "Full Claude-compatible lifecycle: all 12 events map 1:1 PascalCase (type CopilotHookEvent = HookEventName; no rename table — PascalCase selects the snake_case payload dialect). User/global only (no project scope). Hook file ~/.copilot/hooks/agent-connector.json; MCP in ~/.copilot/mcp-config.json (stdio written as type 'local' + tools:['*']). Claude-shaped nested { matcher, hooks:[{type,command}] }. Reply (stdout exit 0): hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse); additionalContext }. PermissionRequest uses the nested decision{ behavior:'allow'|'deny' } envelope (explicit allow grant; ask/context/void fall through to the dialog); PostToolUseFailure & SubagentStart are context-only (deny degrades to additionalContext); SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (host can block and force continuation). canModifyOutput false.",
@@ -304,6 +314,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Distinct Gemini vocabulary via EVENT_MAP: PreToolUse->BeforeTool, PostToolUse->AfterTool, PreCompact->PreCompress, UserPromptSubmit->BeforeAgent, SessionStart->SessionStart, SessionEnd->SessionEnd, Notification->Notification. Stop has NO Gemini equivalent -> warn-skip (null); ditto all four newer events — the permission prompt is only observable via Notification (notification_type 'ToolPermission', no decision), tool failures arrive merged into AfterTool's tool_response.error, and Gemini exposes no subagent hooks. MCP + hooks share settings.json; transport by KEY (command/args=stdio, url=sse, httpUrl=http). canModifyOutput TRUE (AfterTool output rewrite expressed as deny+reason). Reply (stdout exit 0): deny -> { decision:'deny', reason } (top-level, NOT permissionDecision wrapper); ask -> degrades to deny; modify PreToolUse -> { hookSpecificOutput:{ tool_input } }; modify PostToolUse -> { decision:'deny', reason:<newOutput> }; context -> { hookSpecificOutput:{ additionalContext } }. Opt-in host-native usage installs an extra AfterModel hook (usage-event sink, not a connector event).",
@@ -332,6 +343,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: "PostToolUseFailure",
       SubagentStart: "SubagentStart",
       SubagentStop: "SubagentStop",
+      PostCompact: null,
     },
     notes:
       "Gemini-CLI fork but Claude-COMPATIBLE hook protocol: all 12 events PascalCase 1:1 (NOT Gemini's BeforeTool/AfterTool). Registered canonical event name directly. MCP + hooks share settings.json; transport by key (type:'stdio' tolerated for stdio, url=sse, httpUrl=http). Claude-shaped nested { matcher, hooks:[{type,command}] }. Reply (stdout exit 0): hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse only); additionalContext }. PermissionRequest uses the nested decision{ behavior:'allow'|'deny' } envelope (explicit allow grant +updatedInput; ask/context/void fall through to the dialog); PostToolUseFailure & SubagentStart are context-only (deny degrades to additionalContext); SubagentStop deny -> TOP-LEVEL { decision:'block', reason } Stop shape. canModifyOutput false (no updatedMCPToolOutput in qwen 0.17.1).",
@@ -361,6 +373,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "EVENT_MAP camelCase: PreToolUse->preToolUse, PostToolUse->postToolUse, SessionStart->agentSpawn, UserPromptSubmit->userPromptSubmit, Stop->stop. PreCompact/SessionEnd/Notification and all four newer events have no Kiro equivalent -> warn-skip (null). Hooks live in an AGENT file (~/.kiro/agents/kiro_default.json, the auto-loaded default agent), NOT a settings file; MCP in ~/.kiro/settings/mcp.json. EXIT-CODE protocol: exit 0 = allow, exit 2 + stderr = deny (ask degrades to deny exit 2). agentSpawn context injection -> exit 0 + stdout { hookSpecificOutput:{ hookEventName:'agentSpawn', additionalContext } }. Cannot rewrite args/output (modify degrades to allow).",
@@ -390,6 +403,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: "PostToolUseFailure",
       SubagentStart: "SubagentStart",
       SubagentStop: "SubagentStop",
+      PostCompact: null,
     },
     notes:
       "Narrow but growing: KIMI_HOOK_EVENTS = ['PreToolUse', 'PostToolUseFailure', 'SubagentStart', 'SubagentStop'] (PascalCase 1:1). PermissionRequest has NO Kimi analog (the prompt is only observable via Notification) -> warn-skip; the remaining legacy events stay null (never wired) even though parseEvent can decode them. Hooks in config.toml as [[hooks]] tables { event, matcher, command }; MCP in ~/.kimi/mcp.json (mcpServers). PreToolUse DENY: exit 0 + stdout hookSpecificOutput{ permissionDecision:'deny' + reason } (Claude/Codex shape). PostToolUseFailure & SubagentStart are observe/context-only: 'context' emits the text PLAIN on exit-0 stdout (Kimi adds non-empty stdout to context; deny degrades to the same carrying the reason). SubagentStop deny = Stop semantics via Kimi's generic block protocol: EXIT 2 + reason on stderr keeps the subagent going. All other decisions/events degrade to silent allow (exit 0). canModify* and canInjectSessionContext all false.",
@@ -419,6 +433,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "CRUSH_HOOK_EVENTS = ['PreToolUse'] ONLY (native key 'PreToolUse'). Every other canonical event — including all four newer ones — is null. Single crush.json holds both MCP (root key 'mcp', NOT mcpServers) and hooks (top-level 'hooks'). FLAT hook entry { matcher, command }. Reply: only PreToolUse deny -> stdout { decision:'deny', reason } exit 0; allow/other = empty stdout exit 0 (fail-open). Deny-only; cannot rewrite args/output or inject context. Resolves env to literals (Crush expands $(...) at load).",
@@ -448,6 +463,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: "PostToolUseFailure",
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Open Plugins hooks.json keyed by RAW PascalCase event names (no rename) but FILTERED through capabilities: only PreToolUse, PostToolUse, SessionStart, PostToolUseFailure written (Goose's hooks system ships a dedicated PostToolUseFailure). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification -> capability-filtered warn-skip (null); PermissionRequest/SubagentStart/SubagentStop have no Goose analog -> warn-skip too. MCP ('extensions') in YAML config.yaml with Goose-specific cmd/envs field names. Hooks.json is Claude-shaped nested { matcher, hooks:[{type,command}] }, NO version key. Reply (stdout exit 0): deny -> { decision:'block', reason } (NOT Claude permissionDecision); ask -> block; context -> { additionalContext }; modify unsupported. PostToolUseFailure is context-only (the tool already failed — a deny degrades to { additionalContext } carrying the reason, never { decision:'block' }). Wire uses working_dir not cwd.",
@@ -476,6 +492,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: "subagent_stop",
+      PostCompact: null,
     },
     notes:
       "EVENT_TO_HERMES snake_case: PreToolUse->pre_tool_call, PostToolUse->post_tool_call, SessionStart->on_session_start, SessionEnd->on_session_end, SubagentStop->subagent_stop (Hermes is a STOP-ONLY subagent host — subagent_stop fires when a delegate_task child exits; no subagent_start). UserPromptSubmit/PreCompact/Stop/Notification have no Hermes equivalent -> warn-skip (null); PermissionRequest too (pre_approval_request is observe-only — no decision control) and PostToolUseFailure (a failure arrives merged into post_tool_call). MCP (mcp_servers) AND hooks live in the SAME ~/.hermes/config.yaml (YAML). Hook entry { matcher, command, timeout }; the command keeps the CANONICAL event token (only the YAML key is the native name). Shell hooks -> canModifyArgs false. Reply (stdout exit 0): deny/ask -> Claude-like hookSpecificOutput{ permissionDecision + reason }; context -> { hookSpecificOutput:{ additionalContext } }; SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (Stop semantics — keeps the subagent running). No SSE transport.",
@@ -505,6 +522,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "SUPPORTED_EVENTS = PreToolUse, PostToolUse, SessionStart, Stop (PascalCase 1:1). PreCompact/SessionEnd/UserPromptSubmit/Notification and all four newer events -> warn-skip (null). Hooks in a SEPARATE hooks.json (path-probed; medium confidence). MCP mcp_config.json (root mcpServers; remote uses serverUrl key). Wire fields are camelCase (toolName/toolInput/toolOutput/sessionId/stopHookActive). canModifyOutput TRUE. Reply (stdout exit 0): deny -> { decision:'deny', reason }; ask -> degrades to deny; modify -> { updatedInput } (PreToolUse) / { updatedOutput } (PostToolUse) — camelCase top-level; context -> { additionalContext }. Opt-in host-native usage adds an AfterModel usage-event sink (not a connector event).",
@@ -534,6 +552,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Thin subclass of AntigravityAdapter — REUSES all hook install/parse/format logic unchanged; only id ('antigravity-cli'), name, detection (probes ~/.local/bin/agy), and userConfigCandidates differ (CLI prefers ~/.gemini/config/mcp_config.json for MCP). Therefore the event map, reply shape, and capabilities are IDENTICAL to antigravity: PreToolUse/PostToolUse/SessionStart/Stop supported (PascalCase 1:1); PreCompact/SessionEnd/UserPromptSubmit/Notification and all four newer events null. Same separate hooks.json, same camelCase wire, same { decision:'deny' } / { updatedInput }/{ updatedOutput } / { additionalContext } replies.",
@@ -563,6 +582,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: "SubagentStop",
+      PostCompact: null,
     },
     notes:
       "SUPPORTED_EVENTS = PreToolUse, PostToolUse, UserPromptSubmit, Stop, SubagentStop, Notification, PreCompact, SessionStart, SessionEnd (Claude-identical PascalCase 1:1 per docs.factory.ai/reference/hooks-reference — Droid is a STOP-ONLY subagent host: no SubagentStart). PermissionRequest/PostToolUseFailure/SubagentStart have no Droid analog -> warn-skip. MCP in ~/.factory/mcp.json (type 'stdio'|'http' + disabled flag); hooks in a SEPARATE ~/.factory/hooks.json, Claude-shaped nested { matcher, hooks:[{type,command}] }. Reply (Claude-shaped, stdout exit 0): deny/ask -> hookSpecificOutput{ permissionDecision + reason }; context -> { additionalContext }; SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (Stop semantics — NOT the permissionDecision envelope). Notification/PreCompact/SessionEnd are observe-only (Decision Control N/A) -> passthrough exit 0; SessionStart honors hookSpecificOutput.additionalContext (context-injection). canModifyArgs/Output false (modify degrades to allow).",
@@ -592,6 +612,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Reference ts-plugin host. EVENT_TO_OPENCODE: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (surrogate; inject additionalContext into output.system). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification and all four newer events null (subagents run as child sessions — only bus events, no dedicated hook). MCP in opencode.json root key 'mcp' (command is ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). No 'ask' gate -> ask degrades to a thrown block. Bridge shells out to <homeBin> hook opencode <event> --connector <id>; formatReply emits the NORMALIZED HookResponse on stdout (the bridge parses it directly).",
@@ -621,6 +642,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Xiaomi MiMoCode (@mimo-ai/cli, bin `mimo`) — an OpenCode FORK; STANDALONE adapter mirroring OpenCode's render logic with mimocode paths so detection, the runtime bridge, and per-platform overrides route to the mimo-code id (NOT opencode). EVENT_TO_MIMOCODE identical to OpenCode: PreToolUse->tool.execute.before (mutate output.args / throw to deny), PostToolUse->tool.execute.after (mutate output.output), SessionStart->experimental.chat.system.transform (inject into output.system); rest null. MCP in mimocode.json root key 'mcp' (command ARRAY, env key 'environment'). Hook 'config path' is the generated plugin .js (auto-discovered by dir). ask degrades to a thrown block. Bridge shells out to <homeBin> hook mimo-code <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
@@ -650,6 +672,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "OpenCode fork (loads @kilocode/plugin PluginModule { id, server:(input)=>Hooks }). EVENT_TO_KILO identical to OpenCode: PreToolUse->tool.execute.before, PostToolUse->tool.execute.after, SessionStart->experimental.chat.system.transform; rest — including all four newer events — null. DIFFERENCE: NOT auto-discovered by dir — installHooks ALSO registers the module path in kilo.jsonc's top-level 'plugin' array (root MCP key 'mcp', command ARRAY + environment). Bridge shells out to <homeBin> hook kilo-cli <event> --connector <id>; formatReply emits the NORMALIZED HookResponse on stdout. ask degrades to thrown block.",
@@ -679,6 +702,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "EVENT_TO_OMP (pi.on targets): PreToolUse->tool_call, PostToolUse->tool_result, SessionStart->session_start, PreCompact->session_before_compact. SessionEnd/UserPromptSubmit/Stop/Notification and all four newer events null (agent_start/agent_end are the MAIN loop, not subagents; failures arrive merged as tool_result isError). Loads an EXTENSION PACKAGE: generated index.js (HookFactory (pi)=>void) + package.json with 'omp' manifest field; MCP native ~/.omp/agent/mcp.json (mcpServers). PreToolUse gates via { block:true, reason } (deny/ask both block; modify -> allow). tool_result/session_start observe-only -> canModifyArgs/Output/InjectContext all false. Bridge shells to <homeBin> hook omp <event> --connector <id>; formatReply emits NORMALIZED HookResponse.",
@@ -708,6 +732,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: "subagent_spawned",
       SubagentStop: "subagent_ended",
+      PostCompact: null,
     },
     notes:
       "NVIDIA NemoClaw WRAPS OpenClaw — a thin FORK of the OpenClaw adapter (extends OpenClawAdapter, overriding only id/name/detection). It inherits OpenClaw's hook machinery verbatim, so the event map + capabilities are OpenClaw's: PreToolUse->before_tool_call (modify mutates event.params; deny/ask block), PostToolUse->after_tool_call (observe-only -> canModifyOutput false), SessionStart->session_start + before_prompt_build injection, SubagentStart/Stop->subagent_spawned/ended (observe-only). NemoClaw ships NO Claude-style hooks of its own, but the inherited bridge writes the same DUAL REGISTRATION into the WRAPPED ~/.openclaw/openclaw.json (the agent NemoClaw runs). Detection keys on the NemoClaw-specific ~/.nemoclaw/ marker: OpenClaw's detection BOWS OUT when ~/.nemoclaw/ is present (and nemoclaw is registered BEFORE openclaw), so a real NemoClaw box — which has BOTH markers — is never double-targeted. The inherited bridge is HOST-BOUND to this id: <homeBin> hook nemoclaw <event> (NOT openclaw — events route back to the nemoclaw adapter); formatReply emits NORMALIZED HookResponse.",
@@ -737,6 +762,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: "subagent_spawned",
       SubagentStop: "subagent_ended",
+      PostCompact: null,
     },
     notes:
       "EVENT_TO_OPENCLAW (api.on targets): PreToolUse->before_tool_call (block via { block, blockReason }, deny/ask both block; modify mutates event.params), PostToolUse->after_tool_call (observe only -> canModifyOutput false), SessionStart->session_start (records id) PLUS before_prompt_build (the actual context-injection point via { appendSystemContext }), SubagentStart->subagent_spawned + SubagentStop->subagent_ended (BOTH observe-only — no decision or context payload, so a SubagentStop deny cannot keep the subagent running here). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification null; PermissionRequest null (the permission gate is the requireApproval RETURN VALUE of before_tool_call, not an event); PostToolUseFailure null (failures arrive merged into after_tool_call). DUAL REGISTRATION in openclaw.json (JSON5): plugins.entries.<id>={enabled:true} + plugins.load.paths[dir] (LOAD) AND mcp.servers.<id> (SURFACE TOOLS) — both required. Generated index.mjs + openclaw.plugin.json manifest. Bridge -> <homeBin> hook openclaw <event> --connector <id>; formatReply emits NORMALIZED HookResponse.",
@@ -765,6 +791,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only: no lifecycle hook system. installHooks/uninstallHooks return a single 'skip' ('hooks unavailable (Amp is mcp-only)'); all events null. MCP only: ~/.config/amp/settings.json under a FLAT dotted key 'amp.mcpServers' (not nested mcpServers). Native ${VAR} interpolation. All hook capabilities false.",
@@ -793,6 +820,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only: no hook system. installHooks returns 'skip' ('hooks unavailable (Codebuff is mcp-only)'); all events null. MCP only: <projectDir>/.agents/mcp.json (project preferred) or ~/.agents/mcp.json, root 'mcpServers', entry type 'stdio'. Native $VAR interpolation. All hook capabilities false.",
@@ -822,6 +850,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Kilo Code VS Code extension (DISTINCT from kilo-cli, but the 7.x line is rebuilt ON the Kilo CLI server, so it shares the ts-plugin hook layer). EVENT_TO_KILO identical to OpenCode/kilo-cli: PreToolUse->tool.execute.before, PostToolUse->tool.execute.after, SessionStart->experimental.chat.system.transform; rest — including all four newer events — null. installHooks writes the generated plugin module to .kilo/plugin/<id>.js (project) / ~/.config/kilo/plugin/<id>.js (user) AND registers the path in kilo.json's top-level 'plugin' array (mirrors kilo-cli). MCP shares the kilo backend: ~/.config/kilo/kilo.json (root 'mcp', entry type 'local' command ARRAY + environment) — kilo.json and kilo-cli's kilo.jsonc MERGE. Also authors COMMANDS + SUBAGENTS under .kilocode/ and SKILLS under .kilo/skills/. Bridge shells to <homeBin> hook kilo <event> --connector <id>; formatReply emits the NORMALIZED HookResponse. ask degrades to thrown block.",
@@ -850,6 +879,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only: no hook system; installHooks 'skip' ('hooks unavailable (Mux is mcp-only)'); all events null. MCP only: ~/.mux/mcp.jsonc, root key 'servers'; QUIRK each server value is a single shell-command STRING (not an object), stdio-only. All hook capabilities false.",
@@ -878,6 +908,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only: no hook system AND no writable MCP config — installServer AND installHooks both 'skip'; all events null. Only surface implemented is Agent Skills (~/.pi/skills/<name>/SKILL.md). transports: [] (no server registration possible). All hook capabilities false.",
@@ -906,6 +937,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Roo Code VS Code extension (Cline fork). mcp-only: no hook system; installHooks 'skip' ('hooks unavailable (Roo Code is mcp-only)'); all events null. MCP only: VS Code globalStorage <userDir>/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json (project <projectDir>/.roo/mcp.json), root 'mcpServers'. All hook capabilities false.",
@@ -934,6 +966,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Cline VS Code extension (saoudrizwan.claude-dev — the PARENT roo-code/kilo forked). mcp-only: no hook system; installHooks 'skip'; all events null. MCP only: VS Code globalStorage <userDir>/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json (NO project MCP file), root 'mcpServers'. Content surfaces: memory → .clinerules/agent-connector.md, commands → .clinerules/workflows/, skills → .clinerules/skills/. All hook capabilities false.",
@@ -962,6 +995,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only: no hook system; installHooks 'skip' ('hooks unavailable (Trae is mcp-only)'); all events null. MCP only: ~/.trae/mcp.json (project <projectDir>/.trae/mcp.json), root 'mcpServers', stdio { command,args,env }. All hook capabilities false.",
@@ -990,6 +1024,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Reference mcp-only host (no hook system, FR #7834). installHooks 'skip' ('hooks unavailable (Warp is mcp-only)'); all events null. MCP only: ~/.warp/.mcp.json (project <projectDir>/.warp/.mcp.json), root 'mcpServers'; QUIRK stdio working dir keyed as working_directory (not cwd). All hook capabilities false.",
@@ -1018,6 +1053,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only (IDE, no hook pipeline). installHooks 'skip' ('hooks unavailable (Zed is mcp-only)'); all events null. MCP ('context servers') in settings.json under root key 'context_servers' (NOT mcpServers); user dir is OS-native dirs::config_dir() (~/.config/zed or %APPDATA%\\Zed); project <projectDir>/.zed/settings.json. FLAT stdio entry { command, args, env }. All hook capabilities false.",
@@ -1046,6 +1082,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only: no hook system wired in AC (the agent-format hooks layer in cli-agents/*.json is primary-verified but not yet installed by AC); installHooks 'skip' ('hooks unavailable (Amazon Q CLI is mcp-only)'); all events null. MCP: ~/.aws/amazonq/mcp.json (user, global) and .amazonq/mcp.json (project), root 'mcpServers'. BARE stdio entry { command, args?, env?, timeout? } (timeout in ms, NO type/disabled keys); remote/http entry { type: \"http\", url } (no headers — auth is OAuth). Amazon Q reads both files and merges (workspace wins on conflict). All hook capabilities false.",
@@ -1074,6 +1111,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "mcp-only: no primary-verified Continue hook/lifecycle layer; installHooks 'skip' ('hooks unavailable (Continue is mcp-only)'); all events null. MCP config is YAML at ~/.continue/config.yaml (user) and <projectDir>/.continue/config.yaml (project) — root key 'mcpServers' is a YAML ARRAY of { name, command, type?, args?, env?, cwd?, url } entries (NOT a keyed map). stdio omits 'type' (the default); remote entry is { name, type: \"sse\"|\"streamable-http\", url }. Set-if-absent by 'name' (= connector id), siblings preserved. NO apiKey/requestOptions/connectionTimeout (not primary-verified). The Rules/memory surface is a not-yet-wired host-gap. All hook capabilities false.",
@@ -1102,6 +1140,7 @@ export const platforms: PlatformHookEntry[] = [
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
+      PostCompact: null,
     },
     notes:
       "Windsurf (Codeium / Cognition's Cascade agent). mcp-only: GUI editor with no user-installable hook/plugin layer; installHooks 'skip' ('hooks unavailable (Windsurf is mcp-only)'); all events null. MCP config is USER/GLOBAL scope ONLY — JSON at ~/.codeium/windsurf/mcp_config.json (the docs document no project/workspace path; a project-scope install returns 'skip'). Root key 'mcpServers' is a Claude-Desktop-style OBJECT map keyed by server name (like cursor) — set-if-absent by connector id, siblings preserved, malformed-non-object skip-warn. stdio entry { command, args?, env? }; remote entry { serverUrl, headers? } (the documented `serverUrl`, NOT `url`; NO type/disabled keys). The .windsurfrules / global-rules memory surface is a not-yet-wired host-gap. All hook capabilities false.",
