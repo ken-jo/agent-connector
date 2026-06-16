@@ -87,6 +87,7 @@ import type {
   SkillDef,
   SubagentDef,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
@@ -113,6 +114,9 @@ const EVENT_TO_MIMOCODE: Partial<Record<HookEventName, string>> = {
   // No real SessionStart hook (inherited from OpenCode #14808 / #5409). The
   // verified surrogate is experimental.chat.system.transform.
   SessionStart: "experimental.chat.system.transform",
+  // chat.message fires on the user's prompt submission; the handler mutates
+  // output (pushes a text part) to inject context. No documented block/abort.
+  UserPromptSubmit: "chat.message",
 };
 
 /** Raw payload the generated plugin posts to the universal hook entrypoint. */
@@ -121,6 +125,7 @@ interface MiMoCodeBridgePayload {
   toolInput?: Record<string, unknown>;
   toolOutput?: string;
   isError?: boolean;
+  prompt?: string;
   sessionId?: string;
   projectDir?: string;
 }
@@ -152,7 +157,7 @@ export class MiMoCodeAdapter extends BaseAdapter implements Adapter {
     preCompact: false,
     sessionStart: true,
     sessionEnd: false,
-    userPromptSubmit: false,
+    userPromptSubmit: true,
     stop: false,
     notification: false,
     // tool.execute.before mutates output.args → input rewrite supported.
@@ -791,6 +796,33 @@ function bridge(event, payload) {
     },`);
     }
 
+    if (has("UserPromptSubmit")) {
+      handlers.push(`    // UserPromptSubmit → context injection on prompt submission.
+    // chat.message fires on the USER's prompt; output.message is a UserMessage
+    // and output.parts holds the prompt parts. Inject context by PUSHING a text
+    // part onto output.parts. chat.message has NO documented block/abort
+    // mechanism, so a "deny" decision degrades to a NO-OP (best-effort) — same
+    // way the tool/system handlers degrade decisions this host cannot honor.
+    "chat.message": async (input, output) => {
+      const promptText =
+        output && Array.isArray(output.parts)
+          ? output.parts
+              .filter((p) => p && p.type === "text" && typeof p.text === "string")
+              .map((p) => p.text)
+              .join("\\n")
+          : "";
+      const res = bridge("UserPromptSubmit", {
+        prompt: promptText,
+        sessionId: (input && input.sessionID) || "",
+        projectDir: PROJECT_DIR,
+      });
+      if (!res) return;
+      if (res.additionalContext && output && Array.isArray(output.parts)) {
+        output.parts.push({ type: "text", text: res.additionalContext });
+      }
+    },`);
+    }
+
     const factory = `
 export default async function (ctx) {
   // ctx.directory is the MiMoCode project root; fall back to cwd.
@@ -851,6 +883,13 @@ ${handlers.join("\n")}
       }
       case "SessionStart": {
         const ev: SessionStartEvent = { ...base, source: "startup" };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
         return ev;
       }
       default:
