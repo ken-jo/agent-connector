@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
-import { readYaml } from "../../src/core/yaml.js";
+import { readYaml, writeYaml } from "../../src/core/yaml.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
@@ -124,5 +124,39 @@ describe("hermes adapter — nativeHooks passthrough", () => {
     const hooks = readHooks(projectDir);
     expect(hooks.pre_llm_call[0].command).toContain("hook hermes pre_llm_call");
     expect(hooks.pre_tool_call).toBeUndefined(); // normalized disabled by hooks:false
+  });
+
+  it("a native key coinciding with a mapped canonical key does NOT clobber it", () => {
+    // Normalized PreToolUse maps to "pre_tool_call"; also declare a native
+    // "pre_tool_call" (snake_case — NOT a canonical HookEventName, so defineConnector
+    // permits it, unlike kimi where native names can't collide).
+    const projectDir = freshProject();
+    const connector = defineConnector({
+      id: CONNECTOR_ID,
+      hooks: { PreToolUse: { handler: () => ({ decision: "allow" }) } },
+      platforms: { hermes: { nativeHooks: { pre_tool_call: { handler: () => ({}) } } } },
+    });
+    hermesAdapter.installHooks(buildCtx(projectDir, connector));
+    const commands = (readHooks(projectDir).pre_tool_call ?? []).map((e: any) => e.command);
+    // BOTH commands coexist (distinct event tokens) — neither was clobbered.
+    expect(commands).toHaveLength(2);
+    expect(commands.some((c: string) => c.includes("hook hermes PreToolUse"))).toBe(true);
+    expect(commands.some((c: string) => c.includes("hook hermes pre_tool_call"))).toBe(true);
+  });
+
+  it("uninstall strips only OUR native entries, leaving a foreign hook intact", () => {
+    const projectDir = freshProject();
+    const ctx = buildCtx(projectDir, nativeConnector());
+    hermesAdapter.installHooks(ctx);
+    // Seed a foreign (non-AC) hook under the same native key our install used.
+    const cfg = readYaml<Record<string, any>>(configPath(projectDir))!;
+    (cfg.hooks.pre_llm_call as any[]).push({ matcher: "", command: "/usr/bin/other-tool run", timeout: 30 });
+    writeYaml(configPath(projectDir), cfg, false);
+
+    hermesAdapter.uninstallHooks(ctx);
+    const hooks = readHooks(projectDir);
+    // Foreign survives; every AC (HOME_BIN) command is gone.
+    expect((hooks.pre_llm_call ?? []).some((e: any) => e.command.includes("other-tool"))).toBe(true);
+    expect(JSON.stringify(hooks)).not.toContain(HOME_BIN);
   });
 });
