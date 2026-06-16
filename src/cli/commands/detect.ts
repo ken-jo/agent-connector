@@ -29,6 +29,7 @@ function capabilitySummary(caps: PlatformCapabilities): string {
   if (caps.postToolUseFailure ?? false) events.push("PostToolUseFailure");
   if (caps.subagentStart ?? false) events.push("SubagentStart");
   if (caps.subagentStop ?? false) events.push("SubagentStop");
+  if (caps.postCompact ?? false) events.push("PostCompact");
 
   const extras: string[] = [];
   if (caps.canModifyArgs) extras.push("modifyArgs");

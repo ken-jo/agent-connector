@@ -48,8 +48,9 @@ const SURFACE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const SKILL_DESCRIPTION_MAX = 1024;
 
 // NOTE: canonical ordering — append new events at the END (hookEvents ordering
-// is pinned by tests and feeds install-file ordering).
-const ALL_EVENTS: HookEventName[] = [
+// is pinned by tests and feeds install-file ordering). Exported so the
+// hook-dispatch gate + Claude-bundle event sets can be drift-tested against it.
+export const ALL_EVENTS: HookEventName[] = [
   "SessionStart",
   "SessionEnd",
   "UserPromptSubmit",
