@@ -1,11 +1,41 @@
 /**
  * adapters/continue — Continue (the `cn` terminal agent / Continue.dev) adapter.
  *
- * Continue is an **mcp-only** host from agent-connector's perspective: there is
- * NO primary-verified Continue hook/lifecycle layer to wire, so this adapter
- * installs the MCP server entry only. (Continue ships a "Rules"/memory surface
- * and "prompts" too, but neither is wired here — memory renders as an honest
- * host-gap on the wall; see site/src/platform-data.ts.)
+ * Continue is a **json-stdio** host: its `cn` CLI ships a Claude-Code-COMPATIBLE
+ * hooks system (primary-verified — continuedev/continue PR #11029,
+ * extensions/cli/src/hooks/{types.ts,hookConfig.ts}). The hooks live in a
+ * SEPARATE settings.json file (NOT the YAML config.yaml that holds MCP servers),
+ * so getServerConfigPath ≠ getHookConfigPath:
+ *
+ *   - MCP servers → config.yaml `mcpServers` (a YAML ARRAY — see below). UNCHANGED.
+ *   - Hooks       → settings.json under `hooks`, keyed by PascalCase event name,
+ *                   each value an array of { matcher?, hooks:[{ type:"command",
+ *                   command }] } — BYTE-IDENTICAL to Claude Code's shape.
+ *
+ * Hook config path (hookConfig.ts getSettingsFilePaths):
+ *   - user-global → ~/.continue/settings.json (honor CONTINUE_GLOBAL_DIR env if
+ *                   set, else ~/.continue);
+ *   - project     → <projectDir>/.continue/settings.json.
+ *
+ * Supported events (continue's HOOK_EVENT_NAMES ∩ AC canonical): PreToolUse,
+ * PostToolUse, PostToolUseFailure, UserPromptSubmit, SessionStart, SessionEnd,
+ * Stop, Notification, SubagentStart, SubagentStop, PermissionRequest, PreCompact
+ * — all PascalCase 1:1 with the canonical name. Continue has NO PostCompact (not
+ * in HOOK_EVENT_NAMES), so that one warn-skips at install.
+ *
+ * Continue's HOOK_EVENT_NAMES ALSO carries five host-specific events with no
+ * canonical analog (ConfigChange, TeammateIdle, TaskCompleted, WorktreeCreate,
+ * WorktreeRemove — each a real HookInput member). They sit below the ≥3-host
+ * promotion bar, so they are reachable via the nativeHooks passthrough
+ * (supportsNativeHooks: true) rather than the normalized API — the SAME proven
+ * pattern as copilot-cli / hermes / jetbrains-copilot.
+ *
+ * Output contract is Claude-identical (HookOutput): blocking = exit code 2 OR
+ * top-level { decision:"block", reason }; PreToolUse permission via
+ * hookSpecificOutput.permissionDecision (allow|deny|ask) + updatedInput; context
+ * injection via hookSpecificOutput.additionalContext; PermissionRequest via the
+ * nested decision{ behavior }. So parseEvent/formatReply MIRROR the claude-code
+ * adapter exactly (the install layout mirrors droid's separate-hooks-file host).
  *
  * MCP config is YAML (primary-verified — docs.continue.dev/customize/deep-dives/
  * mcp + /reference + /customize/mcp-tools + /guides/cli):
@@ -53,27 +83,83 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
   HealthCheck,
+  HookEventName,
   HookParadigm,
+  HookResponse,
+  NotificationEvent,
+  PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
+  PostToolUseEvent,
+  PostToolUseFailureEvent,
+  PreCompactEvent,
+  PreToolUseEvent,
   ServerDef,
+  SessionEndEvent,
+  SessionStartEvent,
+  StopEvent,
+  SubagentStartEvent,
+  SubagentStopEvent,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { readYaml, writeYaml } from "../../core/yaml.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
+  buildHomeBinHookCommand,
   buildServeWrapperCommand,
+  isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import {
+  type ClaudeHookEvent,
+  type ClaudeWireInput,
+  extractSessionId,
+  toolResponseToString,
+} from "../claude-code/wire.js";
 
 const HOST: PlatformId = "continue";
 /** Root key under which Continue stores MCP servers in config.yaml — a YAML ARRAY. */
 const MCP_ROOT_KEY = "mcpServers";
+
+/**
+ * Canonical events Continue actually fires (continue's HOOK_EVENT_NAMES ∩ the AC
+ * canonical set; PR #11029 extensions/cli/src/hooks/types.ts). Names are
+ * Claude-identical PascalCase, registered directly. Continue ships PreCompact
+ * (PreCompactInput in the HookInput union) but NOT PostCompact — that one
+ * warn-skips at install time.
+ */
+const SUPPORTED_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
+  "PreToolUse",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "UserPromptSubmit",
+  "SessionStart",
+  "SessionEnd",
+  "Stop",
+  "Notification",
+  "SubagentStart",
+  "SubagentStop",
+  "PermissionRequest",
+  "PreCompact",
+]);
+
+/** A single Continue native hook registration entry (Claude-shaped, nested). */
+interface ContinueHookEntry {
+  matcher: string;
+  hooks: Array<{ type: "command"; command: string }>;
+}
+
+/** The shape of Continue's settings.json (only the parts the hook install touches). */
+interface ContinueSettingsFile {
+  hooks?: Record<string, ContinueHookEntry[]>;
+  [key: string]: unknown;
+}
 
 /**
  * Native Continue MCP server entry shapes. `name` is the required display id (we
@@ -98,7 +184,7 @@ type ContinueServer = ContinueStdioServer | ContinueRemoteServer;
 export class ContinueAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
   readonly name = "Continue";
-  readonly paradigm: HookParadigm = "mcp-only";
+  readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
     // Memory surface: WIRED. Continue reads `.continue/rules/*.md` (NOT
@@ -109,24 +195,44 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     // scope only; user scope skip-warns (no verified user/global rules dir).
     supportsMemory: true,
     //
-    // mcp-only: there is no primary-verified Continue hook layer, so every hook
-    // flag is false (hooks not wired into AC install).
-    preToolUse: false,
-    postToolUse: false,
-    preCompact: false,
-    sessionStart: false,
-    sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
-    notification: false,
-    // No hook layer → no arg/output rewrite, no context injection.
-    canModifyArgs: false,
+    // json-stdio: the `cn` CLI ships a Claude-Code-COMPATIBLE hooks system (PR
+    // #11029). Every event in HOOK_EVENT_NAMES ∩ canonical fires natively; the
+    // names are PascalCase 1:1 with Claude. PreCompact IS in continue's set
+    // (PreCompactInput); only PostCompact is absent → that stays false (install
+    // warn-skips it).
+    preToolUse: true,
+    postToolUse: true,
+    postToolUseFailure: true,
+    preCompact: true,
+    sessionStart: true,
+    sessionEnd: true,
+    userPromptSubmit: true,
+    stop: true,
+    notification: true,
+    subagentStart: true,
+    subagentStop: true,
+    permissionRequest: true,
+    // Continue's PreToolUse output carries updatedInput (HookOutput
+    // PreToolUseHookOutput.updatedInput) → it CAN rewrite tool input. It cannot
+    // rewrite already-emitted tool output (PostToolUse exposes updatedMCPToolOutput,
+    // but — matching the claude-code adapter's conservative stance — we do not
+    // wire output rewrite). It honors hookSpecificOutput.additionalContext.
+    canModifyArgs: true,
     canModifyOutput: false,
-    canInjectSessionContext: false,
+    canInjectSessionContext: true,
     // Continue registers stdio + remote (SSE / Streamable HTTP) MCP servers
     // (primary-verified: type ∈ stdio|sse|streamable-http). Mapped to the
     // framework's transport enum: stdio + sse + http (http = streamable-http).
     transports: ["stdio", "sse", "http"],
+    // Native (passthrough) hooks: continue's HOOK_EVENT_NAMES carries five
+    // host-specific events with NO canonical analog — ConfigChange, TeammateIdle,
+    // TaskCompleted, WorktreeCreate, WorktreeRemove (each a real HookInput
+    // member, types.ts:214-241). They sit below the ≥3-host promotion bar, so a
+    // connector reaches them via platforms.continue.nativeHooks; installHooks
+    // files the event-name key VERBATIM and the generic uninstallHooks reverses
+    // it by connector-id ownership (same proven pattern as copilot-cli/hermes/
+    // jetbrains-copilot).
+    supportsNativeHooks: true,
     // Content surfaces: Continue's Rules/prompts are NOT wired here. Leave the
     // supports* flags UNSET (base skip-warns).
   };
@@ -173,9 +279,20 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     return join(this.getConfigDir(ctx), "config.yaml");
   }
 
-  /** Continue has no separate hook file — alias the MCP file (roo-code idiom). */
+  /**
+   * Hooks live in a SEPARATE settings.json (NOT the YAML config.yaml that holds
+   * MCP servers): user-global → <CONTINUE_GLOBAL_DIR|~/.continue>/settings.json;
+   * project → <projectDir>/.continue/settings.json (hookConfig.ts
+   * getSettingsFilePaths). The user-scope dir honors CONTINUE_GLOBAL_DIR exactly
+   * as the `cn` CLI's hook loader does — this is INTENTIONALLY independent of
+   * getConfigDir/userConfigDir (the MCP path), which the hook env must not perturb.
+   */
   override getHookConfigPath(ctx: InstallContext): string {
-    return this.getServerConfigPath(ctx);
+    const dir =
+      ctx.scope === "project"
+        ? join(ctx.projectDir, ".continue")
+        : process.env.CONTINUE_GLOBAL_DIR || join(homedir(), ".continue");
+    return join(dir, "settings.json");
   }
 
   /** ~/.continue — homedir() covers %USERPROFILE% on Windows. */
@@ -430,26 +547,486 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     return out;
   }
 
-  // ── Hooks (unavailable — Continue is mcp-only) ────────────────────────────
+  // ── Hook install / uninstall (separate settings.json, Claude-shaped) ──────
+  // Continue's hooks live in settings.json (NOT the YAML config.yaml that holds
+  // MCP servers), under `hooks` keyed by PascalCase event, each value an array
+  // of { matcher?, hooks:[{ type:"command", command }] } — BYTE-IDENTICAL to
+  // Claude Code. Events outside SUPPORTED_EVENTS (PostCompact) warn-skip; the
+  // five host-specific events with no canonical analog (ConfigChange,
+  // TeammateIdle, TaskCompleted, WorktreeCreate, WorktreeRemove) ride the
+  // nativeHooks passthrough below. Merge-preserving: the user's own hooks + any
+  // sibling connector's hooks survive; uninstall strips ONLY this connector's
+  // home-bin command (anchored).
 
-  override installHooks(_ctx: InstallContext): ChangeRecord[] {
-    return [
-      {
-        platform: this.id,
-        action: "skip",
-        detail: "hooks unavailable (Continue is mcp-only)",
-      },
-    ];
+  override installHooks(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    const override = connector.platforms[HOST];
+    const hooksDisabled = override?.hooks === false;
+    // `hooks: false` disables only the NORMALIZED events; nativeHooks is a
+    // sibling, continue-scoped declaration that installs regardless.
+    const normalizedEvents = hooksDisabled ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
+    if (normalizedEvents.length === 0 && nativeEvents.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: hooksDisabled
+            ? "hooks disabled for continue"
+            : "connector declares no hooks",
+        },
+      ];
+    }
+
+    const hookPath = this.getHookConfigPath(ctx);
+    // Merge into any existing settings.json so the user's own hooks survive.
+    const file = this.readJson<ContinueSettingsFile>(hookPath) ?? {};
+    const hooks = (file.hooks ??= {});
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+
+    for (const event of normalizedEvents) {
+      if (!SUPPORTED_EVENTS.has(event)) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: hookPath,
+          detail: `${event} has no Continue hook equivalent — skipped`,
+        });
+        continue;
+      }
+
+      // Continue's event names are Claude-identical (PascalCase) — register the
+      // canonical event name directly.
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
+      const matcher = connector.hooks[event]?.matcher ?? "";
+      const entry: ContinueHookEntry = {
+        matcher,
+        hooks: [{ type: "command", command }],
+      };
+
+      const bucket = (hooks[event] ??= []);
+      const existingIdx = bucket.findIndex((e) => this.entryHasOurCommand(e, ctx));
+
+      if (existingIdx >= 0) {
+        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: hookPath,
+            detail: `hooks.${event} already registered`,
+          });
+          continue;
+        }
+        bucket[existingIdx] = entry;
+        changes.push({
+          platform: this.id,
+          action: "update",
+          path: hookPath,
+          detail: `hooks.${event}`,
+        });
+      } else {
+        bucket.push(entry);
+        changes.push({
+          platform: this.id,
+          action: "create",
+          path: hookPath,
+          detail: `hooks.${event}`,
+        });
+      }
+      mutated = true;
+    }
+
+    // NATIVE passthrough events: continue-native event-name keys (ConfigChange,
+    // TeammateIdle, TaskCompleted, WorktreeCreate, WorktreeRemove) filed VERBATIM
+    // into the hooks map — no SUPPORTED_EVENTS gate, since they ARE continue
+    // events. Same Claude-shaped nested { matcher, hooks:[{type,command}] } entry;
+    // matched by EXACT command so a native key that coincides with a normalized
+    // one never clobbers it.
+    for (const nativeEvent of nativeEvents) {
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, nativeEvent, connector.id);
+      const entry: ContinueHookEntry = {
+        matcher: nativeHooks[nativeEvent]?.matcher ?? "",
+        hooks: [{ type: "command", command }],
+      };
+      const bucket = (hooks[nativeEvent] ??= []);
+      const existingIdx = bucket.findIndex((e) => e.hooks?.[0]?.command === command);
+      if (existingIdx >= 0) {
+        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: hookPath,
+            detail: `hooks.${nativeEvent} (native) already registered`,
+          });
+          continue;
+        }
+        bucket[existingIdx] = entry;
+        changes.push({
+          platform: this.id,
+          action: "update",
+          path: hookPath,
+          detail: `hooks.${nativeEvent} (native)`,
+        });
+      } else {
+        bucket.push(entry);
+        changes.push({
+          platform: this.id,
+          action: "create",
+          path: hookPath,
+          detail: `hooks.${nativeEvent} (native)`,
+        });
+      }
+      mutated = true;
+    }
+
+    if (mutated) this.writeJson(hookPath, file, ctx.dryRun);
+    return changes;
   }
 
-  override uninstallHooks(_ctx: InstallContext): ChangeRecord[] {
-    return [
-      {
+  override uninstallHooks(ctx: InstallContext): ChangeRecord[] {
+    const hookPath = this.getHookConfigPath(ctx);
+    const file = this.readJson<ContinueSettingsFile>(hookPath);
+    const hooks = file?.hooks;
+    if (!file || !hooks) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: hookPath,
+          detail: "no hooks section present",
+        },
+      ];
+    }
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+
+    for (const event of Object.keys(hooks)) {
+      const bucket = hooks[event];
+      if (!Array.isArray(bucket)) continue;
+
+      // Strip our hook command from each entry; drop entries left empty so we
+      // never remove another connector's (or the user's own) hook commands. The
+      // id token is anchored (isHomeBinHookCommand) so a shared-prefix connector
+      // id is never affected.
+      const next: ContinueHookEntry[] = [];
+      let removed = 0;
+      for (const e of bucket) {
+        const innerBefore = e.hooks?.length ?? 0;
+        const inner = (e.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
+        removed += innerBefore - inner.length;
+        if (inner.length > 0) next.push({ matcher: e.matcher ?? "", hooks: inner });
+      }
+
+      if (removed > 0) {
+        if (next.length > 0) hooks[event] = next;
+        else delete hooks[event];
+        changes.push({
+          platform: this.id,
+          action: "remove",
+          path: hookPath,
+          detail: `hooks.${event} (${removed})`,
+        });
+        mutated = true;
+      }
+    }
+
+    if (mutated) this.writeJson(hookPath, file, ctx.dryRun);
+    if (changes.length === 0) {
+      changes.push({
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Continue is mcp-only)",
-      },
-    ];
+        path: hookPath,
+        detail: "no matching hook entries",
+      });
+    }
+    return changes;
+  }
+
+  private entryHasOurCommand(entry: ContinueHookEntry, ctx: InstallContext): boolean {
+    return (entry.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx));
+  }
+
+  /** True when a hook command references our home binary AND this connector id
+   *  (anchored so a shared-prefix id can't collide — see isHomeBinHookCommand). */
+  private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
+    return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
+  }
+
+  // ── Runtime: parse Continue stdin JSON → normalized event ────────────────
+  // Continue's stdin wire is Claude-identical snake_case (PR #11029 types.ts
+  // HookInput), so the claude-code wire helpers (ClaudeWireInput / extractSessionId
+  // / toolResponseToString) apply verbatim.
+
+  parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
+    const input = (raw ?? {}) as ClaudeWireInput;
+    const connectorId = typeof input.connector === "string" ? input.connector : "";
+    const sessionId = extractSessionId(input);
+    const projectDir = typeof input.cwd === "string" ? input.cwd : undefined;
+
+    const base = {
+      hostPlatform: HOST,
+      connectorId,
+      sessionId,
+      raw,
+      ...(projectDir !== undefined ? { projectDir } : {}),
+    } as const;
+
+    switch (event) {
+      case "PreToolUse": {
+        const ev: PreToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+        };
+        return ev;
+      }
+      case "PostToolUse": {
+        const ev: PostToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(toolResponseToString(input.tool_response) !== undefined
+            ? { toolOutput: toolResponseToString(input.tool_response) }
+            : {}),
+        };
+        return ev;
+      }
+      case "PostToolUseFailure": {
+        const ev: PostToolUseFailureEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          error: typeof input.error === "string" ? input.error : "",
+          ...(typeof input.tool_use_id === "string" ? { toolUseId: input.tool_use_id } : {}),
+          ...(typeof input.is_interrupt === "boolean" ? { isInterrupt: input.is_interrupt } : {}),
+          ...(typeof input.duration_ms === "number" ? { durationMs: input.duration_ms } : {}),
+        };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
+      case "SessionStart": {
+        const ev: SessionStartEvent = {
+          ...base,
+          source: normalizeSessionSource(input.source),
+        };
+        return ev;
+      }
+      case "SessionEnd": {
+        const ev: SessionEndEvent = {
+          ...base,
+          ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
+        };
+        return ev;
+      }
+      case "Stop": {
+        const ev: StopEvent = {
+          ...base,
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      case "Notification": {
+        const ev: NotificationEvent = {
+          ...base,
+          message: typeof input.message === "string" ? input.message : "",
+        };
+        return ev;
+      }
+      case "PermissionRequest": {
+        const ev: PermissionRequestEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(Array.isArray(input.permission_suggestions)
+            ? { permissionSuggestions: input.permission_suggestions }
+            : {}),
+        };
+        return ev;
+      }
+      case "SubagentStart": {
+        const ev: SubagentStartEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string" ? { agentType: input.agent_type } : {}),
+        };
+        return ev;
+      }
+      case "SubagentStop": {
+        // agent_id/agent_type stay optional — hosts do not reliably populate
+        // agent_type on SubagentStop (Claude-compatible quirk).
+        const ev: SubagentStopEvent = {
+          ...base,
+          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
+          ...(typeof input.agent_type === "string" ? { agentType: input.agent_type } : {}),
+          ...(typeof input.agent_transcript_path === "string"
+            ? { agentTranscriptPath: input.agent_transcript_path }
+            : {}),
+          ...(typeof input.last_assistant_message === "string"
+            ? { lastAssistantMessage: input.last_assistant_message }
+            : {}),
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      case "PreCompact": {
+        // Observe/context event — continue's PreCompactInput is HookInputBase +
+        // trigger ("manual"|"auto") + custom_instructions. Mirror the claude-code
+        // adapter exactly: keep only the normalized `trigger`; everything else
+        // rides on `raw`.
+        const ev: PreCompactEvent = {
+          ...base,
+          ...(input.trigger === "auto" || input.trigger === "manual"
+            ? { trigger: input.trigger }
+            : {}),
+        };
+        return ev;
+      }
+      default: {
+        // Continue never delivers PostCompact (not in HOOK_EVENT_NAMES — see
+        // SUPPORTED_EVENTS). If the runtime dispatches one anyway, surface it
+        // loudly rather than silently mis-parse.
+        throw new Error(`unsupported continue hook event: ${String(event)}`);
+      }
+    }
+  }
+
+  // ── Runtime: normalized response → Continue native (Claude-shaped) reply ──
+  // Continue's HookOutput is Claude-identical, so this mirrors the claude-code
+  // adapter's formatReply byte-for-byte:
+  //   PermissionRequest → nested decision{ behavior:"allow"|"deny" } envelope;
+  //   PostToolUseFailure / SubagentStart → context-only (deny degrades to
+  //     additionalContext carrying the reason);
+  //   Stop / SubagentStop / UserPromptSubmit / PostToolUse deny → TOP-LEVEL
+  //     { decision:"block", reason };
+  //   other deny → hookSpecificOutput.permissionDecision:"deny"; ask → "ask";
+  //   modify (PreToolUse) → updatedInput; context → additionalContext.
+
+  formatReply(event: HookEventName, response: HookResponse): HookReply {
+    const hookEventName = event as ClaudeHookEvent;
+    const decision = response.decision ?? "allow";
+
+    // PermissionRequest: nested decision{behavior} envelope. An EXPLICIT allow is
+    // an active grant; ask/context/void fall through to the native dialog.
+    if (event === "PermissionRequest") {
+      if (response.decision === "deny") {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: { behavior: "deny", message: response.reason ?? "Blocked by hook" },
+          },
+        });
+      }
+      if (
+        response.decision === "allow" ||
+        (response.decision === "modify" && response.updatedInput)
+      ) {
+        return this.stdout({
+          hookSpecificOutput: {
+            hookEventName,
+            decision: {
+              behavior: "allow",
+              ...(response.updatedInput ? { updatedInput: response.updatedInput } : {}),
+            },
+          },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
+    // PostToolUseFailure (feedback beside the error) and SubagentStart (context
+    // at the start of the subagent's conversation) are observe/context-only:
+    // "context" emits additionalContext, "deny" degrades to the same carrying
+    // the reason. Everything else passes through.
+    if (event === "PostToolUseFailure" || event === "SubagentStart") {
+      const context =
+        decision === "context"
+          ? response.additionalContext
+          : decision === "deny"
+            ? response.reason ?? response.additionalContext
+            : undefined;
+      if (context) {
+        return this.stdout({
+          hookSpecificOutput: { hookEventName, additionalContext: context },
+        });
+      }
+      return { exitCode: 0 };
+    }
+
+    // deny → block the action with a reason (exit 0; JSON carries the decision).
+    // The deny shape is EVENT-SPECIFIC: Stop / SubagentStop / UserPromptSubmit /
+    // PostToolUse honor only the TOP-LEVEL { decision:"block", reason }; the rest
+    // use hookSpecificOutput.permissionDecision. (A SubagentStop block keeps the
+    // subagent running with `reason` as its next instruction — Stop semantics.)
+    if (decision === "deny") {
+      if (
+        event === "Stop" ||
+        event === "SubagentStop" ||
+        event === "UserPromptSubmit" ||
+        event === "PostToolUse"
+      ) {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
+      return this.stdout({
+        hookSpecificOutput: {
+          hookEventName,
+          permissionDecision: "deny",
+          permissionDecisionReason: response.reason ?? "Blocked by hook",
+        },
+      });
+    }
+
+    // ask → prompt the user to confirm.
+    if (decision === "ask") {
+      return this.stdout({
+        hookSpecificOutput: {
+          hookEventName,
+          permissionDecision: "ask",
+          permissionDecisionReason: response.reason ?? "Confirmation required by hook",
+        },
+      });
+    }
+
+    // modify → rewrite PreToolUse input (only where Continue supports it).
+    if (decision === "modify") {
+      if (event === "PreToolUse" && response.updatedInput) {
+        return this.stdout({
+          hookSpecificOutput: { hookEventName, updatedInput: response.updatedInput },
+        });
+      }
+      // Output rewrite is unsupported; fall through to allow.
+    }
+
+    // context → inject soft guidance (also the SessionStart context path).
+    if (decision === "context" && response.additionalContext) {
+      return this.stdout({
+        hookSpecificOutput: { hookEventName, additionalContext: response.additionalContext },
+      });
+    }
+
+    // allow / void / unsupported-degradation → pass through with exit 0.
+    return { exitCode: 0 };
+  }
+
+  private stdout(payload: unknown): HookReply {
+    return { exitCode: 0, stdout: JSON.stringify(payload) };
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────
@@ -507,6 +1084,24 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     const base = ctx.connector.server;
     if (!base) return undefined;
     return override && typeof override === "object" ? { ...base, ...override } : base;
+  }
+}
+
+/**
+ * Coerce Continue's SessionStart `source` matcher value onto the normalized
+ * SessionStartEvent enum. Continue documents startup | resume | clear | compact
+ * (PR #11029 types.ts SessionStartSource); anything else defaults to startup.
+ */
+function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
+  switch (source) {
+    case "compact":
+      return "compact";
+    case "resume":
+      return "resume";
+    case "clear":
+      return "clear";
+    default:
+      return "startup";
   }
 }
 

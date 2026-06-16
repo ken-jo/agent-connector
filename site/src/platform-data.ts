@@ -124,13 +124,14 @@ const s = (
  *     host-specific equivalent — Amazon Q reads .amazonq/rules, Continue reads
  *     .continue Rules, Windsurf reads .windsurfrules/global rules).
  *     hostNative.memory=true everywhere.
- *   - hooks: the 23 json-stdio/ts-plugin hosts all expose a native hook or
- *     plugin layer (hook survey). Of the 12 "mcp-only" hosts the survey lists
- *     as hook-less, TWO are gaps: Amp ships a TypeScript plugin system with
- *     thread-lifecycle events (ampcode.com/manual, Plugins) and Amazon Q has
- *     the agent-format hooks layer (cli-agents/*.json) — both are
- *     hostNative.hooks=true (our gaps); the other ten stay false (Continue and
- *     Windsurf among them — no user-installable host hook layer).
+ *   - hooks: the 24 json-stdio/ts-plugin hosts all expose a native hook or
+ *     plugin layer (hook survey + Continue's PR #11029 Claude-compatible hooks,
+ *     which promoted it out of mcp-only). Of the 11 remaining "mcp-only" hosts
+ *     the survey lists as hook-less, TWO are gaps: Amp ships a TypeScript plugin
+ *     system with thread-lifecycle events (ampcode.com/manual, Plugins) and
+ *     Amazon Q has the agent-format hooks layer (cli-agents/*.json) — both are
+ *     hostNative.hooks=true (our gaps); the other nine stay false (Windsurf
+ *     among them — no user-installable host hook layer).
  *   - skills: native SKILL.md readers verified by the release audit + official
  *     docs: claude-code, codex, cursor, vscode-copilot, copilot-cli,
  *     gemini-cli, opencode, antigravity(+cli), pi, jetbrains-copilot, PLUS the
@@ -539,19 +540,21 @@ export const platforms: Platform[] = [
   {
     id: "continue",
     name: "Continue",
-    paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true, false, false),
-    // mcp-only: AC installs MCP + memory. MCP config is YAML — ~/.continue/
+    paradigm: "json-stdio",
+    surfaces: s(true, true, false, false, false, true, false, false),
+    // json-stdio: AC installs MCP + hooks + memory. MCP config is YAML — ~/.continue/
     // config.yaml (user) and <projectDir>/.continue/config.yaml (project); root
     // key "mcpServers" is a YAML ARRAY of { name, command, type?, args?, env?,
     // cwd?, url } entries (docs.continue.dev/customize/deep-dives/mcp +
-    // /reference). memory WIRED: .continue/rules/agent-connector.md (project) with
-    // `alwaysApply: true` frontmatter (always-included —
-    // docs.continue.dev/customize/deep-dives/rules).
-    // hooks: NO primary-verified Continue hook/lifecycle layer → hostNative.hooks
-    // stays false (it is NOT a gap — there is no host hook surface to wire).
+    // /reference). hooks WIRED: the `cn` CLI ships a Claude-Code-COMPATIBLE hooks
+    // system (continuedev/continue PR #11029, extensions/cli/src/hooks/*) — a
+    // SEPARATE settings.json (<CONTINUE_GLOBAL_DIR|~/.continue>/settings.json user,
+    // <projectDir>/.continue/settings.json project) under `hooks` with the
+    // Claude-identical { matcher, hooks:[{type,command}] } shape. memory WIRED:
+    // .continue/rules/agent-connector.md (project) with `alwaysApply: true`
+    // frontmatter (always-included — docs.continue.dev/customize/deep-dives/rules).
     // N/A wired: commands/skills/subagents (no AC-wired user-authored dir).
-    hostNative: s(true, false, false, false, false, true, false, false),
+    hostNative: s(true, true, false, false, false, true, false, false),
   },
   {
     id: "windsurf",

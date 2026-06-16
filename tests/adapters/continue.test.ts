@@ -118,19 +118,20 @@ function freshProject(): { home: string; projectDir: string } {
 // ── capability flags ────────────────────────────────────────────────────────
 
 describe("continue adapter — identity + capabilities", () => {
-  it("is an mcp-only host with the right identity and surface flags", () => {
+  it("is a json-stdio host with the right identity and surface flags", () => {
     expect(continueAdapter.id).toBe("continue");
     expect(continueAdapter.name).toBe("Continue");
-    expect(continueAdapter.paradigm).toBe("mcp-only");
+    // json-stdio: the `cn` CLI ships a Claude-Code-compatible hooks system (PR #11029).
+    expect(continueAdapter.paradigm).toBe("json-stdio");
     // Memory is WIRED (Continue reads .continue/rules, not AGENTS.md): the
     // adapter declares supportsMemory and writes a dedicated always-on rule file.
     expect(continueAdapter.capabilities.supportsMemory).toBe(true);
-    // mcp-only: no hooks
-    expect(continueAdapter.capabilities.preToolUse).toBe(false);
-    expect(continueAdapter.capabilities.postToolUse).toBe(false);
-    expect(continueAdapter.capabilities.canModifyArgs).toBe(false);
+    // hooks WIRED (Claude-compatible).
+    expect(continueAdapter.capabilities.preToolUse).toBe(true);
+    expect(continueAdapter.capabilities.postToolUse).toBe(true);
+    expect(continueAdapter.capabilities.canModifyArgs).toBe(true);
     expect(continueAdapter.capabilities.canModifyOutput).toBe(false);
-    expect(continueAdapter.capabilities.canInjectSessionContext).toBe(false);
+    expect(continueAdapter.capabilities.canInjectSessionContext).toBe(true);
     // No unverified content surfaces
     expect(continueAdapter.capabilities.supportsCommands ?? false).toBe(false);
     expect(continueAdapter.capabilities.supportsSkills ?? false).toBe(false);
@@ -166,9 +167,13 @@ describe("continue adapter — path resolution", () => {
     );
   });
 
-  it("getHookConfigPath aliases the server config path (no separate hook file)", () => {
+  it("getHookConfigPath is a SEPARATE settings.json (not the MCP config.yaml)", () => {
     const ctx = buildCtx(projectDir, buildConnector(), "user");
+    // Hooks live in settings.json, distinct from the YAML config.yaml MCP file.
     expect(continueAdapter.getHookConfigPath(ctx)).toBe(
+      join(home, ".continue", "settings.json"),
+    );
+    expect(continueAdapter.getHookConfigPath(ctx)).not.toBe(
       continueAdapter.getServerConfigPath(ctx),
     );
   });
@@ -550,25 +555,26 @@ describe("continue adapter — memory (.continue/rules/agent-connector.md)", () 
   });
 });
 
-// ── hooks (unavailable) ──────────────────────────────────────────────────────
+// ── hooks (json-stdio — basic skip behavior; full coverage in continue-hooks) ─
 
-describe("continue adapter — hooks (mcp-only)", () => {
+describe("continue adapter — hooks (json-stdio, skip paths)", () => {
   let projectDir: string;
 
   beforeEach(() => {
     ({ projectDir } = freshProject());
   });
 
-  it("installHooks returns a single skip record", () => {
+  it("installHooks skips when the connector declares no hooks", () => {
+    // buildConnector declares no `hooks` → connector.hookEvents is empty.
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     const changes = continueAdapter.installHooks(ctx);
     expect(changes).toHaveLength(1);
     expect(changes[0]?.action).toBe("skip");
-    expect(changes[0]?.detail).toContain("hooks unavailable");
+    expect(changes[0]?.detail).toContain("no hooks");
     expect(changes[0]?.platform).toBe("continue");
   });
 
-  it("uninstallHooks returns a single skip record", () => {
+  it("uninstallHooks skips when no settings.json hooks section is present", () => {
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     const changes = continueAdapter.uninstallHooks(ctx);
     expect(changes).toHaveLength(1);
