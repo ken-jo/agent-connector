@@ -221,6 +221,14 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // Native passthrough hooks: Gemini's LLM-lifecycle events (BeforeModel,
+    // AfterAgent, BeforeToolSelection, AfterModel, …) have NO normalized
+    // HookEventName — they are request-mutating and gemini-only, below the
+    // >=3-host core bar (docs/research/host-specific-hook-events-design.md). A
+    // connector reaches them by declaring platforms["gemini-cli"].nativeHooks;
+    // installHooks writes those event-name keys verbatim into settings.json with
+    // the same home-bin command shape, and the generic uninstall reverses them.
+    supportsNativeHooks: true,
     // Memory surface — EXCEPTION host: Gemini reads GEMINI.md by default;
     // AGENTS.md only when the user opted in via settings `context.fileName`.
     // memoryTargets below probes that setting (and NEVER edits it).
@@ -382,15 +390,29 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
-    if (connector.platforms[HOST]?.hooks === false) {
-      return [{ platform: this.id, action: "skip", detail: "hooks disabled for gemini-cli" }];
-    }
+    const override = connector.platforms[HOST];
+
+    // `hooks: false` disables only the NORMALIZED events (and the opt-in usage
+    // sink). nativeHooks is a sibling, gemini-scoped declaration on the same
+    // override and installs regardless — the dev wrote both keys on one object.
+    const hooksDisabled = override?.hooks === false;
+    const normalizedEvents = hooksDisabled ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
     // The opt-in host-native usage hook (4a) is a host-native-only sink that does
     // NOT need a connector handler — so it may be installed even for a connector
-    // that declares no normalized hook events.
-    const hostNative = isHostNativeUsageEnabled(connector.telemetry);
-    if (connector.hookEvents.length === 0 && !hostNative) {
-      return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
+    // that declares no normalized hook events. (Disabled by `hooks: false`, same
+    // as before.)
+    const hostNative = !hooksDisabled && isHostNativeUsageEnabled(connector.telemetry);
+    if (normalizedEvents.length === 0 && nativeEvents.length === 0 && !hostNative) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: hooksDisabled ? "hooks disabled for gemini-cli" : "connector declares no hooks",
+        },
+      ];
     }
 
     const settingsPath = this.getHookConfigPath(ctx);
@@ -400,7 +422,7 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
-    for (const event of connector.hookEvents) {
+    for (const event of normalizedEvents) {
       const geminiEvent = EVENT_MAP[event];
       if (!geminiEvent) {
         // No Gemini equivalent for this normalized event (e.g. Stop) — report.
@@ -450,6 +472,16 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
         });
       }
       mutated = true;
+    }
+
+    // NATIVE passthrough events: gemini-native event-name keys (e.g. BeforeModel)
+    // written VERBATIM — no EVENT_MAP, since they ARE Gemini events, not
+    // normalized ones. Same entry shape + idempotency as above.
+    for (const event of nativeEvents) {
+      const matcher = nativeHooks[event]?.matcher ?? "";
+      if (this.upsertNativeHook(ctx, hooks, event, matcher, settingsPath, changes)) {
+        mutated = true;
+      }
     }
 
     // OPT-IN host-native usage hook (4a): when enabled, register an AfterModel
@@ -570,6 +602,45 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
       });
     }
     return changes;
+  }
+
+  /**
+   * Upsert one NATIVE (gemini-native event-name) hook into `hooks[event]`. The key
+   * is written verbatim (no EVENT_MAP). Matched by EXACT command — not just
+   * "one of ours" — so a native key that coincides with a normalized event's
+   * mapped key never clobbers the normalized entry; it adds a second, distinct
+   * command instead. Idempotent: byte-identical → skip, drifted → update.
+   */
+  private upsertNativeHook(
+    ctx: InstallContext,
+    hooks: Record<string, GeminiHookEntry[]>,
+    event: string,
+    matcher: string,
+    settingsPath: string,
+    changes: ChangeRecord[],
+  ): boolean {
+    const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, ctx.connector.id);
+    const entry: GeminiHookEntry = { matcher, hooks: [{ type: "command", command }] };
+    const bucket = (hooks[event] ??= []);
+    const existingIdx = bucket.findIndex((e) => (e.hooks ?? []).some((h) => h.command === command));
+
+    if (existingIdx >= 0) {
+      if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+        changes.push({
+          platform: this.id,
+          action: "skip",
+          path: settingsPath,
+          detail: `hooks.${event} (native) already registered`,
+        });
+        return false;
+      }
+      bucket[existingIdx] = entry;
+      changes.push({ platform: this.id, action: "update", path: settingsPath, detail: `hooks.${event} (native)` });
+    } else {
+      bucket.push(entry);
+      changes.push({ platform: this.id, action: "create", path: settingsPath, detail: `hooks.${event} (native)` });
+    }
+    return true;
   }
 
   private entryHasOurCommand(entry: GeminiHookEntry, ctx: InstallContext): boolean {
