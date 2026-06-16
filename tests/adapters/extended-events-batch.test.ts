@@ -37,9 +37,12 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   PermissionRequestEvent,
   PostToolUseFailureEvent,
+  PreCompactEvent,
   ResolvedConnector,
+  SessionEndEvent,
   SubagentStartEvent,
   SubagentStopEvent,
+  UserPromptSubmitEvent,
 } from "../../src/core/types.js";
 
 import cursorAdapter from "../../src/adapters/cursor/index.js";
@@ -304,6 +307,168 @@ describe("cursor — extended-event replies", () => {
       }),
     );
     expect(reply).toEqual({ permission: "deny", user_message: "keep going" });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cursor lifecycle/prompt hooks (SessionEnd / PreCompact / UserPromptSubmit)
+// Wired against cursor.com/docs/hooks v1.7+:
+//   SessionEnd          → sessionEnd          (fire-and-forget; response unused)
+//   PreCompact          → preCompact          (observational; cannot block)
+//   UserPromptSubmit    → beforeSubmitPrompt   (block gate: { continue, user_message })
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A connector declaring exactly the three lifecycle/prompt events. */
+function buildLifecycleConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    hooks: {
+      SessionEnd: {
+        handler() {
+          return;
+        },
+      },
+      PreCompact: {
+        handler() {
+          return;
+        },
+      },
+      UserPromptSubmit: {
+        handler() {
+          return { decision: "deny", reason: "no secrets in prompts" };
+        },
+      },
+    },
+  });
+}
+
+describe("cursor — lifecycle/prompt-event install", () => {
+  it("registers sessionEnd/preCompact/beforeSubmitPrompt under their camelCase keys (no warn-skip)", () => {
+    const projectDir = freshProject();
+    const ctx = buildCtx(projectDir, buildLifecycleConnector());
+
+    const changes = cursorAdapter.installHooks(ctx);
+
+    const hooksPath = join(projectDir, ".cursor", "hooks.json");
+    expect(existsSync(hooksPath)).toBe(true);
+    const cfg = readJson(hooksPath);
+
+    for (const [native, canonical] of [
+      ["sessionEnd", "SessionEnd"],
+      ["preCompact", "PreCompact"],
+      ["beforeSubmitPrompt", "UserPromptSubmit"],
+    ] as const) {
+      const bucket = cfg.hooks[native];
+      expect(Array.isArray(bucket)).toBe(true);
+      expect(bucket[0].command).toContain(`hook cursor ${canonical}`);
+    }
+
+    // None of the three is the "no Cursor hook equivalent" warn-skip anymore.
+    const warn = changes.find(
+      (c) =>
+        c.action === "warn" &&
+        /SessionEnd|PreCompact|UserPromptSubmit/.test(c.detail ?? ""),
+    );
+    expect(warn).toBeUndefined();
+  });
+});
+
+describe("cursor — lifecycle/prompt-event parse", () => {
+  const COMMON = { conversation_id: "conv-1", cwd: "/home/dev/acme" };
+
+  it("SessionEnd maps the documented `reason` enum (session_id folds into base)", () => {
+    const evt = cursorAdapter.parseEvent!("SessionEnd", {
+      session_id: "sess-9",
+      reason: "completed",
+      duration_ms: 45000,
+      cwd: "/home/dev/acme",
+    }) as SessionEndEvent;
+    expect(evt.hostPlatform).toBe("cursor");
+    expect(evt.sessionId).toBe("sess-9");
+    expect(evt.reason).toBe("completed");
+    expect(evt.projectDir).toBe("/home/dev/acme");
+  });
+
+  it("UserPromptSubmit maps the `prompt` text (attachments preserved via raw)", () => {
+    const evt = cursorAdapter.parseEvent!("UserPromptSubmit", {
+      ...COMMON,
+      prompt: "summarize the diff",
+      attachments: [{ type: "file", file_path: "/a/b.ts" }],
+    }) as UserPromptSubmitEvent;
+    expect(evt.prompt).toBe("summarize the diff");
+    expect((evt.raw as any).attachments).toEqual([
+      { type: "file", file_path: "/a/b.ts" },
+    ]);
+
+    // No prompt field → empty string, never undefined.
+    const empty = cursorAdapter.parseEvent!(
+      "UserPromptSubmit",
+      COMMON,
+    ) as UserPromptSubmitEvent;
+    expect(empty.prompt).toBe("");
+  });
+
+  it("PreCompact maps the `trigger` enum and ignores an unknown trigger", () => {
+    const auto = cursorAdapter.parseEvent!("PreCompact", {
+      ...COMMON,
+      trigger: "auto",
+      context_usage_percent: 85,
+    }) as PreCompactEvent;
+    expect(auto.trigger).toBe("auto");
+
+    const manual = cursorAdapter.parseEvent!("PreCompact", {
+      ...COMMON,
+      trigger: "manual",
+    }) as PreCompactEvent;
+    expect(manual.trigger).toBe("manual");
+
+    // An unrecognized trigger is dropped (no invented value).
+    const unknown = cursorAdapter.parseEvent!("PreCompact", {
+      ...COMMON,
+      trigger: "weird",
+    }) as PreCompactEvent;
+    expect(unknown.trigger).toBeUndefined();
+  });
+});
+
+describe("cursor — lifecycle/prompt-event replies", () => {
+  it("UserPromptSubmit: deny → { continue:false, user_message }; non-deny → { continue:true }", () => {
+    const denied = parseStdout(
+      cursorAdapter.formatReply!("UserPromptSubmit", {
+        decision: "deny",
+        reason: "no secrets in prompts",
+      }),
+    );
+    expect(denied).toEqual({ continue: false, user_message: "no secrets in prompts" });
+
+    const allowed = parseStdout(
+      cursorAdapter.formatReply!("UserPromptSubmit", { decision: "allow" }),
+    );
+    expect(allowed).toEqual({ continue: true });
+
+    // context cannot inject on beforeSubmitPrompt (no such output field) → continue:true
+    const ctxReply = parseStdout(
+      cursorAdapter.formatReply!("UserPromptSubmit", {
+        decision: "context",
+        additionalContext: "ignored — no field",
+      }),
+    );
+    expect(ctxReply).toEqual({ continue: true });
+  });
+
+  it("SessionEnd and PreCompact are no-op passthroughs even on a deny (cannot block)", () => {
+    for (const event of ["SessionEnd", "PreCompact"] as const) {
+      const allow = cursorAdapter.formatReply!(event, {});
+      expect(allow).toEqual({ exitCode: 0 });
+      // A deny cannot block these events — it must NOT degrade to permission:deny.
+      const deny = cursorAdapter.formatReply!(event, {
+        decision: "deny",
+        reason: "irrelevant",
+      });
+      expect(deny).toEqual({ exitCode: 0 });
+    }
   });
 });
 
