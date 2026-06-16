@@ -193,7 +193,7 @@ export class CodexAdapter extends BaseAdapter {
     transports: ["stdio", "http"],
     // Content surfaces: Codex implements all three.
     //   command  → ~/.codex/prompts/<name>.md   (md+frontmatter, USER SCOPE ONLY)
-    //   skill    → <codexDir>/skills/<name>/SKILL.md (+ resources)
+    //   skill    → project: .codex/skills/<name>/SKILL.md · user: ~/.agents/skills/<name>/SKILL.md
     //   subagent → <codexDir>/agents/<name>.toml (TOML)
     supportsCommands: true,
     supportsSkills: true,
@@ -527,7 +527,8 @@ export class CodexAdapter extends BaseAdapter {
   // Native locations:
   //   command  → ~/.codex/prompts/<name>.md   md+frontmatter(description,argument-hint)
   //              USER SCOPE ONLY — project scope yields a single "warn".
-  //   skill    → <codexDir>/skills/<name>/SKILL.md (+ resources)
+  //   skill    → project: <projectDir>/.codex/skills/<name>/SKILL.md (+ resources)
+  //              user:    ~/.agents/skills/<name>/SKILL.md (~/.codex/skills is deprecated)
   //   subagent → <codexDir>/agents/<name>.toml  TOML via writeTomlString
 
   /** Command files always live under the USER codex dir: ~/.codex/prompts. */
@@ -535,7 +536,16 @@ export class CodexAdapter extends BaseAdapter {
     return join(this.userConfigDir(), "prompts", `${name}.md`);
   }
   private skillDir(ctx: InstallContext, name: string): string {
-    return join(this.getConfigDir(ctx), "skills", name);
+    // Project scope: <projectDir>/.codex/skills/<name> — the Project config-layer
+    // skills root (codex-rs/core-skills/src/loader.rs, ConfigLayerSource::Project),
+    // NOT deprecated. User scope: $HOME/.agents/skills/<name> — codex's CURRENT
+    // user skills root. The older $CODEX_HOME/skills (~/.codex/skills) is still
+    // read but the loader labels it a "Deprecated user skills location, kept for
+    // backward compatibility". .agents is anchored to the OS home (home_dir), NOT
+    // $CODEX_HOME — so use homedir() here, never userConfigDir() (which honors
+    // CODEX_HOME).
+    if (ctx.scope === "project") return join(this.getConfigDir(ctx), "skills", name);
+    return join(homedir(), ".agents", "skills", name);
   }
   private subagentPath(ctx: InstallContext, name: string): string {
     return join(this.getConfigDir(ctx), "agents", `${name}.toml`);
