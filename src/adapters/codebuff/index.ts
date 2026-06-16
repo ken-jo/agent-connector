@@ -121,7 +121,11 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     // <configDir>/skills/<name>/SKILL.md (configDir is .agents, so the path is
     // .agents/skills/<name>/SKILL.md). Verified against codebuff source
     // sdk/src/skills/load-skills.ts — the frontmatter `name` MUST equal the dir
-    // name. Commands / subagents have no native Codebuff surface.
+    // name. Commands have no native Codebuff surface. Subagents ARE natively
+    // supported — executable .agents/*.ts AgentDefinition modules (codebuff docs:
+    // "Create a new TypeScript file in .agents/") — but rendering one is coupled
+    // to the codebuff SDK's AgentDefinition schema, so supportsSubagents stays
+    // false (deferred), NOT because the surface is absent.
     supportsSkills: true,
   };
 

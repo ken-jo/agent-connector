@@ -128,8 +128,12 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Amazon Q registers stdio + Streamable HTTP MCP servers (primary-verified).
     transports: ["stdio", "http"],
-    // Content surfaces: no documented user-authored commands/skills/subagents
-    // directory verified for Amazon Q. Leave UNSET (base skip-warns).
+    // Content surfaces: Amazon Q DOES have user-authored surfaces — agents
+    // (per-agent JSON in ~/.aws/amazonq/cli-agents/*.json or project
+    // .amazonq/cli-agents/*.json: name/description/prompt/tools/hooks/resources;
+    // agent-format.md) and a prompt library (~/.aws/amazonq/prompts/*.md). AC does
+    // not render either yet, so the supports* flags stay UNSET (base skip-warns) —
+    // a deferred wiring opportunity, NOT an absent surface.
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

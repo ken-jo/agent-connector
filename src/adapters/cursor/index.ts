@@ -215,7 +215,8 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     // Native passthrough hooks: Cursor documents many granular hooks with NO
     // canonical analog — beforeShellExecution / afterShellExecution /
     // beforeMCPExecution / afterMCPExecution / beforeReadFile / afterFileEdit /
-    // afterAgentResponse / afterAgentThought (cursor.com/docs/hooks). They are
+    // beforeTabFileRead / afterTabFileEdit / workspaceOpen / afterAgentResponse /
+    // afterAgentThought (cursor.com/docs/hooks). They are
     // host-specific (below the >=3-host core bar; see
     // docs/research/host-specific-hook-events-design.md). A connector reaches them
     // by declaring platforms["cursor"].nativeHooks; installHooks writes those
