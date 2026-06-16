@@ -244,7 +244,7 @@ export const platforms: PlatformHookEntry[] = [
     },
     events: {
       SessionStart: "SessionStart",
-      SessionEnd: null,
+      SessionEnd: "SessionEnd",
       UserPromptSubmit: null,
       PreToolUse: "PreToolUse",
       PostToolUse: "PostToolUse",
