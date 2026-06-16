@@ -558,6 +558,18 @@ never silent. The two documented exceptions do NOT read AGENTS.md:
   `context.fileName: ["AGENTS.md", "GEMINI.md"]` opt-in is documented as a user
   recipe only.
 
+The DEDICATED rules-dir hosts also do NOT read AGENTS.md — each gets an
+agent-connector-owned file in its native rules directory (project scope; install
+writes it, uninstall deletes it): cline `<projectDir>/.clinerules/agent-connector.md`,
+amazon-q `<projectDir>/.amazonq/rules/agent-connector.md` (plain Markdown
+auto-applied as context — AWS context-project-rules docs), continue
+`<projectDir>/.continue/rules/agent-connector.md` leading with `alwaysApply: true`
+frontmatter ("always included" — Continue rules docs), and windsurf
+`<projectDir>/.windsurf/rules/agent-connector.md` leading with `trigger: always_on`
+frontmatter (full content in the system prompt every message — Windsurf Cascade
+rules docs). amazon-q/continue/windsurf have no primary-verified user/global rules
+dir, so user scope skip-warns there.
+
 Per-host tuning via `platforms.<id>.memory`: `false` disables the surface on
 that host; `{ path }` overrides the target file (absolute, or resolved against
 the project dir / home dir per scope); `{ mode }` is claude-code-only (ignored

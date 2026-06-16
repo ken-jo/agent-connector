@@ -507,16 +507,15 @@ export const platforms: Platform[] = [
     id: "amazon-q",
     name: "Amazon Q Developer CLI",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, false, false, false),
-    // mcp-only: AC installs MCP only. MCP at ~/.aws/amazonq/mcp.json (user) and
-    // .amazonq/mcp.json (project), root key "mcpServers". Two surfaces Amazon Q
-    // natively supports but AC DEFERS (rendered as honest host-gaps):
+    surfaces: s(true, false, false, false, false, true, false, false),
+    // mcp-only: AC installs MCP + memory. MCP at ~/.aws/amazonq/mcp.json (user)
+    // and .amazonq/mcp.json (project), root key "mcpServers". memory WIRED:
+    // .amazonq/rules/agent-connector.md (project; plain Markdown auto-applied as
+    // context — docs.aws.amazon.com context-project-rules). One surface Amazon Q
+    // natively supports but AC DEFERS (rendered as an honest host-gap):
     //   - hooks: the agent-format hooks layer (cli-agents/*.json:
     //     agentSpawn/userPromptSubmit/preToolUse/postToolUse, JSON-over-STDIN,
     //     exit-code 0/2) is primary-verified but not yet wired in AC.
-    //   - memory: Amazon Q reads `.amazonq/rules` (NOT AGENTS.md); the rules
-    //     surface is not yet wired. So memory stays false for the ac surface,
-    //     true for hostNative.
     // N/A wired: commands/skills/subagents (no documented user-authored dir
     // verified for the mcp.json scope).
     hostNative: s(true, true, false, false, false, true, false, false),
@@ -525,15 +524,14 @@ export const platforms: Platform[] = [
     id: "continue",
     name: "Continue",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, false, false, false),
-    // mcp-only: AC installs MCP only. MCP config is YAML — ~/.continue/config.yaml
-    // (user) and <projectDir>/.continue/config.yaml (project); root key
-    // "mcpServers" is a YAML ARRAY of { name, command, type?, args?, env?, cwd?,
-    // url } entries (docs.continue.dev/customize/deep-dives/mcp + /reference).
-    // One surface Continue natively offers but AC DEFERS (honest host-gap):
-    //   - memory: Continue has a native "Rules" surface, but it lives under
-    //     .continue (NOT AGENTS.md), so it is not yet wired. memory stays false
-    //     for the ac surface, true for hostNative.
+    surfaces: s(true, false, false, false, false, true, false, false),
+    // mcp-only: AC installs MCP + memory. MCP config is YAML — ~/.continue/
+    // config.yaml (user) and <projectDir>/.continue/config.yaml (project); root
+    // key "mcpServers" is a YAML ARRAY of { name, command, type?, args?, env?,
+    // cwd?, url } entries (docs.continue.dev/customize/deep-dives/mcp +
+    // /reference). memory WIRED: .continue/rules/agent-connector.md (project) with
+    // `alwaysApply: true` frontmatter (always-included —
+    // docs.continue.dev/customize/deep-dives/rules).
     // hooks: NO primary-verified Continue hook/lifecycle layer → hostNative.hooks
     // stays false (it is NOT a gap — there is no host hook surface to wire).
     // N/A wired: commands/skills/subagents (no AC-wired user-authored dir).
@@ -543,16 +541,16 @@ export const platforms: Platform[] = [
     id: "windsurf",
     name: "Windsurf",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, false, false, false),
-    // mcp-only: AC installs MCP only. MCP config is JSON — USER/GLOBAL scope ONLY
-    // at ~/.codeium/windsurf/mcp_config.json (the docs document no project path);
-    // root key "mcpServers" is a Claude-Desktop-style OBJECT map keyed by server
-    // name (like cursor). stdio { command, args?, env? }; remote { serverUrl,
-    // headers? } (NOT `url`; no type/disabled). docs.devin.ai/desktop/cascade/mcp.
-    // One surface Windsurf natively offers but AC DEFERS (honest host-gap):
-    //   - memory: Windsurf has a native Rules surface (.windsurfrules / global
-    //     rules), but it is NOT AGENTS.md, so it is not yet wired. memory stays
-    //     false for the ac surface, true for hostNative.
+    surfaces: s(true, false, false, false, false, true, false, false),
+    // mcp-only: AC installs MCP + memory. MCP config is JSON — USER/GLOBAL scope
+    // ONLY at ~/.codeium/windsurf/mcp_config.json (the docs document no project
+    // path); root key "mcpServers" is a Claude-Desktop-style OBJECT map keyed by
+    // server name (like cursor). stdio { command, args?, env? }; remote
+    // { serverUrl, headers? } (NOT `url`; no type/disabled).
+    // docs.devin.ai/desktop/cascade/mcp. memory WIRED: .windsurf/rules/
+    // agent-connector.md (workspace) with `trigger: always_on` frontmatter (full
+    // content in the system prompt every message —
+    // docs.windsurf.com/windsurf/cascade/rules).
     // hooks: Windsurf is a GUI editor with no user-installable hook/plugin layer
     // → hostNative.hooks stays false (NOT a gap — there is no host hook surface).
     // N/A wired: commands/skills/subagents (no AC-wired user-authored dir).

@@ -103,9 +103,9 @@ describe("amazon-q adapter — identity + capabilities", () => {
     expect(amazonQAdapter.id).toBe("amazon-q");
     expect(amazonQAdapter.name).toBe("Amazon Q Developer CLI");
     expect(amazonQAdapter.paradigm).toBe("mcp-only");
-    // Memory is DEFERRED (Amazon Q reads .amazonq/rules, not AGENTS.md): the
-    // adapter must NOT declare supportsMemory → it stays an honest host-gap.
-    expect(amazonQAdapter.capabilities.supportsMemory ?? false).toBe(false);
+    // Memory is WIRED (Amazon Q reads .amazonq/rules, not AGENTS.md): the adapter
+    // declares supportsMemory and writes a dedicated .amazonq/rules file.
+    expect(amazonQAdapter.capabilities.supportsMemory).toBe(true);
     // mcp-only: no hooks
     expect(amazonQAdapter.capabilities.preToolUse).toBe(false);
     expect(amazonQAdapter.capabilities.postToolUse).toBe(false);
@@ -419,6 +419,75 @@ describe("amazon-q adapter — timeout field", () => {
       mcpServers: Record<string, Record<string, unknown>>;
     };
     expect("timeout" in cfg.mcpServers[CONNECTOR_ID]!).toBe(false);
+  });
+});
+
+// ── memory surface (.amazonq/rules — dedicated owned file) ───────────────────
+
+describe("amazon-q adapter — memory (.amazonq/rules/agent-connector.md)", () => {
+  let home: string;
+  let projectDir: string;
+
+  beforeEach(() => {
+    ({ home, projectDir } = freshProject());
+  });
+
+  function memFile(): string {
+    return join(projectDir, ".amazonq", "rules", "agent-connector.md");
+  }
+
+  it("writes .amazonq/rules/agent-connector.md at project scope (plain Markdown)", () => {
+    const ctx = buildCtx(projectDir, buildConnector(), "project");
+    const changes = amazonQAdapter.installMemory(ctx);
+    expect(changes.every((c) => c.platform === "amazon-q")).toBe(true);
+
+    expect(existsSync(memFile())).toBe(true);
+    const text = readFileSync(memFile(), "utf8");
+    expect(text).toContain("Project guidance for Amazon Q.");
+    // No frontmatter is added (Amazon Q auto-applies plain Markdown rules files).
+    expect(text.startsWith("---")).toBe(false);
+  });
+
+  it("is idempotent and uninstall removes the dedicated block/file", () => {
+    const ctx = buildCtx(projectDir, buildConnector(), "project");
+    amazonQAdapter.installMemory(ctx);
+    const second = amazonQAdapter.installMemory(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+
+    amazonQAdapter.uninstallMemory(ctx);
+    // AC created the file, so removing its only block deletes the file.
+    expect(existsSync(memFile())).toBe(false);
+  });
+
+  it("user scope skip-warns (no verified user/global rules dir)", () => {
+    const ctx = buildCtx(projectDir, buildConnector(), "user");
+    const changes = amazonQAdapter.installMemory(ctx);
+    expect(changes.some((c) => c.action === "warn")).toBe(true);
+    // Nothing is written under HOME.
+    expect(existsSync(join(home, ".aws", "amazonq", "rules"))).toBe(false);
+  });
+
+  it("does NOT clobber a pre-existing .amazonq/rules FILE (collision guard)", () => {
+    // Legacy/odd form: .amazonq/rules is a FILE, not a directory.
+    mkdirSync(join(projectDir, ".amazonq"), { recursive: true });
+    const rulesFile = join(projectDir, ".amazonq", "rules");
+    writeFileSync(rulesFile, "# hand-written single-file rules\n", "utf8");
+
+    const ctx = buildCtx(projectDir, buildConnector(), "project");
+    const changes = amazonQAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    // The user's file is untouched.
+    expect(readFileSync(rulesFile, "utf8")).toBe("# hand-written single-file rules\n");
+  });
+
+  it("honors platforms['amazon-q'].memory === false", () => {
+    const connector = buildConnector({ platforms: { "amazon-q": { memory: false } } });
+    const ctx = buildCtx(projectDir, connector, "project");
+    const changes = amazonQAdapter.installMemory(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(existsSync(memFile())).toBe(false);
   });
 });
 

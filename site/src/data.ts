@@ -82,7 +82,7 @@ export interface Pillar {
 export const pillars: Pillar[] = [
   {
     eyebrow: "Pillar 01",
-    title: "One API → 32 platforms",
+    title: "One API → 35 platforms",
     summary:
       "Declare your server, hooks, commands, skills, subagents & memory once with defineConnector. The CLI detects every installed host and renders the right native config in each.",
     points: [
@@ -172,7 +172,7 @@ export const surfaces: Surface[] = [
   {
     name: "Memory",
     description:
-      "Write guidance once — it lands in the standard AGENTS.md on 29 of 32 hosts as reversible managed blocks (CLAUDE.md / GEMINI.md / .clinerules natively on the rest).",
+      "Write guidance once — it lands in the standard AGENTS.md on 29 of 35 hosts as reversible managed blocks (CLAUDE.md / GEMINI.md / .clinerules natively on the rest).",
     icon: BookOpen,
   },
 ];
@@ -206,7 +206,7 @@ export const installMethods: InstallMethod[] = [
     title: "Direct config-write",
     summary:
       "Writes each host's native MCP + hook/plugin config in place — idempotent, reversible, no submission or review.",
-    scope: "All 32 platforms",
+    scope: "All 35 platforms",
   },
   {
     id: "marketplace",
