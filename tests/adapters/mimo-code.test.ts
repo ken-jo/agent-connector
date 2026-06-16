@@ -18,6 +18,7 @@
  * throughout for deterministic paths.
  */
 
+import { createRequire } from "node:module";
 import {
   existsSync,
   mkdtempSync,
@@ -305,6 +306,115 @@ describe("mimo-code adapter runtime dispatch — parseEvent + formatReply round-
       toolName: "acme_write",
       toolInput: { sql: "DELETE" },
       sessionId: "mc-1",
+      projectDir: "/some/proj",
+    });
+  });
+});
+
+// ── UserPromptSubmit → chat.message (context injection via output.parts) ──────
+
+/** Connector declaring UserPromptSubmit so the chat.message handler is emitted. */
+function buildPromptConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    hooks: {
+      UserPromptSubmit: {
+        handler() {
+          return { decision: "allow", additionalContext: "extra ctx" };
+        },
+      },
+    },
+  });
+}
+
+describe("mimo-code adapter — UserPromptSubmit → chat.message", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+  let pluginPath: string;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-mimo-prompt-");
+    ctx = buildCtx(projectDir, buildPromptConnector());
+    pluginPath = mimoAdapter.getHookConfigPath(ctx);
+  });
+
+  it("declares the userPromptSubmit capability", () => {
+    expect(mimoAdapter.capabilities.userPromptSubmit).toBe(true);
+  });
+
+  it("emits a chat.message handler that bridges UserPromptSubmit and pushes a text part", () => {
+    mimoAdapter.installHooks(ctx);
+    const src = readFileSync(pluginPath, "utf8");
+
+    // The generated handler key + bridge call + the VERIFIED output mutation.
+    expect(src).toContain('"chat.message"');
+    expect(src).toContain('bridge("UserPromptSubmit"');
+    expect(src).toContain('output.parts.push({ type: "text", text: res.additionalContext })');
+    // deny degrades to a no-op (no throw / abort) — documented in the source.
+    expect(src).not.toMatch(/chat\.message[\s\S]*throw new Error/);
+
+    // The generated module is valid JS (real child_process, bypassing the mock).
+    const require = createRequire(import.meta.url);
+    const { execFileSync: realExecFileSync } = require("node:child_process");
+    expect(() =>
+      realExecFileSync(process.execPath, ["--check", pluginPath], { encoding: "utf8" }),
+    ).not.toThrow();
+  });
+
+  it("THE BRIDGE WORKS — chat.message injects additionalContext as a text part", async () => {
+    mimoAdapter.installHooks(ctx);
+    execFileSyncImpl = () =>
+      JSON.stringify({ decision: "allow", additionalContext: "INJECTED" });
+
+    const url = `${pathToFileURL(pluginPath).href}?t=${Date.now()}-${Math.random()}`;
+    const mod = await import(/* @vite-ignore */ url);
+    const hooks = await mod.default({ directory: projectDir });
+    const onMessage = hooks["chat.message"];
+    expect(typeof onMessage).toBe("function");
+
+    const output = {
+      message: { role: "user" },
+      parts: [{ type: "text", text: "hello world" }],
+    };
+    await onMessage({ sessionID: "s9" }, output);
+
+    // The handler PUSHED a text part carrying the injected context.
+    expect(output.parts).toContainEqual({ type: "text", text: "INJECTED" });
+
+    // It shelled out to the universal entrypoint with the mimo-code id + prompt.
+    expect(execFileSyncMock).toHaveBeenCalledTimes(1);
+    const [bin, argv, opts] = execFileSyncMock.mock.calls[0]!;
+    expect(bin).toBe(HOME_BIN);
+    expect(argv).toEqual(["hook", "mimo-code", "UserPromptSubmit", "--connector", CONNECTOR_ID]);
+    expect(JSON.parse(opts.input).prompt).toBe("hello world");
+  });
+
+  it("a deny decision is a NO-OP (chat.message has no block/abort) — no throw, no extra part", async () => {
+    mimoAdapter.installHooks(ctx);
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "nope" });
+
+    const url = `${pathToFileURL(pluginPath).href}?t=${Date.now()}-${Math.random()}`;
+    const mod = await import(/* @vite-ignore */ url);
+    const hooks = await mod.default({ directory: projectDir });
+    const output = { message: { role: "user" }, parts: [{ type: "text", text: "hi" }] };
+
+    await expect(hooks["chat.message"]({ sessionID: "s1" }, output)).resolves.toBeUndefined();
+    // No additionalContext on a deny → parts unchanged (no-op degrade).
+    expect(output.parts).toEqual([{ type: "text", text: "hi" }]);
+  });
+
+  it("parseEvent normalizes UserPromptSubmit to a prompt-carrying event", () => {
+    const evt = mimoAdapter.parseEvent!("UserPromptSubmit", {
+      prompt: "do the thing",
+      sessionId: "mc-9",
+      projectDir: "/some/proj",
+    });
+    expect(evt).toMatchObject({
+      hostPlatform: "mimo-code",
+      prompt: "do the thing",
+      sessionId: "mc-9",
       projectDir: "/some/proj",
     });
   });
