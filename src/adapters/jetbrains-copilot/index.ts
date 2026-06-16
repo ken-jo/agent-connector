@@ -82,6 +82,7 @@ const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PreCompact: "PreCompact",
   SessionStart: "SessionStart",
   SessionEnd: "SessionEnd",
+  UserPromptSubmit: "UserPromptSubmit",
 };
 
 /** A single JetBrains Copilot native hook entry — a flat command object. */
@@ -138,16 +139,17 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
     // JetBrains Copilot's Preview hooks runtime delivers Pre/PostToolUse,
-    // PreCompact, SessionStart, and SessionEnd (GitHub's hooks-reference) —
-    // same surface as VS Code Copilot. UserPromptSubmit is documented too but
-    // stays unwired here: its blocking Output Contract (top-level decision:block
-    // vs hookSpecificOutput) is not byte-verifiable from the JS-rendered docs.
+    // PreCompact, SessionStart, SessionEnd, and UserPromptSubmit (GitHub's
+    // hooks-reference) — same surface as VS Code Copilot, whose reply contract
+    // this adapter mirrors exactly (see formatReply: UserPromptSubmit/PostToolUse
+    // deny → top-level {decision:block}). Stop stays unwired (refuted for
+    // JetBrains: an unimplemented feature request, not in the documented schema).
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
     sessionStart: true,
     sessionEnd: true,
-    userPromptSubmit: false,
+    userPromptSubmit: true,
     stop: false,
     notification: false,
     // Newer events: the JetBrains Copilot Preview hooks runtime documents no
@@ -875,9 +877,24 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     const decision = response.decision ?? "allow";
 
     // deny → block the action with a reason (exit 0; JSON carries the decision).
-    // JetBrains Copilot is Claude-compatible: the decision lives inside
-    // `hookSpecificOutput`, keyed by the PascalCase event name.
+    // JetBrains Copilot's reply is Claude-compatible, identical to vscode-copilot:
+    // `hookSpecificOutput.permissionDecision` is read ONLY for the pre-execution
+    // PreToolUse permission event. The post-execution / turn-control events —
+    // PostToolUse, UserPromptSubmit, Stop, SubagentStop — block via the TOP-LEVEL
+    // {"decision":"block","reason"} instead (PostToolUse runs AFTER the tool, so a
+    // permissionDecision there is silently ignored). Mirrors vscode-copilot #56/#58.
     if (decision === "deny") {
+      if (
+        event === "PostToolUse" ||
+        event === "UserPromptSubmit" ||
+        event === "Stop" ||
+        event === "SubagentStop"
+      ) {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
       return this.stdout({
         hookSpecificOutput: {
           hookEventName,

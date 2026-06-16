@@ -53,8 +53,6 @@ describe("jetbrains-copilot adapter — SessionEnd + nativeHooks + transports", 
     expect(jetbrainsAdapter.capabilities.sessionEnd).toBe(true);
     expect(jetbrainsAdapter.capabilities.supportsNativeHooks).toBe(true);
     expect(jetbrainsAdapter.capabilities.transports).toEqual(["stdio", "http", "sse"]);
-    // UserPromptSubmit deliberately deferred (blocking contract unverifiable).
-    expect(jetbrainsAdapter.capabilities.userPromptSubmit).toBe(false);
   });
 
   it("installHooks wires SessionEnd (PascalCase) and files ErrorOccurred VERBATIM as native", () => {
