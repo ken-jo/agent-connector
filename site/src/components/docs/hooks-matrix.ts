@@ -178,11 +178,11 @@ export const platforms: PlatformHookEntry[] = [
     },
     events: {
       SessionStart: "sessionStart",
-      SessionEnd: null,
-      UserPromptSubmit: null,
+      SessionEnd: "sessionEnd",
+      UserPromptSubmit: "beforeSubmitPrompt",
       PreToolUse: "preToolUse",
       PostToolUse: "postToolUse",
-      PreCompact: null,
+      PreCompact: "preCompact",
       Stop: "stop",
       Notification: null,
       PermissionRequest: null,
@@ -191,7 +191,7 @@ export const platforms: PlatformHookEntry[] = [
       SubagentStop: "subagentStop",
     },
     notes:
-      "EVENT_MAP lower-camel: PreToolUse->preToolUse, PostToolUse->postToolUse, SessionStart->sessionStart, Stop->stop, plus the documented Subagent (Task tool) lifecycle + tool-failure hooks SubagentStart->subagentStart, SubagentStop->subagentStop, PostToolUseFailure->postToolUseFailure. SessionEnd/UserPromptSubmit/PreCompact/Notification have no Cursor equivalent -> warn-skip (null); PermissionRequest too — Cursor's permission gate is the OUTPUT field `permission` of its before* hooks, not an observable event. FLAT entry { command, matcher? } (no nested hooks[]). Reply (stdout JSON, exit 0): deny/ask -> { permission:'deny'|'ask', user_message } (a SubagentStop deny rides the same shape with Stop semantics); modify -> { updated_input } (PreToolUse); context -> { agent_message } (PreToolUse) or { additional_context } (Post/SessionStart). postToolUseFailure & subagentStart are observe/context-only -> { additional_context } (deny degrades to it carrying the reason). Emits non-empty JSON even on no-op (Cursor rejects empty stdout).",
+      "EVENT_MAP lower-camel: PreToolUse->preToolUse, PostToolUse->postToolUse, SessionStart->sessionStart, Stop->stop, plus the documented Subagent (Task tool) lifecycle + tool-failure hooks SubagentStart->subagentStart, SubagentStop->subagentStop, PostToolUseFailure->postToolUseFailure, and the v1.7 lifecycle/prompt events SessionEnd->sessionEnd, PreCompact->preCompact, UserPromptSubmit->beforeSubmitPrompt (Cursor matches beforeSubmitPrompt against the value 'UserPromptSubmit'). Notification/PermissionRequest have no Cursor equivalent -> warn-skip (null); Cursor's permission gate is the OUTPUT field `permission` of its before* hooks, not an observable event. FLAT entry { command, matcher? } (no nested hooks[]). Reply (stdout JSON, exit 0): deny/ask -> { permission:'deny'|'ask', user_message } (a SubagentStop deny rides the same shape with Stop semantics); modify -> { updated_input } (PreToolUse); context -> { agent_message } (PreToolUse) or { additional_context } (Post/SessionStart). postToolUseFailure & subagentStart are observe/context-only -> { additional_context } (deny degrades to it carrying the reason). beforeSubmitPrompt is a BLOCK gate -> deny emits { continue:false, user_message }, otherwise { continue:true } (no context-injection field). sessionEnd (fire-and-forget) & preCompact (observational, cannot block) are no-op passthroughs (exit 0). Emits non-empty JSON even on no-op (Cursor rejects empty stdout).",
   },
   {
     platform: "vscode-copilot",

@@ -20,7 +20,7 @@
  * values are rewritten to that native token rather than baked into the file.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -38,8 +38,10 @@ import type {
   PlatformId,
   PostToolUseEvent,
   PostToolUseFailureEvent,
+  PreCompactEvent,
   PreToolUseEvent,
   ServerDef,
+  SessionEndEvent,
   SessionStartEvent,
   SkillDef,
   StopEvent,
@@ -47,6 +49,7 @@ import type {
   SubagentStartEvent,
   SubagentStopEvent,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
 import {
@@ -76,6 +79,13 @@ const CURSOR_EVENT = {
   PostToolUseFailure: "postToolUseFailure",
   SubagentStart: "subagentStart",
   SubagentStop: "subagentStop",
+  // Lifecycle/prompt events Cursor 1.7+ documents (cursor.com/docs/hooks):
+  // sessionEnd is fire-and-forget; preCompact is observational (cannot block);
+  // beforeSubmitPrompt fires before a prompt is sent and CAN prevent submission
+  // (Cursor itself matches beforeSubmitPrompt against the value "UserPromptSubmit").
+  SessionEnd: "sessionEnd",
+  PreCompact: "preCompact",
+  UserPromptSubmit: "beforeSubmitPrompt",
 } as const;
 
 /**
@@ -97,6 +107,9 @@ const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PostToolUseFailure: CURSOR_EVENT.PostToolUseFailure,
   SubagentStart: CURSOR_EVENT.SubagentStart,
   SubagentStop: CURSOR_EVENT.SubagentStop,
+  SessionEnd: CURSOR_EVENT.SessionEnd,
+  PreCompact: CURSOR_EVENT.PreCompact,
+  UserPromptSubmit: CURSOR_EVENT.UserPromptSubmit,
 };
 
 /** A single Cursor native hook entry — a flat command object. */
@@ -141,6 +154,12 @@ interface CursorWireInput {
   loop_count?: number;
   stop_hook_active?: boolean;
 
+  // beforeSubmitPrompt (UserPromptSubmit) — the submitted prompt text.
+  // sessionEnd — the documented end reason. Both field names are taken
+  // verbatim from cursor.com/docs/hooks (snake_case wire).
+  prompt?: string;
+  reason?: string;
+
   // postToolUseFailure — Cursor's existing error vocabulary is error_message;
   // the Claude-compatible names are accepted defensively (unverified wire).
   error?: string;
@@ -166,13 +185,14 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
-    // Cursor natively supports pre/post tool-use, session start, and stop.
+    // Cursor natively supports pre/post tool-use, session start/end, prompt
+    // submission, context compaction, and stop (cursor.com/docs/hooks, v1.7+).
     preToolUse: true,
     postToolUse: true,
-    preCompact: false,
+    preCompact: true,
     sessionStart: true,
-    sessionEnd: false,
-    userPromptSubmit: false,
+    sessionEnd: true,
+    userPromptSubmit: true,
     stop: true,
     notification: false,
     // Newer events: Cursor has dedicated postToolUseFailure + subagentStart/
@@ -775,6 +795,36 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
         };
         return ev;
       }
+      case "SessionEnd": {
+        // Cursor sessionEnd: { session_id, reason, duration_ms, ... }. session_id
+        // is already folded into base.sessionId via extractSessionId; only the
+        // documented `reason` enum maps onto the normalized SessionEnd shape.
+        const ev: SessionEndEvent = {
+          ...base,
+          ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
+        };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        // Cursor beforeSubmitPrompt: { prompt, attachments }. attachments has no
+        // normalized field and is preserved via base.raw; only `prompt` maps.
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
+      case "PreCompact": {
+        // Cursor preCompact: { trigger: "auto"|"manual", context_*… }. Only the
+        // documented `trigger` enum maps onto the normalized PreCompact shape.
+        const ev: PreCompactEvent = {
+          ...base,
+          ...(input.trigger === "auto" || input.trigger === "manual"
+            ? { trigger: input.trigger }
+            : {}),
+        };
+        return ev;
+      }
       case "PostToolUseFailure": {
         // Cursor's established error field is error_message; fall back to the
         // Claude-compatible `error` defensively.
@@ -823,10 +873,9 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       default: {
-        // Cursor never delivers SessionEnd / UserPromptSubmit / PreCompact /
-        // Notification / PermissionRequest (no native equivalent — permission
-        // is an OUTPUT field of its before* hooks, not an event). If the
-        // runtime dispatches one anyway, fail loudly.
+        // Cursor never delivers Notification / PermissionRequest (no native
+        // equivalent — permission is an OUTPUT field of its before* hooks, not
+        // an event). If the runtime dispatches one anyway, fail loudly.
         throw new Error(`unsupported cursor hook event: ${String(event)}`);
       }
     }
@@ -855,6 +904,29 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
             ? response.reason ?? response.additionalContext
             : undefined;
       return this.stdout({ additional_context: context ?? "" });
+    }
+
+    // beforeSubmitPrompt (UserPromptSubmit) is a BLOCK gate, not a permission/
+    // context surface: its only documented output is { continue, user_message }
+    // (cursor.com/docs/hooks). A "deny" prevents submission (continue:false +
+    // reason); it cannot inject context (no additional_context/agent_message
+    // field), so every non-deny decision is a no-op continue:true.
+    if (event === "UserPromptSubmit") {
+      if (decision === "deny") {
+        return this.stdout({
+          continue: false,
+          user_message: response.reason ?? "Blocked by hook",
+        });
+      }
+      return this.stdout({ continue: true });
+    }
+
+    // sessionEnd is fire-and-forget (the response is logged but not used) and
+    // preCompact is observational (cannot block or modify compaction) per
+    // cursor.com/docs/hooks — neither carries a decision Cursor honors, so both
+    // are an unconditional no-op passthrough (mirrors Stop).
+    if (event === "SessionEnd" || event === "PreCompact") {
+      return { exitCode: 0 };
     }
 
     // deny → block the action with a user-facing message. (On SubagentStop
