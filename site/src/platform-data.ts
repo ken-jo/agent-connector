@@ -113,24 +113,24 @@ const s = (
  * hostNative PROVENANCE (order: mcp/hooks/commands/skills/subagents/memory).
  * Fact base, strongest-first: the AC research corpus (docs/research/*.json +
  * each adapter's header comment), the 0.2.0 release skills audit, the 20-host
- * hook-extension survey (live official docs, 2026-06-11), the 34-host
+ * hook-extension survey (live official docs, 2026-06-11), the 35-host
  * memory-surface matrix, and targeted official-doc fetches (2026-06-12) for
  * cells the corpus left uncertain. Rule applied throughout: a claimed gap
  * (hostNative=true while surfaces=false) requires positive evidence; genuinely
  * uncertain cells default to matching our support — no guessed gaps.
  *
  * Cross-cutting facts:
- *   - memory: ALL 34 hosts natively read a rules/memory file (34-host memory
- *     matrix; AGENTS.md or a host-specific equivalent — Amazon Q reads
- *     .amazonq/rules, Continue reads .continue Rules). hostNative.memory=true
- *     everywhere.
+ *   - memory: ALL 35 hosts natively read a rules/memory file (AGENTS.md or a
+ *     host-specific equivalent — Amazon Q reads .amazonq/rules, Continue reads
+ *     .continue Rules, Windsurf reads .windsurfrules/global rules).
+ *     hostNative.memory=true everywhere.
  *   - hooks: the 23 json-stdio/ts-plugin hosts all expose a native hook or
- *     plugin layer (hook survey). Of the 11 "mcp-only" hosts the survey lists
+ *     plugin layer (hook survey). Of the 12 "mcp-only" hosts the survey lists
  *     as hook-less, TWO are gaps: Amp ships a TypeScript plugin system with
  *     thread-lifecycle events (ampcode.com/manual, Plugins) and Amazon Q has
  *     the agent-format hooks layer (cli-agents/*.json) — both are
- *     hostNative.hooks=true (our gaps); the other nine stay false (Continue
- *     among them — no primary-verified hook layer).
+ *     hostNative.hooks=true (our gaps); the other ten stay false (Continue and
+ *     Windsurf among them — no user-installable host hook layer).
  *   - skills: native SKILL.md readers verified by the release audit + official
  *     docs: claude-code, codex, cursor, vscode-copilot, copilot-cli,
  *     gemini-cli, opencode, antigravity(+cli), pi, jetbrains-copilot, PLUS the
@@ -536,6 +536,25 @@ export const platforms: Platform[] = [
     //     for the ac surface, true for hostNative.
     // hooks: NO primary-verified Continue hook/lifecycle layer → hostNative.hooks
     // stays false (it is NOT a gap — there is no host hook surface to wire).
+    // N/A wired: commands/skills/subagents (no AC-wired user-authored dir).
+    hostNative: s(true, false, false, false, false, true, false, false),
+  },
+  {
+    id: "windsurf",
+    name: "Windsurf",
+    paradigm: "mcp-only",
+    surfaces: s(true, false, false, false, false, false, false, false),
+    // mcp-only: AC installs MCP only. MCP config is JSON — USER/GLOBAL scope ONLY
+    // at ~/.codeium/windsurf/mcp_config.json (the docs document no project path);
+    // root key "mcpServers" is a Claude-Desktop-style OBJECT map keyed by server
+    // name (like cursor). stdio { command, args?, env? }; remote { serverUrl,
+    // headers? } (NOT `url`; no type/disabled). docs.devin.ai/desktop/cascade/mcp.
+    // One surface Windsurf natively offers but AC DEFERS (honest host-gap):
+    //   - memory: Windsurf has a native Rules surface (.windsurfrules / global
+    //     rules), but it is NOT AGENTS.md, so it is not yet wired. memory stays
+    //     false for the ac surface, true for hostNative.
+    // hooks: Windsurf is a GUI editor with no user-installable hook/plugin layer
+    // → hostNative.hooks stays false (NOT a gap — there is no host hook surface).
     // N/A wired: commands/skills/subagents (no AC-wired user-authored dir).
     hostNative: s(true, false, false, false, false, true, false, false),
   },

@@ -63,6 +63,7 @@ export type PlatformId =
   | "goose"
   | "amazon-q"
   | "continue"
+  | "windsurf"
   | "synthetic"
   | "unknown";
 
@@ -78,9 +79,9 @@ export type PlatformId =
  *   - "ts-plugin" (7): host loads a JS/TS module exporting lifecycle functions
  *     — OpenCode, MiMoCode (an OpenCode fork), Kilo CLI, Kilo, OMP, OpenClaw,
  *     NemoClaw (an OpenClaw wrapper/fork). Framework generates the module.
- *   - "mcp-only" (11): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
- *     Amp, Codebuff, Mux, Pi, Amazon Q, Continue. Only the MCP server (or skills
- *     surface) is installed; hooks are reported unavailable.
+ *   - "mcp-only" (12): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
+ *     Amp, Codebuff, Mux, Pi, Amazon Q, Continue, Windsurf. Only the MCP server
+ *     (or skills surface) is installed; hooks are reported unavailable.
  */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";
 
@@ -681,7 +682,7 @@ export interface SubagentDef {
  * writes it as a MANAGED BLOCK (marker-fenced, hash-stamped,
  * uninstall-reversible — see core/managed-block.ts) into the memory/rules file
  * that host actually reads: AGENTS.md wherever the host supports the agents.md
- * standard (29/34 hosts), the host's own file (CLAUDE.md / GEMINI.md)
+ * standard (29/35 hosts), the host's own file (CLAUDE.md / GEMINI.md)
  * otherwise. CONTENT-ONLY like commands/skills/subagents: no runtime dispatch,
  * no telemetry wrapping — a pure, surgical file edit that never touches bytes
  * outside its own marker pair.

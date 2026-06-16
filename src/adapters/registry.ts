@@ -226,6 +226,18 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "continue",
     load: () => import("./continue/index.js").then((m) => m.default),
   },
+  // Windsurf (Codeium / Cognition's Cascade agent) — mcp-only. USER/GLOBAL scope
+  // ONLY: MCP config is JSON at ~/.codeium/windsurf/mcp_config.json (the docs
+  // document no project/workspace path), root key "mcpServers" is a Claude-
+  // Desktop-style OBJECT map keyed by server name (like cursor). stdio entry
+  // { command, args?, env? }; remote entry { serverUrl, headers? } (NOT `url`;
+  // no type/disabled). No user-installable hook/plugin layer (GUI editor). The
+  // .windsurfrules / global-rules memory surface is a not-yet-wired host-gap.
+  // Distinct ~/.codeium marker — no fork-ordering constraint vs any sibling.
+  {
+    id: "windsurf",
+    load: () => import("./windsurf/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
