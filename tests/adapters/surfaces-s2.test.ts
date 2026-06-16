@@ -12,8 +12,8 @@
  *                          SHARED project .github tree; NO subagent surface
  *                          (BaseAdapter skip).
  *   • kilo              — Kilo Code VS Code extension. md+fm commands
- *                          (.kilocode/commands/<n>.md) + md+fm subagents
- *                          (.kilocode/agents/<n>.md, mode:subagent); NO skill
+ *                          (.kilo/commands/<n>.md) + md+fm subagents
+ *                          (.kilo/agents/<n>.md, mode:subagent); NO skill
  *                          surface (BaseAdapter skip).
  *   • pi                — uniform SKILL.md skills only (.pi/skills/<n>/SKILL.md);
  *                          NO command/subagent surface (BaseAdapter skip).
@@ -482,10 +482,10 @@ describe("kilo adapter — content surfaces", () => {
     expect(kiloAdapter.capabilities.supportsSkills).toBe(true);
   });
 
-  it("installCommands writes md+fm command at .kilocode/commands/<n>.md", () => {
+  it("installCommands writes md+fm command at .kilo/commands/<n>.md", () => {
     const changes = kiloAdapter.installCommands!(ctx);
     expect(changes[0]?.action).toBe("create");
-    const cmdPath = join(projectDir, ".kilocode", "commands", "deploy.md");
+    const cmdPath = join(projectDir, ".kilo", "commands", "deploy.md");
     expect(changes[0]?.path).toBe(cmdPath);
     expect(existsSync(cmdPath)).toBe(true);
 
@@ -496,10 +496,10 @@ describe("kilo adapter — content surfaces", () => {
     expect(body.trim()).toBe(COMMAND.prompt);
   });
 
-  it("installSubagents writes md+fm subagent at .kilocode/agents/<n>.md (mode:subagent, permission)", () => {
+  it("installSubagents writes md+fm subagent at .kilo/agents/<n>.md (mode:subagent, permission)", () => {
     const changes = kiloAdapter.installSubagents!(ctx);
     expect(changes[0]?.action).toBe("create");
-    const agentPath = join(projectDir, ".kilocode", "agents", "reviewer.md");
+    const agentPath = join(projectDir, ".kilo", "agents", "reviewer.md");
     expect(changes[0]?.path).toBe(agentPath);
     expect(existsSync(agentPath)).toBe(true);
 
@@ -522,7 +522,7 @@ describe("kilo adapter — content surfaces", () => {
     const skillMd = join(projectDir, ".kilo", "skills", "pdf-tools", "SKILL.md");
     expect(changes[0]?.path).toBe(skillMd);
     expect(existsSync(skillMd)).toBe(true);
-    // NOT the legacy .kilocode tree (commands/subagents live there; skills do not).
+    // Skills live under the .kilo/skills tree, never the legacy .kilocode tree.
     expect(existsSync(join(projectDir, ".kilocode", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
   });
 
@@ -538,8 +538,8 @@ describe("kilo adapter — content surfaces", () => {
     kiloAdapter.installSubagents!(ctx);
     kiloAdapter.uninstallCommands!(ctx);
     kiloAdapter.uninstallSubagents!(ctx);
-    expect(existsSync(join(projectDir, ".kilocode", "commands", "deploy.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".kilocode", "agents", "reviewer.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".kilo", "commands", "deploy.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".kilo", "agents", "reviewer.md"))).toBe(false);
   });
 });
 
