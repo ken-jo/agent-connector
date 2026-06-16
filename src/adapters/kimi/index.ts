@@ -30,23 +30,29 @@
  *     prompt (start) / response (stop → lastAssistantMessage). SubagentStop
  *     deny uses Kimi's generic block protocol: EXIT 2 with the reason on
  *     stderr (fed back to the model as correction).
- *   - PermissionRequest — NO Kimi analog (the permission prompt is only
- *     observable as a Notification); declared hooks for it warn-skip at
- *     install and the capability flag stays unset.
+ *   - PermissionRequest — fired just before Kimi waits for user approval
+ *     (observation only). Wired; its return value does not affect the flow.
+ *   - The remaining canonical events (PostToolUse, UserPromptSubmit, Stop,
+ *     SessionStart, SessionEnd, PreCompact, PostCompact, Notification) are all
+ *     documented Kimi hooks and now wired 1:1 (PascalCase). Of these only
+ *     UserPromptSubmit + Stop are BLOCKABLE — they share SubagentStop's exit-2
+ *     block protocol (deny → EXIT 2 + stderr reason); the rest are observation
+ *     only. Verified against the kimi-code hooks docs (kimi.com/code/docs/en/
+ *     kimi-code-cli/customization/hooks.html): "Only blockable events
+ *     (PreToolUse, Stop, UserPromptSubmit) have return values that affect the
+ *     main flow. All other events are observation-only."
  *
  * Path confidence: the `~/.kimi` base + mcp.json (`mcpServers`) layout is
  * LIVE-CONFIRMED against the real Moonshot Kimi CLI (v1.46.0, `pip install
  * kimi-cli`) via a `kimi mcp` probe. We still install + doctor-report presence
  * so a future path move surfaces as a FAIL rather than silently misbehaving.
  *
- * FUTURE COVERAGE (non-functional note — no behavior change here): beyond the
- * wired PreToolUse + PostToolUseFailure + SubagentStart/SubagentStop, Kimi CLI
- * supports a wider event surface — Stop, StopFailure, UserPromptSubmit,
- * PostToolUse, SessionStart, SessionEnd, PreCompact, PostCompact and
- * Notification. Kimi also has a PLUGIN system (plugins live at
- * `<base>/plugins/<name>/kimi.plugin.json`) and a SKILLS surface
- * (`~/.kimi/skills/`). None of these are covered yet; they are flagged here
- * as candidates for a future events/plugins/skills expansion of the adapter.
+ * NOT YET COVERED: three observation-only Kimi-only events — StopFailure,
+ * PermissionResult, Interrupt — are documented but NOT promoted to the core
+ * normalized model (each is below the ≥3-host bar for a core HookEventName).
+ * A connector that needs them on Kimi can declare them via the nativeHooks
+ * passthrough. Kimi also has a PLUGIN system (`<base>/plugins/<name>/
+ * kimi.plugin.json`), not yet surfaced.
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -152,29 +158,36 @@ interface KimiHttpServer {
 }
 
 /**
- * Kimi CLI hook events agent-connector registers: the PreToolUse deny gate plus
- * the E1 extension events Kimi fires natively (PostToolUseFailure +
- * SubagentStart/SubagentStop). The matcher below is charset-clean (Rust-regex
- * safe: no look-around) so Kimi's matcher accepts it. Copied in spirit from the
- * Codex/context-mode matchers.
+ * Kimi CLI hook events agent-connector registers: every canonical event in the
+ * core model — Kimi documents all of them as native hooks (PascalCase 1:1). The
+ * PreToolUse matcher below is charset-clean (Rust-regex safe: no look-around) so
+ * Kimi's matcher accepts it; copied in spirit from the Codex/context-mode
+ * matchers. Order mirrors the core ALL_EVENTS sequence.
  */
 const KIMI_HOOK_EVENTS = [
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
   "PreToolUse",
+  "PostToolUse",
+  "PreCompact",
+  "Stop",
+  "Notification",
+  "PermissionRequest",
   "PostToolUseFailure",
   "SubagentStart",
   "SubagentStop",
+  "PostCompact",
 ] as const;
 type KimiHookEventName = (typeof KIMI_HOOK_EVENTS)[number];
 
 /**
- * Newer canonical events with NO Kimi analog: there is no permission-dialog
- * hook (the prompt is only observable via Notification). Declared hooks for
- * these warn-skip at install so the degradation is reported, never silent.
- * (The legacy silent drop of host-supported-but-unwired events — SessionStart,
- * Stop, … — predates this convention and is deliberately left untouched; see
- * the FUTURE COVERAGE header note.)
+ * Canonical events with NO Kimi analog. Kimi documents a native hook for EVERY
+ * current core event, so this is empty today. It stays as the seam: if a future
+ * core HookEventName lands that Kimi cannot fire, add it here and declared hooks
+ * for it warn-skip at install — the degradation is reported, never silent.
  */
-const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set(["PermissionRequest"]);
+const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([]);
 
 const PRE_TOOL_USE_MATCHER =
   "Bash|Shell|shell|exec_command|Read|Edit|Write|WebFetch|Agent|mcp__";
@@ -192,20 +205,23 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
-    // PreToolUse deny is the only honored hook decision on Kimi CLI.
+    // Kimi documents a native hook for EVERY canonical event. BLOCKABLE decisions
+    // (deny that affects the flow) are honored only for PreToolUse, Stop and
+    // UserPromptSubmit per the docs; the rest fire observation-only, but we still
+    // register them so a connector's handler runs (e.g. for telemetry/context).
     preToolUse: true,
-    postToolUse: false,
-    preCompact: false,
-    sessionStart: false,
-    sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
-    notification: false,
-    // E1 events Kimi fires natively. permissionRequest stays unset — Kimi has
-    // no permission-dialog hook, so a declared hook for it warn-skips at install.
+    postToolUse: true,
+    preCompact: true,
+    sessionStart: true,
+    sessionEnd: true,
+    userPromptSubmit: true,
+    stop: true,
+    notification: true,
+    permissionRequest: true,
     postToolUseFailure: true,
     subagentStart: true,
     subagentStop: true,
+    postCompact: true,
     // Kimi cannot rewrite args/output nor inject session context — deny-only.
     canModifyArgs: false,
     canModifyOutput: false,
@@ -645,9 +661,8 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostCompact": {
-        // Kimi does not fire PostCompact natively (postCompact unset → warn-skip
-        // at install). Parsed defensively, mirroring PreCompact, so a manual/
-        // mis-routed dispatch normalizes instead of hitting the guard.
+        // Kimi fires PostCompact after compaction completes (observation only),
+        // payload `trigger`: manual|auto — mirrors PreCompact.
         const ev: PostCompactEvent = {
           ...base,
           ...(input.trigger === "auto" || input.trigger === "manual"
@@ -673,8 +688,8 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PermissionRequest": {
-        // No Kimi analog — never fired natively (install warn-skips it). Parsed
-        // generically so a manual dispatch still normalizes instead of throwing.
+        // Kimi fires PermissionRequest just before waiting for user approval
+        // (observation only); payload subject is the tool name.
         const ev: PermissionRequestEvent = {
           ...base,
           toolName: input.tool_name ?? "",
@@ -730,8 +745,9 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
 
     // deny → block the pending tool call. Kimi Code uses the Claude/Codex reply
     // shape: EXIT 0 + a `hookSpecificOutput` JSON object on stdout carrying
-    // permissionDecision:"deny". Only PreToolUse deny is honored; every other
-    // event (or decision) degrades to a silent allow.
+    // permissionDecision:"deny". PreToolUse is the only event using this
+    // structured reply; the other blockable events (Stop, UserPromptSubmit,
+    // SubagentStop) use the generic exit-2 protocol below.
     if (decision === "deny" && event === "PreToolUse") {
       return {
         exitCode: 0,
@@ -761,10 +777,14 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       return { exitCode: 0 };
     }
 
-    // SubagentStop = Stop semantics via Kimi's generic block protocol: EXIT 2
-    // with the reason on stderr keeps the subagent going (stderr is fed back to
-    // the model as correction). "context" rides the exit-0 stdout channel.
-    if (event === "SubagentStop") {
+    // BLOCKABLE events via Kimi's generic block protocol: deny → EXIT 2 with the
+    // reason on stderr (fed back to the model). Per the kimi-code docs the
+    // blockable events are PreToolUse (handled above with its structured reply),
+    // Stop and UserPromptSubmit; SubagentStop reuses the same Stop semantics. For
+    // Stop the stderr reason lets the model continue; for UserPromptSubmit EXIT 2
+    // blocks the turn (the model is not called). "context" rides the exit-0
+    // stdout channel (Kimi appends non-empty stdout to context).
+    if (event === "SubagentStop" || event === "Stop" || event === "UserPromptSubmit") {
       if (decision === "deny") {
         return { exitCode: 2, stderr: response.reason ?? "Blocked by hook" };
       }
