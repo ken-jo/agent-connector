@@ -212,6 +212,16 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
+    // Native passthrough hooks: Cursor documents many granular hooks with NO
+    // canonical analog — beforeShellExecution / afterShellExecution /
+    // beforeMCPExecution / afterMCPExecution / beforeReadFile / afterFileEdit /
+    // afterAgentResponse / afterAgentThought (cursor.com/docs/hooks). They are
+    // host-specific (below the >=3-host core bar; see
+    // docs/research/host-specific-hook-events-design.md). A connector reaches them
+    // by declaring platforms["cursor"].nativeHooks; installHooks writes those
+    // event-name keys verbatim into hooks.json, and the generic uninstall reverses
+    // them.
+    supportsNativeHooks: true,
     // Cursor has a command-driven status line (`/statusline` → `statusLine` in
     // ~/.cursor/cli-config.json, GLOBAL scope only) per the Cursor changelog, but
     // the config-key shape + the Claude-parity stdin payload are sourced from a
@@ -365,11 +375,23 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
-    if (connector.platforms[HOST]?.hooks === false) {
-      return [{ platform: this.id, action: "skip", detail: "hooks disabled for cursor" }];
-    }
-    if (connector.hookEvents.length === 0) {
-      return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
+    const override = connector.platforms[HOST];
+
+    // `hooks: false` disables only the NORMALIZED events. nativeHooks is a
+    // sibling, cursor-scoped declaration on the same override and installs
+    // regardless.
+    const normalizedEvents = override?.hooks === false ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
+    if (normalizedEvents.length === 0 && nativeEvents.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: override?.hooks === false ? "hooks disabled for cursor" : "connector declares no hooks",
+        },
+      ];
     }
 
     const hooksPath = this.getHookConfigPath(ctx);
@@ -379,7 +401,7 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
-    for (const event of connector.hookEvents) {
+    for (const event of normalizedEvents) {
       const cursorEvent = EVENT_MAP[event];
       if (!cursorEvent) {
         // No Cursor equivalent for this normalized event — report and skip.
@@ -428,11 +450,59 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
       mutated = true;
     }
 
+    // NATIVE passthrough events: cursor-native event-name keys (e.g.
+    // beforeShellExecution, beforeReadFile, afterFileEdit) written VERBATIM — no
+    // EVENT_MAP, since they ARE Cursor events. Same entry shape + idempotency.
+    for (const event of nativeEvents) {
+      if (this.upsertNativeHook(ctx, hooks, event, nativeHooks[event]?.matcher, hooksPath, changes)) {
+        mutated = true;
+      }
+    }
+
     if (mutated) {
       file.version = CURSOR_HOOKS_VERSION;
       this.writeJson(hooksPath, file, ctx.dryRun);
     }
     return changes;
+  }
+
+  /**
+   * Upsert one NATIVE (cursor-native event-name) hook into `hooks[event]`. The
+   * key is written verbatim. Matched by EXACT command — not just "one of ours" —
+   * so a native key that coincides with a normalized event's mapped key never
+   * clobbers the normalized entry; it adds a second, distinct command instead.
+   * Idempotent: byte-identical → skip, drifted → update.
+   */
+  private upsertNativeHook(
+    ctx: InstallContext,
+    hooks: Record<string, CursorHookEntry[]>,
+    event: string,
+    matcher: string | undefined,
+    hooksPath: string,
+    changes: ChangeRecord[],
+  ): boolean {
+    const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, ctx.connector.id);
+    const entry: CursorHookEntry = matcher ? { command, matcher } : { command };
+    const bucket = (hooks[event] ??= []);
+    const existingIdx = bucket.findIndex((e) => e.command === command);
+
+    if (existingIdx >= 0) {
+      if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+        changes.push({
+          platform: this.id,
+          action: "skip",
+          path: hooksPath,
+          detail: `hooks.${event} (native) already registered`,
+        });
+        return false;
+      }
+      bucket[existingIdx] = entry;
+      changes.push({ platform: this.id, action: "update", path: hooksPath, detail: `hooks.${event} (native)` });
+    } else {
+      bucket.push(entry);
+      changes.push({ platform: this.id, action: "create", path: hooksPath, detail: `hooks.${event} (native)` });
+    }
+    return true;
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
