@@ -1022,6 +1022,34 @@ export const platforms: PlatformHookEntry[] = [
     notes:
       "mcp-only (IDE, no hook pipeline). installHooks 'skip' ('hooks unavailable (Zed is mcp-only)'); all events null. MCP ('context servers') in settings.json under root key 'context_servers' (NOT mcpServers); user dir is OS-native dirs::config_dir() (~/.config/zed or %APPDATA%\\Zed); project <projectDir>/.zed/settings.json. FLAT stdio entry { command, args, env }. All hook capabilities false.",
   },
+  {
+    platform: "amazon-q",
+    displayName: "Amazon Q Developer CLI",
+    paradigm: "mcp-only",
+    hasHooks: false,
+    configPath: "—",
+    capabilities: {
+      canModifyArgs: false,
+      canModifyOutput: false,
+      canInjectSessionContext: false,
+    },
+    events: {
+      SessionStart: null,
+      SessionEnd: null,
+      UserPromptSubmit: null,
+      PreToolUse: null,
+      PostToolUse: null,
+      PreCompact: null,
+      Stop: null,
+      Notification: null,
+      PermissionRequest: null,
+      PostToolUseFailure: null,
+      SubagentStart: null,
+      SubagentStop: null,
+    },
+    notes:
+      "mcp-only: no hook system wired in AC (the agent-format hooks layer in cli-agents/*.json is primary-verified but not yet installed by AC); installHooks 'skip' ('hooks unavailable (Amazon Q CLI is mcp-only)'); all events null. MCP: ~/.aws/amazonq/mcp.json (user, global) and .amazonq/mcp.json (project), root 'mcpServers'. BARE stdio entry { command, args?, env?, timeout? } (timeout in ms, NO type/disabled keys); remote/http entry { type: \"http\", url } (no headers — auth is OAuth). Amazon Q reads both files and merges (workspace wins on conflict). All hook capabilities false.",
+  },
 ];
 
 export const hooksMatrix: HooksMatrix = { canonicalEvents, platforms };
