@@ -209,7 +209,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
     ["crush", crushAdapter],
     ["antigravity", antigravityAdapter],
     ["antigravity-cli", antigravityCliAdapter],
-    ["opencode", opencodeAdapter],
     ["kilo-cli", kiloCliAdapter],
     ["omp", ompAdapter],
   ];
@@ -219,6 +218,16 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
     expect(adapter.capabilities.postToolUseFailure ?? false).toBe(false);
     expect(adapter.capabilities.subagentStart ?? false).toBe(false);
     expect(adapter.capabilities.subagentStop ?? false).toBe(false);
+  });
+
+  // opencode wires PermissionRequest -> permission.ask (its native decision-
+  // capable gate), so it supports permissionRequest but still leaves the other
+  // three E1 flags falsy (no Stop/subagent/tool-failure analog).
+  it("opencode supports permissionRequest but leaves the other three E1 flags falsy", () => {
+    expect(opencodeAdapter.capabilities.permissionRequest ?? false).toBe(true);
+    expect(opencodeAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
+    expect(opencodeAdapter.capabilities.subagentStart ?? false).toBe(false);
+    expect(opencodeAdapter.capabilities.subagentStop ?? false).toBe(false);
   });
 
   it("antigravity-cli INHERITS the IDE adapter's capability surface", () => {
@@ -365,21 +374,42 @@ describe("antigravity (IDE + CLI) E1 degradation", () => {
 // ts-plugin hosts — generated bridge must NOT reference the new events
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("ts-plugin bridges never reference E1 events (opencode / kilo-cli / omp)", () => {
+describe("ts-plugin bridges never reference E1 events (kilo-cli / omp)", () => {
   const UNSUPPORTED_DETAIL =
     "unsupported here: PermissionRequest,PostToolUseFailure,SubagentStart,SubagentStop";
 
-  it("opencode: install detail reports the four as unsupported; bridge wires tool.execute.before only", () => {
+  // opencode wires PermissionRequest -> permission.ask, so it is NOT in the
+  // "never reference E1" group: its bridge legitimately carries permission.ask.
+  // Only the OTHER three E1 events stay unsupported here. The forbidden-token
+  // set is narrowed to drop the now-supported PermissionRequest spellings.
+  it("opencode: install detail reports only THREE as unsupported; bridge wires tool.execute.before + permission.ask", () => {
     const projectDir = freshProject("ac-e1-opencode-");
     const ctx = buildCtx(projectDir, buildConnector());
 
     const changes = opencodeAdapter.installHooks!(ctx);
     const moduleChange = changes.find((c) => c.detail?.startsWith("opencode plugin module"));
-    expect(moduleChange?.detail).toBe(`opencode plugin module (PreToolUse; ${UNSUPPORTED_DETAIL})`);
+    expect(moduleChange?.detail).toBe(
+      "opencode plugin module (PreToolUse,PermissionRequest; " +
+        "unsupported here: PostToolUseFailure,SubagentStart,SubagentStop)",
+    );
 
     const source = readFileSync(opencodeAdapter.getHookConfigPath!(ctx), "utf8");
     expect(source).toContain("tool.execute.before");
-    for (const token of FORBIDDEN_NATIVE_TOKENS) {
+    expect(source).toContain('"permission.ask"');
+    expect(source).toContain('bridge("PermissionRequest"');
+    // The remaining three E1 events still never leak into the bridge.
+    const stillForbidden = [
+      "PostToolUseFailure",
+      "SubagentStart",
+      "SubagentStop",
+      "postToolUseFailure",
+      "subagentStart",
+      "subagentStop",
+      "subagent_spawned",
+      "subagent_ended",
+      "subagent_stop",
+    ];
+    for (const token of stillForbidden) {
       expect(source).not.toContain(token);
     }
   });
