@@ -14,3 +14,7 @@ archive-*/
 *.tgz
 *.vsix
 .crush/
+
+# agent-connector local test harness + OMC orchestration (never commit)
+.acverify/
+.omg/

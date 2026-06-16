@@ -89,7 +89,7 @@ export const pillars: Pillar[] = [
       {
         label: "3 hook paradigms",
         detail:
-          "json-stdio · ts-plugin · mcp-only — 12 normalized lifecycle events, degrading gracefully per host.",
+          "json-stdio · ts-plugin · mcp-only — 13 normalized lifecycle events, degrading gracefully per host.",
       },
       {
         label: "install · upgrade · uninstall · doctor",
@@ -151,7 +151,7 @@ export const surfaces: Surface[] = [
   {
     name: "Hooks",
     description:
-      "12 normalized lifecycle events synthesized per paradigm, plus a nativeHooks passthrough — every Claude Code hook event (all 30) is expressible, and future events need no release.",
+      "13 normalized lifecycle events synthesized per paradigm, plus a nativeHooks passthrough — every Claude Code hook event is expressible, and future events need no release.",
     icon: GitBranch,
   },
   {

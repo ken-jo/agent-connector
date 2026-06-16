@@ -119,7 +119,7 @@ export function Introduction() {
         identity is a parameter you supply via <C>defineConnector</C>. It ships{" "}
         <strong>32 registered deploy adapters</strong> grouped into three hook
         paradigms (install targets the hosts detected on your machine, or the
-        targets you name — never all 31 unconditionally), and is Windows-first
+        targets you name — never all 35 unconditionally), and is Windows-first
         (no symlinks, no POSIX-only assumptions).
       </P>
     </DocSection>
