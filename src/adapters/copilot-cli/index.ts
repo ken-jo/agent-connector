@@ -99,7 +99,8 @@ const COPILOT_HOOKS_VERSION = 1;
  * (additionalContext only, matcher on agent name), subagentStop (can block and
  * force continuation), permissionRequest (decision control), and
  * postToolUseFailure (recovery guidance; the host also has a broader
- * errorOccurred event we do not register).
+ * errorOccurred event with no normalized analog — reachable via
+ * platforms["copilot-cli"].nativeHooks, see capabilities.supportsNativeHooks).
  */
 type CopilotHookEvent = HookEventName;
 
@@ -213,6 +214,13 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     supportsCommands: false,
     supportsSkills: true,
     supportsSubagents: true,
+    // Native passthrough: Copilot CLI documents an `errorOccurred` lifecycle
+    // event (plus camelCase aliases) with NO canonical HookEventName analog —
+    // below the >=3-host core bar (docs/research/host-specific-hook-events-design.md).
+    // A connector reaches it via platforms["copilot-cli"].nativeHooks; installHooks
+    // files the event-name key VERBATIM with the same home-bin command shape, and
+    // the generic uninstall reverses it.
+    supportsNativeHooks: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -385,13 +393,24 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
 
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const { connector } = ctx;
-    if (connector.platforms[HOST]?.hooks === false) {
+    const override = connector.platforms[HOST];
+    const hooksDisabled = override?.hooks === false;
+    // `hooks: false` disables only the NORMALIZED events; nativeHooks is a
+    // sibling, copilot-cli-scoped declaration that installs regardless.
+    const normalizedEvents = hooksDisabled ? [] : connector.hookEvents;
+    const nativeHooks = override?.nativeHooks ?? {};
+    const nativeEvents = Object.keys(nativeHooks);
+
+    if (normalizedEvents.length === 0 && nativeEvents.length === 0) {
       return [
-        { platform: this.id, action: "skip", detail: "hooks disabled for copilot-cli" },
+        {
+          platform: this.id,
+          action: "skip",
+          detail: hooksDisabled
+            ? "hooks disabled for copilot-cli"
+            : "connector declares no hooks",
+        },
       ];
-    }
-    if (connector.hookEvents.length === 0) {
-      return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
     }
 
     const hooksPath = this.getHookConfigPath(ctx);
@@ -401,7 +420,7 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
-    for (const event of connector.hookEvents) {
+    for (const event of normalizedEvents) {
       // PascalCase events map 1:1 to Copilot CLI's native event names.
       const copilotEvent: CopilotHookEvent = event;
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
@@ -438,6 +457,47 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
           action: "create",
           path: hooksPath,
           detail: `hooks.${copilotEvent}`,
+        });
+      }
+      mutated = true;
+    }
+
+    // NATIVE passthrough events: copilot-cli-native event-name keys (e.g.
+    // ErrorOccurred) filed VERBATIM into the hooks map — no EVENT_MAP, since they
+    // ARE Copilot events. The command keeps the native token; matched by EXACT
+    // command so a native key coinciding with a normalized one never clobbers it.
+    for (const nativeEvent of nativeEvents) {
+      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, nativeEvent, connector.id);
+      const entry: CopilotHookEntry = {
+        matcher: nativeHooks[nativeEvent]?.matcher ?? "",
+        hooks: [{ type: "command", command }],
+      };
+      const bucket = (hooks[nativeEvent] ??= []);
+      const existingIdx = bucket.findIndex((e) => e.hooks?.[0]?.command === command);
+      if (existingIdx >= 0) {
+        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: hooksPath,
+            detail: `hooks.${nativeEvent} (native) already registered`,
+          });
+          continue;
+        }
+        bucket[existingIdx] = entry;
+        changes.push({
+          platform: this.id,
+          action: "update",
+          path: hooksPath,
+          detail: `hooks.${nativeEvent} (native)`,
+        });
+      } else {
+        bucket.push(entry);
+        changes.push({
+          platform: this.id,
+          action: "create",
+          path: hooksPath,
+          detail: `hooks.${nativeEvent} (native)`,
         });
       }
       mutated = true;
