@@ -32,7 +32,7 @@
  * no SSE transport, so only stdio + http are advertised.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -54,6 +54,7 @@ import type {
   SessionEndEvent,
   SessionStartEvent,
   ServerDef,
+  SkillDef,
   StopEvent,
   SubagentStopEvent,
   UserPromptSubmitEvent,
@@ -190,6 +191,15 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // Hermes has no SSE transport.
     transports: ["stdio", "http"],
+    // Content surface: Hermes auto-discovers dir-per-skill SKILL.md from its
+    // LOCAL skills root ~/.hermes/skills — the "single source of truth,
+    // read-write" dir (hermes-agent.nousresearch.com/docs/user-guide/features/
+    // skills, fetched 2026-06-16). The directory name becomes the skill's
+    // install slug; frontmatter is { name, description } + optional
+    // metadata.hermes.*. USER scope only — there is no documented hermes-owned
+    // project skills dir (~/.agents/skills is the cross-tool external dir, not
+    // ours), so a project-scope install skip-warns via the base default.
+    supportsSkills: true,
     // Actions surface: Hermes ships `quick_commands.<id>: { type: "exec",
     // command }` — a `/<id>` slash command that runs the shell command directly,
     // bypassing the LLM (hermes-agent.nousresearch.com/docs/user-guide/cli:
@@ -615,6 +625,167 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     const ms = server?.timeoutMs;
     if (typeof ms === "number" && ms > 0) return Math.round(ms / 1000);
     return DEFAULT_HOOK_TIMEOUT;
+  }
+
+  // ── Content surface: skills (dir-per-skill SKILL.md) ─────────────────────
+  // CONTENT-ONLY: pure native-file writers, mirroring goose/openclaw. No
+  // runtime dispatch, no home-bin pointer, no telemetry wrap. Idempotent
+  // (byte-identical → skip) via writeContentFile and reversible via
+  // removeContentFile + removeDirIfEmpty. Honors platforms["hermes"].skills
+  // === false. No config.yaml entry — Hermes auto-discovers ~/.hermes/skills.
+  //
+  // USER scope only: ~/.hermes/skills/<name>/SKILL.md (the documented local,
+  // read-write "single source of truth"). Project scope skip-warns — there is
+  // no hermes-owned project skills dir documented.
+
+  /** The user-scope skills ROOT dir (~/.hermes/skills). */
+  private skillsDir(): string {
+    return join(dirname(this.userConfigPath()), "skills");
+  }
+
+  /** Per-skill directory: ~/.hermes/skills/<name>. */
+  private skillDir(name: string): string {
+    return join(this.skillsDir(), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for hermes" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    if (ctx.scope !== "user") {
+      // Hermes documents only the user-scope ~/.hermes/skills root; there is no
+      // hermes-owned project skills dir. Report rather than guess a path.
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail:
+            `no project-scope skills dir on hermes (~/.hermes/skills is user-scope only); ` +
+            `${connector.skills.length} skipped`,
+        },
+      ];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(skill.name);
+      // Guard a skills path occupied by a regular FILE (would throw ENOTDIR on
+      // mkdir): skip-warn rather than crash (the cline `.clinerules`-is-a-file
+      // precedent). The skills root or the per-skill dir is the likely culprit.
+      const blockingFile = this.firstFileOnSkillPath(dir);
+      if (blockingFile !== null) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: blockingFile,
+          detail: `${blockingFile} is a file, not a directory; skill "${skill.name}" skipped`,
+        });
+        continue;
+      }
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  /**
+   * Walk from the skills root (~/.hermes/skills) down to `leaf` and return the
+   * FIRST segment that exists as a regular file (a mkdir there throws ENOTDIR),
+   * else null — so installSkills can skip-warn instead of crashing.
+   */
+  private firstFileOnSkillPath(leaf: string): string | null {
+    const root = this.skillsDir();
+    const segments: string[] = [];
+    let cur = leaf;
+    while (cur.length >= root.length) {
+      segments.unshift(cur);
+      if (cur === root) break;
+      const parent = dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
+    for (const p of segments) {
+      if (!existsSync(p)) return null;
+      try {
+        if (statSync(p).isFile()) return p;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    if (ctx.scope !== "user") {
+      // Nothing is written at project scope (install skip-warned), so nothing
+      // to clean — report the same scope reason as install for symmetry.
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: "no project-scope skills dir on hermes (user-scope only); nothing to remove",
+        },
+      ];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with every other
+   * skill-supporting platform — only the parent dir differs.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────

@@ -25,9 +25,9 @@
  * into a `$(...)` substitution.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
@@ -42,6 +42,7 @@ import type {
   PlatformId,
   PreToolUseEvent,
   ServerDef,
+  SkillDef,
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -154,6 +155,15 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: false,
     transports: ["stdio", "http"],
+    // Content surface: Crush auto-discovers Agent-Skills dirs (dir-per-skill
+    // SKILL.md). Paths are HARD-CODED — no crush.json entry needed
+    // (charmbracelet/crush internal/config/load.go GlobalSkillsDirs +
+    // ProjectSkillsDir, fetched 2026-06-16):
+    //   project → <projectDir>/.crush/skills/<name>/SKILL.md (crush-native, in
+    //             projectSkillSubdirs; preferred over .agents/.claude/.cursor)
+    //   user    → ~/.config/crush/skills/<name>/SKILL.md (home.Config()/crush/
+    //             skills; XDG_CONFIG_HOME or ~/.config).
+    supportsSkills: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -471,6 +481,119 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(entry.command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surface: skills (dir-per-skill SKILL.md) ─────────────────────
+  // CONTENT-ONLY: pure native-file writers, mirroring goose/openclaw. No
+  // runtime dispatch, no home-bin pointer, no telemetry wrap. Each write is
+  // idempotent (byte-identical → skip) via writeContentFile and reversible via
+  // removeContentFile + removeDirIfEmpty (never rm -rf a shared dir). Honors
+  // platforms["crush"].skills === false. No crush.json entry is written — Crush
+  // auto-discovers these hard-coded dirs (load.go GlobalSkillsDirs/ProjectSkillsDir).
+  //
+  // Native locations (Agent-Skills spec — dir-per-skill SKILL.md + resources):
+  //   project → <projectDir>/.crush/skills/<name>/SKILL.md
+  //   user    → ~/.config/crush/skills/<name>/SKILL.md
+
+  /** The skills ROOT dir for ctx.scope (parent of every per-skill dir). */
+  private skillsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".crush", "skills")
+      : join(this.userConfigDir(), "skills");
+  }
+
+  /** Per-skill directory: <skillsDir>/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    return join(this.skillsDir(ctx), name);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for crush" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Guard a skills path occupied by a regular FILE (would throw ENOTDIR on
+      // mkdir): skip-warn rather than crash (the cline `.clinerules`-is-a-file
+      // precedent). The per-skill dir or any parent up to the scope root counts.
+      const blockingFile = firstFileOnPath(this.skillsDir(ctx), dir);
+      if (blockingFile !== null) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: blockingFile,
+          detail: `${blockingFile} is a file, not a directory; skill "${skill.name}" skipped`,
+        });
+        continue;
+      }
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Bundle any resource files beside SKILL.md (relative path → contents).
+      // Defense-in-depth: skip+warn on any key that escapes the skill dir
+      // (config-time validation already rejects these, but never trust input).
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      // Remove only the files we wrote (SKILL.md + declared resources), then the
+      // skill dir itself when we own its full contents.
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents — never rm -rf a
+      // dir that still holds user-added / sibling-tool / shared files.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
+
+  /**
+   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
+   * allowed-tools, disable-model-invocation) + body. UNIFORM with every other
+   * skill-supporting platform — only the parent dir differs.
+   */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.model !== undefined) frontmatter.model = skill.model;
+    const allow = skill.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (skill.disableModelInvocation !== undefined) {
+      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
+    }
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
@@ -573,6 +696,33 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
   private stdout(payload: unknown): HookReply {
     return { exitCode: 0, stdout: JSON.stringify(payload) };
   }
+}
+
+/**
+ * Walk every path segment from `root` down to (and including) `leaf` and return
+ * the FIRST one that exists as a regular file (which would make a mkdir for the
+ * skill dir throw ENOTDIR), else null. Used to skip-warn instead of crashing
+ * when a user has a `.crush/skills` file where we need a directory.
+ */
+function firstFileOnPath(root: string, leaf: string): string | null {
+  const segments: string[] = [];
+  let cur = leaf;
+  while (cur.length >= root.length) {
+    segments.unshift(cur);
+    if (cur === root) break;
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  for (const p of segments) {
+    if (!existsSync(p)) return null; // nothing planted from here down
+    try {
+      if (statSync(p).isFile()) return p;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export const adapter = new CrushAdapter();

@@ -146,8 +146,12 @@ const s = (
  *     (.agents/skills + ~/.agents/skills — CodebuffAI/codebuff
  *     sdk/src/skills/load-skills.ts, fetched 2026-06-12), openclaw
  *     (docs.openclaw.ai/tools/skills: <workspace>/skills, .agents/skills,
- *     ~/.openclaw/skills, fetched 2026-06-12). NOT skills hosts: mux, crush,
- *     hermes, omp (no skills surface documented; defaulted to ours).
+ *     ~/.openclaw/skills, fetched 2026-06-12), PLUS mux (.mux/skills |
+ *     ~/.mux/skills — mux.coder.com/agents/agent-skills), crush (.crush/skills |
+ *     ~/.config/crush/skills — charmbracelet/crush load.go), and hermes
+ *     (~/.hermes/skills — hermes-agent.nousresearch.com docs), all fetched
+ *     2026-06-16. NOT skills hosts: omp (no skills surface documented;
+ *     defaulted to ours).
  *
  * Per-host nontrivial cells (only where hostNative ≠ surfaces, or negatives
  * worth a source):
@@ -191,8 +195,10 @@ const s = (
  *   - codebuff: subagents=true [high] — user-defined TypeScript agents in
  *     .agents/ (created by /init; CodebuffAI/codebuff initial-agents-dir
  *     template, www.codebuff.com/docs/agents). hooks=false (no hook layer).
- *   - mux: commands/skills/subagents=false — no such surfaces documented
- *     (mux.coder.com docs cover instruction files only); defaulted to ours.
+ *   - mux: skills=true [high] — mux.coder.com/agents/agent-skills documents
+ *     dir-per-skill SKILL.md (.mux/skills | ~/.mux/skills); dir name must match
+ *     ^[a-z0-9]+(?:-[a-z0-9]+)*$ (1–64 chars). commands/subagents=false — no
+ *     such surfaces documented (instruction files only); defaulted to ours.
  *   - pi: mcp=false — pi has NO MCP config surface at all (adapter header:
  *     "no writable MCP config"); skills=true (native, badlogic/pi-mono docs).
  *   - jetbrains-copilot.subagents=false [low → defaulted]: no JetBrains
@@ -204,8 +210,12 @@ const s = (
  *     modes, not delegatable subagents].
  *   - kimi: commands=false [uncertain → defaulted]; subagents=false [low; the
  *     hook survey shows SubagentStart/Stop EVENTS but no authoring surface].
- *   - crush/hermes: commands/skills/subagents=false — no such surfaces in the
- *     corpus or host docs; defaulted to ours.
+ *   - crush: skills=true [high] — charmbracelet/crush load.go auto-discovers
+ *     .crush/skills (project) + ~/.config/crush/skills (user), dir-per-skill
+ *     SKILL.md. commands/subagents=false — no such surfaces; defaulted to ours.
+ *   - hermes: skills=true [high] — hermes-agent.nousresearch.com docs:
+ *     ~/.hermes/skills dir-per-skill SKILL.md (user scope only; no hermes-owned
+ *     project skills dir). commands/subagents=false; defaulted to ours.
  *   - omp: skills=false [medium — pi fork, but no skills manifest field and no
  *     docs evidence]; commands/subagents=false [defaulted].
  *   - openclaw: skills=true [high, live-verified 2026-06-12 — supersedes the
@@ -403,8 +413,10 @@ export const platforms: Platform[] = [
     id: "mux",
     name: "Mux",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true, false, false),
-    hostNative: s(true, false, false, false, false, true, false, false),
+    surfaces: s(true, false, false, true, false, true, false, false),
+    // skills now wired (.mux/skills project, ~/.mux/skills user; dir name must
+    // match ^[a-z0-9]+(?:-[a-z0-9]+)*$ (1–64 chars) — mux.coder.com docs).
+    hostNative: s(true, false, false, true, false, true, false, false),
   },
   // pi has NO writable MCP config (transports: []) — commands + skills + memory.
   {
@@ -452,8 +464,10 @@ export const platforms: Platform[] = [
     id: "crush",
     name: "Crush",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true, false, false),
-    hostNative: s(true, true, false, false, false, true, false, false),
+    surfaces: s(true, true, false, true, false, true, false, false),
+    // skills now wired (.crush/skills project, ~/.config/crush/skills user;
+    // auto-discovered, paths hard-coded in charmbracelet/crush load.go).
+    hostNative: s(true, true, false, true, false, true, false, false),
   },
   {
     id: "goose",
@@ -468,8 +482,10 @@ export const platforms: Platform[] = [
     id: "hermes",
     name: "Hermes Agent",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true, false, true),
-    hostNative: s(true, true, false, false, false, true, false, true),
+    surfaces: s(true, true, false, true, false, true, false, true),
+    // skills now wired (~/.hermes/skills user — auto-discovered "single source
+    // of truth"; no hermes-owned project skills dir, so user scope only).
+    hostNative: s(true, true, false, true, false, true, false, true),
   },
   {
     id: "omp",
