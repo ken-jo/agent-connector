@@ -101,7 +101,7 @@ export default defineConnector({
 
   // Standing guidance (memory) — written ONCE as a marker-fenced, hash-stamped
   // managed block into the memory file each host actually reads: the standard
-  // AGENTS.md on 29 of the 31 hosts, CLAUDE.md on Claude Code (opt-in
+  // AGENTS.md on 29 of the 35 hosts, CLAUDE.md on Claude Code (opt-in
   // `platforms["claude-code"].memory.mode: "agents-import"` manages an @AGENTS.md
   // bridge instead), GEMINI.md on Gemini CLI. User edits inside the block are
   // hash-detected and never clobbered (`install --force` overrides after a backup);

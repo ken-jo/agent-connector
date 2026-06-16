@@ -754,7 +754,7 @@ export function SurfacesSection() {
 
       <H3 id="memory-targets">AGENTS.md-first: where the block goes</H3>
       <P>
-        <strong>29 of the 32 hosts read the open{" "}
+        <strong>29 of the 35 hosts read the open{" "}
         <a
           className="underline hover:text-foreground"
           href="https://agents.md"
