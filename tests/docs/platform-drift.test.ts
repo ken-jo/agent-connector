@@ -113,39 +113,8 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     }
   });
 
-  it("llms.txt paradigm bullets name EXACTLY the registry ids, and the heading count is current", async () => {
-    const truth = await registryParadigms();
-    const text = readFileSync("llms.txt", "utf8");
-    expect(text).toContain(`## Supported platforms by paradigm (${ADAPTER_REGISTRY.length})`);
-    for (const [paradigm, ids] of Object.entries(truth)) {
-      const line = text
-        .split("\n")
-        .find((l) => l.startsWith(`- \`${paradigm}\``));
-      expect(line, `llms.txt is missing the ${paradigm} bullet`).toBeTruthy();
-      for (const id of ids) {
-        expect(line, `llms.txt ${paradigm} bullet is missing "${id}"`).toContain(id);
-      }
-      // No id from another paradigm may appear on this line.
-      for (const [other, otherIds] of Object.entries(truth)) {
-        if (other === paradigm) continue;
-        for (const id of otherIds) {
-          if (ids.some((own) => own.includes(id))) continue; // substring ids (kilo vs kilo-cli)
-          expect(
-            new RegExp(`[ ,]${id}[,.\\s]`).test(line!),
-            `llms.txt ${paradigm} bullet wrongly lists "${id}" (${other})`,
-          ).toBe(false);
-        }
-      }
-    }
-  });
-
-  it("llms-full.txt paradigm heading counts match the registry", async () => {
-    const truth = await registryParadigms();
-    const text = readFileSync("llms-full.txt", "utf8");
-    expect(text).toContain(`### \`json-stdio\` — full hook dispatch (${truth["json-stdio"]!.length})`);
-    expect(text).toContain(`(${truth["ts-plugin"]!.length})`);
-    expect(text).toContain(`(${truth["mcp-only"]!.length})`);
-  });
+  // NOTE: the llms.txt / llms-full.txt paradigm-partition assertions moved to
+  // tests/docs/robot-support.test.ts (the single home for robot-doc drift).
 
   it("README badge count is current and Droid sits in the json-stdio row", () => {
     const text = readFileSync("README.md", "utf8");
