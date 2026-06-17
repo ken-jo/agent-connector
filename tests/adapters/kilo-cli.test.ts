@@ -13,18 +13,45 @@
  *               ~/.config/kilo/agent/<name>.md    (user)
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { pathToFileURL } from "node:url";
+
 import { parse as parseYaml } from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 
 import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
+
+// ─────────────────────────────────────────────────────────────────────────
+// node:child_process mock — hoisted above every import by vitest. Only the
+// hook describe block exercises it; the content-surface tests never spawn.
+// ─────────────────────────────────────────────────────────────────────────
+
+let execFileSyncImpl: (...args: any[]) => string = () => "";
+const execFileSyncMock = vi.fn((...args: any[]) => execFileSyncImpl(...args));
+
+vi.mock("node:child_process", () => ({
+  execFileSync: execFileSyncMock,
+  execSync: execFileSyncMock,
+}));
+
+// Pin process.platform to POSIX so the generated bridge takes the execFileSync
+// path (not the Windows execSync path).
+const REAL_PLATFORM = process.platform;
+beforeEach(() => {
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  execFileSyncMock.mockClear();
+  execFileSyncImpl = () => "";
+});
+afterEach(() => {
+  Object.defineProperty(process, "platform", { value: REAL_PLATFORM, configurable: true });
+});
 
 const HOME_BIN = "/fake/home/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-kilo";
@@ -135,7 +162,11 @@ function restore(key: string, value: string | undefined): void {
 }
 
 function freshProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ac-kilo-cli-"));
+  // realpathSync.native expands the Windows 8.3 short name (e.g. RUNNER~1) to its
+  // long form. Without it, the temp path keeps the "~", which pathToFileURL
+  // percent-encodes to %7E and the dynamic import()'s resolver fails to decode
+  // ("Does the file exist?"). Mirrors the opencode / mimo-code / kilo tests.
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "ac-kilo-cli-")));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
@@ -374,5 +405,129 @@ describe("kilo-cli adapter — full round-trip (project scope)", () => {
     expect(existsSync(join(projectDir, ".kilo", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
     expect(existsSync(join(projectDir, ".kilo", "skills", "pdf-tools"))).toBe(false);
     expect(existsSync(join(projectDir, ".kilo", "agent", "reviewer.md"))).toBe(false);
+  });
+});
+
+// ── Hooks: new canonical events (UserPromptSubmit/PermissionRequest/Stop) ──────
+
+/** A connector declaring the three newly-wired canonical hook events. */
+function buildNewEventsConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme Kilo CLI New Events",
+    version: "1.0.0",
+    hooks: {
+      UserPromptSubmit: { handler: () => ({ decision: "allow" }) },
+      PermissionRequest: { handler: () => ({ decision: "allow" }) },
+      Stop: { handler: () => ({ decision: "allow" }) },
+    },
+  });
+}
+
+describe("kilo-cli adapter — new canonical events (capabilities + wiring)", () => {
+  it("capability flags for the three new events are true", () => {
+    expect(kiloCliAdapter.capabilities.userPromptSubmit).toBe(true);
+    expect(kiloCliAdapter.capabilities.permissionRequest).toBe(true);
+    expect(kiloCliAdapter.capabilities.stop).toBe(true);
+  });
+
+  it("generated plugin registers chat.message, permission.ask, and an event-hook session.idle branch", () => {
+    const projectDir = freshProject();
+    const ctx = buildCtx(projectDir, buildNewEventsConnector());
+    kiloCliAdapter.installHooks(ctx);
+    const src = readFileSync(kiloCliAdapter.getHookConfigPath(ctx), "utf8");
+
+    expect(src).toContain('"chat.message": async (input, output) =>');
+    expect(src).toContain('"permission.ask": async (input, output) =>');
+    expect(src).toContain("event: async ({ event }) =>");
+    expect(src).toContain('event.type !== "session.idle"');
+    // The bridge dispatches each new canonical event by name, routed to kilo-cli.
+    expect(src).toContain('"hook", "kilo-cli",');
+    expect(src).toContain('bridge("UserPromptSubmit"');
+    expect(src).toContain('bridge("PermissionRequest"');
+    expect(src).toContain('bridge("Stop"');
+  });
+
+  it("parseEvent maps UserPromptSubmit / PermissionRequest / Stop payloads", () => {
+    const up = kiloCliAdapter.parseEvent!("UserPromptSubmit", {
+      prompt: "hello",
+      sessionId: "c-up",
+    });
+    expect(up).toMatchObject({ hostPlatform: "kilo-cli", prompt: "hello" });
+
+    const pr = kiloCliAdapter.parseEvent!("PermissionRequest", {
+      toolName: "bash",
+      toolInput: { command: "ls" },
+      sessionId: "c-pr",
+    });
+    expect(pr).toMatchObject({
+      hostPlatform: "kilo-cli",
+      toolName: "bash",
+      toolInput: { command: "ls" },
+    });
+
+    const stop = kiloCliAdapter.parseEvent!("Stop", { sessionId: "c-stop" });
+    expect(stop).toMatchObject({ hostPlatform: "kilo-cli", sessionId: "c-stop" });
+  });
+});
+
+describe("kilo-cli generated plugin — new event handlers (live, child_process mocked)", () => {
+  let projectDir: string;
+  let pluginPath: string;
+
+  beforeEach(() => {
+    projectDir = freshProject();
+    const ctx = buildCtx(projectDir, buildNewEventsConnector());
+    kiloCliAdapter.installHooks(ctx);
+    pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+    expect(existsSync(pluginPath)).toBe(true);
+  });
+
+  async function loadPlugin(): Promise<any> {
+    const url = `${pathToFileURL(pluginPath).href}?t=${Date.now()}-${Math.random()}`;
+    return import(/* @vite-ignore */ url);
+  }
+
+  it("permission.ask mutates output.status to 'deny' on a deny decision", async () => {
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "no" });
+    const mod = await loadPlugin();
+    const hooks = await mod.default.server({ directory: projectDir });
+
+    const output: any = { status: "ask" };
+    await hooks["permission.ask"]({ type: "bash", sessionID: "s1" }, output);
+    expect(output.status).toBe("deny");
+
+    const [, argv] = execFileSyncMock.mock.calls[0]!;
+    expect(argv).toEqual(["hook", "kilo-cli", "PermissionRequest", "--connector", CONNECTOR_ID]);
+  });
+
+  it("the event hook bridges Stop only for session.idle and throws on a deny decision", async () => {
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "stay" });
+    const mod = await loadPlugin();
+    const hooks = await mod.default.server({ directory: projectDir });
+
+    await expect(
+      hooks.event({ event: { type: "session.updated", properties: {} } }),
+    ).resolves.toBeUndefined();
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+
+    await expect(
+      hooks.event({ event: { type: "session.idle", properties: { sessionID: "s2" } } }),
+    ).rejects.toThrow();
+    const [, argv] = execFileSyncMock.mock.calls[0]!;
+    expect(argv).toEqual(["hook", "kilo-cli", "Stop", "--connector", CONNECTOR_ID]);
+  });
+
+  it("chat.message pushes additionalContext as a text part on output.parts", async () => {
+    execFileSyncImpl = () => JSON.stringify({ additionalContext: "INJECTED" });
+    const mod = await loadPlugin();
+    const hooks = await mod.default.server({ directory: projectDir });
+
+    const output: any = { parts: [{ type: "text", text: "hi" }] };
+    await hooks["chat.message"]({ sessionID: "s3" }, output);
+    expect(output.parts).toContainEqual({ type: "text", text: "INJECTED" });
+
+    const [, argv] = execFileSyncMock.mock.calls[0]!;
+    expect(argv).toEqual(["hook", "kilo-cli", "UserPromptSubmit", "--connector", CONNECTOR_ID]);
   });
 });

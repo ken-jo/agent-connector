@@ -43,9 +43,13 @@
  *                        (mutate event.params in place); deny+ask both block.
  *     after_tool_call  → observe (capture result/output).
  *     session_start    → record the real session id.
- *     before_prompt_build → inject SessionStart additionalContext via
- *                        { appendSystemContext } (the verified context-injection
- *                        point; session_start itself returns no context payload).
+ *     before_prompt_build → inject context (fires PER TURN; no blocking). ONE
+ *                        handler serves two events via separate state: SessionStart
+ *                        additionalContext via { appendSystemContext } ONCE (the
+ *                        verified injection point — session_start itself returns no
+ *                        context payload) AND UserPromptSubmit additionalContext via
+ *                        { appendContext } EVERY turn (context-injection only — a
+ *                        block/deny decision degrades to a no-op).
  *     subagent_spawned / subagent_ended → observe the subagent lifecycle
  *                        (SubagentStart / SubagentStop; observe-only — no
  *                        decision or context payload).
@@ -77,11 +81,12 @@
  * next reload (or restart) picks up our entries/servers/module.
  *
  * Capabilities (per OpenClaw hook API):
- *   preToolUse / postToolUse / sessionStart / subagentStart / subagentStop
- *   true; transports ["stdio"].
+ *   preToolUse / postToolUse / sessionStart / userPromptSubmit / subagentStart /
+ *   subagentStop true; supportsNativeHooks true; transports ["stdio"].
  *   before_tool_call mutates event.params → canModifyArgs true.
  *   after_tool_call cannot rewrite the tool result → canModifyOutput false.
- *   before_prompt_build injects context → canInjectSessionContext true.
+ *   before_prompt_build injects context → canInjectSessionContext true; it has
+ *   no blocking ability, so userPromptSubmit is context-injection-only.
  */
 
 import {
@@ -120,6 +125,7 @@ import type {
   SkillDef,
   SubagentStartEvent,
   SubagentStopEvent,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { parseJsonc } from "../../core/jsonc.js";
@@ -156,11 +162,21 @@ const PLUGIN_MANIFEST_FILE = "openclaw.plugin.json";
  * SessionStart maps to OpenClaw's session_start (to learn the real session id)
  * plus before_prompt_build (the verified context-injection point — session_start
  * itself returns no context payload upstream).
+ *
+ * UserPromptSubmit also maps to before_prompt_build, which fires PER TURN (every
+ * prompt build) and can ONLY inject context (prependContext / appendContext /
+ * *SystemContext) — it has NO blocking ability. So UserPromptSubmit here is
+ * CONTEXT-INJECTION-ONLY: a connector handler returning a block/deny decision
+ * DEGRADES to a no-op (the generated bridge injects nothing). The two events
+ * coexist in one before_prompt_build handler via separate state (the once-only
+ * SessionStart flag must never suppress the per-turn UserPromptSubmit injection).
  */
 const EVENT_TO_OPENCLAW: Partial<Record<HookEventName, string>> = {
   PreToolUse: "before_tool_call",
   PostToolUse: "after_tool_call",
   SessionStart: "session_start",
+  // Per-turn context injection at prompt assembly (context-only, no blocking).
+  UserPromptSubmit: "before_prompt_build",
   // Subagent lifecycle: OpenClaw observes launch + completion (no decision
   // control on either). PermissionRequest is deliberately ABSENT — OpenClaw's
   // permission gate is the requireApproval RETURN VALUE of before_tool_call,
@@ -180,6 +196,8 @@ interface OpenClawBridgePayload {
   sessionId?: string;
   source?: string;
   projectDir?: string;
+  // UserPromptSubmit (before_prompt_build): the current prompt text.
+  prompt?: string;
   // subagent_spawned / subagent_ended (the generated plugin normalizes the
   // host's field-name variants before posting; empty strings are omitted).
   agentId?: string;
@@ -242,7 +260,10 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     preCompact: false,
     sessionStart: true,
     sessionEnd: false,
-    userPromptSubmit: false,
+    // before_prompt_build fires per-turn and injects context (no blocking), so
+    // UserPromptSubmit is supported as CONTEXT-INJECTION-ONLY: a block/deny
+    // decision degrades to a no-op (it cannot stop the prompt here).
+    userPromptSubmit: true,
     stop: false,
     notification: false,
     // Newer events: OpenClaw observes the full subagent lifecycle via
@@ -276,6 +297,11 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     // the host token (this.id), so a fork like NemoClaw emits `action nemoclaw`.
     // supportsActions -> the installActions/uninstallActions overrides below.
     supportsActions: true,
+    // Native passthrough: OpenClaw lifecycle hook names with no canonical analog
+    // (declared on platforms.<id>.nativeHooks) are bridged verbatim by the
+    // generated plugin via the same on(...) helper → home-bin runNativeHook
+    // dispatch (mirrors omp/opencode). Independent of hooks:false.
+    supportsNativeHooks: true,
   };
 
   // ── Tolerant JSON5/JSONC read (override base strict JSON.parse) ──────────
@@ -611,23 +637,29 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
   installHooks(ctx: InstallContext): ChangeRecord[] {
     const pluginPath = this.getHookConfigPath(ctx);
 
-    if (ctx.connector.platforms[this.id]?.hooks === false) {
-      return [
-        { platform: this.id, action: "skip", path: pluginPath, detail: `hooks disabled for ${this.id}` },
-      ];
-    }
+    // `hooks: false` disables only the CANONICAL (normalized) events; nativeHooks
+    // is a sibling, openclaw-scoped declaration that SURVIVES the opt-out (mirrors
+    // omp/opencode). The canonicalOff guard in buildPluginSource still suppresses
+    // the canonical api.on handlers, so a hooks:false + nativeHooks connector
+    // wires ONLY the native passthrough.
+    const canonicalDisabled = ctx.connector.platforms[this.id]?.hooks === false;
+    const hasCanonical = !canonicalDisabled && ctx.connector.hookEvents.length > 0;
+    const hasNative = this.nativeHookEvents(ctx).length > 0;
+
     // Empty-events gate: the plugin module is SHARED with the action surface, so
     // a connector with actions-but-no-hooks still needs it written + registered —
     // but that is installActions' job (it calls ensurePlugin too). installHooks
-    // only writes when there ARE hooks; its skip detail stays honest about why.
-    if (ctx.connector.hookEvents.length === 0) {
+    // only writes when there ARE hooks (canonical or native); its skip detail
+    // stays honest about why.
+    if (!hasCanonical && !hasNative) {
       return [
         {
           platform: this.id,
           action: "skip",
           path: pluginPath,
-          detail:
-            this.actionTriggers(ctx).length > 0
+          detail: canonicalDisabled
+            ? `hooks disabled for ${this.id}`
+            : this.actionTriggers(ctx).length > 0
               ? "no hooks (plugin written for actions)"
               : "connector declares no hooks",
         },
@@ -727,13 +759,30 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
    * as "unsupported here" so the detail never overstates coverage.
    */
   private hookDetail(ctx: InstallContext): string {
-    const declared = ctx.connector.hookEvents;
+    const declared =
+      ctx.connector.platforms[this.id]?.hooks === false
+        ? []
+        : ctx.connector.hookEvents;
     const mapped = declared.filter((e) => EVENT_TO_OPENCLAW[e] !== undefined);
     const unsupported = declared.filter((e) => EVENT_TO_OPENCLAW[e] === undefined);
-    const base = mapped.join(",");
+    const native = this.nativeHookEvents(ctx);
+    const parts: string[] = [];
+    if (mapped.length > 0) parts.push(mapped.join(","));
+    if (native.length > 0) parts.push(`native: ${native.join(",")}`);
+    const base = parts.join("; ") || "no canonical hooks";
     return unsupported.length > 0
       ? `${base}; unsupported here: ${unsupported.join(",")}`
       : base;
+  }
+
+  /**
+   * OpenClaw-native passthrough events declared on platforms.<id>.nativeHooks
+   * (host lifecycle hook names with no canonical HookEventName). Emitted as
+   * generic on(...) bridge registrations and dispatched host-generically by the
+   * home-bin's runNativeHook. Independent of hooks:false (supportsNativeHooks).
+   */
+  private nativeHookEvents(ctx: InstallContext): string[] {
+    return Object.keys(ctx.connector.platforms[this.id]?.nativeHooks ?? {});
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
@@ -1101,8 +1150,8 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       ";\n\n" +
       "/**\n" +
       " * Invoke the universal hook entrypoint for one canonical event.\n" +
-      " * @param {string} event canonical event name\n" +
-      " *   (PreToolUse|PostToolUse|SessionStart|SubagentStart|SubagentStop)\n" +
+      " * @param {string} event canonical (or native passthrough) event name\n" +
+      " *   (PreToolUse|PostToolUse|SessionStart|UserPromptSubmit|SubagentStart|SubagentStop)\n" +
       " * @param {object} payload OpenClaw-shaped payload posted on stdin\n" +
       " * @returns {object|null} normalized HookResponse, or null on any failure\n" +
       " */\n" +
@@ -1269,13 +1318,67 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
           "          ? res.additionalContext\n" +
           "          : null;\n" +
           "      return undefined;\n" +
-          "    });\n" +
-          "\n" +
-          "    // Inject the session-start context once, at prompt-build time.\n" +
-          '    on("before_prompt_build", () => {\n' +
-          "      if (contextInjected || !pendingContext) return undefined;\n" +
-          "      contextInjected = true;\n" +
-          "      return { appendSystemContext: pendingContext };\n" +
+          "    });\n",
+      );
+    }
+
+    // before_prompt_build fires on EVERY prompt build. ONE handler serves both
+    // context-injecting events that target it — they COEXIST via SEPARATE state
+    // so the once-only SessionStart flag never suppresses the per-turn injection:
+    //   SessionStart    → inject pendingContext ONCE (first build), as system ctx.
+    //   UserPromptSubmit → bridge EVERY turn, append the returned additionalContext.
+    // before_prompt_build has NO blocking ability, so a UserPromptSubmit block/deny
+    // decision DEGRADES to a no-op (context-injection only — never claim a block).
+    if (has("SessionStart") || has("UserPromptSubmit")) {
+      let body = "";
+      if (has("SessionStart")) {
+        body +=
+          "      // SessionStart: inject the session-start context exactly once.\n" +
+          "      if (!contextInjected && pendingContext) {\n" +
+          "        contextInjected = true;\n" +
+          "        out.appendSystemContext = pendingContext;\n" +
+          "      }\n";
+      }
+      if (has("UserPromptSubmit")) {
+        body +=
+          "      // UserPromptSubmit: per-turn context injection. before_prompt_build\n" +
+          "      // cannot block, so a deny/block decision degrades to a no-op.\n" +
+          "      const e = event || {};\n" +
+          "      const ures = bridge(\"UserPromptSubmit\", {\n" +
+          '        prompt: typeof e.prompt === "string" ? e.prompt : "",\n' +
+          "        sessionId: SESSION_ID,\n" +
+          "        projectDir: PROJECT_DIR,\n" +
+          "      });\n" +
+          '      if (ures && typeof ures.additionalContext === "string" && ures.additionalContext) {\n' +
+          "        out.appendContext = ures.additionalContext;\n" +
+          "      }\n";
+      }
+      reg.push(
+        "\n" +
+          "    // before_prompt_build → coexisting SessionStart (once) + UserPromptSubmit\n" +
+          "    // (per-turn) context injection. Context-only: it cannot block a prompt.\n" +
+          '    on("before_prompt_build", (event) => {\n' +
+          "      const out = {};\n" +
+          body +
+          "      return Object.keys(out).length > 0 ? out : undefined;\n" +
+          "    });\n",
+      );
+    }
+
+    // NATIVE passthrough events: OpenClaw lifecycle hook names with no canonical
+    // analog, declared on platforms.<id>.nativeHooks. Each registers an on(...)
+    // handler that bridges the NATIVE event name verbatim to the home-bin →
+    // runNativeHook dispatches it host-generically. Read straight off
+    // platforms.<id>.nativeHooks (independent of hookEvents AND of canonicalOff),
+    // so they install even with hooks:false. Mirrors omp/opencode.
+    for (const ev of this.nativeHookEvents(ctx)) {
+      const key = JSON.stringify(ev);
+      reg.push(
+        "\n" +
+          "    // nativeHooks passthrough → " + ev + "\n" +
+          "    on(" + key + ", (event) => {\n" +
+          "      bridge(" + key + ", { sessionId: SESSION_ID, projectDir: PROJECT_DIR, raw: event });\n" +
+          "      return undefined;\n" +
           "    });\n",
       );
     }
@@ -1387,6 +1490,13 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
         const ev: SessionStartEvent = { ...base, source };
         return ev;
       }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
       case "SubagentStart": {
         // Empty strings are dropped so the runtime matcher never filters a
         // real spawn on an unknown agent type (fail-open, per the dispatcher).
@@ -1445,7 +1555,9 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     // and the SAME dual-registration entry, so an actions-only connector must
     // still assert the plugin/extension is present + loaded.
     const hasHooks =
-      ctx.connector.hookEvents.length > 0 || this.actionTriggers(ctx).length > 0;
+      ctx.connector.hookEvents.length > 0 ||
+      this.nativeHookEvents(ctx).length > 0 ||
+      this.actionTriggers(ctx).length > 0;
     const hasServer = Boolean(ctx.connector.server);
 
     return [

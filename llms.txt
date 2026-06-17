@@ -114,8 +114,8 @@ Validation: throws `ConnectorConfigError` on bad id, non-function handler, missi
 ## Supported platforms by paradigm (35)
 
 - `json-stdio` (full hook dispatch, 17): claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, droid, antigravity, antigravity-cli, continue.
-- `mcp-only` (MCP registration only, 11): warp, roo-code, cline, trae, zed, amp, codebuff, mux, pi, amazon-q, windsurf.
-- `ts-plugin` (generated bridge module, 7): opencode, mimo-code, kilo-cli, kilo, omp, nemoclaw, openclaw.
+- `mcp-only` (MCP registration only, 10): warp, roo-code, cline, trae, zed, codebuff, mux, pi, amazon-q, windsurf.
+- `ts-plugin` (generated bridge module, 8): opencode, mimo-code, kilo-cli, kilo, omp, nemoclaw, openclaw, amp.
 
 ## Telemetry / leaderboards
 

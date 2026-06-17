@@ -123,6 +123,9 @@ const EVENT_TO_OPENCODE: Partial<Record<HookEventName, string>> = {
   // OpenCode lacks a real SessionStart hook (#14808 / #5409). The verified
   // surrogate is experimental.chat.system.transform, which receives the system
   // prompt array; we inject additionalContext there.
+  // TODO(opencode-upstream): when anomalyco/opencode ships a native
+  // session.start / session.created hook (#14808 / #5409), remap SessionStart to
+  // it and retire the experimental.chat.system.transform surrogate.
   SessionStart: "experimental.chat.system.transform",
   // OpenCode's decision-capable permission gate. The "permission.ask" plugin
   // hook MUTATES output.status ("ask"|"deny"|"allow") rather than returning a

@@ -1304,7 +1304,7 @@ One universal hook entrypoint binary handles all of them.
 | Antigravity CLI (`agy`) | `antigravity-cli` | shares `~/.gemini/antigravity/` |
 | Continue | `continue` | `~/.continue/config.yaml` → `mcpServers` (YAML ARRAY, keyed by `name`); hooks in a separate `settings.json` (honors `CONTINUE_GLOBAL_DIR`) |
 
-### `mcp-only` — MCP registration only, no hook layer (11)
+### `mcp-only` — MCP registration only, no hook layer (10)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
@@ -1314,14 +1314,13 @@ Detection surfaces "hooks unavailable here."
 | Cline | `cline` | globalStorage saoudrizwan.claude-dev/settings/cline_mcp_settings.json mcpServers |
 | Trae | `trae` | mcp config |
 | Zed | `zed` | host config |
-| Amp | `amp` | `amp.mcpServers` (flat dotted key) |
 | Codebuff | `codebuff` | `mcp.json` → `mcpServers` |
 | Mux | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 | Amazon Q Developer CLI | `amazon-q` | `~/.aws/amazonq/mcp.json` (user) / `.amazonq/mcp.json` (project) → `mcpServers` |
 | Windsurf | `windsurf` | `~/.codeium/windsurf/mcp_config.json` (user/global ONLY) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ serverUrl, headers? }` — `serverUrl` not `url`) |
 
-### `ts-plugin` — framework-generated bridge module (7)
+### `ts-plugin` — framework-generated bridge module (8)
 
 | Platform | id | Mechanism |
 |---|---|---|
@@ -1332,6 +1331,7 @@ Detection surfaces "hooks unavailable here."
 | OMP | `omp` | generated plugin module |
 | NemoClaw | `nemoclaw` | NVIDIA OpenClaw wrapper/fork; generated plugin module + DUAL REGISTRATION in the wrapped `~/.openclaw/openclaw.json` (detected via `~/.nemoclaw/`) |
 | OpenClaw | `openclaw` | generated plugin module |
+| Amp | `amp` | generated TS plugin module in `.amp/plugins/<id>.ts` (project scope; MCP in `settings.json` → `amp.mcpServers`) |
 
 (`PlatformId` also includes `synthetic` and `unknown` sentinels used internally.)
 

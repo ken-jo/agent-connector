@@ -68,6 +68,7 @@ import type {
   HookEventName,
   HookParadigm,
   HookResponse,
+  PermissionRequestEvent,
   PlatformCapabilities,
   PlatformId,
   PostToolUseEvent,
@@ -75,8 +76,10 @@ import type {
   ServerDef,
   SessionStartEvent,
   SkillDef,
+  StopEvent,
   SubagentDef,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
@@ -110,6 +113,19 @@ const EVENT_TO_KILO: Partial<Record<HookEventName, string>> = {
   PreToolUse: "tool.execute.before",
   PostToolUse: "tool.execute.after",
   SessionStart: "experimental.chat.system.transform",
+  // chat.message fires when a new user message arrives (inspect/modify parts) →
+  // canonical UserPromptSubmit (mirrors the mimo-code OpenCode fork).
+  UserPromptSubmit: "chat.message",
+  // permission.ask is the decision-capable gate (auto-allow/auto-deny). The
+  // handler MUTATES output.status ("ask"|"deny"|"allow") — mirrors OpenCode.
+  PermissionRequest: "permission.ask",
+  // session.idle ("session finished responding") → canonical Stop. NOT a direct
+  // hook key — dispatched through the generic `event` hook (event.type switch).
+  // session.idle is doc-listed for the VS Code extension & CLI but its runtime
+  // firing on a given Kilo build is not separately verified (an upstream FR for
+  // session-lifecycle hooks exists); if it never fires, Stop is a silent no-op
+  // (an acceptable degrade — it never mis-fires), so coverage may be optimistic.
+  Stop: "session.idle",
 };
 
 /** Raw payload the generated plugin posts to the universal hook entrypoint. */
@@ -118,6 +134,7 @@ interface KiloBridgePayload {
   toolInput?: Record<string, unknown>;
   toolOutput?: string;
   isError?: boolean;
+  prompt?: string;
   sessionId?: string;
   projectDir?: string;
 }
@@ -185,9 +202,13 @@ export class KiloAdapter extends BaseAdapter implements Adapter {
     preCompact: false,
     sessionStart: true,
     sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
+    // chat.message backs UserPromptSubmit; session.idle (via the generic `event`
+    // hook) backs Stop.
+    userPromptSubmit: true,
+    stop: true,
     notification: false,
+    // Decision-capable permission gate (permission.ask) — mutates output.status.
+    permissionRequest: true,
     canModifyArgs: true,
     canModifyOutput: true,
     canInjectSessionContext: true,
@@ -713,6 +734,69 @@ function bridge(event, payload) {
     },`);
     }
 
+    if (has("UserPromptSubmit")) {
+      handlers.push(`    // UserPromptSubmit → context injection on prompt submission.
+    // chat.message fires when a new user message arrives; output.parts holds the
+    // prompt parts. Inject context by PUSHING a text part onto output.parts.
+    // chat.message has NO documented block/abort, so a "deny" decision degrades
+    // to a NO-OP (best-effort) — mirrors the mimo-code OpenCode fork.
+    "chat.message": async (input, output) => {
+      const promptText =
+        output && Array.isArray(output.parts)
+          ? output.parts
+              .filter((p) => p && p.type === "text" && typeof p.text === "string")
+              .map((p) => p.text)
+              .join("\\n")
+          : "";
+      const res = bridge("UserPromptSubmit", {
+        prompt: promptText,
+        sessionId: (input && input.sessionID) || "",
+        projectDir: PROJECT_DIR,
+      });
+      if (!res) return;
+      if (res.additionalContext && output && Array.isArray(output.parts)) {
+        output.parts.push({ type: "text", text: res.additionalContext });
+      }
+    },`);
+    }
+
+    if (has("PermissionRequest")) {
+      handlers.push(`    // PermissionRequest → decision-capable permission gate.
+    // permission.ask MUTATES output.status ("ask"|"deny"|"allow") — it does NOT
+    // return a value (mirrors tool.execute.before mutating output.args). A
+    // normalized "deny" maps to output.status "deny"; "ask" to "ask"; allow/void
+    // leave the default status untouched.
+    "permission.ask": async (input, output) => {
+      const payload = {
+        toolName: (input && (input.type || input.tool)) ?? "",
+        toolInput: (input && (input.metadata || input.args)) ?? {},
+        sessionId: (input && input.sessionID) ?? "",
+        projectDir: PROJECT_DIR,
+      };
+      const res = bridge("PermissionRequest", payload);
+      if (!res || !output) return;
+      if (res.decision === "deny") output.status = "deny";
+      else if (res.decision === "ask") output.status = "ask";
+    },`);
+    }
+
+    if (has("Stop")) {
+      handlers.push(`    // Stop → session.idle ("session finished responding"). session.idle is NOT a
+    // direct hook key — it is dispatched through the generic \`event\` hook
+    // switching on event.type. A block decision throws to halt (Kilo has no
+    // Stop-gate return value).
+    event: async ({ event }) => {
+      if (!event || event.type !== "session.idle") return;
+      const res = bridge("Stop", {
+        sessionId: (event.properties && event.properties.sessionID) || "",
+        projectDir: PROJECT_DIR,
+      });
+      if (res && res.decision === "deny") {
+        throw new Error(res.reason || "Stop blocked by ${ctx.connector.id}");
+      }
+    },`);
+    }
+
     const definition = `
 const plugin = {
   id: CONNECTOR_ID,
@@ -773,6 +857,25 @@ export default plugin;
       }
       case "SessionStart": {
         const ev: SessionStartEvent = { ...base, source: "startup" };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
+      case "PermissionRequest": {
+        const ev: PermissionRequestEvent = {
+          ...base,
+          toolName: input.toolName ?? "",
+          toolInput: input.toolInput ?? {},
+        };
+        return ev;
+      }
+      case "Stop": {
+        const ev: StopEvent = { ...base };
         return ev;
       }
       default:

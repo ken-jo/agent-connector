@@ -662,20 +662,20 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "experimental.chat.system.transform",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "chat.message",
       PreToolUse: "tool.execute.before",
       PostToolUse: "tool.execute.after",
       PreCompact: null,
-      Stop: null,
+      Stop: "session.idle",
       Notification: null,
-      PermissionRequest: null,
+      PermissionRequest: "permission.ask",
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
       PostCompact: null,
     },
     notes:
-      "OpenCode fork (loads @kilocode/plugin PluginModule { id, server:(input)=>Hooks }). EVENT_TO_KILO identical to OpenCode: PreToolUse->tool.execute.before, PostToolUse->tool.execute.after, SessionStart->experimental.chat.system.transform; rest — including all four newer events — null. DIFFERENCE: NOT auto-discovered by dir — installHooks ALSO registers the module path in kilo.jsonc's top-level 'plugin' array (root MCP key 'mcp', command ARRAY + environment). Bridge shells out to <homeBin> hook kilo-cli <event> --connector <id>; formatReply emits the NORMALIZED HookResponse on stdout. ask degrades to thrown block.",
+      "OpenCode fork (loads @kilocode/plugin PluginModule { id, server:(input)=>Hooks }). EVENT_TO_KILO: PreToolUse->tool.execute.before, PostToolUse->tool.execute.after, SessionStart->experimental.chat.system.transform, UserPromptSubmit->chat.message (push a {type:'text'} part onto output.parts to inject additionalContext; no block/abort so deny degrades to a no-op), PermissionRequest->permission.ask (decision-capable gate that MUTATES output.status 'ask'|'deny'|'allow'), Stop->session.idle ('session finished responding' — NOT a direct hook key; dispatched through the generic `event` hook switching on event.type, a deny throws to halt). SessionEnd/PreCompact/Notification + PostToolUseFailure/SubagentStart/SubagentStop null. DIFFERENCE: NOT auto-discovered by dir — installHooks ALSO registers the module path in kilo.jsonc's top-level 'plugin' array (root MCP key 'mcp', command ARRAY + environment). Bridge shells out to <homeBin> hook kilo-cli <event> --connector <id>; formatReply emits the NORMALIZED HookResponse on stdout. ask degrades to a thrown block on tool.execute.before.",
   },
   {
     platform: "omp",
@@ -722,7 +722,7 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "session_start",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "before_prompt_build",
       PreToolUse: "before_tool_call",
       PostToolUse: "after_tool_call",
       PreCompact: null,
@@ -735,7 +735,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "NVIDIA NemoClaw WRAPS OpenClaw — a thin FORK of the OpenClaw adapter (extends OpenClawAdapter, overriding only id/name/detection). It inherits OpenClaw's hook machinery verbatim, so the event map + capabilities are OpenClaw's: PreToolUse->before_tool_call (modify mutates event.params; deny/ask block), PostToolUse->after_tool_call (observe-only -> canModifyOutput false), SessionStart->session_start + before_prompt_build injection, SubagentStart/Stop->subagent_spawned/ended (observe-only). NemoClaw ships NO Claude-style hooks of its own, but the inherited bridge writes the same DUAL REGISTRATION into the WRAPPED ~/.openclaw/openclaw.json (the agent NemoClaw runs). Detection keys on the NemoClaw-specific ~/.nemoclaw/ marker: OpenClaw's detection BOWS OUT when ~/.nemoclaw/ is present (and nemoclaw is registered BEFORE openclaw), so a real NemoClaw box — which has BOTH markers — is never double-targeted. The inherited bridge is HOST-BOUND to this id: <homeBin> hook nemoclaw <event> (NOT openclaw — events route back to the nemoclaw adapter); formatReply emits NORMALIZED HookResponse.",
+      "NVIDIA NemoClaw WRAPS OpenClaw — a thin FORK of the OpenClaw adapter (extends OpenClawAdapter, overriding only id/name/detection). It inherits OpenClaw's hook machinery verbatim, so the event map + capabilities are OpenClaw's: PreToolUse->before_tool_call (modify mutates event.params; deny/ask block), PostToolUse->after_tool_call (observe-only -> canModifyOutput false), SessionStart->session_start + before_prompt_build injection, UserPromptSubmit->before_prompt_build (per-turn context injection, context-only — before_prompt_build cannot block, so a deny degrades to a no-op), SubagentStart/Stop->subagent_spawned/ended (observe-only), plus supportsNativeHooks (platforms.nemoclaw.nativeHooks bridged verbatim). NemoClaw ships NO Claude-style hooks of its own, but the inherited bridge writes the same DUAL REGISTRATION into the WRAPPED ~/.openclaw/openclaw.json (the agent NemoClaw runs). Detection keys on the NemoClaw-specific ~/.nemoclaw/ marker: OpenClaw's detection BOWS OUT when ~/.nemoclaw/ is present (and nemoclaw is registered BEFORE openclaw), so a real NemoClaw box — which has BOTH markers — is never double-targeted. The inherited bridge is HOST-BOUND to this id: <homeBin> hook nemoclaw <event> (NOT openclaw — events route back to the nemoclaw adapter); formatReply emits NORMALIZED HookResponse.",
   },
   {
     platform: "openclaw",
@@ -752,7 +752,7 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "session_start",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "before_prompt_build",
       PreToolUse: "before_tool_call",
       PostToolUse: "after_tool_call",
       PreCompact: null,
@@ -765,27 +765,28 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "EVENT_TO_OPENCLAW (api.on targets): PreToolUse->before_tool_call (block via { block, blockReason }, deny/ask both block; modify mutates event.params), PostToolUse->after_tool_call (observe only -> canModifyOutput false), SessionStart->session_start (records id) PLUS before_prompt_build (the actual context-injection point via { appendSystemContext }), SubagentStart->subagent_spawned + SubagentStop->subagent_ended (BOTH observe-only — no decision or context payload, so a SubagentStop deny cannot keep the subagent running here). SessionEnd/UserPromptSubmit/PreCompact/Stop/Notification null; PermissionRequest null (the permission gate is the requireApproval RETURN VALUE of before_tool_call, not an event); PostToolUseFailure null (failures arrive merged into after_tool_call). DUAL REGISTRATION in openclaw.json (JSON5): plugins.entries.<id>={enabled:true} + plugins.load.paths[dir] (LOAD) AND mcp.servers.<id> (SURFACE TOOLS) — both required. Generated index.mjs + openclaw.plugin.json manifest. Bridge -> <homeBin> hook openclaw <event> --connector <id>; formatReply emits NORMALIZED HookResponse.",
+      "EVENT_TO_OPENCLAW (api.on targets): PreToolUse->before_tool_call (block via { block, blockReason }, deny/ask both block; modify mutates event.params), PostToolUse->after_tool_call (observe only -> canModifyOutput false), SessionStart->session_start (records id) PLUS before_prompt_build (the actual context-injection point via { appendSystemContext }), UserPromptSubmit->before_prompt_build (per-turn context injection via { appendContext }; before_prompt_build fires every prompt build and CANNOT block, so a deny/block decision degrades to a no-op — context-injection only; coexists with SessionStart in one handler via separate state so the once-only SessionStart flag never suppresses the per-turn injection), SubagentStart->subagent_spawned + SubagentStop->subagent_ended (BOTH observe-only — no decision or context payload, so a SubagentStop deny cannot keep the subagent running here). supportsNativeHooks: platforms.openclaw.nativeHooks bridge verbatim via the same on(...) helper (host-generic runNativeHook dispatch). SessionEnd/PreCompact/Stop/Notification null; PermissionRequest null (the permission gate is the requireApproval RETURN VALUE of before_tool_call, not an event); PostToolUseFailure null (failures arrive merged into after_tool_call). DUAL REGISTRATION in openclaw.json (JSON5): plugins.entries.<id>={enabled:true} + plugins.load.paths[dir] (LOAD) AND mcp.servers.<id> (SURFACE TOOLS) — both required. Generated index.mjs + openclaw.plugin.json manifest. Bridge -> <homeBin> hook openclaw <event> --connector <id>; formatReply emits NORMALIZED HookResponse.",
   },
   {
     platform: "amp",
     displayName: "Amp",
-    paradigm: "mcp-only",
-    hasHooks: false,
-    configPath: "—",
+    paradigm: "ts-plugin",
+    hasHooks: true,
+    configPath:
+      "<projectDir>/.amp/plugins/<connector-id>.ts (auto-loaded TS plugin module; project scope only)",
     capabilities: {
       canModifyArgs: false,
       canModifyOutput: false,
       canInjectSessionContext: false,
     },
     events: {
-      SessionStart: null,
+      SessionStart: "session.start",
       SessionEnd: null,
-      UserPromptSubmit: null,
-      PreToolUse: null,
-      PostToolUse: null,
+      UserPromptSubmit: "agent.start",
+      PreToolUse: "tool.call",
+      PostToolUse: "tool.result",
       PreCompact: null,
-      Stop: null,
+      Stop: "agent.end",
       Notification: null,
       PermissionRequest: null,
       PostToolUseFailure: null,
@@ -794,7 +795,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "mcp-only: no lifecycle hook system. installHooks/uninstallHooks return a single 'skip' ('hooks unavailable (Amp is mcp-only)'); all events null. MCP only: ~/.config/amp/settings.json under a FLAT dotted key 'amp.mcpServers' (not nested mcpServers). Native ${VAR} interpolation. All hook capabilities false.",
+      "EVENT_TO_AMP (amp.on targets): SessionStart->session.start (session id = event.thread.id), UserPromptSubmit->agent.start (observe-only — agent.start exposes no block/context surface, so a deny/context decision degrades to a no-op; canInjectSessionContext false), PreToolUse->tool.call (deny/ask -> return amp's documented decision union { action:'reject-and-continue', message }, else { action:'allow' }; canModifyArgs false — the 'modify' input shape is undocumented), PostToolUse->tool.result (observe-only: the manual says a replacement output CAN be returned but never documents its object shape, so canModifyOutput stays false rather than ship a guessed mutation; error signal = event.status==='error'), Stop->agent.end (observe-only). Amp documents NO session.end -> SessionEnd null; PreCompact/Notification + all four newer events null too. Loads a TS plugin (.amp/plugins/<id>.ts; default export (amp)=>void registering amp.on handlers), PROJECT scope only — no user-scope plugins dir is documented, so a user install warn-skips. supportsNativeHooks: platforms.amp.nativeHooks amp.on events bridged verbatim (host-generic runNativeHook dispatch). MCP native ~/.config/amp/settings.json under the FLAT dotted key 'amp.mcpServers' (not nested mcpServers); native ${VAR} interpolation. Bridge shells to <homeBin> hook amp <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
   },
   {
     platform: "codebuff",
@@ -840,20 +841,20 @@ export const platforms: PlatformHookEntry[] = [
     events: {
       SessionStart: "experimental.chat.system.transform",
       SessionEnd: null,
-      UserPromptSubmit: null,
+      UserPromptSubmit: "chat.message",
       PreToolUse: "tool.execute.before",
       PostToolUse: "tool.execute.after",
       PreCompact: null,
-      Stop: null,
+      Stop: "session.idle",
       Notification: null,
-      PermissionRequest: null,
+      PermissionRequest: "permission.ask",
       PostToolUseFailure: null,
       SubagentStart: null,
       SubagentStop: null,
       PostCompact: null,
     },
     notes:
-      "Kilo Code VS Code extension (DISTINCT from kilo-cli, but the 7.x line is rebuilt ON the Kilo CLI server, so it shares the ts-plugin hook layer). EVENT_TO_KILO identical to OpenCode/kilo-cli: PreToolUse->tool.execute.before, PostToolUse->tool.execute.after, SessionStart->experimental.chat.system.transform; rest — including all four newer events — null. installHooks writes the generated plugin module to .kilo/plugin/<id>.js (project) / ~/.config/kilo/plugin/<id>.js (user) AND registers the path in kilo.json's top-level 'plugin' array (mirrors kilo-cli). MCP shares the kilo backend: ~/.config/kilo/kilo.json (root 'mcp', entry type 'local' command ARRAY + environment) — kilo.json and kilo-cli's kilo.jsonc MERGE. Also authors COMMANDS + SUBAGENTS under .kilocode/ and SKILLS under .kilo/skills/. Bridge shells to <homeBin> hook kilo <event> --connector <id>; formatReply emits the NORMALIZED HookResponse. ask degrades to thrown block.",
+      "Kilo Code VS Code extension (DISTINCT from kilo-cli, but the 7.x line is rebuilt ON the Kilo CLI server, so it shares the ts-plugin hook layer). EVENT_TO_KILO identical to kilo-cli: PreToolUse->tool.execute.before, PostToolUse->tool.execute.after, SessionStart->experimental.chat.system.transform, UserPromptSubmit->chat.message (push a {type:'text'} part onto output.parts to inject additionalContext; no block/abort so deny degrades to a no-op), PermissionRequest->permission.ask (decision-capable gate that MUTATES output.status 'ask'|'deny'|'allow'), Stop->session.idle ('session finished responding' — NOT a direct hook key; dispatched through the generic `event` hook switching on event.type, a deny throws to halt). SessionEnd/PreCompact/Notification + PostToolUseFailure/SubagentStart/SubagentStop null. installHooks writes the generated plugin module to .kilo/plugin/<id>.js (project) / ~/.config/kilo/plugin/<id>.js (user) AND registers the path in kilo.json's top-level 'plugin' array (mirrors kilo-cli). MCP shares the kilo backend: ~/.config/kilo/kilo.json (root 'mcp', entry type 'local' command ARRAY + environment) — kilo.json and kilo-cli's kilo.jsonc MERGE. Also authors COMMANDS + SUBAGENTS under .kilocode/ and SKILLS under .kilo/skills/. Bridge shells to <homeBin> hook kilo <event> --connector <id>; formatReply emits the NORMALIZED HookResponse. ask degrades to a thrown block on tool.execute.before.",
   },
   {
     platform: "mux",

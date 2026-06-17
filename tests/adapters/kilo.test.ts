@@ -611,3 +611,138 @@ describe("kilo adapter runtime dispatch — parseEvent + formatReply round-trip"
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// New canonical events: UserPromptSubmit / PermissionRequest / Stop
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A connector declaring the three newly-wired canonical hook events. */
+function buildNewEventsConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme Kilo New Events",
+    version: "1.0.0",
+    hooks: {
+      UserPromptSubmit: { handler: () => ({ decision: "allow" }) },
+      PermissionRequest: { handler: () => ({ decision: "allow" }) },
+      Stop: { handler: () => ({ decision: "allow" }) },
+    },
+  });
+}
+
+describe("kilo adapter — new canonical events (capabilities + wiring)", () => {
+  it("capability flags for the three new events are true", () => {
+    expect(kiloAdapter.capabilities.userPromptSubmit).toBe(true);
+    expect(kiloAdapter.capabilities.permissionRequest).toBe(true);
+    expect(kiloAdapter.capabilities.stop).toBe(true);
+  });
+
+  it("generated plugin registers chat.message, permission.ask, and an event-hook session.idle branch", () => {
+    const projectDir = freshProject("ac-kilo-newev-");
+    const ctx = buildCtx(projectDir, buildNewEventsConnector());
+    kiloAdapter.installHooks(ctx);
+    const src = readFileSync(kiloAdapter.getHookConfigPath(ctx), "utf8");
+
+    expect(src).toContain('"chat.message": async (input, output) =>');
+    expect(src).toContain('"permission.ask": async (input, output) =>');
+    expect(src).toContain("event: async ({ event }) =>");
+    expect(src).toContain('event.type !== "session.idle"');
+    // The bridge dispatches each new canonical event by name.
+    expect(src).toContain('bridge("UserPromptSubmit"');
+    expect(src).toContain('bridge("PermissionRequest"');
+    expect(src).toContain('bridge("Stop"');
+  });
+
+  it("parseEvent maps a UserPromptSubmit payload (prompt passthrough)", () => {
+    const evt = kiloAdapter.parseEvent!("UserPromptSubmit", {
+      prompt: "hello kilo",
+      sessionId: "kilo-up",
+    });
+    expect(evt).toMatchObject({
+      hostPlatform: "kilo",
+      prompt: "hello kilo",
+      sessionId: "kilo-up",
+    });
+  });
+
+  it("parseEvent maps a PermissionRequest payload (tool name + input)", () => {
+    const evt = kiloAdapter.parseEvent!("PermissionRequest", {
+      toolName: "bash",
+      toolInput: { command: "rm -rf /" },
+      sessionId: "kilo-pr",
+    });
+    expect(evt).toMatchObject({
+      hostPlatform: "kilo",
+      toolName: "bash",
+      toolInput: { command: "rm -rf /" },
+    });
+  });
+
+  it("parseEvent maps a Stop payload", () => {
+    const evt = kiloAdapter.parseEvent!("Stop", { sessionId: "kilo-stop" });
+    expect(evt).toMatchObject({ hostPlatform: "kilo", sessionId: "kilo-stop" });
+  });
+});
+
+describe("kilo generated plugin — new event handlers (live, child_process mocked)", () => {
+  let projectDir: string;
+  let pluginPath: string;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-kilo-newev-live-");
+    const ctx = buildCtx(projectDir, buildNewEventsConnector());
+    kiloAdapter.installHooks(ctx);
+    pluginPath = kiloAdapter.getHookConfigPath(ctx);
+    expect(existsSync(pluginPath)).toBe(true);
+  });
+
+  async function loadPlugin(): Promise<any> {
+    const url = `${pathToFileURL(pluginPath).href}?t=${Date.now()}-${Math.random()}`;
+    return import(/* @vite-ignore */ url);
+  }
+
+  it("permission.ask mutates output.status to 'deny' on a deny decision", async () => {
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "no" });
+    const mod = await loadPlugin();
+    const hooks = await mod.default.server({ directory: projectDir });
+
+    const output: any = { status: "ask" };
+    await hooks["permission.ask"]({ type: "bash", sessionID: "s1" }, output);
+    expect(output.status).toBe("deny");
+
+    const [, argv] = execFileSyncMock.mock.calls[0]!;
+    expect(argv).toEqual(["hook", "kilo", "PermissionRequest", "--connector", CONNECTOR_ID]);
+  });
+
+  it("the event hook bridges Stop only for session.idle and throws on a deny decision", async () => {
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "stay" });
+    const mod = await loadPlugin();
+    const hooks = await mod.default.server({ directory: projectDir });
+
+    // A non-idle event is ignored (no bridge call, no throw).
+    await expect(
+      hooks.event({ event: { type: "session.updated", properties: {} } }),
+    ).resolves.toBeUndefined();
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+
+    // session.idle bridges Stop; a deny decision throws.
+    await expect(
+      hooks.event({ event: { type: "session.idle", properties: { sessionID: "s2" } } }),
+    ).rejects.toThrow();
+    const [, argv] = execFileSyncMock.mock.calls[0]!;
+    expect(argv).toEqual(["hook", "kilo", "Stop", "--connector", CONNECTOR_ID]);
+  });
+
+  it("chat.message pushes additionalContext as a text part on output.parts", async () => {
+    execFileSyncImpl = () => JSON.stringify({ additionalContext: "INJECTED" });
+    const mod = await loadPlugin();
+    const hooks = await mod.default.server({ directory: projectDir });
+
+    const output: any = { parts: [{ type: "text", text: "hi" }] };
+    await hooks["chat.message"]({ sessionID: "s3" }, output);
+    expect(output.parts).toContainEqual({ type: "text", text: "INJECTED" });
+
+    const [, argv] = execFileSyncMock.mock.calls[0]!;
+    expect(argv).toEqual(["hook", "kilo", "UserPromptSubmit", "--connector", CONNECTOR_ID]);
+  });
+});

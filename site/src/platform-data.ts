@@ -124,14 +124,14 @@ const s = (
  *     host-specific equivalent — Amazon Q reads .amazonq/rules, Continue reads
  *     .continue Rules, Windsurf reads .windsurfrules/global rules).
  *     hostNative.memory=true everywhere.
- *   - hooks: the 24 json-stdio/ts-plugin hosts all expose a native hook or
+ *   - hooks: the 25 json-stdio/ts-plugin hosts all expose a native hook or
  *     plugin layer (hook survey + Continue's PR #11029 Claude-compatible hooks,
- *     which promoted it out of mcp-only). Of the 11 remaining "mcp-only" hosts
- *     the survey lists as hook-less, TWO are gaps: Amp ships a TypeScript plugin
- *     system with thread-lifecycle events (ampcode.com/manual, Plugins) and
- *     Amazon Q has the agent-format hooks layer (cli-agents/*.json) — both are
- *     hostNative.hooks=true (our gaps); the other nine stay false (Windsurf
- *     among them — no user-installable host hook layer).
+ *     which promoted it out of mcp-only; Amp's .amp/plugins/*.ts TS-plugin API
+ *     with thread-lifecycle events — ampcode.com/manual, Plugins — which promoted
+ *     it to ts-plugin). Of the 10 remaining "mcp-only" hosts the survey lists as
+ *     hook-less, ONE is a gap: Amazon Q has the agent-format hooks layer
+ *     (cli-agents/*.json) — hostNative.hooks=true (our gap); the other nine stay
+ *     false (Windsurf among them — no user-installable host hook layer).
  *   - skills: native SKILL.md readers verified by the release audit + official
  *     docs: claude-code, codex, cursor, vscode-copilot, copilot-cli,
  *     gemini-cli, opencode, antigravity(+cli), pi, jetbrains-copilot, PLUS the
@@ -188,7 +188,8 @@ const s = (
  *     defaulted; WASM slash-command extensions target the legacy Assistant,
  *     not the current agent panel]; subagents=false [low; settings.json
  *     "profiles" are tool-sets, not subagents].
- *   - amp: hooks=true [high, supersedes stale corpus] + subagents=true
+ *   - amp: hooks=true [high] — WIRED as ts-plugin (.amp/plugins/<id>.ts;
+ *     session.start/agent.start/tool.call/tool.result/agent.end). subagents=true
  *     [medium-high, EXPERIMENTAL amp.experimental.createAgent plugin API] +
  *     skills=true [high] — all ampcode.com/manual; commands=false [medium]:
  *     no chat slash-command surface (plugin registerCommand() adds
@@ -391,12 +392,13 @@ export const platforms: Platform[] = [
   {
     id: "amp",
     name: "Amp",
-    paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true, false, false),
-    // skills wired (~/.config/agents/skills | .agents/skills, SKILL.md).
-    // REMAINING GAPS (adversarially verified): hooks = experimental Bun TS-plugin
-    // API only (.amp/plugins/*.ts — no declarative hook file); subagents =
-    // experimental amp.experimental.createAgent / role-specific .agents/checks.
+    paradigm: "ts-plugin",
+    surfaces: s(true, true, false, true, false, true, false, false),
+    // hooks wired via the .amp/plugins/<id>.ts TS-plugin API: session.start /
+    // agent.start / tool.call / tool.result / agent.end → 5 canonical events
+    // (no session.end). skills wired (~/.config/agents/skills | .agents/skills).
+    // REMAINING GAP (adversarially verified): subagents = experimental
+    // amp.experimental.createAgent / role-specific .agents/checks.
     // ampcode.com/manual. N/A: commands.
     hostNative: s(true, true, false, true, true, true, false, false),
   },
@@ -404,10 +406,10 @@ export const platforms: Platform[] = [
     id: "codebuff",
     name: "Codebuff",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true, false, false),
+    surfaces: s(true, false, false, true, true, true, false, false),
     // skills wired (.agents/skills, AgentSkills — docs + load-skills.ts verified).
-    // GAP: subagents are executable .agents/*.ts AgentDefinition modules (not
-    // markdown) — confirmed real, deferred (SDK-schema-coupled render).
+    // subagents wired: project-scoped .agents/<id>.ts AgentDefinition modules
+    // (default-exported object, no type-only import) — codebuff docs verified.
     hostNative: s(true, false, false, true, true, true, false, false),
   },
   {
