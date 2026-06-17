@@ -1,7 +1,8 @@
 /**
  * tests/adapters/extended-events-batch2 — E1 extension-event wiring for the
- * openclaw / droid / hermes adapters (PermissionRequest, PostToolUseFailure,
- * SubagentStart, SubagentStop). (goose now lives in adapters/goose.test.ts.)
+ * openclaw / droid adapters (PermissionRequest, PostToolUseFailure,
+ * SubagentStart, SubagentStop). (goose now lives in adapters/goose.test.ts;
+ * hermes now lives in adapters/hermes.test.ts.)
  *
  * Per host this pins three things (mirroring extended-events-batch.test.ts):
  *   • installHooks — which of the four events register natively (and under
@@ -15,14 +16,11 @@
  *                  reported as "unsupported here".
  *       droid    → SubagentStop only (stop-only host, PascalCase 1:1); the
  *                  other three warn-skip.
- *       hermes   → subagent_stop only (snake_case native key); PermissionRequest
- *                  warn-skips because pre_approval_request is OBSERVE-ONLY (no
- *                  decision control); PostToolUseFailure / SubagentStart too.
  *   • parseEvent — wire → normalized mapping incl. the optional-field quirks
- *     (SubagentStop may arrive WITHOUT agent_type; hermes child_id fallback;
- *     openclaw bridge payload drops empty strings).
+ *     (SubagentStop may arrive WITHOUT agent_type; openclaw bridge payload
+ *     drops empty strings).
  *   • formatReply — per-event decision semantics: Stop semantics on SubagentStop
- *     (droid/hermes deny → TOP-LEVEL {decision:"block",reason}), and openclaw's
+ *     (droid deny → TOP-LEVEL {decision:"block",reason}), and openclaw's
  *     pass-the-normalized-response-verbatim bridge contract.
  *
  * The openclaw bridge is exercised LIVE (generated module imported with
@@ -38,7 +36,6 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
-import { readYaml } from "../../src/core/yaml.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   ResolvedConnector,
@@ -48,7 +45,6 @@ import type {
 
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
 import droidAdapter from "../../src/adapters/droid/index.js";
-import hermesAdapter from "../../src/adapters/hermes/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // node:child_process mock — hoisted above every import by vitest. Only the
@@ -567,90 +563,4 @@ describe("droid — lifecycle-event parse + replies", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────
-// Hermes — stop-only subagent host; pre_approval_request is observe-only
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("hermes — extended-event install", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector(), "user");
-  });
-
-  it("registers the native snake_case 'subagent_stop' key with the agent matcher; the other three warn-skip", () => {
-    const changes = hermesAdapter.installHooks(ctx);
-
-    const configPath = join(projectDir, ".hermes", "config.yaml");
-    expect(existsSync(configPath)).toBe(true);
-    const cfg = readYaml<Record<string, any>>(configPath)!;
-
-    const bucket = cfg.hooks.subagent_stop;
-    expect(Array.isArray(bucket)).toBe(true);
-    expect(bucket[0].matcher).toBe(AGENT_MATCHER);
-    // The command keeps the CANONICAL event token; only the YAML key is native.
-    expect(bucket[0].command).toContain("hook hermes SubagentStop");
-    expect(cfg.hooks.SubagentStop).toBeUndefined();
-
-    // PermissionRequest is the deliberate exclusion: pre_approval_request is
-    // observe-only (no decision control), so the event warn-skips — as do
-    // PostToolUseFailure (merged into post_tool_call) and SubagentStart.
-    for (const event of ["PermissionRequest", "PostToolUseFailure", "SubagentStart"]) {
-      const warn = changes.find((c) => c.action === "warn" && c.detail?.includes(event));
-      expect(warn).toBeTruthy();
-      expect(warn!.detail).toContain("no Hermes hook equivalent");
-    }
-  });
-});
-
-describe("hermes — extended-event parse + replies", () => {
-  const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
-
-  it("SubagentStop maps agent fields (child_id fallback) and tolerates missing agent_type", () => {
-    const evt = hermesAdapter.parseEvent!("SubagentStop", {
-      ...COMMON,
-      agent_id: "agent-7",
-      agent_type: "code-reviewer",
-      last_assistant_message: "done",
-    }) as SubagentStopEvent;
-    expect(evt.hostPlatform).toBe("hermes");
-    expect(evt.agentId).toBe("agent-7");
-    expect(evt.agentType).toBe("code-reviewer");
-    expect(evt.lastAssistantMessage).toBe("done");
-
-    // Hermes-native child_* names: child_id backs agentId; child_status stays
-    // accessible via raw.
-    const native = hermesAdapter.parseEvent!("SubagentStop", {
-      ...COMMON,
-      child_id: "child-3",
-      child_status: "completed",
-    }) as SubagentStopEvent;
-    expect(native.agentId).toBe("child-3");
-    expect(native.agentType).toBeUndefined();
-    expect((native.raw as any).child_status).toBe("completed");
-  });
-
-  it("PermissionRequest / PostToolUseFailure / SubagentStart throw (no decision-capable analog)", () => {
-    for (const event of ["PermissionRequest", "PostToolUseFailure", "SubagentStart"] as const) {
-      expect(() => hermesAdapter.parseEvent!(event, COMMON)).toThrow(
-        /unsupported hermes hook event/,
-      );
-    }
-  });
-
-  it("SubagentStop deny → TOP-LEVEL {decision:'block', reason}; PreToolUse deny is unchanged (regression guard)", () => {
-    const subagent = parseStdout(
-      hermesAdapter.formatReply!("SubagentStop", { decision: "deny", reason: "keep going" }),
-    );
-    expect(subagent).toEqual({ decision: "block", reason: "keep going" });
-    expect(subagent.hookSpecificOutput).toBeUndefined();
-
-    const pre = parseStdout(
-      hermesAdapter.formatReply!("PreToolUse", { decision: "deny", reason: "nope" }),
-    );
-    expect(pre.hookSpecificOutput.permissionDecision).toBe("deny");
-  });
-});
 
