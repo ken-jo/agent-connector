@@ -406,10 +406,10 @@ export const platforms: Platform[] = [
     id: "codebuff",
     name: "Codebuff",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true, false, false),
+    surfaces: s(true, false, false, true, true, true, false, false),
     // skills wired (.agents/skills, AgentSkills — docs + load-skills.ts verified).
-    // GAP: subagents are executable .agents/*.ts AgentDefinition modules (not
-    // markdown) — confirmed real, deferred (SDK-schema-coupled render).
+    // subagents wired: project-scoped .agents/<id>.ts AgentDefinition modules
+    // (default-exported object, no type-only import) — codebuff docs verified.
     hostNative: s(true, false, false, true, true, true, false, false),
   },
   {

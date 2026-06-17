@@ -34,6 +34,7 @@ import type {
   PlatformId,
   ServerDef,
   SkillDef,
+  SubagentDef,
   Transport,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
@@ -76,6 +77,20 @@ function rewriteEnvRefsDeep<T>(value: T): T {
     return out as T;
   }
   return value;
+}
+
+/**
+ * Render one AgentDefinition field as a `  key: value,` line for the emitted
+ * `.agents/<id>.ts` module. The value is serialized with JSON.stringify (correct
+ * string/array/object escaping); a known-identifier key is emitted unquoted, and
+ * anything else (only reachable via `extra`) is quoted. Multi-line JSON (arrays /
+ * nested objects) is reindented so it sits under the 2-space object body.
+ */
+function renderAgentField(key: string, value: unknown): string {
+  const k = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
+  const json = JSON.stringify(value, null, 2);
+  const v = json.includes("\n") ? json.replace(/\n/g, "\n  ") : json;
+  return `  ${k}: ${v},`;
 }
 
 /**
@@ -123,10 +138,14 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     // sdk/src/skills/load-skills.ts — the frontmatter `name` MUST equal the dir
     // name. Commands have no native Codebuff surface. Subagents ARE natively
     // supported — executable .agents/*.ts AgentDefinition modules (codebuff docs:
-    // "Create a new TypeScript file in .agents/") — but rendering one is coupled
-    // to the codebuff SDK's AgentDefinition schema, so supportsSubagents stays
-    // false (deferred), NOT because the surface is absent.
+    // "Create a new TypeScript file in .agents/") — and are now WIRED:
+    // installSubagents emits one `.agents/<id>.ts` AgentDefinition module per
+    // declared subagent (PROJECT scope; see renderSubagent), each
+    // default-exporting the AgentDefinition object WITHOUT the type-only
+    // `agent-definition` import (erased at runtime; emitting it would only couple
+    // the module to a generated types file that may not exist).
     supportsSkills: true,
+    supportsSubagents: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -371,6 +390,111 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     return this.renderFrontmatterMd(frontmatter, skill.body);
   }
 
+  // ── Content surfaces: subagents ───────────────────────────────────────────
+  // CONTENT-ONLY: pure native-file writers (no runtime dispatch, no home-bin
+  // pointer, no telemetry wrap). Idempotent via writeContentFile, reversible via
+  // removeContentFile. Honors platforms["codebuff"].subagents === false.
+  //
+  // Native location: codebuff agents are executable TypeScript modules in the
+  // PROJECT .agents/ dir — <projectDir>/.agents/<id>.ts (codebuff docs:
+  // "Create a new TypeScript file in .agents/"). No user-scope agents dir is
+  // documented, so user scope warn-skips (the warp/amp project-scoped precedent).
+
+  /** Native subagent module path: <configDir>/<name>.ts (= .agents/<name>.ts). */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), `${name}.ts`);
+  }
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for codebuff" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    // codebuff agents live in the PROJECT .agents/ dir; no user-scope agents dir
+    // is documented, so user scope warn-skips (mirrors warp/amp project-scoped).
+    if (ctx.scope !== "project") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail:
+            "codebuff subagents are project-scoped only (.agents/*.ts; no documented " +
+            `user-scope agents dir); ${connector.subagents.length} skipped`,
+        },
+      ];
+    }
+    return connector.subagents.map((agent) =>
+      this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    if (ctx.scope !== "project") {
+      return [
+        { platform: this.id, action: "skip", detail: "codebuff subagents are project-scoped only" },
+      ];
+    }
+    return connector.subagents.map((agent) =>
+      this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a subagent into a Codebuff `.agents/<id>.ts` AgentDefinition module:
+   *
+   *   const definition = {
+   *     id: "<name>",
+   *     ...
+   *   };
+   *
+   *   export default definition;
+   *
+   * Emitted WITHOUT the `import { AgentDefinition } from './types/agent-definition'`
+   * line the docs show: that import is TYPE-ONLY (erased at runtime), so omitting
+   * it avoids coupling the module to a generated types file that may not exist —
+   * a bare object literal + default export is a complete, valid AgentDefinition.
+   *
+   * Field mapping (ONLY fields AC's SubagentDef can populate; nothing fabricated):
+   *   id                 ← name (already kebab-case → a valid codebuff id)
+   *   displayName        ← name
+   *   spawnerPrompt      ← description (the delegation hint)
+   *   model              ← model        (OMITTED when the connector declares none)
+   *   toolNames          ← tools.allow  (OMITTED when none declared)
+   *   instructionsPrompt ← prompt       (the system prompt / instructions body)
+   * `extra` is merged LAST as the documented escape hatch — the only way to reach
+   * codebuff AgentDefinition fields AC does not model (version, outputMode,
+   * spawnableAgents, inputSchema, …); its values come from the connector author,
+   * never invented here.
+   */
+  private renderSubagent(agent: SubagentDef): string {
+    const def: Record<string, unknown> = {
+      id: agent.name,
+      displayName: agent.name,
+      spawnerPrompt: agent.description,
+    };
+    if (agent.model !== undefined) def.model = agent.model;
+    const allow = agent.tools?.allow;
+    if (allow && allow.length > 0) def.toolNames = [...allow];
+    def.instructionsPrompt = agent.prompt;
+    if (agent.extra) Object.assign(def, agent.extra);
+
+    const body = Object.entries(def)
+      .map(([k, v]) => renderAgentField(k, v))
+      .join("\n");
+    return `const definition = {\n${body}\n};\n\nexport default definition;\n`;
+  }
+
   // ── Hooks (unavailable — Codebuff is mcp-only) ────────────────────────────
 
   installHooks(_ctx: InstallContext): ChangeRecord[] {
@@ -438,6 +562,18 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
         check: () =>
           existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
       });
+    }
+    // Subagent checks: codebuff agents are PROJECT-scoped .agents/*.ts modules,
+    // so assert presence only at project scope (user scope warn-skips install).
+    if (ctx.scope === "project") {
+      for (const agent of ctx.connector.subagents) {
+        const p = this.subagentPath(ctx, agent.name);
+        checks.push({
+          name: `${this.name}: subagent ${agent.name} present`,
+          check: () =>
+            existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+        });
+      }
     }
     return checks;
   }
