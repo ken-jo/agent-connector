@@ -1,9 +1,10 @@
 /**
  * adapters/wave1-render — render + round-trip tests for the Wave-1 `mcp-only`
- * adapters: droid, roo-code, trae, zed, codebuff, mux. (antigravity has since
- * been upgraded to json-stdio with a hooks.json + content surfaces, so its block
+ * adapters: roo-code, trae, zed, codebuff, mux. (antigravity has since been
+ * upgraded to json-stdio with a hooks.json + content surfaces, so its block
  * below asserts the hook-dispatch contract, not the mcp-only skip. amp moved to
- * its own per-host file tests/adapters/amp.test.ts.)
+ * its own per-host file tests/adapters/amp.test.ts; droid moved to
+ * tests/adapters/droid.test.ts.)
  *
  * Each is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/phase3 pattern:
@@ -16,7 +17,7 @@
  *   • uninstallServer → entry removed (re-read from disk confirms gone).
  *
  * Per-adapter root-key contract asserted here:
- *   droid / roo-code / trae / antigravity / codebuff → "mcpServers"
+ *   roo-code / trae / antigravity / codebuff → "mcpServers"
  *   zed       → "context_servers"
  *   mux       → "servers", value is a STRING (space-joined shell command)
  *
@@ -39,7 +40,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-import droidAdapter from "../../src/adapters/droid/index.js";
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 import traeAdapter from "../../src/adapters/trae/index.js";
 import antigravityAdapter from "../../src/adapters/antigravity/index.js";
@@ -161,87 +161,6 @@ const wrappedArgs = (host: string): string[] => [
   "-y",
   "@x/y",
 ];
-
-// ─────────────────────────────────────────────────────────────────────────
-// droid (root key "mcpServers"; { type:"stdio", ..., disabled })
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("droid adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave1-droid-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes mcpServers.<id> into .factory/mcp.json, wrapped, env LITERAL", () => {
-    const changes = droidAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".factory", "mcp.json");
-    expect(serverPath).toBe(droidAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.type).toBe("stdio");
-    expect(entry.disabled).toBe(false);
-
-    // Telemetry serve-wrapper: command points at the home binary.
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("droid"));
-
-    // No native interpolation token → env-ref resolves to a LITERAL value.
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks writes a SEPARATE .factory/hooks.json (nested-rule) with the PreToolUse entry", () => {
-    const changes = droidAdapter.installHooks(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const hooksPath = droidAdapter.getHookConfigPath(ctx);
-    // Hook file is SEPARATE from the MCP config file (hooks.json, not mcp.json).
-    expect(hooksPath).not.toBe(droidAdapter.getServerConfigPath(ctx));
-    expect(hooksPath).toBe(join(projectDir, ".factory", "hooks.json"));
-    expect(existsSync(hooksPath)).toBe(true);
-
-    const file = readJson(hooksPath);
-    const entry = file.hooks?.PreToolUse?.[0];
-    expect(entry).toBeTruthy();
-    expect(entry.matcher).toBe("acme_query|acme_write");
-    expect(entry.hooks[0].type).toBe("command");
-    expect(entry.hooks[0].command).toContain(HOME_BIN);
-    expect(entry.hooks[0].command).toContain("hook droid PreToolUse");
-    expect(entry.hooks[0].command).toContain(`--connector ${CONNECTOR_ID}`);
-  });
-
-  it("uninstallHooks removes our droid hook entry (re-read confirms gone)", () => {
-    droidAdapter.installHooks(ctx);
-    droidAdapter.uninstallHooks(ctx);
-    const file = readJson(droidAdapter.getHookConfigPath(ctx));
-    expect(file.hooks?.PreToolUse).toBeUndefined();
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    droidAdapter.installServer(ctx);
-    const second = droidAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".factory", "mcp.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry (re-read confirms gone)", () => {
-    droidAdapter.installServer(ctx);
-    droidAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".factory", "mcp.json"));
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // roo-code (root key "mcpServers"; project → .roo/mcp.json)

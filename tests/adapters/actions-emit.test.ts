@@ -1,18 +1,16 @@
 /**
- * tests/adapters/actions-emit — the action-surface EMITTERS (droid/warp).
- * (hermes now lives in adapters/hermes.test.ts.)
+ * tests/adapters/actions-emit — the action-surface EMITTER for warp.
+ * (droid now lives in adapters/droid.test.ts; hermes now lives in
+ * adapters/hermes.test.ts.)
  *
  * Each emitter installs a user-invokable host trigger that runs the home-bin
  * action verb (`<homeBin> action <host> <id> --connector <id>`):
  *   • warp   → one OWNED YAML workflow per action at <cfg>/workflows/<id>.yaml
  *     ({ name, command, description }; palette pastes the command — not exec).
- *   • droid  → an OWNED executable file at <cfg>/commands/<id> (no .md ext):
- *     shebang + `exec <verb> "$@"`, mode 0o755. win32 → skip-warn (unverified).
  *
- * Asserts: exact trigger bytes, idempotency, reversible uninstall (warp/droid
- * remove the owned file), per-platform actions===false opt-out, empty-actions
- * skip, and the stamped ChangeRecord platform. HOME-isolated (mkdtemp) +
- * deterministic.
+ * Asserts: exact trigger bytes, idempotency, reversible uninstall (warp removes
+ * the owned file), per-platform actions===false opt-out, empty-actions skip, and
+ * the stamped ChangeRecord platform. HOME-isolated (mkdtemp) + deterministic.
  */
 
 import {
@@ -20,7 +18,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,16 +30,10 @@ import { buildHomeBinActionCommand } from "../../src/core/spawn.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ActionDef, ResolvedConnector } from "../../src/core/types.js";
 
-import droidAdapter from "../../src/adapters/droid/index.js";
 import warpAdapter from "../../src/adapters/warp/index.js";
 
 const HOME_BIN = "/fake/home/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme";
-
-// The REAL host OS, captured before any per-test process.platform stub. Used to
-// gate POSIX-only filesystem assertions (Windows cannot represent the Unix exec
-// bit, so `chmod 0o755` is a no-op there).
-const REAL_PLATFORM = process.platform;
 
 const SAVED = {
   HOME: process.env.HOME,
@@ -178,94 +169,6 @@ describe("warp — actions emitter", () => {
   it("skips silently when no actions are declared", () => {
     const ctx = buildCtx(defineConnector({ id: CONNECTOR_ID, skills: [{ name: "s", description: "d", body: "b" }] }), "project");
     const changes = warpAdapter.installActions!(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]!.action).toBe("skip");
-    expect(changes[0]!.detail).toContain("declares no actions");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// droid — OWNED executable command file (no .md ext), shebang + exec, 0o755
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("droid — actions emitter", () => {
-  const filePath = (id: string) => join(tmpProject, ".factory", "commands", id);
-
-  // Pin a POSIX platform so the exec-file (shebang) path runs deterministically
-  // on ANY CI host (incl. the native Windows runner) — the win32 skip-warn is
-  // exercised by its own test below that stubs "win32" explicitly.
-  let platformSpy: ReturnType<typeof vi.spyOn>;
-  beforeEach(() => {
-    platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
-  });
-  afterEach(() => platformSpy.mockRestore());
-
-  it("advertises supportsActions", () => {
-    expect(droidAdapter.capabilities.supportsActions).toBe(true);
-  });
-
-  it("installActions writes an executable shebang exec-file with the verb (mode 0o755)", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "project");
-    const changes = droidAdapter.installActions!(ctx);
-    expect(changes.every((c) => c.platform === "droid")).toBe(true);
-    expect(changes[0]!.action).toBe("create");
-
-    const body = readFileSync(filePath("deploy"), "utf8");
-    expect(body).toBe(`#!/usr/bin/env sh\nexec ${verb("droid", "deploy")} "$@"\n`);
-    // Executable bit set (POSIX only — a real Windows host cannot represent the
-    // exec bit, and production skip-warns droid actions on win32 anyway).
-    if (REAL_PLATFORM !== "win32") {
-      expect(statSync(filePath("deploy")).mode & 0o777).toBe(0o755);
-    }
-    // NO .md extension is written (it would collide with the command surface).
-    expect(existsSync(`${filePath("deploy")}.md`)).toBe(false);
-  });
-
-  it("is idempotent (second install → skip, bytes unchanged)", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "project");
-    droidAdapter.installActions!(ctx);
-    const before = readFileSync(filePath("deploy"), "utf8");
-    const changes = droidAdapter.installActions!(ctx);
-    expect(changes[0]!.action).toBe("skip");
-    expect(readFileSync(filePath("deploy"), "utf8")).toBe(before);
-  });
-
-  it("uninstallActions removes the owned file", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "project");
-    droidAdapter.installActions!(ctx);
-    expect(existsSync(filePath("deploy"))).toBe(true);
-    const changes = droidAdapter.uninstallActions!(ctx);
-    expect(changes[0]!.action).toBe("remove");
-    expect(existsSync(filePath("deploy"))).toBe(false);
-  });
-
-  it("skip-warns and writes NOTHING on win32 (exec-file interp unverified)", () => {
-    const spy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    try {
-      const ctx = buildCtx(actionsConnector([DEPLOY, ROLLBACK]), "project");
-      const changes = droidAdapter.installActions!(ctx);
-      expect(changes).toHaveLength(1);
-      expect(changes[0]!.action).toBe("warn");
-      expect(changes[0]!.detail).toContain("unverified on Windows");
-      expect(changes[0]!.detail).toContain("2 skipped");
-      expect(existsSync(filePath("deploy"))).toBe(false);
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it("honors platforms.droid.actions === false (opt-out)", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY], { droid: { actions: false } }), "project");
-    const changes = droidAdapter.installActions!(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]!.action).toBe("skip");
-    expect(changes[0]!.detail).toContain("disabled for droid");
-    expect(existsSync(filePath("deploy"))).toBe(false);
-  });
-
-  it("skips silently when no actions are declared", () => {
-    const ctx = buildCtx(defineConnector({ id: CONNECTOR_ID, commands: [{ name: "n", prompt: "p" }] }), "project");
-    const changes = droidAdapter.installActions!(ctx);
     expect(changes).toHaveLength(1);
     expect(changes[0]!.action).toBe("skip");
     expect(changes[0]!.detail).toContain("declares no actions");

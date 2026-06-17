@@ -1,8 +1,8 @@
 /**
  * tests/adapters/extended-events-batch2 — E1 extension-event wiring for the
- * openclaw / droid adapters (PermissionRequest, PostToolUseFailure,
- * SubagentStart, SubagentStop). (goose now lives in adapters/goose.test.ts;
- * hermes now lives in adapters/hermes.test.ts.)
+ * openclaw adapter (PermissionRequest, PostToolUseFailure, SubagentStart,
+ * SubagentStop). (droid now lives in adapters/droid.test.ts; goose now lives in
+ * adapters/goose.test.ts; hermes now lives in adapters/hermes.test.ts.)
  *
  * Per host this pins three things (mirroring extended-events-batch.test.ts):
  *   • installHooks — which of the four events register natively (and under
@@ -14,13 +14,9 @@
  *                  RETURN VALUE of before_tool_call, not an event) and
  *                  PostToolUseFailure (merged into after_tool_call) are
  *                  reported as "unsupported here".
- *       droid    → SubagentStop only (stop-only host, PascalCase 1:1); the
- *                  other three warn-skip.
  *   • parseEvent — wire → normalized mapping incl. the optional-field quirks
- *     (SubagentStop may arrive WITHOUT agent_type; openclaw bridge payload
- *     drops empty strings).
- *   • formatReply — per-event decision semantics: Stop semantics on SubagentStop
- *     (droid deny → TOP-LEVEL {decision:"block",reason}), and openclaw's
+ *     (openclaw bridge payload drops empty strings).
+ *   • formatReply — per-event decision semantics: openclaw's
  *     pass-the-normalized-response-verbatim bridge contract.
  *
  * The openclaw bridge is exercised LIVE (generated module imported with
@@ -44,7 +40,6 @@ import type {
 } from "../../src/core/types.js";
 
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
-import droidAdapter from "../../src/adapters/droid/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // node:child_process mock — hoisted above every import by vitest. Only the
@@ -160,15 +155,6 @@ function freshProject(): string {
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   return dir;
-}
-
-function readJson(path: string): Record<string, any> {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function parseStdout(reply: { exitCode: number; stdout?: string }): any {
-  expect(reply.stdout).toBeTruthy();
-  return JSON.parse(reply.stdout!);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -339,228 +325,3 @@ describe("openclaw — extended-event parse + reply", () => {
     expect(JSON.parse(reply.stdout!)).toEqual({ decision: "deny", reason: "keep going" });
   });
 });
-
-// ─────────────────────────────────────────────────────────────────────────
-// Droid (Factory) — stop-only subagent host
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("droid — extended-event install", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("registers hooks.SubagentStop (PascalCase, nested rule + agent matcher); the other three warn-skip", () => {
-    const changes = droidAdapter.installHooks(ctx);
-
-    const hooksPath = join(projectDir, ".factory", "hooks.json");
-    expect(existsSync(hooksPath)).toBe(true);
-    const cfg = readJson(hooksPath);
-
-    const bucket = cfg.hooks.SubagentStop;
-    expect(Array.isArray(bucket)).toBe(true);
-    expect(bucket[0].matcher).toBe(AGENT_MATCHER);
-    expect(bucket[0].hooks[0].command).toContain("hook droid SubagentStop");
-
-    for (const event of ["PermissionRequest", "PostToolUseFailure", "SubagentStart"]) {
-      const warn = changes.find((c) => c.action === "warn" && c.detail?.includes(event));
-      expect(warn).toBeTruthy();
-      expect(warn!.detail).toContain("no Droid hook equivalent");
-      expect(cfg.hooks[event]).toBeUndefined();
-    }
-  });
-});
-
-describe("droid — extended-event parse + replies", () => {
-  const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
-
-  it("SubagentStop maps the Claude-compatible fields and tolerates missing agent_type", () => {
-    const evt = droidAdapter.parseEvent!("SubagentStop", {
-      ...COMMON,
-      agent_id: "agent-7",
-      agent_transcript_path: "/x/subagents/agent-7.jsonl",
-      last_assistant_message: "review complete",
-      stop_hook_active: true,
-    }) as SubagentStopEvent;
-    expect(evt.hostPlatform).toBe("droid");
-    expect(evt.agentId).toBe("agent-7");
-    expect(evt.agentType).toBeUndefined();
-    expect(evt.agentTranscriptPath).toBe("/x/subagents/agent-7.jsonl");
-    expect(evt.lastAssistantMessage).toBe("review complete");
-    expect(evt.stopHookActive).toBe(true);
-    expect(evt.projectDir).toBe("/home/dev/acme");
-  });
-
-  it("PermissionRequest / PostToolUseFailure / SubagentStart throw (no Droid analog)", () => {
-    for (const event of ["PermissionRequest", "PostToolUseFailure", "SubagentStart"] as const) {
-      expect(() => droidAdapter.parseEvent!(event, COMMON)).toThrow(
-        /unsupported droid hook event/,
-      );
-    }
-  });
-
-  it("SubagentStop deny → TOP-LEVEL {decision:'block', reason}; Stop deny is unchanged (regression guard)", () => {
-    const subagent = parseStdout(
-      droidAdapter.formatReply!("SubagentStop", { decision: "deny", reason: "keep going" }),
-    );
-    expect(subagent).toEqual({ decision: "block", reason: "keep going" });
-    expect(subagent.hookSpecificOutput).toBeUndefined();
-
-    const stop = parseStdout(
-      droidAdapter.formatReply!("Stop", { decision: "deny", reason: "halt" }),
-    );
-    expect(stop.hookSpecificOutput.permissionDecision).toBe("deny");
-  });
-
-  it("SubagentStop context → hookSpecificOutput.additionalContext (generic context path)", () => {
-    const reply = parseStdout(
-      droidAdapter.formatReply!("SubagentStop", {
-        decision: "context",
-        additionalContext: "wrap up",
-      }),
-    );
-    expect(reply.hookSpecificOutput).toEqual({
-      hookEventName: "SubagentStop",
-      additionalContext: "wrap up",
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Droid (Factory) — lifecycle events Notification/PreCompact/SessionStart/
-// SessionEnd (docs.factory.ai/reference/hooks-reference — Claude-shaped 1:1)
-// ─────────────────────────────────────────────────────────────────────────
-
-/** A connector declaring exactly the four droid lifecycle events. */
-function buildLifecycleConnector(): ResolvedConnector {
-  return defineConnector({
-    id: CONNECTOR_ID,
-    displayName: "Acme Lifecycle",
-    version: "1.2.3",
-    hooks: {
-      Notification: {
-        handler() {
-          return {};
-        },
-      },
-      PreCompact: {
-        handler() {
-          return {};
-        },
-      },
-      SessionStart: {
-        handler() {
-          return { decision: "context", additionalContext: "session ctx" };
-        },
-      },
-      SessionEnd: {
-        handler() {
-          return {};
-        },
-      },
-    },
-  });
-}
-
-describe("droid — lifecycle-event install", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildLifecycleConnector());
-  });
-
-  it("writes hooks.{Notification,PreCompact,SessionStart,SessionEnd} natively (no longer skip-warns)", () => {
-    const changes = droidAdapter.installHooks(ctx);
-
-    const hooksPath = join(projectDir, ".factory", "hooks.json");
-    expect(existsSync(hooksPath)).toBe(true);
-    const cfg = readJson(hooksPath);
-
-    for (const event of ["Notification", "PreCompact", "SessionStart", "SessionEnd"]) {
-      const bucket = cfg.hooks[event];
-      expect(Array.isArray(bucket), `${event} bucket`).toBe(true);
-      expect(bucket[0].hooks[0].command).toContain(`hook droid ${event}`);
-      // The event must NOT surface a warn-skip anymore.
-      const warn = changes.find((c) => c.action === "warn" && c.detail?.includes(event));
-      expect(warn, `${event} should not warn-skip`).toBeUndefined();
-    }
-  });
-});
-
-describe("droid — lifecycle-event parse + replies", () => {
-  const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
-
-  it("Notification maps `message`", () => {
-    const evt = droidAdapter.parseEvent!("Notification", {
-      ...COMMON,
-      hook_event_name: "Notification",
-      message: "Task completed successfully",
-    }) as any;
-    expect(evt.hostPlatform).toBe("droid");
-    expect(evt.message).toBe("Task completed successfully");
-    expect(evt.projectDir).toBe("/home/dev/acme");
-    // missing message → empty string
-    expect((droidAdapter.parseEvent!("Notification", COMMON) as any).message).toBe("");
-  });
-
-  it("PreCompact maps the `trigger` enum (manual|auto); unknown trigger is omitted", () => {
-    const manual = droidAdapter.parseEvent!("PreCompact", {
-      ...COMMON,
-      trigger: "manual",
-      custom_instructions: "",
-    }) as any;
-    expect(manual.trigger).toBe("manual");
-    const auto = droidAdapter.parseEvent!("PreCompact", { ...COMMON, trigger: "auto" }) as any;
-    expect(auto.trigger).toBe("auto");
-    const none = droidAdapter.parseEvent!("PreCompact", COMMON) as any;
-    expect("trigger" in none).toBe(false);
-  });
-
-  it("SessionStart coerces `source` onto the normalized enum (default startup)", () => {
-    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "resume" }) as any).source).toBe("resume");
-    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "clear" }) as any).source).toBe("clear");
-    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "compact" }) as any).source).toBe("compact");
-    expect((droidAdapter.parseEvent!("SessionStart", { ...COMMON, source: "startup" }) as any).source).toBe("startup");
-    // unknown/missing source → startup
-    expect((droidAdapter.parseEvent!("SessionStart", COMMON) as any).source).toBe("startup");
-  });
-
-  it("SessionEnd maps `reason` when present", () => {
-    expect((droidAdapter.parseEvent!("SessionEnd", { ...COMMON, reason: "other" }) as any).reason).toBe("other");
-    expect("reason" in (droidAdapter.parseEvent!("SessionEnd", COMMON) as any)).toBe(false);
-  });
-
-  it("SessionStart context → hookSpecificOutput.additionalContext (injection honored)", () => {
-    const reply = parseStdout(
-      droidAdapter.formatReply!("SessionStart", {
-        decision: "context",
-        additionalContext: "load issues",
-      }),
-    );
-    expect(reply.hookSpecificOutput).toEqual({
-      hookEventName: "SessionStart",
-      additionalContext: "load issues",
-    });
-  });
-
-  it("Notification / PreCompact / SessionEnd are observe-only: any decision → passthrough exit 0", () => {
-    for (const event of ["Notification", "PreCompact", "SessionEnd"] as const) {
-      // a deny that other events would render as a block is a no-op here
-      expect(droidAdapter.formatReply!(event, { decision: "deny", reason: "x" })).toEqual({
-        exitCode: 0,
-      });
-      // a context decision can't inject on these events either
-      expect(
-        droidAdapter.formatReply!(event, { decision: "context", additionalContext: "y" }),
-      ).toEqual({ exitCode: 0 });
-      expect(droidAdapter.formatReply!(event, {})).toEqual({ exitCode: 0 });
-    }
-  });
-});
-
-
