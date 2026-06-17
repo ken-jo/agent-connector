@@ -121,6 +121,10 @@ const EVENT_TO_KILO: Partial<Record<HookEventName, string>> = {
   PermissionRequest: "permission.ask",
   // session.idle ("session finished responding") → canonical Stop. NOT a direct
   // hook key — dispatched through the generic `event` hook (event.type switch).
+  // session.idle is doc-listed for the VS Code extension & CLI but its runtime
+  // firing on a given Kilo build is not separately verified (an upstream FR for
+  // session-lifecycle hooks exists); if it never fires, Stop is a silent no-op
+  // (an acceptable degrade — it never mis-fires), so coverage may be optimistic.
   Stop: "session.idle",
 };
 

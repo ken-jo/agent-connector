@@ -776,7 +776,7 @@ export const platforms: PlatformHookEntry[] = [
       "<projectDir>/.amp/plugins/<connector-id>.ts (auto-loaded TS plugin module; project scope only)",
     capabilities: {
       canModifyArgs: false,
-      canModifyOutput: true,
+      canModifyOutput: false,
       canInjectSessionContext: false,
     },
     events: {
@@ -795,7 +795,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "EVENT_TO_AMP (amp.on targets): SessionStart->session.start, UserPromptSubmit->agent.start (observe-only — agent.start exposes no block/context surface, so a deny/context decision degrades to a no-op; canInjectSessionContext false), PreToolUse->tool.call (deny/ask THROW to block; canModifyArgs false so 'modify' degrades to allow), PostToolUse->tool.result (CAN return a replacement output -> canModifyOutput true), Stop->agent.end (observe-only). Amp documents NO session.end -> SessionEnd null; PreCompact/Notification + all four newer events null too. Loads a TS plugin (.amp/plugins/<id>.ts; default export (amp)=>void registering amp.on handlers), PROJECT scope only — no user-scope plugins dir is documented, so a user install warn-skips. supportsNativeHooks: platforms.amp.nativeHooks amp.on events bridged verbatim (host-generic runNativeHook dispatch). MCP native ~/.config/amp/settings.json under the FLAT dotted key 'amp.mcpServers' (not nested mcpServers); native ${VAR} interpolation. Bridge shells to <homeBin> hook amp <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
+      "EVENT_TO_AMP (amp.on targets): SessionStart->session.start (session id = event.thread.id), UserPromptSubmit->agent.start (observe-only — agent.start exposes no block/context surface, so a deny/context decision degrades to a no-op; canInjectSessionContext false), PreToolUse->tool.call (deny/ask -> return amp's documented decision union { action:'reject-and-continue', message }, else { action:'allow' }; canModifyArgs false — the 'modify' input shape is undocumented), PostToolUse->tool.result (observe-only: the manual says a replacement output CAN be returned but never documents its object shape, so canModifyOutput stays false rather than ship a guessed mutation; error signal = event.status==='error'), Stop->agent.end (observe-only). Amp documents NO session.end -> SessionEnd null; PreCompact/Notification + all four newer events null too. Loads a TS plugin (.amp/plugins/<id>.ts; default export (amp)=>void registering amp.on handlers), PROJECT scope only — no user-scope plugins dir is documented, so a user install warn-skips. supportsNativeHooks: platforms.amp.nativeHooks amp.on events bridged verbatim (host-generic runNativeHook dispatch). MCP native ~/.config/amp/settings.json under the FLAT dotted key 'amp.mcpServers' (not nested mcpServers); native ${VAR} interpolation. Bridge shells to <homeBin> hook amp <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
   },
   {
     platform: "codebuff",

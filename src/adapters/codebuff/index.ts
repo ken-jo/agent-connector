@@ -472,6 +472,10 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
    *   model              ← model        (OMITTED when the connector declares none)
    *   toolNames          ← tools.allow  (OMITTED when none declared)
    *   instructionsPrompt ← prompt       (the system prompt / instructions body)
+   * SubagentDef.readonly is NOT mapped: Codebuff expresses tool access through the
+   * `toolNames` allowlist and documents no read-only permission flag, and AC has no
+   * verified read-only tool taxonomy to synthesize one — so a readonly hint is
+   * carried only if the author restricts `tools.allow` themselves (or via `extra`).
    * `extra` is merged LAST as the documented escape hatch — the only way to reach
    * codebuff AgentDefinition fields AC does not model (version, outputMode,
    * spawnableAgents, inputSchema, …); its values come from the connector author,

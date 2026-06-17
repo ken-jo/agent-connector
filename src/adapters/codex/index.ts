@@ -988,7 +988,9 @@ export class CodexAdapter extends BaseAdapter {
     //   url = "…"
     //   bearer_token_env_var = "…"   (only with bearerEnv auth)
     // Telemetry serve-wrapping is stdio-only (remote cannot be intercepted).
-    if (server.transport !== "stdio") {
+    // installServer's guard only lets stdio+command or http+url reach here, so
+    // this branch is exactly the streamable-HTTP case (lock-step with the guard).
+    if (server.transport === "http") {
       const remote: CodexMcpEntry = { url: resolveEnvRefsDeep(server.url ?? "") };
       if (server.auth?.type === "bearerEnv" && server.auth.bearerEnvVar) {
         remote.bearer_token_env_var = server.auth.bearerEnvVar;

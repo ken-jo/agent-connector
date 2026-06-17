@@ -9,16 +9,19 @@
  * entrypoint, exactly like the OMP / OpenCode ts-plugin adapters.
  *
  * Event mapping (only events the connector declares are subscribed):
- *   SessionStart     → amp.on("session.start", …)  (thread session begins)
+ *   SessionStart     → amp.on("session.start", …)  (thread begins; id = event.thread.id)
  *   UserPromptSubmit → amp.on("agent.start",  …)   (user submits a prompt; observe-only)
- *   PreToolUse       → amp.on("tool.call",     …)   (before a tool runs; deny/ask throw to block)
- *   PostToolUse      → amp.on("tool.result",   …)   (after a tool finishes; CAN return a
- *                       replacement output → canModifyOutput)
+ *   PreToolUse       → amp.on("tool.call",     …)   (before a tool runs; deny → return
+ *                       { action: "reject-and-continue" }, else { action: "allow" })
+ *   PostToolUse      → amp.on("tool.result",   …)   (after a tool finishes; observe-only)
  *   Stop             → amp.on("agent.end",     …)   (turn ends; observe-only)
  * Amp documents NO session.end event, so SessionEnd is an honest gap (warn-skip
- * via the unsupported-here detail). Amp's tool.call hands no mutable args object
- * (canModifyArgs:false) and session.start has no documented context-injection
- * surface (canInjectSessionContext:false).
+ * via the unsupported-here detail). tool.call's decision surface is the
+ * { action } union (canModifyArgs:false — the "modify" input shape is not
+ * documented); tool.result CAN return a replacement but the manual never
+ * documents its object shape, so PostToolUse is observe-only (canModifyOutput:
+ * false) rather than ship a guessed mutation; session.start has no documented
+ * context-injection surface (canInjectSessionContext:false).
  *
  * Why we SYNTHESIZE a self-contained module instead of importing handlers:
  *   the connector's hook handlers are arbitrary developer code we must not import
@@ -177,11 +180,17 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
     // postToolUseFailure / subagentStart / subagentStop stay unset — the
     // generated bridge never references them and install reports them as
     // "unsupported here".
-    // tool.call hands no mutable args object — input rewrite is unsupported.
+    // tool.call's documented decision surface is { action: "allow" |
+    // "reject-and-continue" | "modify" | "synthesize" } (ampcode.com/manual →
+    // Plugins → tool.call). We wire allow + reject-and-continue (block); the
+    // "modify" input-rewrite shape is not byte-documented, so canModifyArgs:false.
     canModifyArgs: false,
-    // tool.result CAN return a replacement output (verified: "return a
-    // replacement status/output") — output rewrite supported.
-    canModifyOutput: true,
+    // tool.result says "return a replacement status/output" but the manual never
+    // documents the replacement OBJECT SHAPE (which keys). Rather than guess it,
+    // PostToolUse is observe-only and canModifyOutput stays false until the shape
+    // is primary-source-verified (honesty bar: under-claim, never emit a guessed
+    // mutation contract).
+    canModifyOutput: false,
     // session.start has no documented context-injection surface.
     canInjectSessionContext: false,
     // Amp registers stdio and Streamable HTTP MCP servers.
@@ -655,68 +664,70 @@ let SESSION_ID = "";
 
     if (has("SessionStart")) {
       handlers.push(`  // SessionStart → rebind the session id and notify the connector.
+  // Amp's session.start event carries event.thread.id (ampcode.com/manual →
+  // Plugins → session.start: "Example session.start for \${event.thread.id}").
   amp.on("session.start", async (event) => {
     SESSION_ID =
-      (event && (event.sessionId || event.threadId || event.id)) ||
-      "amp-" + Date.now();
+      (event && event.thread && event.thread.id) || "amp-session";
     bridge("SessionStart", { sessionId: SESSION_ID, projectDir: PROJECT_DIR });
   });`);
     }
 
     if (has("UserPromptSubmit")) {
-      handlers.push(`  // UserPromptSubmit → observe the submitted prompt. Amp's agent.start has no
-  // documented block or context-injection surface (canInjectSessionContext:false),
-  // so this is observe-only — any deny/context decision degrades to a no-op.
+      handlers.push(`  // UserPromptSubmit → agent.start "fires when the user submits a prompt"
+  // (ampcode.com/manual). The manual's example takes (_event) and documents no
+  // prompt field or return surface, so this is observe-only — the raw event is
+  // forwarded for the connector to inspect; any deny/context decision is a no-op.
   amp.on("agent.start", async (event) => {
-    const prompt = (event && (event.prompt || event.message || event.text)) || "";
     bridge("UserPromptSubmit", {
-      prompt,
       sessionId: SESSION_ID,
       projectDir: PROJECT_DIR,
+      raw: event,
     });
   });`);
     }
 
     if (has("PreToolUse")) {
-      handlers.push(`  // PreToolUse → deny/ask throw to block (the safe direction). Amp's tool.call
-  // hands no mutable args object (canModifyArgs:false), so "modify" degrades to
-  // allow — only deny/ask block.
+      handlers.push(`  // PreToolUse → Amp's tool.call returns a decision union (ampcode.com/manual →
+  // Plugins → tool.call): { action: "allow" } to run, or { action:
+  // "reject-and-continue", message } to block and let the agent continue. The
+  // tool name is event.tool (verified); the input field is not byte-documented,
+  // so event.input is a best-effort hint for the connector's matcher (the matcher
+  // keys on the verified tool name). A deny/ask decision maps to reject-and-
+  // continue; everything else allows.
   amp.on("tool.call", async (event) => {
     const payload = {
-      toolName: (event && (event.toolName || event.tool || event.name)) || "",
-      toolInput: (event && (event.input || event.args || event.params)) || {},
+      toolName: (event && event.tool) || "",
+      toolInput: (event && event.input) || {},
       sessionId: SESSION_ID,
       projectDir: PROJECT_DIR,
     };
     const res = bridge("PreToolUse", payload);
-    if (!res) return;
-    if (res.decision === "deny" || res.decision === "ask") {
-      throw new Error(res.reason || "Blocked by ${ctx.connector.id}");
+    if (res && (res.decision === "deny" || res.decision === "ask")) {
+      return {
+        action: "reject-and-continue",
+        message: res.reason || "Blocked by ${ctx.connector.id}",
+      };
     }
+    return { action: "allow" };
   });`);
     }
 
     if (has("PostToolUse")) {
-      handlers.push(`  // PostToolUse → observe; CAN return a replacement output (canModifyOutput).
-  // Amp's tool.result: return nothing to keep the original result, or return a
-  // replacement output object.
+      handlers.push(`  // PostToolUse → tool.result "fires after a tool finishes and before the result
+  // is sent back to the model" (ampcode.com/manual). The tool name is event.tool
+  // and the error signal is event.status === "error" (both verified). The manual
+  // says a replacement status/output CAN be returned but never documents the
+  // replacement object shape, so this is observe-only (canModifyOutput:false) —
+  // the raw event is forwarded; we never return a guessed replacement.
   amp.on("tool.result", async (event) => {
-    let toolOutput = "";
-    if (event && typeof event.output === "string") toolOutput = event.output;
-    else if (event && typeof event.result === "string") toolOutput = event.result;
-    const payload = {
-      toolName: (event && (event.toolName || event.tool || event.name)) || "",
-      toolInput: (event && (event.input || event.args || event.params)) || {},
-      toolOutput,
-      isError: !!(event && event.isError),
+    bridge("PostToolUse", {
+      toolName: (event && event.tool) || "",
+      isError: !!(event && event.status === "error"),
       sessionId: SESSION_ID,
       projectDir: PROJECT_DIR,
-    };
-    const res = bridge("PostToolUse", payload);
-    if (!res) return;
-    if (typeof res.updatedOutput === "string") {
-      return { output: res.updatedOutput };
-    }
+      raw: event,
+    });
   });`);
     }
 
@@ -818,8 +829,9 @@ ${handlers.join("\n\n")}
   /**
    * Unlike json-stdio hosts (whose reply is the host's NATIVE control payload),
    * OUR generated bridge consumes this stdout directly. So the reply body is the
-   * NORMALIZED HookResponse itself — the bridge JSON.parses it and maps decision
-   * → throw (tool.call) / updatedOutput → replacement output (tool.result).
+   * NORMALIZED HookResponse itself — the bridge JSON.parses it and, for tool.call,
+   * maps a deny/ask decision → { action: "reject-and-continue" } (else allow).
+   * Other events are observe-only, so their reply is ignored by the handler.
    */
   formatReply(_event: HookEventName, response: HookResponse): HookReply {
     return {

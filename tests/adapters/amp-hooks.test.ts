@@ -11,8 +11,9 @@
  * Amp documents NO session.end, so SessionEnd is an honest gap (warn-skip).
  *
  * These tests lock:
- *   - paradigm + capability flags (ts-plugin; canModifyOutput true via
- *     tool.result, canModifyArgs / canInjectSessionContext false)
+ *   - paradigm + capability flags (ts-plugin; canModifyArgs / canModifyOutput /
+ *     canInjectSessionContext all false — tool.call uses the { action } decision
+ *     union and tool.result's replacement shape is undocumented → observe-only)
  *   - installHooks writes .amp/plugins/<id>.ts at PROJECT scope
  *   - the generated module registers amp.on(session.start|agent.start|tool.call|
  *     tool.result|agent.end) + the canonical bridge(...) for each
@@ -108,10 +109,12 @@ describe("amp adapter — ts-plugin hooks", () => {
     expect(c.sessionEnd).toBe(false);
     expect(c.preCompact).toBe(false);
     expect(c.notification).toBe(false);
-    // tool.call hands no mutable args; tool.result CAN replace output; no
-    // session.start context-injection surface.
+    // tool.call decision surface is the { action } union (no documented arg
+    // rewrite); tool.result's replacement object shape is undocumented, so
+    // PostToolUse is observe-only (canModifyOutput:false); no session.start
+    // context-injection surface.
     expect(c.canModifyArgs).toBe(false);
-    expect(c.canModifyOutput).toBe(true);
+    expect(c.canModifyOutput).toBe(false);
     expect(c.canInjectSessionContext).toBe(false);
     expect(c.supportsNativeHooks).toBe(true);
   });
@@ -143,16 +146,23 @@ describe("amp adapter — ts-plugin hooks", () => {
     expect(src).not.toContain("session.end");
   });
 
-  it("PreToolUse throws to block (deny/ask) and PostToolUse can replace output", () => {
+  it("PreToolUse blocks via the { action: 'reject-and-continue' } union; PostToolUse is observe-only", () => {
     const projectDir = freshHome();
     ampAdapter.installHooks(buildCtx(projectDir, allEventsConnector()));
     const src = readFileSync(entryPath(projectDir), "utf8");
-    // tool.call: deny/ask → throw (canModifyArgs false → no arg rewrite).
+    // tool.call: deny/ask → return amp's documented decision union (NOT a throw).
     expect(src).toContain('res.decision === "deny" || res.decision === "ask"');
-    expect(src).toContain("throw new Error(");
-    // tool.result: replacement output applied from the normalized response.
-    expect(src).toContain("res.updatedOutput");
-    expect(src).toContain("return { output: res.updatedOutput }");
+    expect(src).toContain('action: "reject-and-continue"');
+    expect(src).toContain('return { action: "allow" }');
+    expect(src).not.toContain("throw new Error(");
+    // tool.call tool name comes from the verified event.tool field.
+    expect(src).toContain("event.tool");
+    // tool.result: observe-only — the replacement object shape is undocumented,
+    // so the handler returns nothing (no guessed { output } mutation).
+    expect(src).not.toContain("res.updatedOutput");
+    expect(src).not.toContain("return { output:");
+    // session.start id from the verified event.thread.id field.
+    expect(src).toContain("event.thread && event.thread.id");
   });
 
   it("reports SessionEnd as 'unsupported here' in the change detail", () => {
