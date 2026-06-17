@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.4.2 — 2026-06-17
+
+The Tier 1–3 surface-gap supplementation (#78). Every change was verified against
+a primary source — official docs or a **live host binary** — before implementation;
+candidates that could not be verified are documented as honest defers, not guessed.
+**35 platforms**, **2169 tests** (2170 on Windows). Final adversarial review vs
+0.4.1 returned 0 blockers / 0 majors.
+
+### MCP transport
+
+- **codex** now registers **streamable-HTTP** MCP servers in `config.toml`
+  (`[mcp_servers.<id>]` `{ url, bearer_token_env_var?, http_headers? }`, no
+  explicit transport key — codex infers it from `url`). Previously every non-stdio
+  transport was silently skip-warned despite the advertised `http` capability.
+  Verified against a live `codex-cli 0.139.0` (`codex mcp add … --url …
+  --bearer-token-env-var …`); `AuthSpec.bearerEnv → bearer_token_env_var`,
+  `ServerDef.headers → http_headers`. sse/ws stay report-don't-drop skip-warns.
+
+### Hooks
+
+- **amp**: mcp-only → **ts-plugin**. Loads a generated `.amp/plugins/<id>.ts`
+  wiring the five `amp.on` lifecycle events with a canonical analog —
+  `session.start`→SessionStart (id = `event.thread.id`), `agent.start`→
+  UserPromptSubmit, `tool.call`→PreToolUse (blocks via amp's documented
+  `{ action: "reject-and-continue" }` union), `tool.result`→PostToolUse, and
+  `agent.end`→Stop. No `session.end` exists, so SessionEnd is an honest gap.
+  `tool.result`'s replacement object shape is undocumented, so PostToolUse is
+  observe-only (`canModifyOutput:false`) rather than ship a guessed mutation.
+  Verified against ampcode.com/manual.
+- **openclaw + nemoclaw**: **UserPromptSubmit** (→ `before_prompt_build`, per-turn
+  context injection, coexisting with the one-time SessionStart context) and
+  `supportsNativeHooks`. nemoclaw inherits the whole machinery.
+- **kilo + kilo-cli**: **UserPromptSubmit** (→ `chat.message`),
+  **PermissionRequest** (→ `permission.ask`, mutates `output.status`), and
+  **Stop** (→ `session.idle`, via the generic `event` hook). Verified against
+  kilo.ai/docs.
+- **opencode**: a forward-migration TODO for a native SessionStart hook
+  (anomalyco/opencode #14808/#5409); the surrogate stays correct until then.
+
+### Subagents
+
+- **codebuff** now emits native `.agents/<id>.ts` AgentDefinition modules
+  (`export default` object, no type-only import; `model`/`toolNames` omitted when
+  the connector declares none — nothing fabricated). Verified against
+  codebuff.com/docs.
+
+### Verified non-gaps / honest defers (documented, not implemented)
+
+- **windsurf actions** — Cascade workflows are manual-only prompt macros (already
+  covered by `supportsCommands`); an "actions" surface would be a degraded
+  duplicate.
+- **kimi plugins** — covered by `package --format kimi-plugin`; a runtime install
+  surface is below the ≥3-host promotion bar.
+- **grok / droid-statusline / cursor-statusline** — need a live host binary to
+  confirm the contract; deferred until that access exists.
+
 ## 0.4.1 — 2026-06-16
 
 A hooks-depth release: the lifecycle-hook model is completed across every
