@@ -9,7 +9,6 @@
  *   • kimi — deny uses the Claude/Codex hookSpecificOutput shape (exit 0); the
  *     base dir defaults to ~/.kimi (live-confirmed), honoring $KIMI_HOME / $KIMI_CODE_HOME.
  *   • qwen-code — remote http renders key "httpUrl" (not type:"http"); sse → "url".
- *   • hermes — installHooks writes the native "pre_tool_call" key, not "PreToolUse".
  *   • omp — the generated plugin degrades "modify" to allow (no modify-block).
  *   • openclaw — parseJsonc tolerates a // comment AND an in-string comma-before-
  *     bracket without corruption; dual registration still works.
@@ -30,7 +29,6 @@ import zedAdapter from "../../src/adapters/zed/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
 import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
-import hermesAdapter from "../../src/adapters/hermes/index.js";
 import ompAdapter from "../../src/adapters/omp/index.js";
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
@@ -252,29 +250,6 @@ describe("qwen-code remote transport key", () => {
     expect(entry.url).toBe("https://mcp.example.com/sse");
     expect(entry.httpUrl).toBeUndefined();
     expect(entry.type).toBeUndefined();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// hermes — native snake_case event keys
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("hermes native event names", () => {
-  it("installHooks writes the native 'pre_tool_call' key, NOT 'PreToolUse'", () => {
-    const projectDir = freshProject("ac-rf-hermes-");
-    const ctx = buildCtx(projectDir, buildConnector(), "user");
-
-    hermesAdapter.installHooks(ctx);
-    const raw = readFileSync(hermesAdapter.getHookConfigPath(ctx), "utf8");
-    expect(raw).toContain("pre_tool_call");
-    expect(raw).toContain("on_session_start");
-    // The canonical PascalCase key must NOT appear as a hooks-map key.
-    expect(raw).not.toMatch(/^\s*PreToolUse:/m);
-    // The command itself still carries the canonical event token (YAML may wrap
-    // long scalars across lines, so compare with whitespace collapsed).
-    const collapsed = raw.replace(/\s+/g, " ");
-    expect(collapsed).toContain("hook hermes PreToolUse");
-    expect(collapsed).toContain("hook hermes SessionStart");
   });
 });
 

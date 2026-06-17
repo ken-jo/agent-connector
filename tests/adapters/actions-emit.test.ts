@@ -1,19 +1,18 @@
 /**
- * tests/adapters/actions-emit — the action-surface EMITTERS (droid/hermes/warp).
+ * tests/adapters/actions-emit — the action-surface EMITTERS (droid/warp).
+ * (hermes now lives in adapters/hermes.test.ts.)
  *
  * Each emitter installs a user-invokable host trigger that runs the home-bin
  * action verb (`<homeBin> action <host> <id> --connector <id>`):
- *   • hermes → quick_commands.<id>: { type: "exec", command } in ~/.hermes/
- *     config.yaml (MERGE-preserve other quick_commands + user keys).
  *   • warp   → one OWNED YAML workflow per action at <cfg>/workflows/<id>.yaml
  *     ({ name, command, description }; palette pastes the command — not exec).
  *   • droid  → an OWNED executable file at <cfg>/commands/<id> (no .md ext):
  *     shebang + `exec <verb> "$@"`, mode 0o755. win32 → skip-warn (unverified).
  *
- * Asserts: exact trigger bytes, idempotency, reversible uninstall (hermes leaves
- * foreign quick_commands; warp/droid remove the owned file), per-platform
- * actions===false opt-out, empty-actions skip, and the stamped ChangeRecord
- * platform. HOME-isolated (mkdtemp) + deterministic.
+ * Asserts: exact trigger bytes, idempotency, reversible uninstall (warp/droid
+ * remove the owned file), per-platform actions===false opt-out, empty-actions
+ * skip, and the stamped ChangeRecord platform. HOME-isolated (mkdtemp) +
+ * deterministic.
  */
 
 import {
@@ -22,11 +21,9 @@ import {
   readFileSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
-import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { parse as parseYaml } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +34,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ActionDef, ResolvedConnector } from "../../src/core/types.js";
 
 import droidAdapter from "../../src/adapters/droid/index.js";
-import hermesAdapter from "../../src/adapters/hermes/index.js";
 import warpAdapter from "../../src/adapters/warp/index.js";
 
 const HOME_BIN = "/fake/home/.agent-connector/bin/agent-connector";
@@ -111,118 +107,6 @@ const ROLLBACK: ActionDef = { id: "rollback", run: () => undefined };
 function verb(host: string, id: string): string {
   return buildHomeBinActionCommand(HOME_BIN, host, id, CONNECTOR_ID);
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// hermes — quick_commands.<id>: { type: "exec", command }, MERGE-preserve
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("hermes — actions emitter", () => {
-  const cfgPath = () => join(tmpHome, ".hermes", "config.yaml");
-
-  function readCfg(): Record<string, unknown> {
-    return parseYaml(readFileSync(cfgPath(), "utf8")) as Record<string, unknown>;
-  }
-
-  it("advertises supportsActions", () => {
-    expect(hermesAdapter.capabilities.supportsActions).toBe(true);
-  });
-
-  it("installActions writes quick_commands.<id> exec entries with the action verb", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY, ROLLBACK]), "user");
-    const changes = hermesAdapter.installActions!(ctx);
-    expect(changes.every((c) => c.platform === "hermes")).toBe(true);
-    expect(changes.map((c) => c.action)).toEqual(["create", "create"]);
-
-    const qc = readCfg().quick_commands as Record<string, unknown>;
-    expect(qc.deploy).toEqual({ type: "exec", command: verb("hermes", "deploy") });
-    expect(qc.rollback).toEqual({ type: "exec", command: verb("hermes", "rollback") });
-  });
-
-  it("is idempotent (a second install reports skip, bytes unchanged)", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "user");
-    hermesAdapter.installActions!(ctx);
-    const before = readFileSync(cfgPath(), "utf8");
-    const changes = hermesAdapter.installActions!(ctx);
-    expect(changes.every((c) => c.action === "skip")).toBe(true);
-    expect(readFileSync(cfgPath(), "utf8")).toBe(before);
-  });
-
-  it("MERGE-preserves a foreign quick_commands entry and unrelated user keys", () => {
-    // Seed a config with a foreign quick_command + an unrelated top-level key.
-    mkdirSync(dirname(cfgPath()), { recursive: true });
-    writeFileSync(
-      cfgPath(),
-      "model: nous-hermes\nquick_commands:\n  mine:\n    type: exec\n    command: echo hi\n",
-      "utf8",
-    );
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "user");
-    hermesAdapter.installActions!(ctx);
-
-    const cfg = readCfg();
-    expect(cfg.model).toBe("nous-hermes");
-    const qc = cfg.quick_commands as Record<string, unknown>;
-    expect(qc.mine).toEqual({ type: "exec", command: "echo hi" });
-    expect(qc.deploy).toEqual({ type: "exec", command: verb("hermes", "deploy") });
-  });
-
-  it("skip-warns when quick_commands.<id> exists and is NOT ours", () => {
-    mkdirSync(dirname(cfgPath()), { recursive: true });
-    writeFileSync(
-      cfgPath(),
-      "quick_commands:\n  deploy:\n    type: exec\n    command: my-own-deploy.sh\n",
-      "utf8",
-    );
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "user");
-    const changes = hermesAdapter.installActions!(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]!.action).toBe("warn");
-    expect(changes[0]!.detail).toContain("not ours");
-    // The user's entry is untouched.
-    const qc = readCfg().quick_commands as Record<string, unknown>;
-    expect(qc.deploy).toEqual({ type: "exec", command: "my-own-deploy.sh" });
-  });
-
-  it("uninstallActions removes ONLY our entries, leaving foreign ones + the map", () => {
-    mkdirSync(dirname(cfgPath()), { recursive: true });
-    writeFileSync(
-      cfgPath(),
-      "quick_commands:\n  mine:\n    type: exec\n    command: echo hi\n",
-      "utf8",
-    );
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "user");
-    hermesAdapter.installActions!(ctx);
-    const changes = hermesAdapter.uninstallActions!(ctx);
-    expect(changes.some((c) => c.action === "remove")).toBe(true);
-
-    const qc = readCfg().quick_commands as Record<string, unknown>;
-    expect(qc.mine).toEqual({ type: "exec", command: "echo hi" });
-    expect(qc.deploy).toBeUndefined();
-  });
-
-  it("uninstallActions drops the map when no entries remain", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY]), "user");
-    hermesAdapter.installActions!(ctx);
-    hermesAdapter.uninstallActions!(ctx);
-    expect(readCfg().quick_commands).toBeUndefined();
-  });
-
-  it("honors platforms.hermes.actions === false (opt-out, never writes)", () => {
-    const ctx = buildCtx(actionsConnector([DEPLOY], { hermes: { actions: false } }), "user");
-    const changes = hermesAdapter.installActions!(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]!.action).toBe("skip");
-    expect(changes[0]!.detail).toContain("disabled for hermes");
-    expect(existsSync(cfgPath())).toBe(false);
-  });
-
-  it("skips silently when no actions are declared", () => {
-    const ctx = buildCtx(defineConnector({ id: CONNECTOR_ID, commands: [{ name: "n", prompt: "p" }] }), "user");
-    const changes = hermesAdapter.installActions!(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]!.action).toBe("skip");
-    expect(changes[0]!.detail).toContain("declares no actions");
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // warp — one OWNED YAML workflow per action; palette PASTES (not exec)
