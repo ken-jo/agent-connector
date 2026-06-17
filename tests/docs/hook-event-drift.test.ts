@@ -131,27 +131,6 @@ describe("hook-event drift guard (core + adapter registry are the source of trut
     expect(docsData).toContain(`${canonicalEvents.length} canonical events`);
   });
 
-  it("llms.txt hooks bullet names every canonical event", () => {
-    const text = readFileSync("llms.txt", "utf8");
-    const line = text.split("\n").find((l) => l.startsWith("- `hooks` —"));
-    expect(line, "llms.txt is missing the `hooks` surface bullet").toBeTruthy();
-    expect(line).toContain(`${canonicalEvents.length} canonical events`);
-    for (const event of canonicalEvents) {
-      expect(line, `llms.txt hooks bullet is missing "${event}"`).toContain(event);
-    }
-  });
-
-  it("llms-full.txt §2.3 HooksConfig block + payload table carry every canonical event", () => {
-    const text = readFileSync("llms-full.txt", "utf8");
-    for (const event of canonicalEvents) {
-      expect(
-        new RegExp(`^  ${event}\\?:\\s+HookDefinition<"${event}">;`, "m").test(text),
-        `llms-full.txt HooksConfig block is missing the ${event} key`,
-      ).toBe(true);
-      expect(
-        new RegExp(`^\\| \`${event}\` \\|`, "m").test(text),
-        `llms-full.txt payload table is missing the ${event} row`,
-      ).toBe(true);
-    }
-  });
+  // NOTE: the llms.txt / llms-full.txt canonical-event assertions moved to
+  // tests/docs/robot-support.test.ts (the single home for robot-doc drift).
 });
