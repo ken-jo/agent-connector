@@ -1,12 +1,14 @@
 /**
- * adapters/openclaw + nemoclaw — remote MCP transport literal.
+ * adapters/nemoclaw — remote MCP transport literal.
  *
  * OpenClaw's config validator accepts a remote `transport` of "sse" |
  * "streamable-http" and REJECTS a bare "http" (verified against OpenClaw 2026.6.1
  * + docs.openclaw.ai/gateway/configuration-reference). AC's canonical "http"
  * (streamable HTTP) must therefore render as the literal "streamable-http", not
- * "http". These tests lock that mapping for openclaw AND nemoclaw (a fork that
- * inherits renderServerEntry unchanged), and confirm an sse server stays "sse".
+ * "http". NemoClaw is a fork that inherits renderServerEntry unchanged, so this
+ * test locks that mapping for nemoclaw and confirms an sse server stays "sse".
+ * (The openclaw row of this suite has moved to adapters/openclaw.test.ts; this
+ * file finishes the nemoclaw migration in a later PR.)
  *
  * Remote servers are never telemetry-wrapped (shouldWrapForTelemetry is stdio-
  * only), so the remote branch always runs — the literal is live regardless of
@@ -23,7 +25,6 @@ import type { Adapter, InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector, Transport } from "../../src/core/types.js";
 
 import nemoclawAdapter from "../../src/adapters/nemoclaw/index.js";
-import openclawAdapter from "../../src/adapters/openclaw/index.js";
 
 const CONNECTOR_ID = "acme-remote";
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
@@ -106,7 +107,6 @@ function installAndRead(
 }
 
 describe.each([
-  ["openclaw", openclawAdapter],
   ["nemoclaw", nemoclawAdapter],
 ])("%s adapter — remote MCP transport literal", (name, adapter) => {
   it("renders canonical http as OpenClaw's accepted literal 'streamable-http' (NOT 'http')", () => {

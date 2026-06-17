@@ -10,8 +10,9 @@
  *     base dir defaults to ~/.kimi (live-confirmed), honoring $KIMI_HOME / $KIMI_CODE_HOME.
  *   • qwen-code — remote http renders key "httpUrl" (not type:"http"); sse → "url".
  *   • omp — the generated plugin degrades "modify" to allow (no modify-block).
- *   • openclaw — parseJsonc tolerates a // comment AND an in-string comma-before-
- *     bracket without corruption; dual registration still works.
+ *
+ * (The openclaw parseJsonc-tolerance + dual-registration block has moved to the
+ * per-host file adapters/openclaw.test.ts per tests/README.md.)
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -30,7 +31,6 @@ import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
 import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
 import ompAdapter from "../../src/adapters/omp/index.js";
-import openclawAdapter from "../../src/adapters/openclaw/index.js";
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -270,61 +270,6 @@ describe("omp generated plugin: modify degrades to allow", () => {
     // The block condition must gate on deny || ask only — never modify.
     expect(src).toContain('res.decision === "deny" || res.decision === "ask"');
     expect(src).not.toContain('res.decision === "modify"');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// openclaw — shared parseJsonc tolerance + dual registration
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("openclaw shared parseJsonc tolerance + dual registration", () => {
-  it("tolerates a // comment AND an in-string comma-before-bracket without corruption", () => {
-    const projectDir = freshProject("ac-rf-openclaw-");
-    const ctx = buildCtx(projectDir, buildConnector());
-    const configPath = openclawAdapter.getServerConfigPath(ctx);
-
-    // A // comment, a trailing comma, AND a string value containing ",]" — the
-    // exact pattern the old regex-based stripJsonish corrupted.
-    writeFileSync(
-      configPath,
-      `{
-        // openclaw user config
-        "displayName": "list a,] literal",
-        "mcp": { "servers": { "user-owned": { "command": "/bin/echo" } } },
-      }`,
-      "utf8",
-    );
-
-    const serverChanges = openclawAdapter.installServer(ctx);
-    expect(serverChanges[0]?.action).not.toBe("warn");
-
-    const cfg = readJson(configPath);
-    // The in-string ",]" survived verbatim (no corruption).
-    expect(cfg.displayName).toBe("list a,] literal");
-    // The user's own server survived.
-    expect(cfg.mcp.servers["user-owned"]).toBeTruthy();
-    // Our nested server entry was added.
-    expect(cfg.mcp.servers[CONNECTOR_ID]).toBeTruthy();
-  });
-
-  it("dual registration still works (plugins.entries + mcp.servers both written)", () => {
-    const projectDir = freshProject("ac-rf-openclaw2-");
-    const ctx = buildCtx(projectDir, buildConnector());
-    const configPath = openclawAdapter.getServerConfigPath(ctx);
-
-    openclawAdapter.installServer(ctx);
-    openclawAdapter.installHooks(ctx);
-
-    const cfg = readJson(configPath);
-    expect(cfg.mcp.servers[CONNECTOR_ID]).toBeTruthy();
-    expect(cfg.plugins.entries[CONNECTOR_ID]).toBeTruthy();
-
-    // Doctor agrees the dual registration is consistent.
-    const dual = openclawAdapter
-      .getHealthChecks!(ctx)
-      .find((c) => c.name.includes("dual registration"))!
-      .check();
-    expect(dual.status).toBe("OK");
   });
 });
 
