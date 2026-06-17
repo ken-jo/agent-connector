@@ -1,19 +1,21 @@
 /**
- * adapters/phase2-render — render + round-trip tests for the four Phase-2 adapters.
+ * adapters/phase2-render — render + round-trip tests for the Phase-2 adapters.
  *
  * Exercises the full install/uninstall path end-to-end against REAL files on disk
- * for each of vscode-copilot, copilot-cli, gemini-cli, warp:
+ * for each of vscode-copilot, copilot-cli, gemini-cli:
  *   • installServer  → native MCP registration (correct ROOT KEY / fields / shape)
- *   • installHooks   → native hook registration (per-dialect event names + shape),
- *                      or the single mcp-only "skip" for Warp (no hook file written)
+ *   • installHooks   → native hook registration (per-dialect event names + shape)
  *   • env-ref handling per platform (native ${env:VAR} token vs. resolved literal)
  *   • telemetry serve-wrapper command points at the stable home binary
  *   • idempotency (second installServer → "skip", no duplicates)
  *   • uninstall (entries removed; re-read from disk confirms gone)
  *
+ * (warp — the mcp-only host — now lives in its own per-host file
+ * tests/adapters/warp.test.ts.)
+ *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, and
- * HOME is redirected there so the USER-scope adapters (copilot-cli, warp) resolve
- * their homedir()-based paths into the sandbox — never the real home. HOME and
+ * HOME is redirected there so the USER-scope adapters (copilot-cli) resolve their
+ * homedir()-based paths into the sandbox — never the real home. HOME and
  * AGENT_CONNECTOR_DATA_DIR are restored in afterEach.
  */
 
@@ -30,7 +32,6 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 import vscodeCopilotAdapter from "../../src/adapters/vscode-copilot/index.js";
 import copilotCliAdapter from "../../src/adapters/copilot-cli/index.js";
 import geminiCliAdapter from "../../src/adapters/gemini-cli/index.js";
-import warpAdapter from "../../src/adapters/warp/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -112,8 +113,8 @@ function restore(key: string, value: string | undefined): void {
 
 /**
  * Fresh temp project dir + redirect HOME/data-root there so nothing escapes.
- * Critical for the USER-scope adapters (copilot-cli, warp) which resolve paths
- * from homedir() — pointing HOME at a temp dir keeps every write in the sandbox.
+ * Critical for the USER-scope adapters (copilot-cli) which resolve paths from
+ * homedir() — pointing HOME at a temp dir keeps every write in the sandbox.
  */
 function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-p2-render-"));
@@ -499,88 +500,5 @@ describe("gemini-cli adapter render/round-trip", () => {
     geminiCliAdapter.uninstallHooks(ctx);
     const afterHooks = readJson(join(projectDir, ".gemini", "settings.json"));
     expect(JSON.stringify(afterHooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Warp (mcp-only — no hook system)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("warp adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes mcpServers.<id> into .warp/.mcp.json with `working_directory` (NOT cwd), env LITERAL", () => {
-    const changes = warpAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".warp", ".mcp.json");
-    expect(serverPath).toBe(warpAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    // Telemetry serve-wrapper: command points at the home binary.
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("warp"));
-
-    // QUIRK: Warp keys the working directory as `working_directory`, never `cwd`.
-    expect(entry.working_directory).toBe(SERVER_CWD);
-    expect(entry).not.toHaveProperty("cwd");
-
-    // No native interpolation token → env-ref resolves to a LITERAL value.
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
-    const changes = warpAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
-
-    // Warp's hook config path equals its server config path; with only installHooks
-    // called, no file should exist at all (nothing is written for mcp-only hooks).
-    const hooksPath = warpAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(warpAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
-  });
-
-  it("installHooks does not add a hooks section to an already-written .mcp.json", () => {
-    warpAdapter.installServer(ctx);
-    warpAdapter.installHooks(ctx);
-
-    const cfg = readJson(join(projectDir, ".warp", ".mcp.json"));
-    // The server file carries ONLY the MCP registration — no hooks key.
-    expect(cfg).not.toHaveProperty("hooks");
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeTruthy();
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    warpAdapter.installServer(ctx);
-    const second = warpAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".warp", ".mcp.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry; uninstallHooks is a clean skip", () => {
-    warpAdapter.installServer(ctx);
-
-    warpAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".warp", ".mcp.json"));
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-
-    const hookChanges = warpAdapter.uninstallHooks(ctx);
-    expect(hookChanges).toHaveLength(1);
-    expect(hookChanges[0]?.action).toBe("skip");
   });
 });
