@@ -27,12 +27,12 @@
  * The generated bridge is exercised LIVE (the freshly-written module is
  * dynamically imported with node:child_process mocked, following the wave4
  * idiom). Migrated to the shared harness (tests/support/env + adapter-suite); the
- * render/dual-registration/skills/action blocks came from the old wave4.test.ts,
- * the extension-event blocks from extended-events-batch2.test.ts, the
- * UserPromptSubmit blocks from openclaw-userpromptsubmit.test.ts, the remote
- * transport block from openclaw-remote-transport.test.ts, the hooks:false leak
- * block from openclaw-hooks-false-leak.test.ts, and the parseJsonc regression
- * from review-fixes.test.ts.
+ * render/dual-registration/skills/action blocks came from the old wave4 suite,
+ * the extension-event blocks from the extended-events batch suite, the
+ * UserPromptSubmit blocks from the UserPromptSubmit suite, the remote transport
+ * block from the remote-transport suite, the hooks:false leak block from the
+ * hooks:false-leak suite, and the parseJsonc regression from the review-fixes
+ * suite. (The nemoclaw rows of the shared trio suites moved to nemoclaw.test.ts.)
  */
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";

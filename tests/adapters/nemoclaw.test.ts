@@ -1,47 +1,75 @@
 /**
- * adapters/nemoclaw — focused tests for the NVIDIA NemoClaw adapter.
+ * adapters/nemoclaw.test.ts — the ONE per-host file for NVIDIA NemoClaw.
  *
  * NemoClaw is a thin FORK of the OpenClaw adapter (it extends OpenClawAdapter,
- * overriding only id / name / detectInstalled). These tests prove the three
- * things the fork must get right:
- *   1. Detection keys on the NemoClaw-specific marker `~/.nemoclaw/` and does NOT
- *      collide with OpenClaw — a `~/.nemoclaw/` box is nemoclaw; a `~/.openclaw/`-
- *      only box is NOT nemoclaw (it falls through to the openclaw adapter).
- *   2. installServer writes the MCP server into the WRAPPED OpenClaw config
- *      (~/.openclaw/openclaw.json, NESTED mcp.servers.<id>), stamped with the
- *      nemoclaw platform id.
- *   3. uninstallServer reverses it.
+ * overriding only id / name / detectInstalled). It is a `ts-plugin` host: it
+ * REUSES every render / hook / parse / surface path from OpenClaw unchanged, and
+ * the config the wrapped agent actually loads is the SAME `~/.openclaw/openclaw.json`
+ * the OpenClaw adapter targets (a NemoClaw box has BOTH `~/.nemoclaw/` AND
+ * `~/.openclaw/` markers on disk — it DRIVES the wrapped config). The openclaw
+ * paths referenced below are therefore CORRECT for nemoclaw: they exercise the
+ * fork's wrapping behaviour, not an openclaw dependency.
  *
- * Filesystem isolation: every test gets a fresh mkdtemp project dir; HOME +
- * AGENT_CONNECTOR_DATA_DIR are redirected there and restored in afterEach so
- * nothing escapes the sandbox. User scope is used for detection (the ~/.nemoclaw/
- * marker lives under HOME); project scope is used for the deterministic
- * openclaw.json server-write path.
+ * This file consolidates EVERY nemoclaw surface (the per-host convention in
+ * tests/README.md — one file per host):
+ *   • identity + detection → keys on the NemoClaw marker `~/.nemoclaw/`, does NOT
+ *                   collide with openclaw (a `~/.openclaw/`-only box is NOT
+ *                   nemoclaw; a both-markers box is nemoclaw-ONLY, openclaw bows out).
+ *   • MCP server  → install lands in the WRAPPED openclaw.json (NESTED
+ *                   mcp.servers.<id>), stamped platform=nemoclaw; remote http →
+ *                   the accepted literal "streamable-http", sse → "sse".
+ *   • skills      → INHERITED AgentSkills dir-per-skill SKILL.md, stamped nemoclaw.
+ *   • hooks       → the generated plugin bridge bakes `["hook", "nemoclaw", …]`
+ *                   (HOST binding, not openclaw); UserPromptSubmit maps to
+ *                   before_prompt_build; nativeHooks passthrough survives
+ *                   hooks:false while canonical handlers are suppressed.
+ *   • actions     → the generated registerCommand bakes `["action", "nemoclaw", …]`.
+ *
+ * Migrated to the shared harness (tests/support/env + adapter-suite). The
+ * identity/MCP/skills/hooks/action blocks came from the old nemoclaw base file;
+ * the remote-transport, hooks:false-leak, and UserPromptSubmit / nativeHooks /
+ * parseEvent blocks were absorbed from the three former nemoclaw-only openclaw
+ * sibling files (now deleted — this file is the SINGLE nemoclaw file).
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
-import type { InstallContext } from "../../src/adapters/spi.js";
-import type { ResolvedConnector } from "../../src/core/types.js";
+import type { Adapter, InstallContext } from "../../src/adapters/spi.js";
+import type { ResolvedConnector, Transport } from "../../src/core/types.js";
 
 import nemoclawAdapter from "../../src/adapters/nemoclaw/index.js";
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { readJson } from "../support/fs.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
+
+// ─────────────────────────────────────────────────────────────────────────
+// node:child_process mock — hoisted above every import by vitest. The inherited
+// OpenClaw generated-plugin bridge imports `execFileSync` (POSIX) / `execSync`
+// (Windows) at top-level; the bridge tests reprogram what the mock returns via
+// execFileSyncImpl, then read the freshly-written module. (Carried from the
+// absorbed UserPromptSubmit slice.)
+// ─────────────────────────────────────────────────────────────────────────
+
+let execFileSyncImpl: (...args: any[]) => string = () => "";
+const execFileSyncMock = vi.fn((...args: any[]) => execFileSyncImpl(...args));
+
+vi.mock("node:child_process", () => ({
+  execFileSync: execFileSyncMock,
+  execSync: execFileSyncMock,
+}));
+
+// ─────────────────────────────────────────────────────────────────────────
+// Shared fixtures
+// ─────────────────────────────────────────────────────────────────────────
 
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 
 function buildConnector(): ResolvedConnector {
   return defineConnector({
@@ -115,61 +143,108 @@ function buildActionsConnector(): ResolvedConnector {
   });
 }
 
-function buildCtx(projectDir: string, connector: ResolvedConnector): InstallContext {
-  return {
-    connector,
-    scope: "project",
-    projectDir,
-    homeBinPath: HOME_BIN,
-    dataRoot: projectDir,
-    dryRun: false,
-  };
+// ── remote transport fixtures (absorbed remote-transport slice) ─────────────────
+const REMOTE_CONNECTOR_ID = "acme-remote";
+
+function remoteConnector(transport: Transport): ResolvedConnector {
+  return defineConnector({
+    id: REMOTE_CONNECTOR_ID,
+    displayName: "Acme Remote",
+    version: "1.0.0",
+    server: {
+      transport,
+      url: "https://mcp.acme.example/endpoint",
+      headers: { Authorization: "Bearer ${env:ACME_TOKEN}" },
+      tools: { include: ["*"] },
+    },
+  });
 }
 
-let savedHome: string | undefined;
-let savedUserProfile: string | undefined;
-let savedDataDir: string | undefined;
-let savedEnvVar: string | undefined;
-let savedOpenClawConfig: string | undefined;
-let savedOpenClawState: string | undefined;
-
-beforeEach(() => {
-  savedHome = process.env.HOME;
-  savedUserProfile = process.env.USERPROFILE;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-  savedEnvVar = process.env[ENV_VAR];
-  savedOpenClawConfig = process.env.OPENCLAW_CONFIG_PATH;
-  savedOpenClawState = process.env.OPENCLAW_STATE_DIR;
-});
-
-afterEach(() => {
-  restore("HOME", savedHome);
-  restore("USERPROFILE", savedUserProfile);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-  restore(ENV_VAR, savedEnvVar);
-  restore("OPENCLAW_CONFIG_PATH", savedOpenClawConfig);
-  restore("OPENCLAW_STATE_DIR", savedOpenClawState);
-});
-
-function restore(key: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
+/** Install a remote server and return the written native entry. */
+function installRemoteAndRead(
+  adapter: Adapter,
+  transport: Transport,
+  prefix: string,
+): Record<string, any> {
+  const projectDir = freshRemoteHome(prefix);
+  const ctx = buildCtx(projectDir, remoteConnector(transport));
+  adapter.installServer!(ctx);
+  const cfg = JSON.parse(readFileSync(adapter.getServerConfigPath!(ctx), "utf8"));
+  return cfg.mcp.servers[REMOTE_CONNECTOR_ID];
 }
 
-function freshHome(prefix: string): string {
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
-  process.env[ENV_VAR] = ENV_LITERAL;
+/** Fresh HOME for the remote-transport slice: pins ACME_TOKEN, clears OPENCLAW_*. */
+function freshRemoteHome(prefix: string): string {
+  const dir = freshProject(prefix);
+  process.env.ACME_TOKEN = "tok-123";
   delete process.env.OPENCLAW_CONFIG_PATH;
   delete process.env.OPENCLAW_STATE_DIR;
   return dir;
 }
 
-function readJson(path: string): Record<string, any> {
-  return JSON.parse(readFileSync(path, "utf8"));
+// ── hooks:false leak fixtures (absorbed hooks:false-leak slice) ─────────────────
+const LEAK_CONNECTOR_ID = "acme-leak";
+
+/** A connector with a canonical PreToolUse hook + an action, hooks toggled per arg. */
+function leakConnector(hooksDisabled: boolean): ResolvedConnector {
+  return defineConnector({
+    id: LEAK_CONNECTOR_ID,
+    hooks: { PreToolUse: { handler: () => ({ decision: "allow" }) } },
+    actions: [{ id: "reindex", description: "Rebuild the search index.", run: () => undefined }],
+    platforms: hooksDisabled ? { nemoclaw: { hooks: false } } : {},
+  });
 }
+
+// ── UserPromptSubmit / nativeHooks fixtures (absorbed UserPromptSubmit slice) ────
+const UPS_CONNECTOR_ID = "acme-ups";
+
+/** Declares BOTH SessionStart and UserPromptSubmit (global hooks, host-agnostic). */
+function connectorBoth(): ResolvedConnector {
+  return defineConnector({
+    id: UPS_CONNECTOR_ID,
+    hooks: {
+      SessionStart: { handler: () => ({ decision: "allow" }) },
+      UserPromptSubmit: { handler: () => ({ decision: "allow" }) },
+    },
+  });
+}
+
+/** A canonical PreToolUse hook + a host-native passthrough hook, hooks toggled. */
+function connectorNative(host: string, hooksDisabled: boolean): ResolvedConnector {
+  return defineConnector({
+    id: UPS_CONNECTOR_ID,
+    hooks: { PreToolUse: { handler: () => ({ decision: "allow" }) } },
+    platforms: {
+      [host]: {
+        nativeHooks: { agent_turn: { handler: () => undefined } },
+        ...(hooksDisabled ? { hooks: false } : {}),
+      },
+    },
+  });
+}
+
+// Pin process.platform to a POSIX value for the whole file so the generated
+// bridge takes its execFileSync(HOME_BIN, [args]) path (on Windows it would use
+// execSync(one quoted string) — correct in production, proven separately, but it
+// would not match these bridges' execFileSync(bin, argv) call-shape assertions).
+const REAL_PLATFORM = process.platform;
+beforeEach(() => {
+  execFileSyncMock.mockClear();
+  execFileSyncImpl = () => "";
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+});
+afterEach(() => {
+  Object.defineProperty(process, "platform", { value: REAL_PLATFORM, configurable: true });
+});
+
+// Shared env isolation (default keys + the env-ref / OpenClaw root vars the
+// render/remote slices mutate) + the same-rules-for-every-host baseline contract.
+isolateEnv([ENV_VAR, "ACME_TOKEN", "OPENCLAW_CONFIG_PATH", "OPENCLAW_STATE_DIR"]);
+createAdapterSuite({ adapter: nemoclawAdapter, paradigm: "ts-plugin" });
+
+// ─────────────────────────────────────────────────────────────────────────
+// identity + detection (does NOT collide with openclaw)
+// ─────────────────────────────────────────────────────────────────────────
 
 describe("nemoclaw adapter — identity + detection (does NOT collide with openclaw)", () => {
   it("has the nemoclaw identity but inherits OpenClaw's ts-plugin paradigm", () => {
@@ -181,7 +256,7 @@ describe("nemoclaw adapter — identity + detection (does NOT collide with openc
   });
 
   it("detects ONLY when the ~/.nemoclaw/ marker is present", () => {
-    const home = freshHome("ac-nemoclaw-detect-");
+    const home = freshProject("ac-nemoclaw-detect-");
     // No ~/.nemoclaw/ yet → not installed.
     expect(nemoclawAdapter.detectInstalled(home).installed).toBe(false);
 
@@ -195,7 +270,7 @@ describe("nemoclaw adapter — identity + detection (does NOT collide with openc
   });
 
   it("a ~/.openclaw/-only box is NOT detected as nemoclaw (no collision)", () => {
-    const home = freshHome("ac-nemoclaw-noco-");
+    const home = freshProject("ac-nemoclaw-noco-");
     // Only the OpenClaw marker exists — NOT NemoClaw.
     mkdirSync(join(home, ".openclaw"), { recursive: true });
 
@@ -205,7 +280,7 @@ describe("nemoclaw adapter — identity + detection (does NOT collide with openc
   });
 
   it("a REAL NemoClaw box (BOTH ~/.nemoclaw/ AND ~/.openclaw/) is nemoclaw-ONLY — openclaw bows out", () => {
-    const home = freshHome("ac-nemoclaw-both-");
+    const home = freshProject("ac-nemoclaw-both-");
     // A NemoClaw install DRIVES the wrapped OpenClaw config, so a real NemoClaw
     // box has BOTH markers on disk. nemoclaw must claim it; openclaw must DEFER —
     // its detectInstalled bows out when ~/.nemoclaw/ is present so the planner
@@ -222,13 +297,20 @@ describe("nemoclaw adapter — identity + detection (does NOT collide with openc
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// MCP install lands in the WRAPPED openclaw.json
+// ─────────────────────────────────────────────────────────────────────────
+
 describe("nemoclaw adapter — MCP install lands in the WRAPPED openclaw.json", () => {
   let projectDir: string;
   let ctx: InstallContext;
   let configPath: string;
 
   beforeEach(() => {
-    projectDir = freshHome("ac-nemoclaw-mcp-");
+    projectDir = freshProject("ac-nemoclaw-mcp-");
+    process.env[ENV_VAR] = ENV_LITERAL;
+    delete process.env.OPENCLAW_CONFIG_PATH;
+    delete process.env.OPENCLAW_STATE_DIR;
     ctx = buildCtx(projectDir, buildConnector());
     // Project scope → <projectDir>/openclaw.json (inherited resolution).
     configPath = join(projectDir, "openclaw.json");
@@ -282,13 +364,45 @@ describe("nemoclaw adapter — MCP install lands in the WRAPPED openclaw.json", 
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// remote MCP transport literal (http → "streamable-http", sse → "sse")
+//
+// NemoClaw is a fork that inherits renderServerEntry unchanged. OpenClaw's config
+// validator accepts a remote `transport` of "sse" | "streamable-http" and REJECTS
+// a bare "http", so AC's canonical "http" must render as "streamable-http".
+// (Absorbed remote-transport slice.)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("nemoclaw adapter — remote MCP transport literal", () => {
+  it("renders canonical http as OpenClaw's accepted literal 'streamable-http' (NOT 'http')", () => {
+    const entry = installRemoteAndRead(nemoclawAdapter as Adapter, "http", "ac-nemoclaw-http-");
+    expect(entry.transport).toBe("streamable-http");
+    expect(entry.transport).not.toBe("http");
+    expect(entry.url).toBe("https://mcp.acme.example/endpoint");
+    // headers carried + env ref resolved to a literal (no native ${env:} token).
+    expect(entry.headers.Authorization).toBe("Bearer tok-123");
+    // remote sidecar is NOT telemetry-wrapped → no stdio command shape.
+    expect("command" in entry).toBe(false);
+  });
+
+  it("renders sse as 'sse'", () => {
+    const entry = installRemoteAndRead(nemoclawAdapter as Adapter, "sse", "ac-nemoclaw-sse-");
+    expect(entry.transport).toBe("sse");
+    expect(entry.url).toBe("https://mcp.acme.example/endpoint");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// INHERITS OpenClaw's installSkills (does NOT override it)
+// ─────────────────────────────────────────────────────────────────────────
+
 describe("nemoclaw adapter — INHERITS OpenClaw's installSkills (does NOT override it)", () => {
   let projectDir: string;
   let ctx: InstallContext;
   let skillMd: string;
 
   beforeEach(() => {
-    projectDir = freshHome("ac-nemoclaw-skills-");
+    projectDir = freshProject("ac-nemoclaw-skills-");
     ctx = buildCtx(projectDir, buildSkillsConnector());
     // Project scope resolves the workspace to <stateDir>/workspace
     // (~/.openclaw/workspace) — the inherited OpenClaw path, unchanged by the fork.
@@ -318,12 +432,16 @@ describe("nemoclaw adapter — INHERITS OpenClaw's installSkills (does NOT overr
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// hooks bridge dispatches `hook nemoclaw` (HOST binding, not openclaw)
+// ─────────────────────────────────────────────────────────────────────────
+
 describe("nemoclaw adapter — hooks bridge dispatches `hook nemoclaw` (HOST binding, not openclaw)", () => {
   let projectDir: string;
   let ctx: InstallContext;
 
   beforeEach(() => {
-    projectDir = freshHome("ac-nemoclaw-hooks-");
+    projectDir = freshProject("ac-nemoclaw-hooks-");
     ctx = buildCtx(projectDir, buildHooksConnector());
   });
 
@@ -367,12 +485,84 @@ describe("nemoclaw adapter — hooks bridge dispatches `hook nemoclaw` (HOST bin
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// UserPromptSubmit (before_prompt_build) + supportsNativeHooks
+//
+// NemoClaw INHERITS the whole machinery, host-bound to "nemoclaw". OpenClaw's
+// before_prompt_build fires PER TURN and can ONLY inject context (no blocking).
+// (Absorbed UserPromptSubmit slice.)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("nemoclaw adapter — userPromptSubmit + supportsNativeHooks capabilities", () => {
+  it("declares userPromptSubmit && supportsNativeHooks", () => {
+    expect(nemoclawAdapter.capabilities.userPromptSubmit).toBe(true);
+    expect(nemoclawAdapter.capabilities.supportsNativeHooks).toBe(true);
+  });
+});
+
+describe("nemoclaw adapter — nativeHooks passthrough", () => {
+  it("a nativeHooks event registers an on(...) bridge in the generated plugin", () => {
+    const projectDir = freshProject("ac-nemoclaw-ups-");
+    const ctx = buildCtx(projectDir, connectorNative("nemoclaw", false));
+    nemoclawAdapter.installHooks(ctx);
+    const src = readFileSync(nemoclawAdapter.getHookConfigPath(ctx), "utf8");
+    expect(src).toContain('on("agent_turn"');
+    expect(src).toContain('bridge("agent_turn"');
+  });
+
+  it("nativeHooks SURVIVE hooks:false while canonical handlers are suppressed", () => {
+    const projectDir = freshProject("ac-nemoclaw-ups-");
+    const ctx = buildCtx(projectDir, connectorNative("nemoclaw", true));
+    nemoclawAdapter.installHooks(ctx);
+    const src = readFileSync(nemoclawAdapter.getHookConfigPath(ctx), "utf8");
+    // Native passthrough was written despite hooks:false.
+    expect(src).toContain('on("agent_turn"');
+    // Canonical handlers suppressed by the canonicalOff guard.
+    expect(src).not.toContain('on("before_tool_call"');
+  });
+});
+
+describe("nemoclaw adapter — inherits UserPromptSubmit, host-bound to nemoclaw", () => {
+  it("generates the same before_prompt_build + UserPromptSubmit bridge, dispatched to nemoclaw", () => {
+    const projectDir = freshProject("ac-nemoclaw-ups-");
+    const ctx = buildCtx(projectDir, connectorBoth());
+    nemoclawAdapter.installHooks(ctx);
+    const src = readFileSync(nemoclawAdapter.getHookConfigPath(ctx), "utf8");
+
+    expect(src).toContain('on("before_prompt_build"');
+    expect(src).toContain('bridge("UserPromptSubmit"');
+    // The generated bridge command is HOST-BOUND to nemoclaw (NOT openclaw).
+    expect(src).toContain('["hook", "nemoclaw", event');
+    expect(src).not.toContain('["hook", "openclaw", event');
+  });
+});
+
+describe("nemoclaw adapter — parseEvent(UserPromptSubmit)", () => {
+  it("normalizes the bridge payload to a prompt-carrying event", () => {
+    const evt = nemoclawAdapter.parseEvent("UserPromptSubmit", {
+      prompt: "do the thing",
+      sessionId: "uc-9",
+      projectDir: "/some/proj",
+    });
+    expect(evt).toMatchObject({
+      hostPlatform: "nemoclaw",
+      prompt: "do the thing",
+      sessionId: "uc-9",
+      projectDir: "/some/proj",
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// action commands dispatch `action nemoclaw` (HOST binding, not openclaw)
+// ─────────────────────────────────────────────────────────────────────────
+
 describe("nemoclaw adapter — action commands dispatch `action nemoclaw` (HOST binding, not openclaw)", () => {
   let projectDir: string;
   let ctx: InstallContext;
 
   beforeEach(() => {
-    projectDir = freshHome("ac-nemoclaw-act-");
+    projectDir = freshProject("ac-nemoclaw-act-");
     ctx = buildCtx(projectDir, buildActionsConnector());
   });
 
@@ -401,5 +591,38 @@ describe("nemoclaw adapter — action commands dispatch `action nemoclaw` (HOST 
     expect(src).not.toContain('["action", "openclaw", "reindex", "--connector"');
     expect(src).toContain(CONNECTOR_ID);
     expect(src).toContain(HOME_BIN);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// hooks:false must NOT leak canonical handlers via installActions
+//
+// The generated module is synthesized by BOTH installHooks AND installActions (a
+// connector with actions but hooks:false still writes the module — for the
+// actions). NemoClaw inherits buildPluginSource from OpenClaw; it must honor
+// `platforms[host].hooks === false` and emit NO canonical handler.
+// (Absorbed hooks:false-leak slice.)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("nemoclaw adapter — hooks:false does not leak canonical handlers via installActions", () => {
+  it("installActions writes the plugin for the action but OMITS the canonical before_tool_call handler under hooks:false", () => {
+    const projectDir = freshProject("ac-nemoclaw-leak-");
+    const ctx = buildCtx(projectDir, leakConnector(true));
+    nemoclawAdapter.installActions!(ctx);
+    const src = readFileSync(nemoclawAdapter.getHookConfigPath!(ctx), "utf8");
+    // Canonical handlers register via on("<native_event>", …) — MUST be
+    // suppressed by hooks:false (omitted from the generated source entirely).
+    expect(src).not.toContain('on("before_tool_call"');
+    expect(src).not.toContain('on("after_tool_call"');
+    // The plugin WAS written (for the action) — registerCommand present.
+    expect(src).toContain("reindex");
+  });
+
+  it("CONTROL: with hooks enabled, the same connector DOES emit the canonical before_tool_call handler", () => {
+    const projectDir = freshProject("ac-nemoclaw-leak-");
+    const ctx = buildCtx(projectDir, leakConnector(false));
+    nemoclawAdapter.installActions!(ctx);
+    const src = readFileSync(nemoclawAdapter.getHookConfigPath!(ctx), "utf8");
+    expect(src).toContain('on("before_tool_call"');
   });
 });
