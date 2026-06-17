@@ -2,10 +2,11 @@
  * tests/adapters/extended-events-degrade — E1 extension-event DEGRADATION on
  * the batch of hook-capable hosts with NO native analog for the four new
  * canonical events (PermissionRequest, PostToolUseFailure, SubagentStart,
- * SubagentStop): gemini-cli, jetbrains-copilot, kiro, crush, antigravity,
- * antigravity-cli, and omp. opencode and kilo-cli are the exceptions — both
- * wire PermissionRequest -> permission.ask (their native decision gate) but
- * leave the other three E1 events unsupported.
+ * SubagentStop): gemini-cli, jetbrains-copilot, kiro, crush, antigravity, and
+ * antigravity-cli. opencode and kilo-cli are the exceptions — both wire
+ * PermissionRequest -> permission.ask (their native decision gate) but leave
+ * the other three E1 events unsupported. (omp, the other former ts-plugin host
+ * here, now lives in its own per-host file adapters/omp.test.ts.)
  *
  * Per host this pins three things:
  *   • capabilities — all four E1 flags stay unset (read as false), so the
@@ -49,7 +50,6 @@ import antigravityAdapter from "../../src/adapters/antigravity/index.js";
 import antigravityCliAdapter from "../../src/adapters/antigravity-cli/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
 import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
-import ompAdapter from "../../src/adapters/omp/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -211,7 +211,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
     ["crush", crushAdapter],
     ["antigravity", antigravityAdapter],
     ["antigravity-cli", antigravityCliAdapter],
-    ["omp", ompAdapter],
   ];
 
   it.each(hosts)("%s leaves permissionRequest/postToolUseFailure/subagentStart/subagentStop falsy", (_id, adapter) => {
@@ -384,10 +383,7 @@ describe("antigravity (IDE + CLI) E1 degradation", () => {
 // ts-plugin hosts — generated bridge must NOT reference the new events
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("ts-plugin bridges never reference E1 events (kilo-cli / omp)", () => {
-  const UNSUPPORTED_DETAIL =
-    "unsupported here: PermissionRequest,PostToolUseFailure,SubagentStart,SubagentStop";
-
+describe("ts-plugin bridges never reference E1 events (kilo-cli)", () => {
   // opencode wires PermissionRequest -> permission.ask, so it is NOT in the
   // "never reference E1" group: its bridge legitimately carries permission.ask.
   // Only the OTHER three E1 events stay unsupported here. The forbidden-token
@@ -449,23 +445,6 @@ describe("ts-plugin bridges never reference E1 events (kilo-cli / omp)", () => {
       "subagent_ended",
       "subagent_stop",
     ]) {
-      expect(source).not.toContain(token);
-    }
-  });
-
-  it("omp: install detail reports the four as unsupported; bridge wires tool_call only", () => {
-    const projectDir = freshProject("ac-e1-omp-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const changes = ompAdapter.installHooks!(ctx);
-    const moduleChange = changes.find((c) =>
-      c.detail?.startsWith("omp plugin module"),
-    );
-    expect(moduleChange?.detail).toBe(`omp plugin module (PreToolUse; ${UNSUPPORTED_DETAIL})`);
-
-    const source = readFileSync(ompAdapter.getHookConfigPath!(ctx), "utf8");
-    expect(source).toContain("tool_call");
-    for (const token of FORBIDDEN_NATIVE_TOKENS) {
       expect(source).not.toContain(token);
     }
   });

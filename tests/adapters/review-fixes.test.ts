@@ -9,10 +9,10 @@
  *   • kimi — deny uses the Claude/Codex hookSpecificOutput shape (exit 0); the
  *     base dir defaults to ~/.kimi (live-confirmed), honoring $KIMI_HOME / $KIMI_CODE_HOME.
  *   • qwen-code — remote http renders key "httpUrl" (not type:"http"); sse → "url".
- *   • omp — the generated plugin degrades "modify" to allow (no modify-block).
  *
  * (The openclaw parseJsonc-tolerance + dual-registration block has moved to the
- * per-host file adapters/openclaw.test.ts per tests/README.md.)
+ * per-host file adapters/openclaw.test.ts, and the omp modify-degrades-to-allow
+ * block to adapters/omp.test.ts, per tests/README.md.)
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -30,7 +30,6 @@ import zedAdapter from "../../src/adapters/zed/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
 import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
-import ompAdapter from "../../src/adapters/omp/index.js";
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -250,26 +249,6 @@ describe("qwen-code remote transport key", () => {
     expect(entry.url).toBe("https://mcp.example.com/sse");
     expect(entry.httpUrl).toBeUndefined();
     expect(entry.type).toBeUndefined();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// omp — generated plugin degrades modify → allow (no modify-block)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("omp generated plugin: modify degrades to allow", () => {
-  it("the generated tool_call handler does NOT block on modify", () => {
-    const projectDir = freshProject("ac-rf-omp-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const files = ompAdapter.synthesizePlugin!(ctx);
-    const indexJs = files.find((f) => f.path.endsWith("index.js"));
-    expect(indexJs).toBeTruthy();
-    const src = indexJs!.contents;
-
-    // The block condition must gate on deny || ask only — never modify.
-    expect(src).toContain('res.decision === "deny" || res.decision === "ask"');
-    expect(src).not.toContain('res.decision === "modify"');
   });
 });
 
