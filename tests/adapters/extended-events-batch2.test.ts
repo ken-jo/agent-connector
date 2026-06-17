@@ -1,7 +1,7 @@
 /**
  * tests/adapters/extended-events-batch2 — E1 extension-event wiring for the
- * openclaw / droid / hermes / goose adapters (PermissionRequest,
- * PostToolUseFailure, SubagentStart, SubagentStop).
+ * openclaw / droid / hermes adapters (PermissionRequest, PostToolUseFailure,
+ * SubagentStart, SubagentStop). (goose now lives in adapters/goose.test.ts.)
  *
  * Per host this pins three things (mirroring extended-events-batch.test.ts):
  *   • installHooks — which of the four events register natively (and under
@@ -18,16 +18,12 @@
  *       hermes   → subagent_stop only (snake_case native key); PermissionRequest
  *                  warn-skips because pre_approval_request is OBSERVE-ONLY (no
  *                  decision control); PostToolUseFailure / SubagentStart too.
- *       goose    → PostToolUseFailure only (Claude-style PascalCase key via the
- *                  exhaustive EVENT_CAPABILITY map); the other three warn-skip.
  *   • parseEvent — wire → normalized mapping incl. the optional-field quirks
  *     (SubagentStop may arrive WITHOUT agent_type; hermes child_id fallback;
  *     openclaw bridge payload drops empty strings).
- *   • formatReply — per-event decision semantics: feedback-only degradation
- *     (goose PostToolUseFailure deny → additionalContext+reason, never
- *     {decision:"block"}), Stop semantics on SubagentStop (droid/hermes deny →
- *     TOP-LEVEL {decision:"block",reason}), and openclaw's pass-the-normalized-
- *     response-verbatim bridge contract.
+ *   • formatReply — per-event decision semantics: Stop semantics on SubagentStop
+ *     (droid/hermes deny → TOP-LEVEL {decision:"block",reason}), and openclaw's
+ *     pass-the-normalized-response-verbatim bridge contract.
  *
  * The openclaw bridge is exercised LIVE (generated module imported with
  * node:child_process mocked), following the wave4 idiom. Filesystem isolation:
@@ -45,7 +41,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import { readYaml } from "../../src/core/yaml.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
-  PostToolUseFailureEvent,
   ResolvedConnector,
   SubagentStartEvent,
   SubagentStopEvent,
@@ -54,7 +49,6 @@ import type {
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
 import droidAdapter from "../../src/adapters/droid/index.js";
 import hermesAdapter from "../../src/adapters/hermes/index.js";
-import gooseAdapter from "../../src/adapters/goose/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // node:child_process mock — hoisted above every import by vitest. Only the
@@ -660,108 +654,3 @@ describe("hermes — extended-event parse + replies", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────
-// Goose — dedicated PostToolUseFailure; no permission/subagent events
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("goose — extended-event install", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("registers hooks.PostToolUseFailure (capability-filtered); permission/subagent events warn-skip", () => {
-    const changes = gooseAdapter.installHooks(ctx);
-
-    const hooksPath = join(
-      projectDir,
-      ".agents",
-      "plugins",
-      CONNECTOR_ID,
-      "hooks",
-      "hooks.json",
-    );
-    expect(existsSync(hooksPath)).toBe(true);
-    const cfg = readJson(hooksPath);
-
-    const bucket = cfg.hooks.PostToolUseFailure;
-    expect(Array.isArray(bucket)).toBe(true);
-    expect(bucket[0].matcher).toBe("acme_query");
-    expect(bucket[0].hooks[0].command).toContain("hook goose PostToolUseFailure");
-
-    for (const event of ["PermissionRequest", "SubagentStart", "SubagentStop"]) {
-      const warn = changes.find((c) => c.action === "warn" && c.detail?.includes(event));
-      expect(warn).toBeTruthy();
-      expect(warn!.detail).toContain("unsupported on goose");
-      expect(cfg.hooks[event]).toBeUndefined();
-    }
-  });
-});
-
-describe("goose — extended-event parse + replies", () => {
-  it("PostToolUseFailure maps error/tool_use_id/is_interrupt/duration_ms (+ working_dir → projectDir)", () => {
-    const evt = gooseAdapter.parseEvent!("PostToolUseFailure", {
-      session_id: "sess-1",
-      working_dir: "/home/dev/acme",
-      tool_name: "shell",
-      tool_input: { command: "make test" },
-      tool_use_id: "call_01",
-      error: "exit status 2",
-      is_interrupt: false,
-      duration_ms: 450,
-    }) as PostToolUseFailureEvent;
-    expect(evt.hostPlatform).toBe("goose");
-    expect(evt.toolName).toBe("shell");
-    expect(evt.toolInput).toEqual({ command: "make test" });
-    expect(evt.error).toBe("exit status 2");
-    expect(evt.toolUseId).toBe("call_01");
-    expect(evt.isInterrupt).toBe(false);
-    expect(evt.durationMs).toBe(450);
-    expect(evt.projectDir).toBe("/home/dev/acme");
-
-    const minimal = gooseAdapter.parseEvent!("PostToolUseFailure", {
-      tool_name: "write",
-    }) as PostToolUseFailureEvent;
-    expect(minimal.error).toBe("");
-  });
-
-  it("PermissionRequest / SubagentStart / SubagentStop throw (no Goose analog)", () => {
-    for (const event of ["PermissionRequest", "SubagentStart", "SubagentStop"] as const) {
-      expect(() => gooseAdapter.parseEvent!(event, {})).toThrow(
-        /unsupported goose hook event/,
-      );
-    }
-  });
-
-  it("PostToolUseFailure is feedback-only: context → {additionalContext}; deny DEGRADES (never {decision:'block'}); void → exit 0", () => {
-    const context = parseStdout(
-      gooseAdapter.formatReply!("PostToolUseFailure", {
-        decision: "context",
-        additionalContext: "retry with -j1",
-      }),
-    );
-    expect(context).toEqual({ additionalContext: "retry with -j1" });
-
-    const denied = parseStdout(
-      gooseAdapter.formatReply!("PostToolUseFailure", {
-        decision: "deny",
-        reason: "not blockable",
-      }),
-    );
-    expect(denied).toEqual({ additionalContext: "not blockable" });
-    expect(denied.decision).toBeUndefined();
-
-    const noop = gooseAdapter.formatReply!("PostToolUseFailure", {});
-    expect(noop).toEqual({ exitCode: 0 });
-  });
-
-  it("PreToolUse deny still renders Goose's {decision:'block', reason} (regression guard)", () => {
-    const reply = parseStdout(
-      gooseAdapter.formatReply!("PreToolUse", { decision: "deny", reason: "nope" }),
-    );
-    expect(reply).toEqual({ decision: "block", reason: "nope" });
-  });
-});

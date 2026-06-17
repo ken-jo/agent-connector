@@ -1,27 +1,17 @@
 /**
- * adapters/wave3 — render + parse/format round-trip tests for the two Wave-3
- * YAML-native adapters: goose and hermes.
+ * adapters/wave3 — render + parse/format round-trip tests for the Wave-3
+ * YAML-native adapter hermes. (goose now lives in adapters/goose.test.ts.)
  *
- * Both hosts store config in YAML (not JSON), so they bypass BaseAdapter's JSON
- * helpers and merge through core/yaml's readYaml/writeYaml — mirroring how the
- * Codex adapter layers its upsert over @iarna/toml. Each adapter is exercised
+ * hermes stores config in YAML (not JSON), so it bypasses BaseAdapter's JSON
+ * helpers and merges through core/yaml's readYaml/writeYaml — mirroring how the
+ * Codex adapter layers its upsert over @iarna/toml. The adapter is exercised
  * end-to-end against REAL files on disk:
- *
- *   goose:
- *     • installServer  → ~/.config/goose/config.yaml, ROOT KEY "extensions", a
- *                        native Goose stdio entry { type:"stdio", cmd, args, envs }
- *                        — assert it parses as YAML and the field is `cmd` (NOT
- *                        `command`), envs (NOT env).
- *     • installHooks   → <projectDir>/.agents/plugins/<id>/hooks/hooks.json
- *                        (JSON Open-Plugins file), version:1 + { type:"command" }.
  *
  *   hermes:
  *     • installServer  → ~/.hermes/config.yaml, ROOT KEY "mcp_servers", portable
  *                        { command, args, env } entry (assert YAML parse).
  *     • installHooks   → the SAME config.yaml, top-level "hooks" map (assert YAML
  *                        parse); each entry { matcher, command, timeout }.
- *
- *   both:
  *     • idempotency    → a second install → skip, no duplicate entries.
  *     • uninstall      → entries removed (re-read from disk confirms gone).
  *     • MERGE          → an unrelated, pre-authored YAML key survives install.
@@ -45,7 +35,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js";
 
-import gooseAdapter from "../../src/adapters/goose/index.js";
 import hermesAdapter from "../../src/adapters/hermes/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -168,10 +157,6 @@ function readYamlFile(path: string): Record<string, any> {
   return parseYaml(readFileSync(path, "utf8")) as Record<string, any>;
 }
 
-function readJsonFile(path: string): Record<string, any> {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
 /** A representative native PreToolUse hook stdin payload (Claude-style fields). */
 function preToolUsePayload(): Record<string, unknown> {
   return {
@@ -200,199 +185,6 @@ function seedUnrelatedYaml(path: string): void {
     "utf8",
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// goose  (extensions in YAML config.yaml; hooks in JSON Open-Plugins hooks.json)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("goose adapter render + round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave3-goose-");
-    ctx = buildCtx(projectDir, buildConnector(), "user");
-  });
-
-  it('installServer writes ROOT KEY "extensions".<id> as a Goose stdio entry (YAML, cmd not command, envs not env)', () => {
-    const changes = gooseAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = gooseAdapter.getServerConfigPath(ctx);
-    // Goose config is config.yaml under a goose dir (~/.config/goose on POSIX,
-    // %APPDATA%/Block/goose/config on Windows) — assert the shape portably.
-    const norm = serverPath.replace(/\\/g, "/");
-    expect(norm).toContain("goose/");
-    expect(norm.endsWith("config.yaml")).toBe(true);
-    expect(existsSync(serverPath)).toBe(true);
-
-    // The on-disk file is valid YAML (independent parse).
-    const cfg = readYamlFile(serverPath);
-    expect(cfg).toHaveProperty("extensions");
-    expect(cfg).not.toHaveProperty("mcpServers");
-
-    const entry = cfg.extensions[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.type).toBe("stdio");
-
-    // Goose-specific field names: `cmd` (NOT `command`), `envs` (NOT `env`).
-    expect(entry).toHaveProperty("cmd");
-    expect(entry).not.toHaveProperty("command");
-    expect(entry).toHaveProperty("envs");
-    expect(entry).not.toHaveProperty("env");
-
-    // Telemetry serve-wrapper: cmd points at the home binary, wrapped args.
-    expect(entry.cmd).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("goose"));
-
-    // Goose has no ${env:VAR} support → env-ref resolves to a LITERAL value.
-    expect(entry.envs[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.envs[ENV_VAR]).not.toContain("${");
-    expect(entry.enabled).toBe(true);
-    expect(typeof entry.timeout).toBe("number");
-  });
-
-  it("installHooks writes .agents/plugins/<id>/hooks/hooks.json (nested-rule, NO version key)", () => {
-    const changes = gooseAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const hookPath = join(
-      projectDir,
-      ".agents",
-      "plugins",
-      CONNECTOR_ID,
-      "hooks",
-      "hooks.json",
-    );
-    expect(hookPath).toBe(gooseAdapter.getHookConfigPath(ctx));
-    expect(existsSync(hookPath)).toBe(true);
-
-    const file = readJsonFile(hookPath);
-    // Open-Plugins spec has NO top-level `version` key (corrected).
-    expect(file.version).toBeUndefined();
-
-    // Nested-rule shape: { hooks: { <Event>: [ { matcher?, hooks:[{type,command}] } ] } }.
-    const pre = file.hooks.PreToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    const preCmd = pre[0].hooks[0];
-    expect(preCmd.type).toBe("command");
-    expect(preCmd.command).toContain(HOME_BIN);
-    expect(preCmd.command).toContain("hook goose PreToolUse");
-    expect(preCmd.command).toContain(`--connector ${CONNECTOR_ID}`);
-
-    // SessionStart is supported and registered too.
-    expect(file.hooks.SessionStart[0].hooks[0].command).toContain("hook goose SessionStart");
-  });
-
-  it("installServer + installHooks idempotent (skip on a second run); uninstall removes both", () => {
-    gooseAdapter.installServer(ctx);
-    gooseAdapter.installHooks(ctx);
-
-    expect(gooseAdapter.installServer(ctx)[0]?.action).toBe("skip");
-    expect(gooseAdapter.installHooks(ctx).every((c) => c.action === "skip")).toBe(true);
-
-    const serverPath = gooseAdapter.getServerConfigPath(ctx);
-    const hookPath = gooseAdapter.getHookConfigPath(ctx);
-
-    // No duplicate extension entries / hook entries after the second run.
-    const cfg = readYamlFile(serverPath);
-    expect(Object.keys(cfg.extensions)).toEqual([CONNECTOR_ID]);
-    expect(readJsonFile(hookPath).hooks.PreToolUse).toHaveLength(1);
-
-    gooseAdapter.uninstallServer(ctx);
-    const afterServer = readYamlFile(serverPath);
-    expect(afterServer.extensions?.[CONNECTOR_ID]).toBeUndefined();
-
-    gooseAdapter.uninstallHooks(ctx);
-    const afterHooks = readJsonFile(hookPath);
-    expect(JSON.stringify(afterHooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-
-  it("MERGE: a pre-authored unrelated YAML key survives installServer", () => {
-    const serverPath = gooseAdapter.getServerConfigPath(ctx);
-    seedUnrelatedYaml(serverPath);
-
-    gooseAdapter.installServer(ctx);
-
-    const cfg = readYamlFile(serverPath);
-    // Our extension was added…
-    expect(cfg.extensions?.[CONNECTOR_ID]).toBeTruthy();
-    // …and the user's unrelated keys are untouched.
-    expect(cfg.user_setting).toBe("keep-me");
-    expect(cfg.other).toEqual({ nested: true });
-  });
-
-  it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout {decision:block}, exit 0", () => {
-    const ev = gooseAdapter.parseEvent!("PreToolUse", preToolUsePayload()) as PreToolUseEvent;
-    assertPreToolUse(ev, "goose");
-    expect(ev.sessionId).toBe("sess-123");
-
-    const reply = gooseAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "blocked by policy",
-    });
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout!);
-    // Goose deny shape is `{ decision: "block", reason }` (NOT Claude's
-    // hookSpecificOutput.permissionDecision) — corrected.
-    expect(out.decision).toBe("block");
-    expect(out.reason).toBe("blocked by policy");
-    expect(out.hookSpecificOutput).toBeUndefined();
-  });
-
-  // CAPABILITY-CONTRACT (D1): Goose declares userPromptSubmit:false and only
-  // delivers PreToolUse/PostToolUse/SessionStart. installHooks must filter
-  // declared events against the adapter capabilities BEFORE writing — a
-  // connector that declares an UNSUPPORTED event (UserPromptSubmit) must NOT
-  // get that event written into hooks.json, only a graceful warn ChangeRecord.
-  it("installHooks SKIPS an unsupported event (PreCompact) with a warn but still writes PreToolUse", () => {
-    const upsConnector = defineConnector({
-      id: CONNECTOR_ID,
-      displayName: "Acme DB Tools",
-      version: "1.2.3",
-      hooks: {
-        PreToolUse: {
-          matcher: PRE_MATCHER,
-          handler() {
-            return { decision: "allow" };
-          },
-        },
-        PreCompact: {
-          handler() {
-            return { decision: "allow" };
-          },
-        },
-      },
-    });
-    const upsCtx = buildCtx(projectDir, upsConnector, "user");
-
-    const changes = gooseAdapter.installHooks(upsCtx);
-
-    // PreCompact is unsupported on goose → a warn ChangeRecord, never written.
-    const warn = changes.find(
-      (c) => c.action === "warn" && c.detail?.includes("PreCompact"),
-    );
-    expect(warn).toBeTruthy();
-    expect(warn?.detail).toContain("unsupported on goose");
-    // PreToolUse IS supported → created.
-    expect(
-      changes.some((c) => c.action === "create" && c.detail === "hooks.PreToolUse"),
-    ).toBe(true);
-    // No change record was emitted that would write hooks.PreCompact.
-    expect(
-      changes.some(
-        (c) =>
-          c.action !== "warn" && c.detail === "hooks.PreCompact",
-      ),
-    ).toBe(false);
-
-    const hookPath = gooseAdapter.getHookConfigPath(upsCtx);
-    const file = readJsonFile(hookPath);
-    // The on-disk file carries PreToolUse but NOT the unsupported UserPromptSubmit.
-    expect(file.hooks.PreToolUse).toBeTruthy();
-    expect(file.hooks.UserPromptSubmit).toBeUndefined();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // hermes  (mcp_servers + hooks both in the SAME YAML ~/.hermes/config.yaml)
