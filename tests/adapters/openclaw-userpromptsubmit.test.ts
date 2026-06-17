@@ -111,7 +111,11 @@ afterEach(() => {
 });
 
 function freshProject(): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "ac-openclaw-ups-")));
+  // realpathSync.native (NOT plain realpathSync) expands the Windows 8.3 short
+  // name (e.g. RUNNER~1) to its long form. The "~" would otherwise survive into
+  // pathToFileURL as %7E and the dynamic import()'s resolver fails to decode it
+  // ("Does the file exist?"). Mirrors the opencode / mimo-code / kilo tests.
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "ac-openclaw-ups-")));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   return dir;

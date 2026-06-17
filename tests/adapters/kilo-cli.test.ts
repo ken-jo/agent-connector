@@ -13,7 +13,7 @@
  *               ~/.config/kilo/agent/<name>.md    (user)
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -162,7 +162,11 @@ function restore(key: string, value: string | undefined): void {
 }
 
 function freshProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ac-kilo-cli-"));
+  // realpathSync.native expands the Windows 8.3 short name (e.g. RUNNER~1) to its
+  // long form. Without it, the temp path keeps the "~", which pathToFileURL
+  // percent-encodes to %7E and the dynamic import()'s resolver fails to decode
+  // ("Does the file exist?"). Mirrors the opencode / mimo-code / kilo tests.
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "ac-kilo-cli-")));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
