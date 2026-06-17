@@ -1305,7 +1305,6 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
   },
   { name: "Trae", id: "trae", target: "mcp config" },
   { name: "Zed", id: "zed", target: "host config" },
-  { name: "Amp", id: "amp", target: 'settings.json → "amp.mcpServers" (flat dotted key)' },
   { name: "Codebuff", id: "codebuff", target: "mcp.json → mcpServers" },
   { name: "Mux", id: "mux", target: "mcp config" },
   {
@@ -1354,6 +1353,11 @@ export const tsPluginPlatforms: PlatformEntry[] = [
     target: "OpenClaw wrapper/fork; generated plugin module in the wrapped ~/.openclaw/openclaw.json (detected via ~/.nemoclaw/)",
   },
   { name: "OpenClaw", id: "openclaw", target: "generated plugin module" },
+  {
+    name: "Amp",
+    id: "amp",
+    target: "generated plugin module in .amp/plugins/<id>.ts (project scope; MCP in settings.json → \"amp.mcpServers\")",
+  },
 ];
 
 /* ------------------------------------------------------------------ */

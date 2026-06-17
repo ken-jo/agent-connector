@@ -1,11 +1,39 @@
 /**
  * adapters/amp — Amp (Sourcegraph / AmpCode) platform adapter for agent-connector.
  *
- * Amp is an **mcp-only** host: it exposes no lifecycle hook system, so MCP is the
- * only extensibility surface. This adapter installs the MCP server entry and
- * reports hooks as unavailable — the same shape validated by the Warp adapter.
+ * Amp is a **ts-plugin** host: alongside MCP it loads TypeScript plugin modules
+ * from `.amp/plugins/<name>.ts`, each default-exporting a function `(amp) => void`
+ * that registers lifecycle handlers via `amp.on("<event>", async (event, ctx) =>
+ * …)` (ampcode.com/manual → Plugins). This adapter wires the five amp.on events
+ * that have a canonical analog and bridges them to the universal home-bin
+ * entrypoint, exactly like the OMP / OpenCode ts-plugin adapters.
  *
- * MCP config (report §2 / §5.3):
+ * Event mapping (only events the connector declares are subscribed):
+ *   SessionStart     → amp.on("session.start", …)  (thread session begins)
+ *   UserPromptSubmit → amp.on("agent.start",  …)   (user submits a prompt; observe-only)
+ *   PreToolUse       → amp.on("tool.call",     …)   (before a tool runs; deny/ask throw to block)
+ *   PostToolUse      → amp.on("tool.result",   …)   (after a tool finishes; CAN return a
+ *                       replacement output → canModifyOutput)
+ *   Stop             → amp.on("agent.end",     …)   (turn ends; observe-only)
+ * Amp documents NO session.end event, so SessionEnd is an honest gap (warn-skip
+ * via the unsupported-here detail). Amp's tool.call hands no mutable args object
+ * (canModifyArgs:false) and session.start has no documented context-injection
+ * surface (canInjectSessionContext:false).
+ *
+ * Why we SYNTHESIZE a self-contained module instead of importing handlers:
+ *   the connector's hook handlers are arbitrary developer code we must not import
+ *   into Amp's (Bun) runtime — wrong cwd, wrong deps, version skew. So, like the
+ *   OMP / OpenCode adapters, we generate a tiny ESM/TS plugin that imports NOTHING
+ *   from agent-connector: each `amp.on(...)` handler shells out to the ONE stable
+ *   home binary's universal entrypoint (`<homeBin> hook amp <event> --connector
+ *   <id>`) over child_process, feeds it the amp-shaped payload as JSON on stdin,
+ *   and JSON.parses the normalized HookResponse back from stdout. Fail-open: any
+ *   bridge error → no-op. One entrypoint, every paradigm.
+ *
+ * Plugin scope: the `.amp/plugins/` dir is documented at PROJECT scope only; Amp
+ * documents no user-scope plugins dir, so installHooks writes the plugin for
+ * project scope and warn-skips user scope (the MCP + skills surfaces keep their
+ * own user-scope paths). MCP config (report §2 / §5.3):
  *   - user scope    → ~/.config/amp/settings.json
  *   - project scope → <projectDir>/.amp/settings.json
  *   Both are JSONC (we write plain JSON, which is valid JSONC). The settings file
@@ -36,27 +64,46 @@
  * helper rather than reusing getConfigDir.
  */
 
-import { existsSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type {
+  Adapter,
+  GeneratedPluginFile,
+  HookReply,
+  InstallContext,
+  NormalizedEvent,
+} from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
   HealthCheck,
+  HookEventName,
   HookParadigm,
+  HookResponse,
   PlatformCapabilities,
   PlatformId,
+  PostToolUseEvent,
+  PreToolUseEvent,
   ServerDef,
+  SessionStartEvent,
   SkillDef,
+  StopEvent,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
 import {
   buildServeWrapperCommand,
-  isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
@@ -67,6 +114,31 @@ const HOST: PlatformId = "amp";
  * JSON helpers treat this as `config["amp.mcpServers"][serverId]`.
  */
 const MCP_ROOT_KEY = "amp.mcpServers";
+
+/**
+ * Canonical → Amp plugin event name map. A connector hook event is only
+ * subscribed by the generated plugin when it appears here AND is declared by the
+ * connector. Names verified against ampcode.com/manual (Plugins → amp.on events).
+ * Amp documents NO `session.end`, so SessionEnd has no entry (honest gap).
+ */
+const EVENT_TO_AMP: Partial<Record<HookEventName, string>> = {
+  SessionStart: "session.start",
+  UserPromptSubmit: "agent.start",
+  PreToolUse: "tool.call",
+  PostToolUse: "tool.result",
+  Stop: "agent.end",
+};
+
+/** Raw payload the generated plugin posts to the universal hook entrypoint. */
+interface AmpBridgePayload {
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolOutput?: string;
+  isError?: boolean;
+  prompt?: string;
+  sessionId?: string;
+  projectDir?: string;
+}
 
 /** Native MCP server entry shapes Amp accepts under `amp.mcpServers`. */
 interface AmpStdioServer {
@@ -82,23 +154,35 @@ interface AmpHttpServer {
 export class AmpAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
   readonly name = "Amp";
-  readonly paradigm: HookParadigm = "mcp-only";
+  readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
     // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
-    // Amp has no lifecycle hook system — every hook capability is false.
-    preToolUse: false,
-    postToolUse: false,
+    // amp.on lifecycle events with a canonical analog (EVENT_TO_AMP):
+    // tool.call / tool.result / session.start / agent.start / agent.end.
+    preToolUse: true,
+    postToolUse: true,
+    // Amp has no documented compaction hook.
     preCompact: false,
-    sessionStart: false,
+    sessionStart: true,
+    // Amp documents NO session.end event — SessionEnd is an honest gap.
     sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
+    userPromptSubmit: true,
+    stop: true,
     notification: false,
+    // Newer events: Amp documents no permission/approval, post-tool-failure, or
+    // subagent lifecycle hook with a canonical analog, so permissionRequest /
+    // postToolUseFailure / subagentStart / subagentStop stay unset — the
+    // generated bridge never references them and install reports them as
+    // "unsupported here".
+    // tool.call hands no mutable args object — input rewrite is unsupported.
     canModifyArgs: false,
-    canModifyOutput: false,
+    // tool.result CAN return a replacement output (verified: "return a
+    // replacement status/output") — output rewrite supported.
+    canModifyOutput: true,
+    // session.start has no documented context-injection surface.
     canInjectSessionContext: false,
     // Amp registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
@@ -106,6 +190,11 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
     // (user) and <projectDir>/.agents/skills/<name>/SKILL.md (project) — a root
     // OUTSIDE the config dir, so the skillDir() helper resolves it explicitly.
     supportsSkills: true,
+    // Native passthrough hooks: amp.on events with no canonical HookEventName
+    // analog are reachable via platforms["amp"].nativeHooks; the generated plugin
+    // registers + bridges each declared native event verbatim and the home-bin
+    // runtime dispatches it host-generically via runNativeHook.
+    supportsNativeHooks: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -150,11 +239,26 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Amp has no hook file — hooks are not a thing here. The hook "config path" is
-   * the same settings.json so the generic doctor/backup behave sensibly.
+   * For this ts-plugin host the "hook config path" is the generated plugin
+   * MODULE. Amp loads every `.ts` file in `.amp/plugins/`, so writing this file
+   * IS the registration. The `.amp/plugins/` dir is documented at PROJECT scope
+   * (Amp documents no user-scope plugins dir — see pluginsDir); the user-scope
+   * path is returned for doctor/uninstall symmetry but installHooks warn-skips it.
    */
   getHookConfigPath(ctx: InstallContext): string {
-    return this.getServerConfigPath(ctx);
+    return join(this.pluginsDir(ctx), `${ctx.connector.id}.ts`);
+  }
+
+  /**
+   * Plugin directory Amp auto-loads `.ts` modules from. PROJECT scope is the
+   * documented `<projectDir>/.amp/plugins`; user scope mirrors the MCP config dir
+   * (`~/.config/amp/plugins`) for path symmetry only — installHooks never writes
+   * there because Amp documents no user-scope plugins dir.
+   */
+  private pluginsDir(ctx: InstallContext): string {
+    return ctx.scope === "project"
+      ? join(ctx.projectDir, ".amp", "plugins")
+      : join(this.getConfigDir(ctx), "plugins");
   }
 
   // ── MCP server install / uninstall ───────────────────────────────────────
@@ -341,36 +445,387 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
     return renderSkillMd(skill);
   }
 
-  // ── Hooks (unavailable — Amp is mcp-only) ────────────────────────────────
+  // ── Hook install / uninstall (ts-plugin module) ──────────────────────────
 
-  installHooks(_ctx: InstallContext): ChangeRecord[] {
-    return [
-      {
+  installHooks(ctx: InstallContext): ChangeRecord[] {
+    const pluginPath = this.getHookConfigPath(ctx);
+
+    // Amp documents no user-scope plugins dir — only `.amp/plugins/` at project
+    // scope. Degradation is never silent: warn-skip rather than write to an
+    // unverified user path.
+    if (ctx.scope !== "project") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: pluginPath,
+          detail:
+            "amp plugins are project-scoped (.amp/plugins/) — no user-scope plugins dir is documented; skipped",
+        },
+      ];
+    }
+
+    // Native passthrough events are a sibling, amp-scoped declaration: `hooks:
+    // false` disables only the CANONICAL events, and the generated native loop
+    // reads platforms.amp.nativeHooks directly (independent of hookEvents). So
+    // whenever native events exist the plugin must still be synthesized.
+    const canonicalDisabled = ctx.connector.platforms[HOST]?.hooks === false;
+    const hasCanonical = !canonicalDisabled && ctx.connector.hookEvents.length > 0;
+    const hasNative = this.nativeHookEvents(ctx).length > 0;
+
+    if (!hasCanonical && !hasNative) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: pluginPath,
+          detail: canonicalDisabled
+            ? "hooks disabled for amp"
+            : "connector declares no hooks",
+        },
+      ];
+    }
+
+    const files = this.synthesizePlugin(ctx);
+    const changes: ChangeRecord[] = [];
+
+    for (const file of files) {
+      // Idempotent: compare existing contents before writing.
+      const before = existsSync(file.path) ? this.safeRead(file.path) : undefined;
+      let action: ChangeRecord["action"];
+      if (before === undefined) action = "create";
+      else if (before === file.contents) action = "skip";
+      else action = "update";
+
+      if (action !== "skip" && !ctx.dryRun) {
+        ensureDir(dirname(file.path));
+        writeFileSync(file.path, file.contents, "utf8");
+        chmodSync(file.path, file.executable ? 0o755 : 0o644);
+      }
+
+      changes.push({
         platform: this.id,
-        action: "skip",
-        detail: "hooks unavailable (Amp is mcp-only)",
-      },
-    ];
+        action,
+        path: file.path,
+        detail: `amp plugin module (${this.hookDetail(ctx)})`,
+      });
+    }
+
+    return changes;
   }
 
-  uninstallHooks(_ctx: InstallContext): ChangeRecord[] {
+  uninstallHooks(ctx: InstallContext): ChangeRecord[] {
+    const pluginPath = this.getHookConfigPath(ctx);
+    if (!existsSync(pluginPath)) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: pluginPath,
+          detail: "no amp plugin module present",
+        },
+      ];
+    }
+    if (!ctx.dryRun) rmSync(pluginPath, { force: true });
     return [
       {
         platform: this.id,
-        action: "skip",
-        detail: "hooks unavailable (Amp is mcp-only)",
+        action: "remove",
+        path: pluginPath,
+        detail: "amp plugin module",
       },
     ];
   }
 
   /**
-   * True when a hook command references our home binary AND this connector id
-   * (anchored so a shared-prefix id can't collide — see isHomeBinHookCommand).
-   * Amp installs no hooks, but this guard keeps any future shared-file edit from
-   * removing another connector's entries.
+   * Human-facing summary of which declared events the synthesized module ACTUALLY
+   * wires. Only events present in EVENT_TO_AMP are mapped/wired; any declared
+   * event with no Amp mapping (e.g. SessionEnd) is reported separately as
+   * "unsupported here" so the detail never overstates coverage.
    */
-  private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
-    return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
+  private hookDetail(ctx: InstallContext): string {
+    // `hooks: false` suppresses the canonical handlers, so the detail must not
+    // claim them; native events are still reported below.
+    const canonicalOff = ctx.connector.platforms[HOST]?.hooks === false;
+    const declared = canonicalOff ? [] : ctx.connector.hookEvents;
+    const mapped = declared.filter((e) => EVENT_TO_AMP[e] !== undefined);
+    const unsupported = declared.filter((e) => EVENT_TO_AMP[e] === undefined);
+    const native = this.nativeHookEvents(ctx);
+    const parts: string[] = [];
+    if (mapped.length > 0) parts.push(mapped.join(","));
+    if (native.length > 0) parts.push(`native: ${native.join(",")}`);
+    const base = parts.join("; ") || "no canonical hooks";
+    return unsupported.length > 0
+      ? `${base}; unsupported here: ${unsupported.join(",")}`
+      : base;
+  }
+
+  /**
+   * Amp-native passthrough events declared on platforms["amp"].nativeHooks
+   * (amp.on event names with no canonical HookEventName analog). Emitted as
+   * generic bridge registrations and dispatched host-generically by the home-bin's
+   * runNativeHook.
+   */
+  private nativeHookEvents(ctx: InstallContext): string[] {
+    return Object.keys(ctx.connector.platforms[HOST]?.nativeHooks ?? {});
+  }
+
+  // ── ts-plugin synthesis ──────────────────────────────────────────────────
+
+  /**
+   * Build ONE self-contained Amp plugin module (`.amp/plugins/<id>.ts`). It
+   * imports nothing from agent-connector; each `amp.on(...)` handler shells out to
+   * the universal hook entrypoint via child_process and applies the normalized
+   * HookResponse. Its default export is the Amp plugin function `(amp) => void`.
+   */
+  synthesizePlugin(ctx: InstallContext): GeneratedPluginFile[] {
+    const path = this.getHookConfigPath(ctx);
+    const contents = this.buildPluginSource(ctx);
+    return [{ path, contents, executable: false }];
+  }
+
+  /** Compose the generated plugin source with plain string concatenation. */
+  private buildPluginSource(ctx: InstallContext): string {
+    const homeBin = JSON.stringify(ctx.homeBinPath);
+    const connectorId = JSON.stringify(ctx.connector.id);
+
+    // `platforms.amp.hooks === false` disables only the CANONICAL events (the
+    // native loop below reads platforms.amp.nativeHooks directly and is a sibling,
+    // unaffected). When canonical hooks are off the module may still be
+    // synthesized for native events, so the canonical handler set collapses to
+    // empty here rather than short-circuiting the whole plugin.
+    const canonicalOff = ctx.connector.platforms[HOST]?.hooks === false;
+    const events = canonicalOff
+      ? []
+      : ctx.connector.hookEvents.filter(
+          (e): e is HookEventName => EVENT_TO_AMP[e] !== undefined,
+        );
+    const has = (e: HookEventName) => events.includes(e);
+
+    const header = `/**
+ * AUTO-GENERATED by agent-connector — DO NOT EDIT.
+ *
+ * Self-contained Amp plugin for connector ${ctx.connector.id}.
+ * It imports nothing from agent-connector: every hook invocation shells out to
+ * the stable home binary's universal entrypoint and JSON-parses the normalized
+ * response. Fail-open: any bridge error degrades to a no-op (never wedges Amp).
+ *
+ * Amp loads this module from .amp/plugins/${ctx.connector.id}.ts; the default
+ * export is the plugin function (amp) => void called once with the PluginAPI.
+ */
+import type { PluginAPI } from "@ampcode/plugin";
+import { execFileSync, execSync } from "node:child_process";
+
+const HOME_BIN = ${homeBin};
+const CONNECTOR_ID = ${connectorId};
+
+/**
+ * Invoke the universal hook entrypoint for one event.
+ * @param {string} event canonical event name
+ * @param {object} payload amp-shaped payload posted on stdin
+ * @returns {object|null} normalized HookResponse, or null on any failure
+ */
+function bridge(event, payload) {
+  try {
+    // On Windows HOME_BIN is the agent-connector.cmd launcher: Node cannot
+    // execFile a batch file, and shell+args is deprecated (DEP0190), so run one
+    // quoted command line via a shell. POSIX keeps the direct execFile (no shell).
+    const args = ["hook", "amp", event, "--connector", CONNECTOR_ID];
+    const opts = { input: JSON.stringify(payload), encoding: "utf8" };
+    const stdout =
+      process.platform === "win32"
+        ? execSync([HOME_BIN, ...args].map((a) => '"' + a + '"').join(" "), opts)
+        : execFileSync(HOME_BIN, args, opts);
+    const text = (stdout || "").trim();
+    if (text === "") return { decision: "allow" };
+    return JSON.parse(text);
+  } catch {
+    // Fail-open — never wedge an Amp tool call / lifecycle event.
+    return null;
+  }
+}
+
+// Amp documents no project-dir env var; the plugin process runs in the workspace
+// root, so resolve once at load. Session id is rebound on each session.start.
+const PROJECT_DIR = process.cwd();
+let SESSION_ID = "";
+`;
+
+    const handlers: string[] = [];
+
+    if (has("SessionStart")) {
+      handlers.push(`  // SessionStart → rebind the session id and notify the connector.
+  amp.on("session.start", async (event) => {
+    SESSION_ID =
+      (event && (event.sessionId || event.threadId || event.id)) ||
+      "amp-" + Date.now();
+    bridge("SessionStart", { sessionId: SESSION_ID, projectDir: PROJECT_DIR });
+  });`);
+    }
+
+    if (has("UserPromptSubmit")) {
+      handlers.push(`  // UserPromptSubmit → observe the submitted prompt. Amp's agent.start has no
+  // documented block or context-injection surface (canInjectSessionContext:false),
+  // so this is observe-only — any deny/context decision degrades to a no-op.
+  amp.on("agent.start", async (event) => {
+    const prompt = (event && (event.prompt || event.message || event.text)) || "";
+    bridge("UserPromptSubmit", {
+      prompt,
+      sessionId: SESSION_ID,
+      projectDir: PROJECT_DIR,
+    });
+  });`);
+    }
+
+    if (has("PreToolUse")) {
+      handlers.push(`  // PreToolUse → deny/ask throw to block (the safe direction). Amp's tool.call
+  // hands no mutable args object (canModifyArgs:false), so "modify" degrades to
+  // allow — only deny/ask block.
+  amp.on("tool.call", async (event) => {
+    const payload = {
+      toolName: (event && (event.toolName || event.tool || event.name)) || "",
+      toolInput: (event && (event.input || event.args || event.params)) || {},
+      sessionId: SESSION_ID,
+      projectDir: PROJECT_DIR,
+    };
+    const res = bridge("PreToolUse", payload);
+    if (!res) return;
+    if (res.decision === "deny" || res.decision === "ask") {
+      throw new Error(res.reason || "Blocked by ${ctx.connector.id}");
+    }
+  });`);
+    }
+
+    if (has("PostToolUse")) {
+      handlers.push(`  // PostToolUse → observe; CAN return a replacement output (canModifyOutput).
+  // Amp's tool.result: return nothing to keep the original result, or return a
+  // replacement output object.
+  amp.on("tool.result", async (event) => {
+    let toolOutput = "";
+    if (event && typeof event.output === "string") toolOutput = event.output;
+    else if (event && typeof event.result === "string") toolOutput = event.result;
+    const payload = {
+      toolName: (event && (event.toolName || event.tool || event.name)) || "",
+      toolInput: (event && (event.input || event.args || event.params)) || {},
+      toolOutput,
+      isError: !!(event && event.isError),
+      sessionId: SESSION_ID,
+      projectDir: PROJECT_DIR,
+    };
+    const res = bridge("PostToolUse", payload);
+    if (!res) return;
+    if (typeof res.updatedOutput === "string") {
+      return { output: res.updatedOutput };
+    }
+  });`);
+    }
+
+    if (has("Stop")) {
+      handlers.push(`  // Stop → observe turn end. Amp's agent.end exposes no decision surface, so
+  // this is observe-only (a deny decision degrades to a no-op).
+  amp.on("agent.end", async (event) => {
+    bridge("Stop", { sessionId: SESSION_ID, projectDir: PROJECT_DIR, raw: event });
+  });`);
+    }
+
+    // NATIVE passthrough events: amp.on event names with no canonical analog,
+    // declared on platforms.amp.nativeHooks (independent of hookEvents, so they
+    // install even with hooks:false). Each bridges the NATIVE event name verbatim
+    // to the home-bin → runNativeHook dispatches it host-generically.
+    for (const ev of this.nativeHookEvents(ctx)) {
+      const key = JSON.stringify(ev);
+      handlers.push(`  // nativeHooks passthrough → ${ev}
+  amp.on(${key}, async (event) => {
+    bridge(${key}, { sessionId: SESSION_ID, projectDir: PROJECT_DIR, raw: event });
+  });`);
+    }
+
+    const factory = `
+export default function plugin(amp: PluginAPI) {
+${handlers.join("\n\n")}
+}
+`;
+
+    return header + factory;
+  }
+
+  // ── Runtime: parse OUR bridge payload → normalized event ─────────────────
+
+  /**
+   * `raw` is the payload OUR generated plugin posts (NOT a host-native shape):
+   *   { toolName?, toolInput?, toolOutput?, isError?, prompt?, sessionId?, projectDir? }
+   * so this maps straight through.
+   */
+  parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
+    const input = (raw ?? {}) as AmpBridgePayload;
+    const base = {
+      hostPlatform: HOST,
+      connectorId: "",
+      sessionId: typeof input.sessionId === "string" ? input.sessionId : "",
+      raw,
+      ...(typeof input.projectDir === "string"
+        ? { projectDir: input.projectDir }
+        : {}),
+    } as const;
+
+    switch (event) {
+      case "PreToolUse": {
+        const ev: PreToolUseEvent = {
+          ...base,
+          toolName: input.toolName ?? "",
+          toolInput: input.toolInput ?? {},
+        };
+        return ev;
+      }
+      case "PostToolUse": {
+        const ev: PostToolUseEvent = {
+          ...base,
+          toolName: input.toolName ?? "",
+          toolInput: input.toolInput ?? {},
+          ...(typeof input.toolOutput === "string"
+            ? { toolOutput: input.toolOutput }
+            : {}),
+          ...(typeof input.isError === "boolean"
+            ? { isError: input.isError }
+            : {}),
+        };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
+      case "Stop": {
+        const ev: StopEvent = { ...base };
+        return ev;
+      }
+      case "SessionStart": {
+        const ev: SessionStartEvent = { ...base, source: "startup" };
+        return ev;
+      }
+      default:
+        // Other canonical events are not surfaced by Amp; treat as a
+        // session-start-shaped no-op so the dispatcher fails open gracefully.
+        return { ...base, source: "startup" } satisfies SessionStartEvent;
+    }
+  }
+
+  // ── Runtime: normalized response → reply the generated bridge parses ─────
+
+  /**
+   * Unlike json-stdio hosts (whose reply is the host's NATIVE control payload),
+   * OUR generated bridge consumes this stdout directly. So the reply body is the
+   * NORMALIZED HookResponse itself — the bridge JSON.parses it and maps decision
+   * → throw (tool.call) / updatedOutput → replacement output (tool.result).
+   */
+  formatReply(_event: HookEventName, response: HookResponse): HookReply {
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify(response ?? { decision: "allow" }),
+    };
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────
@@ -407,8 +862,43 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
               };
         },
       },
+      {
+        name: `${this.name}: plugin module present`,
+        check: () => {
+          const hasHooks =
+            ctx.connector.hookEvents.length > 0 ||
+            this.nativeHookEvents(ctx).length > 0;
+          if (!hasHooks) return { status: "OK", detail: "no hooks declared" };
+          // Amp plugins are project-scoped; a user-scope install warn-skips the
+          // plugin, so its absence there is healthy.
+          if (ctx.scope !== "project") {
+            return {
+              status: "OK",
+              detail: "amp plugins are project-scoped (user scope skipped)",
+            };
+          }
+          const pluginPath = this.getHookConfigPath(ctx);
+          return existsSync(pluginPath)
+            ? { status: "OK", detail: pluginPath }
+            : { status: "FAIL", detail: `not found: ${pluginPath}` };
+        },
+      },
     ];
   }
+
+  /** Read a file, returning undefined on any error (idempotency compare). */
+  private safeRead(path: string): string | undefined {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+/** Create a directory (recursive) if it does not already exist. */
+function ensureDir(dir: string): void {
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 /**

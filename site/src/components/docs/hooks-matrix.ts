@@ -770,22 +770,23 @@ export const platforms: PlatformHookEntry[] = [
   {
     platform: "amp",
     displayName: "Amp",
-    paradigm: "mcp-only",
-    hasHooks: false,
-    configPath: "—",
+    paradigm: "ts-plugin",
+    hasHooks: true,
+    configPath:
+      "<projectDir>/.amp/plugins/<connector-id>.ts (auto-loaded TS plugin module; project scope only)",
     capabilities: {
       canModifyArgs: false,
-      canModifyOutput: false,
+      canModifyOutput: true,
       canInjectSessionContext: false,
     },
     events: {
-      SessionStart: null,
+      SessionStart: "session.start",
       SessionEnd: null,
-      UserPromptSubmit: null,
-      PreToolUse: null,
-      PostToolUse: null,
+      UserPromptSubmit: "agent.start",
+      PreToolUse: "tool.call",
+      PostToolUse: "tool.result",
       PreCompact: null,
-      Stop: null,
+      Stop: "agent.end",
       Notification: null,
       PermissionRequest: null,
       PostToolUseFailure: null,
@@ -794,7 +795,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "mcp-only: no lifecycle hook system. installHooks/uninstallHooks return a single 'skip' ('hooks unavailable (Amp is mcp-only)'); all events null. MCP only: ~/.config/amp/settings.json under a FLAT dotted key 'amp.mcpServers' (not nested mcpServers). Native ${VAR} interpolation. All hook capabilities false.",
+      "EVENT_TO_AMP (amp.on targets): SessionStart->session.start, UserPromptSubmit->agent.start (observe-only — agent.start exposes no block/context surface, so a deny/context decision degrades to a no-op; canInjectSessionContext false), PreToolUse->tool.call (deny/ask THROW to block; canModifyArgs false so 'modify' degrades to allow), PostToolUse->tool.result (CAN return a replacement output -> canModifyOutput true), Stop->agent.end (observe-only). Amp documents NO session.end -> SessionEnd null; PreCompact/Notification + all four newer events null too. Loads a TS plugin (.amp/plugins/<id>.ts; default export (amp)=>void registering amp.on handlers), PROJECT scope only — no user-scope plugins dir is documented, so a user install warn-skips. supportsNativeHooks: platforms.amp.nativeHooks amp.on events bridged verbatim (host-generic runNativeHook dispatch). MCP native ~/.config/amp/settings.json under the FLAT dotted key 'amp.mcpServers' (not nested mcpServers); native ${VAR} interpolation. Bridge shells to <homeBin> hook amp <event> --connector <id>; formatReply emits the NORMALIZED HookResponse.",
   },
   {
     platform: "codebuff",

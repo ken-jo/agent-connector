@@ -76,11 +76,12 @@ export type PlatformId =
  *     Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose, Hermes,
  *     Droid (Factory), Antigravity (+ the agy CLI), Continue. One universal
  *     entrypoint binary handles all of them.
- *   - "ts-plugin" (7): host loads a JS/TS module exporting lifecycle functions
+ *   - "ts-plugin" (8): host loads a JS/TS module exporting lifecycle functions
  *     — OpenCode, MiMoCode (an OpenCode fork), Kilo CLI, Kilo, OMP, OpenClaw,
- *     NemoClaw (an OpenClaw wrapper/fork). Framework generates the module.
- *   - "mcp-only" (11): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
- *     Amp, Codebuff, Mux, Pi, Amazon Q, Windsurf. Only the MCP server (or skills
+ *     NemoClaw (an OpenClaw wrapper/fork), Amp (.amp/plugins/*.ts). Framework
+ *     generates the module.
+ *   - "mcp-only" (10): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
+ *     Codebuff, Mux, Pi, Amazon Q, Windsurf. Only the MCP server (or skills
  *     surface) is installed; hooks are reported unavailable.
  */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";

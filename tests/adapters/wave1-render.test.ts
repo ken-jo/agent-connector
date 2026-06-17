@@ -1,8 +1,10 @@
 /**
  * adapters/wave1-render — render + round-trip tests for the Wave-1 `mcp-only`
- * adapters: droid, roo-code, trae, zed, amp, codebuff, mux. (antigravity has
- * since been upgraded to json-stdio with a hooks.json + content surfaces, so its
- * block below asserts the json-stdio hook contract, not the mcp-only skip.)
+ * adapters: droid, roo-code, trae, zed, codebuff, mux. (antigravity has since
+ * been upgraded to json-stdio with a hooks.json + content surfaces, and amp to
+ * ts-plugin with a .amp/plugins/<id>.ts module, so their blocks below assert the
+ * hook-dispatch contract, not the mcp-only skip — amp's MCP render/round-trip
+ * stays here since its server surface is unchanged.)
  *
  * Each is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/phase3 pattern:
@@ -564,14 +566,18 @@ describe("amp adapter render/round-trip", () => {
     expect(entry.env[ENV_VAR]).not.toBe(ENV_LITERAL);
   });
 
-  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
+  it("installHooks writes the ts-plugin module .amp/plugins/<id>.ts with the PreToolUse bridge", () => {
     const changes = ampAdapter.installHooks(ctx);
     expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.action).toBe("create");
 
     const hooksPath = ampAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(ampAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
+    expect(hooksPath).toBe(join(projectDir, ".amp", "plugins", `${CONNECTOR_ID}.ts`));
+    expect(existsSync(hooksPath)).toBe(true);
+
+    const src = readFileSync(hooksPath, "utf8");
+    expect(src).toContain('amp.on("tool.call"');
+    expect(src).toContain('bridge("PreToolUse"');
   });
 
   it("installServer is idempotent — second call yields skip and does not duplicate", () => {
