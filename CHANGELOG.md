@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.4.2 — 2026-06-17
+## 0.4.6 — 2026-06-17
 
-The Tier 1–3 surface-gap supplementation (#78). Every change was verified against
+The Tier 1–3 surface-gap supplementation — bundled into one PR (#78) but covering
+**five distinct host-feature work-units**, so the patch jumps 0.4.1 → 0.4.6
+(+1 per unit): codex HTTP MCP · amp ts-plugin · openclaw+nemoclaw hooks ·
+kilo+kilo-cli hooks · codebuff subagents. Every change was verified against
 a primary source — official docs or a **live host binary** — before implementation;
 candidates that could not be verified are documented as honest defers, not guessed.
 **35 platforms**, **2169 tests** (2170 on Windows). Final adversarial review vs
