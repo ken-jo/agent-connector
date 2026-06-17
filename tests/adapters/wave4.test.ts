@@ -1,9 +1,9 @@
 /**
- * adapters/wave4 — render + ts-plugin bridge tests for the two Wave-4 ts-plugin
- * adapters: OMP (Oh My Pi) and OpenClaw (Gateway).
+ * adapters/wave4 — render + ts-plugin bridge tests for the OMP (Oh My Pi)
+ * ts-plugin adapter.
  *
- * Both are `ts-plugin` hosts that — exactly like the reference OpenCode adapter —
- * SYNTHESIZE a self-contained ESM module that imports nothing from
+ * OMP is a `ts-plugin` host that — exactly like the reference OpenCode adapter —
+ * SYNTHESIZES a self-contained ESM module that imports nothing from
  * agent-connector and, on each in-process hook firing, shells out to the ONE
  * stable home binary's universal entrypoint
  *     <homeBin> hook <platformId> <event> --connector <id>
@@ -24,22 +24,10 @@
  *       fake `pi`, fire the registered pi.on("tool_call") handler; a "deny"
  *       returns OMP's native { block:true, reason }. parseEvent/formatReply
  *       round-trip a PreToolUse deny.
+ *     • action surface — slash commands embedded in the shared plugin module.
  *
- *   OpenClaw (DUAL REGISTRATION ts-plugin, JSON5 config):
- *     • installServer  → <projectDir>/openclaw.json, NESTED mcp.servers.<id>.
- *     • installHooks   → writes the plugin module (index.mjs) + an
- *       openclaw.plugin.json manifest, enables plugins.entries.<id> = { enabled },
- *       AND adds the plugin dir to plugins.load.paths (a per-entry `module` field
- *       is rejected by `openclaw config validate`, so discovery is via the
- *       load.paths dir scan) — BOTH halves of the dual registration must be present.
- *     • getHealthChecks FAILS when the two registrations are inconsistent: an
- *       entries-only config (mcp.servers removed) → health FAIL.
- *     • uninstall removes BOTH halves (entry + load.paths) + the module/manifest.
- *     • TOLERANT PARSE — install still works against an openclaw.json that carries
- *       a // comment (JSON5/JSONC), proving the adapter never strict-JSON.parses.
- *     • THE BRIDGE WORKS — import the generated module, call register(api) with a
- *       fake api, fire the before_tool_call handler; a "deny" returns OpenClaw's
- *       native { block:true, blockReason }. parseEvent/formatReply round-trip.
+ * (OpenClaw, the other former Wave-4 ts-plugin host, now lives in its own per-host
+ * file adapters/openclaw.test.ts per tests/README.md.)
  *
  * The node:child_process mock MUST be in place before the generated module is
  * imported. vi.mock is hoisted to the top of the file, and the generated module
@@ -49,7 +37,7 @@
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, and
  * HOME + AGENT_CONNECTOR_DATA_DIR are redirected there and restored in afterEach so
  * nothing escapes the sandbox. We use PROJECT scope throughout for deterministic
- * paths (the user-scope OMP/OpenClaw roots resolve from env vars we also pin).
+ * paths (the user-scope OMP root resolves from env vars we also pin).
  */
 
 import {
@@ -57,21 +45,18 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ensureDir } from "../../src/core/paths.js";
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { HookResponse, ResolvedConnector } from "../../src/core/types.js";
 
 import ompAdapter from "../../src/adapters/omp/index.js";
-import openclawAdapter from "../../src/adapters/openclaw/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // node:child_process mock — hoisted above every import by vitest.
@@ -166,16 +151,12 @@ function buildCtx(projectDir: string, connector: ResolvedConnector): InstallCont
 let savedHome: string | undefined;
 let savedDataDir: string | undefined;
 let savedEnvVar: string | undefined;
-let savedOpenClawConfig: string | undefined;
-let savedOpenClawState: string | undefined;
 let savedPiAgentDir: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
-  savedOpenClawConfig = process.env.OPENCLAW_CONFIG_PATH;
-  savedOpenClawState = process.env.OPENCLAW_STATE_DIR;
   savedPiAgentDir = process.env.PI_CODING_AGENT_DIR;
   execFileSyncMock.mockClear();
   execFileSyncImpl = () => "";
@@ -185,8 +166,6 @@ afterEach(() => {
   restore("HOME", savedHome);
   restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
-  restore("OPENCLAW_CONFIG_PATH", savedOpenClawConfig);
-  restore("OPENCLAW_STATE_DIR", savedOpenClawState);
   restore("PI_CODING_AGENT_DIR", savedPiAgentDir);
 });
 
@@ -197,8 +176,8 @@ function restore(key: string, value: string | undefined): void {
 
 /**
  * Fresh temp project dir + redirect HOME/data-root there so nothing escapes.
- * Also pins the env vars OMP / OpenClaw consult for user-scope roots so a stray
- * env on the host machine can never leak into a project-scoped test.
+ * Also pins the env vars OMP consults for its user-scope root so a stray env on
+ * the host machine can never leak into a project-scoped test.
  */
 function freshProject(prefix: string): string {
   // realpathSync.native expands the Windows 8.3 short tmpdir (C:\Users\RUNNER~1\…)
@@ -209,8 +188,6 @@ function freshProject(prefix: string): string {
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   process.env[ENV_VAR] = ENV_LITERAL;
-  delete process.env.OPENCLAW_CONFIG_PATH;
-  delete process.env.OPENCLAW_STATE_DIR;
   delete process.env.PI_CODING_AGENT_DIR;
   return dir;
 }
@@ -457,481 +434,14 @@ describe("omp adapter runtime dispatch — parseEvent + formatReply round-trip",
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// OpenClaw (ts-plugin DUAL REGISTRATION, JSON5 config) — render
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("openclaw adapter (ts-plugin) render + dual registration", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-  let configPath: string;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-w4-oclaw-");
-    ctx = buildCtx(projectDir, buildConnector());
-    configPath = join(projectDir, "openclaw.json");
-    expect(configPath).toBe(openclawAdapter.getServerConfigPath(ctx));
-  });
-
-  it("installServer writes the NESTED mcp.servers.<id> entry (not a top-level mcpServers key)", () => {
-    const changes = openclawAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-    expect(existsSync(configPath)).toBe(true);
-
-    const cfg = readJson(configPath);
-    // Nested under the top-level "mcp" object, key "servers".
-    expect(cfg).toHaveProperty("mcp");
-    expect(cfg).not.toHaveProperty("mcpServers");
-    expect(cfg.mcp).toHaveProperty("servers");
-
-    const entry = cfg.mcp.servers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    // OpenClaw 2026.6.1 REJECTS transport:"stdio" — a stdio sidecar is inferred
-    // from `command`, so the entry must carry NO transport key.
-    expect(entry.transport).toBeUndefined();
-    expect("transport" in entry).toBe(false);
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedTail("openclaw"));
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    openclawAdapter.installServer(ctx);
-    const second = openclawAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(configPath);
-    expect(Object.keys(cfg.mcp.servers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the nested entry (re-read confirms gone)", () => {
-    openclawAdapter.installServer(ctx);
-    openclawAdapter.uninstallServer(ctx);
-
-    const cfg = readJson(configPath);
-    expect(cfg.mcp?.servers?.[CONNECTOR_ID]).toBeUndefined();
-  });
-
-  it("installHooks adds BOTH the plugin module AND a plugins.entries reference (BOTH present)", () => {
-    const changes = openclawAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    // Half (a): plugin module on disk.
-    const pluginPath = join(
-      projectDir,
-      ".openclaw",
-      "extensions",
-      CONNECTOR_ID,
-      "index.mjs",
-    );
-    expect(pluginPath).toBe(openclawAdapter.getHookConfigPath(ctx));
-    expect(existsSync(pluginPath)).toBe(true);
-
-    // Half (b): plugins.entries.<id> reference written into openclaw.json.
-    const cfg = readJson(configPath);
-    expect(cfg.plugins?.entries?.[CONNECTOR_ID]).toBeTruthy();
-    expect(cfg.plugins.entries[CONNECTOR_ID].enabled).toBe(true);
-    // `openclaw config validate` REJECTS a per-entry `module` field, so the entry
-    // is { enabled: true } ONLY — discovery is via plugins.load.paths instead.
-    expect(cfg.plugins.entries[CONNECTOR_ID].module).toBeUndefined();
-    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
-    expect(Array.isArray(cfg.plugins.load?.paths)).toBe(true);
-    expect(cfg.plugins.load.paths).toContain(pluginDir);
-
-    // The plugin dir also carries an openclaw.plugin.json manifest beside the
-    // module so the gateway's dir scan can load it.
-    const manifestPath = join(pluginDir, "openclaw.plugin.json");
-    expect(existsSync(manifestPath)).toBe(true);
-    const manifest = readJson(manifestPath);
-    expect(manifest.id).toBe(CONNECTOR_ID);
-    expect(manifest.main).toBe("index.mjs");
-
-    // The generated module is the self-contained bridge: it imports NOTHING from
-    // agent-connector (the only allowed import is node:child_process). The string
-    // "agent-connector" may appear in the AUTO-GENERATED header comment — what
-    // must be absent is an actual import/require of the package.
-    const src = readFileSync(pluginPath, "utf8");
-    expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
-    expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
-    expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
-    expect(src).toContain("execFileSync");
-    expect(src).toContain('"hook"');
-    expect(src).toContain('"openclaw"');
-    expect(src).toContain("--connector");
-    expect(src).toContain(CONNECTOR_ID);
-    expect(src).toContain(HOME_BIN);
-    // The OpenClaw plugin definition shape + register(api) + the typed hook.
-    expect(src).toContain("export default plugin");
-    expect(src).toContain("register(api)");
-    expect(src).toContain("before_tool_call");
-  });
-
-  it("installHooks is idempotent — a second full install (server + hooks) yields only skips", () => {
-    openclawAdapter.installServer(ctx);
-    openclawAdapter.installHooks(ctx);
-    const secondServer = openclawAdapter.installServer(ctx);
-    const secondHooks = openclawAdapter.installHooks(ctx);
-    expect(secondServer.every((c) => c.action === "skip")).toBe(true);
-    expect(secondHooks.every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("getHealthChecks PASSES when both registrations are present", () => {
-    openclawAdapter.installServer(ctx);
-    openclawAdapter.installHooks(ctx);
-
-    const dual = openclawAdapter
-      .getHealthChecks!(ctx)
-      .find((c) => /dual registration/.test(c.name))!;
-    expect(dual).toBeTruthy();
-    expect(dual.check().status).toBe("OK");
-  });
-
-  it("getHealthChecks FAILS if you remove one side (entries-only → no MCP tools reach the agent)", () => {
-    // Full install (both halves present)...
-    openclawAdapter.installServer(ctx);
-    openclawAdapter.installHooks(ctx);
-
-    // ...then SIMULATE entries-only by surgically deleting the mcp.servers half,
-    // leaving plugins.entries.<id> in place.
-    const cfg = readJson(configPath);
-    delete cfg.mcp.servers[CONNECTOR_ID];
-    writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-
-    // Sanity: entries still present, mcp.servers half gone.
-    const reread = readJson(configPath);
-    expect(reread.plugins.entries[CONNECTOR_ID]).toBeTruthy();
-    expect(reread.mcp.servers[CONNECTOR_ID]).toBeUndefined();
-
-    const dual = openclawAdapter
-      .getHealthChecks!(ctx)
-      .find((c) => /dual registration/.test(c.name))!;
-    const result = dual.check();
-    expect(result.status).toBe("FAIL");
-    // The FAIL must name the exact inconsistency (plugin loads but no tools).
-    expect(result.detail).toMatch(/mcp\.servers/);
-  });
-
-  it("getHealthChecks FAILS the mirror case too (mcp.servers-only → plugin never loads)", () => {
-    openclawAdapter.installServer(ctx);
-    openclawAdapter.installHooks(ctx);
-
-    // Remove the plugins.entries half, leaving mcp.servers in place.
-    const cfg = readJson(configPath);
-    delete cfg.plugins.entries[CONNECTOR_ID];
-    writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
-
-    const dual = openclawAdapter
-      .getHealthChecks!(ctx)
-      .find((c) => /dual registration/.test(c.name))!;
-    const result = dual.check();
-    expect(result.status).toBe("FAIL");
-    expect(result.detail).toMatch(/plugins\.entries/);
-  });
-
-  it("uninstallHooks removes the plugins.entries reference, drops the dir from plugins.load.paths, AND removes the module + manifest on disk", () => {
-    openclawAdapter.installServer(ctx);
-    openclawAdapter.installHooks(ctx);
-
-    const pluginPath = openclawAdapter.getHookConfigPath(ctx);
-    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
-    const manifestPath = join(pluginDir, "openclaw.plugin.json");
-    expect(existsSync(pluginPath)).toBe(true);
-    expect(existsSync(manifestPath)).toBe(true);
-    expect(readJson(configPath).plugins.entries[CONNECTOR_ID]).toBeTruthy();
-    expect(readJson(configPath).plugins.load.paths).toContain(pluginDir);
-
-    openclawAdapter.uninstallHooks(ctx);
-
-    expect(existsSync(pluginPath)).toBe(false);
-    expect(existsSync(manifestPath)).toBe(false);
-    const cfg = readJson(configPath);
-    expect(cfg.plugins?.entries?.[CONNECTOR_ID]).toBeUndefined();
-    expect(Array.isArray(cfg.plugins?.load?.paths) ? cfg.plugins.load.paths : []).not.toContain(
-      pluginDir,
-    );
-  });
-
-  it("tolerates a JSON5/JSONC openclaw.json with a // comment — install still works", () => {
-    // Pre-author a commented config (strict JSON.parse would throw on this).
-    ensureDir(dirname(configPath));
-    const commented = [
-      "{",
-      '  // user-authored openclaw config (JSON5 — comments allowed)',
-      '  "logLevel": "info",',
-      "  /* block comment */",
-      '  "mcp": {',
-      '    "servers": {}, // trailing comma below is also tolerated',
-      "  },",
-      "}",
-      "",
-    ].join("\n");
-    writeFileSync(configPath, commented, "utf8");
-
-    // Install both halves over the commented file. A strict parse would have
-    // false-failed (returned null → silent data loss); the tolerant parse reads it.
-    const serverChanges = openclawAdapter.installServer(ctx);
-    const hookChanges = openclawAdapter.installHooks(ctx);
-    expect(serverChanges[0]?.action).toBe("create");
-    expect(hookChanges.some((c) => c.action === "create")).toBe(true);
-
-    // The pre-existing user key SURVIVED the merge (the comment was stripped, but
-    // real data is preserved).
-    const cfg = readJson(configPath);
-    expect(cfg.logLevel).toBe("info");
-    expect(cfg.mcp.servers[CONNECTOR_ID]).toBeTruthy();
-    expect(cfg.plugins.entries[CONNECTOR_ID]).toBeTruthy();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// OpenClaw — skills content surface (dir-per-skill SKILL.md + resources)
-// ─────────────────────────────────────────────────────────────────────────
-
-/** A connector declaring one skill (with a bundled resource) — drives skills. */
-function buildSkillsConnector(): ResolvedConnector {
-  return defineConnector({
-    id: CONNECTOR_ID,
-    displayName: "Acme DB Tools",
-    version: "1.2.3",
-    skills: [
-      {
-        name: "db-explain",
-        description: "Explain a SQL query plan. Use when the user asks why a query is slow.",
-        body: "# DB Explain\n\nRun EXPLAIN on the query and summarize the plan.",
-        resources: { "scripts/run.sh": "#!/bin/sh\necho explain\n" },
-      },
-    ],
-  });
-}
-
-describe("openclaw adapter — skills content surface (AgentSkills dir-per-skill SKILL.md)", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-  let skillDir: string;
-  let skillMd: string;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-w4-oclaw-skills-");
-    ctx = buildCtx(projectDir, buildSkillsConnector());
-    // Project scope with no agents.defaults.workspace set → the workspace
-    // resolves to <stateDir>/workspace = ~/.openclaw/workspace, and the skill
-    // root is <workspace>/skills/<name> (the highest-priority documented root).
-    skillDir = join(projectDir, ".openclaw", "workspace", "skills", "db-explain");
-    skillMd = join(skillDir, "SKILL.md");
-  });
-
-  it("installSkills writes the SKILL.md (+ bundled resource) at the resolved <workspace>/skills/<name> path, stamped platform=openclaw", () => {
-    const changes = openclawAdapter.installSkills(ctx);
-    // Every record is stamped with this host's id.
-    expect(changes.every((c) => c.platform === "openclaw")).toBe(true);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    expect(existsSync(skillMd)).toBe(true);
-    // The resource lands beside SKILL.md, inside the skill dir.
-    expect(existsSync(join(skillDir, "scripts", "run.sh"))).toBe(true);
-
-    const src = readFileSync(skillMd, "utf8");
-    // AgentSkills frontmatter: single-line name + description keys + body.
-    expect(src.startsWith("---\n")).toBe(true);
-    expect(src).toMatch(/^name: db-explain$/m);
-    expect(src).toMatch(/^description: Explain a SQL query plan\./m);
-    expect(src).toContain("# DB Explain");
-  });
-
-  it("installSkills is idempotent — a second call yields only skips", () => {
-    openclawAdapter.installSkills(ctx);
-    const second = openclawAdapter.installSkills(ctx);
-    expect(second.every((c) => c.action === "skip")).toBe(true);
-    expect(existsSync(skillMd)).toBe(true);
-  });
-
-  it("installSkills honors platforms['openclaw'].skills === false (skip, no write)", () => {
-    const off = defineConnector({
-      id: CONNECTOR_ID,
-      displayName: "Acme DB Tools",
-      version: "1.2.3",
-      skills: [
-        {
-          name: "db-explain",
-          description: "Explain a SQL query plan. Use when the user asks why a query is slow.",
-          body: "x",
-        },
-      ],
-      platforms: { openclaw: { skills: false } },
-    });
-    const offCtx = buildCtx(projectDir, off);
-    const changes = openclawAdapter.installSkills(offCtx);
-    expect(changes[0]?.action).toBe("skip");
-    expect(existsSync(skillMd)).toBe(false);
-  });
-
-  it("uninstallSkills removes SKILL.md, the resource, and the now-empty skill dir (re-read confirms gone)", () => {
-    openclawAdapter.installSkills(ctx);
-    expect(existsSync(skillMd)).toBe(true);
-
-    const changes = openclawAdapter.uninstallSkills(ctx);
-    expect(changes.every((c) => c.platform === "openclaw")).toBe(true);
-    expect(changes.some((c) => c.action === "remove")).toBe(true);
-
-    expect(existsSync(skillMd)).toBe(false);
-    expect(existsSync(join(skillDir, "scripts", "run.sh"))).toBe(false);
-    // The skill dir itself is dropped (we owned its full contents).
-    expect(existsSync(skillDir)).toBe(false);
-  });
-
-  it("user scope targets ~/.openclaw/skills/<name>/SKILL.md (the `--global` install target)", () => {
-    const userCtx: InstallContext = { ...ctx, scope: "user" };
-    openclawAdapter.installSkills(userCtx);
-    // user scope resolves the config dir to ~/.openclaw (HOME is pinned to the
-    // temp project dir), so the skill root is ~/.openclaw/skills/<name>.
-    const userSkillMd = join(projectDir, ".openclaw", "skills", "db-explain", "SKILL.md");
-    expect(existsSync(userSkillMd)).toBe(true);
-  });
-});
-
-describe("openclaw generated plugin — THE BRIDGE WORKS (live, child_process mocked)", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-  let pluginPath: string;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-w4-oclaw-bridge-");
-    ctx = buildCtx(projectDir, buildConnector());
-    openclawAdapter.installHooks(ctx);
-    pluginPath = openclawAdapter.getHookConfigPath(ctx);
-    expect(existsSync(pluginPath)).toBe(true);
-  });
-
-  /** Import the freshly-written generated module (cache-busted per test). */
-  async function loadPlugin(): Promise<any> {
-    const url = `${pathToFileURL(pluginPath).href}?t=${Date.now()}-${Math.random()}`;
-    return import(/* @vite-ignore */ url);
-  }
-
-  /** Build a fake `api` that records every api.on(event, handler) registration. */
-  function fakeApi(): { on: (e: string, h: (...a: any[]) => any) => void; handlers: Record<string, (...a: any[]) => any> } {
-    const handlers: Record<string, (...a: any[]) => any> = {};
-    return {
-      handlers,
-      on(event: string, handler: (...a: any[]) => any) {
-        handlers[event] = handler;
-      },
-    };
-  }
-
-  it("default export is the plugin definition { id, name, register }; register wires before_tool_call via api.on", async () => {
-    const mod = await loadPlugin();
-    expect(mod.default).toBeTruthy();
-    expect(mod.default.id).toBe(CONNECTOR_ID);
-    expect(typeof mod.default.register).toBe("function");
-
-    const api = fakeApi();
-    mod.default.register(api);
-    expect(typeof api.handlers["before_tool_call"]).toBe("function");
-  });
-
-  it("a 'deny' decision from the bridge returns OpenClaw's native { block:true, blockReason }", async () => {
-    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "nope" });
-
-    const mod = await loadPlugin();
-    const api = fakeApi();
-    mod.default.register(api);
-
-    const result = await api.handlers["before_tool_call"]!({
-      toolName: "acme_write",
-      params: { sql: "DELETE" },
-    });
-
-    expect(result).toEqual({ block: true, blockReason: "nope" });
-
-    // The bridge actually shelled out to the universal entrypoint with our argv.
-    expect(execFileSyncMock).toHaveBeenCalledTimes(1);
-    const [bin, argv] = execFileSyncMock.mock.calls[0]!;
-    expect(bin).toBe(HOME_BIN);
-    expect(argv).toEqual([
-      "hook",
-      "openclaw",
-      "PreToolUse",
-      "--connector",
-      CONNECTOR_ID,
-    ]);
-  });
-
-  it("a 'modify' decision with updatedInput mutates event.params in place", async () => {
-    execFileSyncImpl = () =>
-      JSON.stringify({ decision: "modify", updatedInput: { x: 1 } });
-
-    const mod = await loadPlugin();
-    const api = fakeApi();
-    mod.default.register(api);
-
-    const event: { toolName: string; params: Record<string, unknown> } = {
-      toolName: "acme_write",
-      params: {},
-    };
-    const result = await api.handlers["before_tool_call"]!(event);
-
-    expect(result).toBeUndefined();
-    // event.params was mutated in place to carry the rewritten input.
-    expect(event.params).toEqual({ x: 1 });
-    expect(execFileSyncMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("a bridge error fails OPEN — the before_tool_call handler swallows it and does not block", async () => {
-    execFileSyncImpl = () => {
-      throw new Error("home bin missing");
-    };
-
-    const mod = await loadPlugin();
-    const api = fakeApi();
-    mod.default.register(api);
-
-    const event = { toolName: "acme_query", params: { sql: "SELECT 1" } };
-    const result = await api.handlers["before_tool_call"]!(event);
-    // Fail-open: a bridge exception degrades to a no-op (no block, no mutation).
-    expect(result).toBeUndefined();
-    expect(event.params).toEqual({ sql: "SELECT 1" });
-  });
-});
-
-describe("openclaw adapter runtime dispatch — parseEvent + formatReply round-trip", () => {
-  it("formatReply returns exit 0 and stdout that JSON-parses to the normalized response", () => {
-    const deny: HookResponse = { decision: "deny", reason: "x" };
-    const reply = openclawAdapter.formatReply!("PreToolUse", deny);
-
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout!);
-    expect(out).toEqual({ decision: "deny", reason: "x" });
-  });
-
-  it("parseEvent maps a sent bridge payload to a normalized PreToolUse event", () => {
-    const evt = openclawAdapter.parseEvent!("PreToolUse", {
-      toolName: "acme_write",
-      toolInput: { sql: "DELETE" },
-      sessionId: "oc-1",
-      projectDir: "/some/proj",
-    });
-
-    expect(evt).toMatchObject({
-      hostPlatform: "openclaw",
-      toolName: "acme_write",
-      toolInput: { sql: "DELETE" },
-      sessionId: "oc-1",
-      projectDir: "/some/proj",
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
 // Action surface — slash commands embedded in the SHARED plugin module.
 //
-// On omp/openclaw the action trigger is a registerCommand INSIDE the generated
-// plugin (omp pi.registerCommand / openclaw api.registerCommand), NOT a
-// standalone file. These tests guard the load-bearing risks: the registerCommand
-// block is present (and, for an actions-only connector, no hook handlers are);
-// the `action <host>` token is host-correct (omp literal "omp"); a description
-// containing a `"` is JSON-escaped so the module still PARSES; install writes the
-// plugin (+ openclaw dual-registration) and uninstall removes it; and a
+// On omp the action trigger is a registerCommand INSIDE the generated plugin
+// (pi.registerCommand), NOT a standalone file. These tests guard the load-bearing
+// risks: the registerCommand block is present (and, for an actions-only
+// connector, no hook handlers are); the `action <host>` token is host-correct
+// (omp literal "omp"); a description containing a `"` is JSON-escaped so the
+// module still PARSES; install writes the plugin and uninstall removes it; and a
 // hooks+actions install writes the plugin exactly once (the second surface skips).
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1084,123 +594,5 @@ describe("omp adapter — action surface (slash commands in the shared plugin)",
       .getHealthChecks!(ctx)
       .find((c) => /extension package present/.test(c.name))!;
     expect(ext.check().status).toBe("OK");
-  });
-});
-
-describe("openclaw adapter — action surface (slash commands in the shared plugin)", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-  let configPath: string;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-w4-oc-act-");
-    ctx = buildCtx(projectDir, actionsOnlyConnector());
-    configPath = join(projectDir, "openclaw.json");
-  });
-
-  it("advertises supportsActions", () => {
-    expect(openclawAdapter.capabilities.supportsActions).toBe(true);
-  });
-
-  it("installActions writes the plugin (api.registerCommand `action openclaw <id>`) + the dual-registration entry, NO hook handlers", () => {
-    const changes = openclawAdapter.installActions!(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-    expect(changes.every((c) => c.platform === "openclaw")).toBe(true);
-
-    const pluginPath = openclawAdapter.getHookConfigPath(ctx);
-    expect(existsSync(pluginPath)).toBe(true);
-    const src = readFileSync(pluginPath, "utf8");
-
-    expect(src).toContain("api.registerCommand(");
-    expect(src).toContain('["action", "openclaw", "reindex", "--connector", CONNECTOR_ID]');
-    expect(src).toContain('["action", "openclaw", "purge", "--connector", CONNECTOR_ID]');
-    // Actions-only → NO hook handler is wired in register(api).
-    expect(src).not.toContain('on("before_tool_call"');
-    expect(src).not.toContain('on("session_start"');
-    expect(src).toContain("register(api)");
-
-    // plugins.load.paths + plugins.entries half (a) is written even for actions.
-    const cfg = readJson(configPath);
-    expect(cfg.plugins?.entries?.[CONNECTOR_ID]?.enabled).toBe(true);
-    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
-    expect(cfg.plugins.load.paths).toContain(pluginDir);
-  });
-
-  it("JSON-escapes a description containing a double-quote (the module still parses)", async () => {
-    openclawAdapter.installActions!(ctx);
-    const pluginPath = openclawAdapter.getHookConfigPath(ctx);
-    const src = readFileSync(pluginPath, "utf8");
-    expect(src).toContain('description: "Purge the \\"stale\\" cache."');
-    const mod = await import(`${pathToFileURL(pluginPath).href}?ocesc=${Date.now()}`);
-    expect(typeof mod.default).toBe("object");
-    expect(typeof mod.default.register).toBe("function");
-  });
-
-  it("the registerCommand handler shells out to the home bin and returns its trimmed text (live, mocked)", async () => {
-    openclawAdapter.installActions!(ctx);
-    const pluginPath = openclawAdapter.getHookConfigPath(ctx);
-    const mod = await import(`${pathToFileURL(pluginPath).href}?ocrun=${Date.now()}`);
-
-    const registered: Record<string, any> = {};
-    mod.default.register({
-      registerCommand: (def: any) => { registered[def.name] = def; },
-    });
-    expect(Object.keys(registered).sort()).toEqual(["purge", "reindex"]);
-
-    execFileSyncImpl = () => "  reindexed 42 docs  \n";
-    const res = await registered.reindex.handler({});
-    expect(res).toEqual({ text: "reindexed 42 docs" });
-    const call = execFileSyncMock.mock.calls.at(-1)!;
-    expect(call[0]).toBe(HOME_BIN);
-    expect(call[1]).toEqual(["action", "openclaw", "reindex", "--connector", CONNECTOR_ID]);
-  });
-
-  it("installActions is idempotent — a second call yields skip for every change", () => {
-    openclawAdapter.installActions!(ctx);
-    const second = openclawAdapter.installActions!(ctx);
-    expect(second.every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstallActions is an informational skip; uninstallHooks removes the shared plugin + entry", () => {
-    openclawAdapter.installActions!(ctx);
-    const changes = openclawAdapter.uninstallActions!(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]!.action).toBe("skip");
-    expect(changes[0]!.detail).toContain("removed by uninstallHooks");
-    expect(existsSync(openclawAdapter.getHookConfigPath(ctx))).toBe(true);
-
-    openclawAdapter.uninstallHooks(ctx);
-    expect(existsSync(openclawAdapter.getHookConfigPath(ctx))).toBe(false);
-    const cfg = readJson(configPath);
-    expect(cfg.plugins?.entries?.[CONNECTOR_ID]).toBeUndefined();
-    const pluginDir = join(projectDir, ".openclaw", "extensions", CONNECTOR_ID);
-    expect(cfg.plugins?.load?.paths ?? []).not.toContain(pluginDir);
-  });
-
-  it("honors platforms.openclaw.actions === false (opt-out, never writes)", () => {
-    const ctxOff = buildCtx(
-      projectDir,
-      defineConnector({
-        id: CONNECTOR_ID,
-        actions: [{ id: "reindex", run: () => undefined }],
-        platforms: { openclaw: { actions: false } },
-      }),
-    );
-    const changes = openclawAdapter.installActions!(ctxOff);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]!.action).toBe("skip");
-    expect(changes[0]!.detail).toContain("disabled for openclaw");
-    expect(existsSync(openclawAdapter.getHookConfigPath(ctxOff))).toBe(false);
-  });
-
-  it("hooks+actions install writes the plugin ONCE — the second surface skips (no double write)", () => {
-    const ctxBoth = buildCtx(projectDir, hooksAndActionsConnector());
-    const hookChanges = openclawAdapter.installHooks(ctxBoth);
-    expect(hookChanges.some((c) => c.action === "create")).toBe(true);
-    const actionChanges = openclawAdapter.installActions!(ctxBoth);
-    expect(actionChanges.every((c) => c.action === "skip")).toBe(true);
-    const src = readFileSync(openclawAdapter.getHookConfigPath(ctxBoth), "utf8");
-    expect(src).toContain('on("before_tool_call"');
-    expect(src).toContain("api.registerCommand(");
   });
 });

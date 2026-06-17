@@ -1,13 +1,15 @@
 /**
- * adapters/openclaw — hooks:false must NOT leak canonical handlers via installActions.
+ * adapters/nemoclaw — hooks:false must NOT leak canonical handlers via installActions.
  *
- * Regression for a release-review blocker: the generated OpenClaw plugin module is
- * synthesized by BOTH installHooks AND installActions (a connector with actions but
- * hooks:false still writes the module — for the actions). buildPluginSource must
- * therefore honor `platforms[host].hooks === false` and emit NO canonical
- * api.on("before_tool_call"/"after_tool_call") handler, or hooks:false (an
- * advertised opt-out) would silently re-enable tool gating. Mirrors omp/opencode's
- * canonicalOff guard. Covers nemoclaw too (it inherits buildPluginSource).
+ * Regression for a release-review blocker: the generated OpenClaw/NemoClaw plugin
+ * module is synthesized by BOTH installHooks AND installActions (a connector with
+ * actions but hooks:false still writes the module — for the actions).
+ * buildPluginSource must therefore honor `platforms[host].hooks === false` and emit
+ * NO canonical api.on("before_tool_call"/"after_tool_call") handler, or hooks:false
+ * (an advertised opt-out) would silently re-enable tool gating. Mirrors omp/opencode's
+ * canonicalOff guard. NemoClaw inherits buildPluginSource from OpenClaw. (The
+ * openclaw row of this suite has moved to adapters/openclaw.test.ts; this file
+ * finishes the nemoclaw migration in a later PR.)
  */
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +21,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-import openclawAdapter from "../../src/adapters/openclaw/index.js";
 import nemoclawAdapter from "../../src/adapters/nemoclaw/index.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
@@ -35,7 +36,7 @@ function connector(hooksDisabled: boolean): ResolvedConnector {
     id: CONNECTOR_ID,
     hooks: { PreToolUse: { handler: () => ({ decision: "allow" }) } },
     actions: [{ id: "reindex", description: "Rebuild the search index.", run: () => undefined }],
-    platforms: hooksDisabled ? { openclaw: { hooks: false }, nemoclaw: { hooks: false } } : {},
+    platforms: hooksDisabled ? { nemoclaw: { hooks: false } } : {},
   });
 }
 
@@ -54,7 +55,6 @@ function freshProject(): string {
 }
 
 describe.each([
-  ["openclaw", openclawAdapter],
   ["nemoclaw", nemoclawAdapter],
 ])("%s adapter — hooks:false does not leak canonical handlers via installActions", (_name, adapter) => {
   it("installActions writes the plugin for the action but OMITS the canonical before_tool_call handler under hooks:false", () => {
