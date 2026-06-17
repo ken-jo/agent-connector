@@ -1,10 +1,9 @@
 /**
  * adapters/wave1-render — render + round-trip tests for the Wave-1 `mcp-only`
  * adapters: droid, roo-code, trae, zed, codebuff, mux. (antigravity has since
- * been upgraded to json-stdio with a hooks.json + content surfaces, and amp to
- * ts-plugin with a .amp/plugins/<id>.ts module, so their blocks below assert the
- * hook-dispatch contract, not the mcp-only skip — amp's MCP render/round-trip
- * stays here since its server surface is unchanged.)
+ * been upgraded to json-stdio with a hooks.json + content surfaces, so its block
+ * below asserts the hook-dispatch contract, not the mcp-only skip. amp moved to
+ * its own per-host file tests/adapters/amp.test.ts.)
  *
  * Each is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/phase3 pattern:
@@ -19,10 +18,9 @@
  * Per-adapter root-key contract asserted here:
  *   droid / roo-code / trae / antigravity / codebuff → "mcpServers"
  *   zed       → "context_servers"
- *   amp       → dotted FLAT key "amp.mcpServers"
  *   mux       → "servers", value is a STRING (space-joined shell command)
  *
- * zed + amp additionally assert pre-existing unrelated settings keys SURVIVE the
+ * zed additionally asserts pre-existing unrelated settings keys SURVIVE the
  * merge (the settings.json is a shared, user-owned file).
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir,
@@ -46,7 +44,6 @@ import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 import traeAdapter from "../../src/adapters/trae/index.js";
 import antigravityAdapter from "../../src/adapters/antigravity/index.js";
 import zedAdapter from "../../src/adapters/zed/index.js";
-import ampAdapter from "../../src/adapters/amp/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import muxAdapter from "../../src/adapters/mux/index.js";
 
@@ -525,92 +522,6 @@ describe("zed adapter render/round-trip", () => {
     // A sibling context server survives, and ours is added alongside it.
     expect(cfg.context_servers["other-server"]).toEqual({ command: "other" });
     expect(cfg.context_servers[CONNECTOR_ID]).toBeTruthy();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// amp (dotted FLAT root key "amp.mcpServers"; native ${VAR}; merge-preserving)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("amp adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave1-amp-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it('installServer writes the FLAT dotted key "amp.mcpServers".<id> into .amp/settings.json, wrapped, env as native ${VAR}', () => {
-    const changes = ampAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".amp", "settings.json");
-    expect(serverPath).toBe(ampAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    // QUIRK: a single FLAT dotted key, NOT a nested { amp: { mcpServers } }.
-    expect(cfg).toHaveProperty(["amp.mcpServers"]);
-    expect(cfg).not.toHaveProperty("mcpServers");
-    expect(cfg.amp).toBeUndefined();
-
-    const entry = cfg["amp.mcpServers"][CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("amp"));
-
-    // Amp expands ${VAR} natively → ref rewritten to Amp's token, NOT a literal.
-    expect(entry.env[ENV_VAR]).toBe(`\${${ENV_VAR}}`);
-    expect(entry.env[ENV_VAR]).not.toBe(ENV_LITERAL);
-  });
-
-  it("installHooks writes the ts-plugin module .amp/plugins/<id>.ts with the PreToolUse bridge", () => {
-    const changes = ampAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("create");
-
-    const hooksPath = ampAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(join(projectDir, ".amp", "plugins", `${CONNECTOR_ID}.ts`));
-    expect(existsSync(hooksPath)).toBe(true);
-
-    const src = readFileSync(hooksPath, "utf8");
-    expect(src).toContain('amp.on("tool.call"');
-    expect(src).toContain('bridge("PreToolUse"');
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    ampAdapter.installServer(ctx);
-    const second = ampAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".amp", "settings.json"));
-    expect(Object.keys(cfg["amp.mcpServers"])).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry (re-read confirms gone)", () => {
-    ampAdapter.installServer(ctx);
-    ampAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".amp", "settings.json"));
-    expect(cfg["amp.mcpServers"]?.[CONNECTOR_ID]).toBeUndefined();
-  });
-
-  it("preserves pre-existing unrelated settings keys (shared settings.json merge)", () => {
-    const serverPath = join(projectDir, ".amp", "settings.json");
-    seedJson(serverPath, {
-      "amp.notifications.enabled": true,
-      "amp.url": "https://ampcode.com",
-    });
-
-    ampAdapter.installServer(ctx);
-
-    const cfg = readJson(serverPath);
-    // Unrelated dotted settings survive the merge.
-    expect(cfg["amp.notifications.enabled"]).toBe(true);
-    expect(cfg["amp.url"]).toBe("https://ampcode.com");
-    // Our entry is added under the dotted MCP key.
-    expect(cfg["amp.mcpServers"][CONNECTOR_ID]).toBeTruthy();
   });
 });
 

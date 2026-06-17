@@ -2,7 +2,7 @@
  * adapters/review-fixes — regression tests for the independent-review defect fixes.
  *
  * Each describe block pins one ROOT-CAUSE fix so a regression re-breaks loudly:
- *   • JSONC clobber — zed + amp preserve sibling keys when the settings file
+ *   • JSONC clobber — zed preserves sibling keys when the settings file
  *     carries a // comment (the data-loss bug before the parseJsonc fix).
  *   • overwrite guard — a present, non-empty, TRULY-malformed settings file is
  *     left untouched (a "warn"), never blanked to {}.
@@ -27,7 +27,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js";
 
 import zedAdapter from "../../src/adapters/zed/index.js";
-import ampAdapter from "../../src/adapters/amp/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
 import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
@@ -153,35 +152,6 @@ describe("JSONC clobber: zed settings.json with a // comment + sibling key", () 
   });
 });
 
-describe("JSONC clobber: amp settings.json with a // comment + sibling key", () => {
-  it("preserves the sibling key and adds our entry (no data loss)", () => {
-    const projectDir = freshProject("ac-rf-amp-");
-    const ctx = buildCtx(projectDir, buildConnector());
-    const settingsPath = ampAdapter.getServerConfigPath(ctx);
-
-    ensureDir(join(projectDir, ".amp"));
-    writeFileSync(
-      settingsPath,
-      `{
-        // amp user preference — must survive
-        "amp.notifications.enabled": true,
-        "amp.mcpServers": {
-          "user-owned": { "command": "/bin/echo" }
-        },
-      }`,
-      "utf8",
-    );
-
-    const changes = ampAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const cfg = readJson(settingsPath);
-    expect(cfg["amp.notifications.enabled"]).toBe(true);
-    expect(cfg["amp.mcpServers"]["user-owned"]).toBeTruthy();
-    expect(cfg["amp.mcpServers"][CONNECTOR_ID]).toBeTruthy();
-  });
-});
-
 // ─────────────────────────────────────────────────────────────────────────
 // Overwrite guard — a TRULY-malformed file is NOT blanked
 // ─────────────────────────────────────────────────────────────────────────
@@ -202,20 +172,6 @@ describe("overwrite guard: present, non-empty, TRULY-malformed settings file", (
     expect(changes[0]?.detail).toContain("not parseable");
 
     // The original bytes are UNTOUCHED — never replaced with {}-based output.
-    expect(readFileSync(settingsPath, "utf8")).toBe(malformed);
-  });
-
-  it("removeServerFromJson (uninstall) also warns + leaves a malformed file untouched", () => {
-    const projectDir = freshProject("ac-rf-guard2-");
-    const ctx = buildCtx(projectDir, buildConnector());
-    const settingsPath = ampAdapter.getServerConfigPath(ctx);
-
-    const malformed = `{ "amp.mcpServers": broken, ,,, ]]]`;
-    ensureDir(join(projectDir, ".amp"));
-    writeFileSync(settingsPath, malformed, "utf8");
-
-    const changes = ampAdapter.uninstallServer(ctx);
-    expect(changes[0]?.action).toBe("warn");
     expect(readFileSync(settingsPath, "utf8")).toBe(malformed);
   });
 });
@@ -398,83 +354,8 @@ describe("openclaw shared parseJsonc tolerance + dual registration", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// amp / codebuff — ${env:VAR:-fallback} default must NOT be dropped
+// codebuff — ${env:VAR:-fallback} default must NOT be dropped
 // ─────────────────────────────────────────────────────────────────────────
-
-describe("amp env-ref default is preserved (not dropped)", () => {
-  const VAR = "AC_RF_AMP_VAR";
-  let saved: string | undefined;
-  beforeEach(() => {
-    saved = process.env[VAR];
-  });
-  afterEach(() => {
-    if (saved === undefined) delete process.env[VAR];
-    else process.env[VAR] = saved;
-  });
-
-  it("resolves to the fallback literal when the var is UNSET", () => {
-    const projectDir = freshProject("ac-rf-ampdef-");
-    delete process.env[VAR];
-    const connector = buildConnector({
-      server: {
-        transport: "stdio",
-        command: "npx",
-        args: ["-y", "@x/y"],
-        env: { ENDPOINT: `\${env:${VAR}:-https://fallback.example}` },
-        wrapForTelemetry: false,
-      },
-      hooks: {},
-    });
-    const ctx = buildCtx(projectDir, connector);
-
-    ampAdapter.installServer(ctx);
-    const cfg = readJson(ampAdapter.getServerConfigPath(ctx));
-    const entry = cfg["amp.mcpServers"][CONNECTOR_ID];
-    // The default is honored as a LITERAL — not silently dropped to a bare token.
-    expect(entry.env.ENDPOINT).toBe("https://fallback.example");
-    expect(entry.env.ENDPOINT).not.toContain("${");
-  });
-
-  it("resolves to the live value when the var IS set and non-empty", () => {
-    const projectDir = freshProject("ac-rf-ampdef2-");
-    process.env[VAR] = "https://live.example";
-    const connector = buildConnector({
-      server: {
-        transport: "stdio",
-        command: "npx",
-        args: ["-y", "@x/y"],
-        env: { ENDPOINT: `\${env:${VAR}:-https://fallback.example}` },
-        wrapForTelemetry: false,
-      },
-      hooks: {},
-    });
-    const ctx = buildCtx(projectDir, connector);
-
-    ampAdapter.installServer(ctx);
-    const cfg = readJson(ampAdapter.getServerConfigPath(ctx));
-    expect(cfg["amp.mcpServers"][CONNECTOR_ID].env.ENDPOINT).toBe("https://live.example");
-  });
-
-  it("emits the bare native ${VAR} token when there is NO default", () => {
-    const projectDir = freshProject("ac-rf-ampnodef-");
-    const connector = buildConnector({
-      server: {
-        transport: "stdio",
-        command: "npx",
-        args: ["-y", "@x/y"],
-        env: { TOKEN: `\${env:${VAR}}` },
-        wrapForTelemetry: false,
-      },
-      hooks: {},
-    });
-    const ctx = buildCtx(projectDir, connector);
-
-    ampAdapter.installServer(ctx);
-    const cfg = readJson(ampAdapter.getServerConfigPath(ctx));
-    // No default → keep Amp's native token so the secret stays out of the file.
-    expect(cfg["amp.mcpServers"][CONNECTOR_ID].env.TOKEN).toBe(`\${${VAR}}`);
-  });
-});
 
 describe("codebuff env-ref default is preserved (not dropped)", () => {
   const VAR = "AC_RF_CB_VAR";
