@@ -457,6 +457,8 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
     }
 
     const file = this.readJson<AntigravityHooksFile>(hooksPath) ?? {};
+    const __skip = this.malformedHookRootSkip(hooksPath, (file as Record<string, unknown>).hooks);
+    if (__skip) return [__skip];
     const hooks = (file.hooks ??= {});
 
     const changes: ChangeRecord[] = [];

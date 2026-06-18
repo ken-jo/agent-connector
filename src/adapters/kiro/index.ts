@@ -443,6 +443,8 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
     const agentPath = this.getHookConfigPath(ctx);
     // Merge into the existing agent JSON; create a minimal agent object if absent.
     const agent = this.readJson<KiroAgentFile>(agentPath) ?? {};
+    const __skip = this.malformedHookRootSkip(agentPath, (agent as Record<string, unknown>).hooks);
+    if (__skip) return [__skip];
     const hooks = (agent.hooks ??= {});
 
     const changes: ChangeRecord[] = [];

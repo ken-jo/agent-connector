@@ -395,7 +395,15 @@ export class CodexAdapter extends BaseAdapter {
     }
 
     const file = this.readHooksFile(path);
-    const hooks = (file.hooks ??= {});
+    // COERCE a present-but-malformed `hooks` root (hand-edited to an array /
+    // primitive) to a fresh object map, matching Codex's TOML server-path policy
+    // (tomlBucket) — never throw, never silently drop. A well-formed object is
+    // kept as-is.
+    const existingHooks = file.hooks;
+    const hooks: Record<string, CodexHookEntry[]> =
+      existingHooks && typeof existingHooks === "object" && !Array.isArray(existingHooks)
+        ? existingHooks
+        : (file.hooks = {});
     const changes: ChangeRecord[] = [];
 
     // Declared events Codex cannot fire are reported, never silently dropped.

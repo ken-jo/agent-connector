@@ -824,6 +824,43 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /**
+   * Warn-skip ChangeRecord when an existing JSON `hooks` config is present-but-
+   * malformed (root hand-edited to an array/primitive, or an existing event
+   * bucket is a non-array) — installing a hook into it would silently drop the
+   * entry (a named property on an Array is dropped by JSON.stringify) or throw
+   * under strict mode (a `.push`/property write against a primitive or non-array
+   * bucket). Returns null when the hooks config is well-formed, including the
+   * absent case the installers create fresh (proceed normally). Mirrors the
+   * server-root guard (isMalformedRootValue). All targeted hosts use the Claude-
+   * style `{ Event: Matcher[] }` shape, so every present event bucket must be an
+   * array; a non-array bucket is the same malformed class as a wrong-typed root.
+   */
+  protected malformedHookRootSkip(configPath: string, hooksRoot: unknown): ChangeRecord | null {
+    if (hooksRoot == null) return null; // absent → installer creates fresh
+    if (this.isMalformedRootValue(hooksRoot)) {
+      // array / primitive root
+      return {
+        platform: this.id,
+        action: "warn",
+        path: configPath,
+        detail: `existing "hooks" in ${configPath} is not an object map; left untouched (fix it, then re-run)`,
+      };
+    }
+    for (const v of Object.values(hooksRoot as Record<string, unknown>)) {
+      if (v !== undefined && !Array.isArray(v)) {
+        // an existing event bucket is a non-array
+        return {
+          platform: this.id,
+          action: "warn",
+          path: configPath,
+          detail: `existing "hooks" in ${configPath} has a non-array event bucket; left untouched (fix it, then re-run)`,
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
    * Upsert `entry` at `config[rootKey][serverId]` in a JSON file, creating the
    * file/object as needed. Returns a ChangeRecord describing create/update/skip.
    * Idempotent: an identical entry yields "skip".

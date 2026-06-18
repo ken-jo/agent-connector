@@ -583,6 +583,8 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     const hookPath = this.getHookConfigPath(ctx);
     // Merge into any existing settings.json so the user's own hooks survive.
     const file = this.readJson<ContinueSettingsFile>(hookPath) ?? {};
+    const __skip = this.malformedHookRootSkip(hookPath, (file as Record<string, unknown>).hooks);
+    if (__skip) return [__skip];
     const hooks = (file.hooks ??= {});
 
     const changes: ChangeRecord[] = [];

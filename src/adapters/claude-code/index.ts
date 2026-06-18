@@ -378,6 +378,8 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
 
     const settingsPath = this.getHookConfigPath(ctx);
     const settings = this.readJson<Record<string, unknown>>(settingsPath) ?? {};
+    const __skip = this.malformedHookRootSkip(settingsPath, settings.hooks);
+    if (__skip) return [__skip];
     const hooks = (settings.hooks ??= {}) as Record<string, ClaudeHookEntry[]>;
 
     const changes: ChangeRecord[] = [];
