@@ -2,14 +2,15 @@
  * tests/adapters/extended-events-degrade — E1 extension-event DEGRADATION on
  * the batch of hook-capable hosts with NO native analog for the four new
  * canonical events (PermissionRequest, PostToolUseFailure, SubagentStart,
- * SubagentStop): jetbrains-copilot, kiro, and crush.
+ * SubagentStop): jetbrains-copilot and kiro.
  * (omp, the other former ts-plugin host here, now lives in its own per-host file
  * adapters/omp.test.ts; the antigravity IDE + CLI pair moved to their own per-host
  * files adapters/antigravity.test.ts + adapters/antigravity-cli.test.ts; the
  * kilo-cli OpenCode fork moved to adapters/kilo-cli.test.ts; opencode — which
  * wires PermissionRequest -> permission.ask but leaves the other three E1 events
  * unsupported — moved to adapters/opencode.test.ts; gemini-cli's E1-degrade slice
- * moved to adapters/gemini-cli.test.ts.)
+ * moved to adapters/gemini-cli.test.ts; crush's E1-degrade slice moved to
+ * adapters/crush.test.ts.)
  *
  * Per host this pins three things:
  *   • capabilities — all four E1 flags stay unset (read as false), so the
@@ -23,17 +24,12 @@
  *     events to an explicit unsupported-throw (the compile-forced degrade
  *     case), so a runtime mis-dispatch stays loud rather than mis-parsing.
  *
- * Crush previously dropped EVERY undeclared-native event silently; per the
- * registry-wide E1 convention (mirroring kimi/codex WARN_SKIP_EVENTS) it now
- * warn-skips exactly the four new events while the legacy silent drop of
- * SessionStart/Stop/… is deliberately preserved — both behaviors are pinned.
- *
  * Filesystem isolation mirrors wave2: fresh mkdtemp project dir with HOME +
  * AGENT_CONNECTOR_DATA_DIR redirected into it (kiro's user-scope agent file
  * resolves under the HOME sandbox); mutated env is restored in afterEach.
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -45,7 +41,6 @@ import type { HookEventName, ResolvedConnector } from "../../src/core/types.js";
 
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import kiroAdapter from "../../src/adapters/kiro/index.js";
-import crushAdapter from "../../src/adapters/crush/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -111,19 +106,6 @@ function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
           return { decision: "deny", reason: "keep going" };
         },
       },
-    },
-  });
-}
-
-/** A connector declaring ONLY the four E1 events (pure warn-skip path). */
-function buildE1OnlyConnector(id = CONNECTOR_ID): ResolvedConnector {
-  return defineConnector({
-    id,
-    hooks: {
-      PermissionRequest: { handler() {} },
-      PostToolUseFailure: { handler() {} },
-      SubagentStart: { handler() {} },
-      SubagentStop: { handler() {} },
     },
   });
 }
@@ -203,7 +185,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
   const hosts: ReadonlyArray<[string, Adapter]> = [
     ["jetbrains-copilot", jetbrainsCopilotAdapter],
     ["kiro", kiroAdapter],
-    ["crush", crushAdapter],
   ];
 
   it.each(hosts)("%s leaves permissionRequest/postToolUseFailure/subagentStart/subagentStop falsy", (_id, adapter) => {
@@ -261,48 +242,5 @@ describe("kiro E1 degradation", () => {
     for (const token of FORBIDDEN_NATIVE_TOKENS) {
       expect(text).not.toContain(token);
     }
-  });
-});
-
-describe("crush E1 degradation", () => {
-  it("installHooks warn-skips all four (NEW convention) while still wiring PreToolUse", () => {
-    const projectDir = freshProject("ac-e1-crush-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const changes = crushAdapter.installHooks!(ctx);
-    expectE1WarnSkips(changes, "crush", "Crush");
-    expect(changes.some((c) => c.action === "create" && c.detail === "hooks.PreToolUse")).toBe(
-      true,
-    );
-
-    const cfg = readJson(join(projectDir, ".crush.json"));
-    expect(Object.keys(cfg.hooks)).toEqual(["PreToolUse"]);
-  });
-
-  it("a connector declaring ONLY E1 events → four warns and NO file write", () => {
-    const projectDir = freshProject("ac-e1-crush-only-");
-    const ctx = buildCtx(projectDir, buildE1OnlyConnector());
-
-    const changes = crushAdapter.installHooks!(ctx);
-    expectE1WarnSkips(changes, "crush", "Crush");
-    expect(changes.every((c) => c.action === "warn")).toBe(true);
-    // No registrable event → crush.json must not be created at all.
-    expect(existsSync(join(projectDir, ".crush.json"))).toBe(false);
-  });
-
-  it("legacy silent drop of host-unwired NON-E1 events is preserved (SessionStart)", () => {
-    const projectDir = freshProject("ac-e1-crush-legacy-");
-    const legacy = defineConnector({
-      id: CONNECTOR_ID,
-      hooks: {
-        PreToolUse: { handler() {} },
-        SessionStart: { handler() {} },
-      },
-    });
-    const changes = crushAdapter.installHooks!(buildCtx(projectDir, legacy));
-    // SessionStart predates the warn-skip convention: dropped, not warned.
-    expect(changes.some((c) => c.action === "warn")).toBe(false);
-    const cfg = readJson(join(projectDir, ".crush.json"));
-    expect(Object.keys(cfg.hooks)).toEqual(["PreToolUse"]);
   });
 });
