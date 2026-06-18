@@ -1,21 +1,21 @@
 /**
  * adapters/wave2 — render + parse/format round-trip tests for the Wave-2
- * json-stdio adapters: kiro, jetbrains-copilot, crush.
+ * json-stdio adapters: kiro, jetbrains-copilot.
  *
  * (qwen-code's render/round-trip slice was migrated to
- * tests/adapters/qwen-code.test.ts, and kimi's to tests/adapters/kimi.test.ts,
- * per the ONE-file-per-host convention — see tests/README.md.)
+ * tests/adapters/qwen-code.test.ts, kimi's to tests/adapters/kimi.test.ts, and
+ * crush's to tests/adapters/crush.test.ts, per the ONE-file-per-host convention —
+ * see tests/README.md.)
  *
  * Each adapter is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/wave1 pattern, plus a runtime parse/format round-trip:
  *   • installServer  → native MCP registration under the CORRECT root key
- *                      (mcpServers for kiro; "mcp" for crush;
+ *                      (mcpServers for kiro;
  *                      jetbrains-copilot writes NOTHING and returns a WARN).
  *   • installHooks   → native hook registration in the right FILE + SHAPE:
  *       kiro        → "hooks" in the agent file kiro_default.json (SessionStart
  *                     → native "agentSpawn").
  *       jetbrains   → .github/hooks/<id>.json with version:1 + FLAT {type,command}.
- *       crush       → top-level "hooks" key in crush.json.
  *     Every hook command references the home-bin + connector id.
  *   • idempotency    → second installHooks/installServer → skip, no duplicates.
  *   • uninstall      → entries removed (re-read from disk confirms gone) for the
@@ -42,7 +42,6 @@ import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js
 
 import kiroAdapter from "../../src/adapters/kiro/index.js";
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
-import crushAdapter from "../../src/adapters/crush/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -57,8 +56,6 @@ const PRE_MATCHER = "acme_query|acme_write";
 
 // The serve-wrapper args also bake the install TARGET platform as `--host <id>`
 // (before `--`) so the proxy stamps hostPlatform under a headless spawn.
-const wrappedArgs = (host: string): string[] =>
-  ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--host", host, "--", "npx", "-y", "@x/y"];
 // User-scoped adapters (kiro) stamp `--scope user` instead.
 const wrappedArgsUser = (host: string): string[] =>
   ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--host", host, "--", "npx", "-y", "@x/y"];
@@ -66,8 +63,7 @@ const wrappedArgsUser = (host: string): string[] =>
 /**
  * A connector with a stdio server (env-ref + cwd) + PreToolUse and SessionStart
  * hooks. The PreToolUse + SessionStart pair lets a host that supports SessionStart
- * (kiro, jetbrains) register both, while the deny-only host (crush) registers
- * PreToolUse only and proves SessionStart is correctly dropped.
+ * (kiro, jetbrains) register both.
  */
 function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
   return defineConnector({
@@ -383,101 +379,5 @@ describe("jetbrains-copilot adapter render + round-trip", () => {
     expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked by policy");
     expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// crush  (root key "mcp" in crush.json; top-level "hooks" key in the same file)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("crush adapter render + round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave2-crush-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it('installServer writes the entry under ROOT KEY "mcp" (NOT "mcpServers") into .crush.json, wrapped, env LITERAL', () => {
-    const changes = crushAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".crush.json");
-    expect(serverPath).toBe(crushAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    // ROOT KEY is "mcp" — Crush's quirk vs. the "mcpServers" of Claude/Gemini.
-    expect(cfg).toHaveProperty("mcp");
-    expect(cfg).not.toHaveProperty("mcpServers");
-
-    const entry = cfg.mcp[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.type).toBe("stdio");
-    expect(entry.disabled).toBe(false);
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("crush"));
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks writes the top-level 'hooks' key in crush.json; SessionStart dropped (PreToolUse only)", () => {
-    const changes = crushAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const hookPath = join(projectDir, ".crush.json");
-    expect(hookPath).toBe(crushAdapter.getHookConfigPath(ctx));
-
-    const cfg = readJson(hookPath);
-    const pre = cfg.hooks.PreToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    expect(pre[0].matcher).toBe(PRE_MATCHER);
-    expect(pre[0].command).toContain(HOME_BIN);
-    expect(pre[0].command).toContain("hook crush PreToolUse");
-    expect(pre[0].command).toContain(`--connector ${CONNECTOR_ID}`);
-
-    // Crush honors PreToolUse ONLY — SessionStart must not be registered.
-    expect(cfg.hooks.SessionStart).toBeUndefined();
-  });
-
-  it("server + hooks coexist in ONE crush.json; both idempotent; uninstall removes both", () => {
-    crushAdapter.installServer(ctx);
-    crushAdapter.installHooks(ctx);
-
-    const both = readJson(join(projectDir, ".crush.json"));
-    expect(both.mcp?.[CONNECTOR_ID]).toBeTruthy();
-    expect(both.hooks?.PreToolUse).toBeTruthy();
-
-    expect(crushAdapter.installServer(ctx)[0]?.action).toBe("skip");
-    expect(
-      crushAdapter.installHooks(ctx).every((c) => c.action === "skip"),
-    ).toBe(true);
-
-    crushAdapter.uninstallServer(ctx);
-    const afterServer = readJson(join(projectDir, ".crush.json"));
-    expect(afterServer.mcp?.[CONNECTOR_ID]).toBeUndefined();
-    // Removing the server must not disturb the hooks section.
-    expect(afterServer.hooks?.PreToolUse).toBeTruthy();
-
-    crushAdapter.uninstallHooks(ctx);
-    const afterHooks = readJson(join(projectDir, ".crush.json"));
-    expect(JSON.stringify(afterHooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-
-  it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout {decision:'deny'}, exit 0", () => {
-    const ev = crushAdapter.parseEvent!("PreToolUse", preToolUsePayload()) as PreToolUseEvent;
-    assertPreToolUse(ev, "crush");
-    expect(ev.sessionId).toBe("sess-123");
-
-    // Crush deny → stdout JSON { decision:"deny", reason } at exit 0.
-    const reply = crushAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "blocked by policy",
-    });
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout!);
-    expect(out.decision).toBe("deny");
-    expect(out.reason).toBe("blocked by policy");
   });
 });
