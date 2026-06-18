@@ -57,6 +57,11 @@ import type {
 } from "../../core/types.js";
 import { ensureDir } from "../../core/paths.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import {
+  removeFromObjectMap,
+  upsertInObjectMap,
+  type ObjectMapCodec,
+} from "../../core/object-map.js";
 import { writeTomlString } from "../../core/toml.js";
 import {
   buildHomeBinHookCommand,
@@ -313,6 +318,18 @@ export class CodexAdapter extends BaseAdapter {
     writeFileSync(path, TOML.stringify(data as never), "utf8");
   }
 
+  /** An ObjectMapCodec over config.toml for the core/object-map engine.
+   * `isPresentButUnparseable` is `() => false`: readToml fail-softs to {} and the
+   * server path has historically coerced/overwritten rather than warn-skip on an
+   * unparseable file — preserved here for byte-identical behavior. */
+  private tomlObjectMapCodec(): ObjectMapCodec {
+    return {
+      parse: (path) => this.readToml(path),
+      serialize: (path, data, dryRun) => this.writeToml(path, data, dryRun),
+      isPresentButUnparseable: () => false,
+    };
+  }
+
   // ── Install server (config.toml → [mcp_servers.<id>]) ───────────────────
 
   override installServer(ctx: InstallContext): ChangeRecord[] {
@@ -340,46 +357,34 @@ export class CodexAdapter extends BaseAdapter {
 
     const entry = this.renderMcpEntry(ctx, server);
 
-    const cfg = this.readToml(path);
-    const bucket = this.tomlBucket(cfg, "mcp_servers");
-    const before = JSON.stringify(bucket[connector.id]);
-    const after = JSON.stringify(entry);
-
-    let action: ChangeRecord["action"];
-    if (before === undefined) action = "create";
-    else if (before === after) action = "skip";
-    else action = "update";
-
-    if (action !== "skip") {
-      bucket[connector.id] = entry as unknown as Record<string, unknown>;
-      this.writeToml(path, cfg, dryRun);
-    }
-    return [{ platform: this.id, action, path, detail: `mcp_servers.${connector.id}` }];
+    return [
+      upsertInObjectMap({
+        codec: this.tomlObjectMapCodec(),
+        rootKey: "mcp_servers",
+        policy: "coerce",
+        platform: this.id,
+        configPath: path,
+        entryId: connector.id,
+        entry,
+        dryRun,
+      }),
+    ];
   }
 
   override uninstallServer(ctx: InstallContext): ChangeRecord[] {
     const { connector, dryRun } = ctx;
     const path = this.getServerConfigPath(ctx);
-    const cfg = this.readToml(path);
-    const bucket = cfg["mcp_servers"];
-    if (
-      !existsSync(path) ||
-      typeof bucket !== "object" ||
-      bucket === null ||
-      !(connector.id in (bucket as Record<string, unknown>))
-    ) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path,
-          detail: `mcp_servers.${connector.id} absent`,
-        },
-      ];
-    }
-    delete (bucket as Record<string, unknown>)[connector.id];
-    this.writeToml(path, cfg, dryRun);
-    return [{ platform: this.id, action: "remove", path, detail: `mcp_servers.${connector.id}` }];
+    return [
+      removeFromObjectMap({
+        codec: this.tomlObjectMapCodec(),
+        rootKey: "mcp_servers",
+        policy: "coerce",
+        platform: this.id,
+        configPath: path,
+        entryId: connector.id,
+        dryRun,
+      }),
+    ];
   }
 
   // ── Install hooks (hooks.json) ──────────────────────────────────────────
@@ -1067,17 +1072,6 @@ export class CodexAdapter extends BaseAdapter {
 
   private readHooksFile(path: string): CodexHooksFile {
     return this.readJson<CodexHooksFile>(path) ?? {};
-  }
-
-  /** Get-or-create a nested table inside a parsed TOML object. */
-  private tomlBucket(cfg: Record<string, unknown>, key: string): Record<string, unknown> {
-    const existing = cfg[key];
-    if (existing && typeof existing === "object" && !Array.isArray(existing)) {
-      return existing as Record<string, unknown>;
-    }
-    const fresh: Record<string, unknown> = {};
-    cfg[key] = fresh;
-    return fresh;
   }
 
   private normalizeSource(raw: string | undefined): "startup" | "compact" | "resume" | "clear" {
