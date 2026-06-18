@@ -13,8 +13,11 @@
 // settings/config files). The agent-connector *data-root* paths (our own
 // per-project state) live in core/paths.ts — do NOT conflate the two.
 //
-// Host-specific env overrides (CODEX_HOME, PI_CODING_AGENT_DIR, …) are
-// intentionally NOT modelled here; they belong to their own resolvers.
+// Host-specific config-home resolvers that are SHARED across modules (e.g.
+// `codexConfigHome`, used by BOTH the codex adapter and marketplace detection)
+// DO live here, so the writer and the probe can never disagree on the dir.
+// Single-caller host envs (PI_CODING_AGENT_DIR, OPENCLAW_*) stay in their own
+// adapter.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { homedir } from "node:os";
@@ -40,4 +43,16 @@ export function localAppData(): string {
   return local && local.trim() !== ""
     ? resolve(local)
     : join(homedir(), "AppData", "Local");
+}
+
+/** Codex's config home: $CODEX_HOME (tilde-expanded, then resolved) when set
+ *  & non-empty, else ~/.codex. Shared by the codex adapter (writer) and the
+ *  marketplace detection probe so they never disagree on the config dir. */
+export function codexConfigHome(): string {
+  const env = process.env.CODEX_HOME;
+  if (env && env.trim() !== "") {
+    if (env.startsWith("~")) return join(homedir(), env.replace(/^~[/\\]?/, ""));
+    return resolve(env);
+  }
+  return join(homedir(), ".codex");
 }
