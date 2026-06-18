@@ -1,17 +1,16 @@
 /**
  * tests/adapters/extended-events-batch — E1 extension-event wiring for the
- * vscode-copilot / copilot-cli adapters (PermissionRequest, PostToolUseFailure,
- * SubagentStart, SubagentStop).
+ * copilot-cli adapter (PermissionRequest, PostToolUseFailure, SubagentStart,
+ * SubagentStop).
  *
- * (cursor's slices were migrated to tests/adapters/cursor.test.ts per the
- * ONE-file-per-host convention — see tests/README.md.)
+ * (cursor's and vscode-copilot's slices were migrated to their per-host files
+ * tests/adapters/cursor.test.ts and tests/adapters/vscode-copilot.test.ts per
+ * the ONE-file-per-host convention — see tests/README.md.)
  *
  * Per host this pins three things:
  *   • installHooks — which of the four events register natively (and under
  *     which native key), and that unsupported ones surface the standard
  *     warn-skip ("no … hook equivalent") instead of being silently dropped:
- *       vscode-copilot → SubagentStart / SubagentStop (PascalCase); both
- *                        PermissionRequest and PostToolUseFailure warn-skip.
  *       copilot-cli    → all four, PascalCase 1:1 (write-all adapter).
  *   • parseEvent — wire → normalized mapping incl. the optional-field quirks
  *     (SubagentStop may arrive WITHOUT agent_type).
@@ -41,7 +40,6 @@ import type {
   SubagentStopEvent,
 } from "../../src/core/types.js";
 
-import vscodeCopilotAdapter from "../../src/adapters/vscode-copilot/index.js";
 import copilotCliAdapter from "../../src/adapters/copilot-cli/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -140,131 +138,6 @@ function parseStdout(reply: { exitCode: number; stdout?: string }): any {
   expect(reply.stdout).toBeTruthy();
   return JSON.parse(reply.stdout!);
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// VS Code Copilot
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("vscode-copilot — extended-event install", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("registers SubagentStart/SubagentStop (PascalCase); PermissionRequest + PostToolUseFailure warn-skip", () => {
-    const changes = vscodeCopilotAdapter.installHooks(ctx);
-
-    const hooksPath = join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`);
-    expect(existsSync(hooksPath)).toBe(true);
-    const cfg = readJson(hooksPath);
-    expect(cfg.version).toBe(1);
-
-    expect(cfg.hooks.SubagentStart[0].command).toContain(
-      "hook vscode-copilot SubagentStart",
-    );
-    expect(cfg.hooks.SubagentStop[0].command).toContain(
-      "hook vscode-copilot SubagentStop",
-    );
-
-    for (const event of ["PermissionRequest", "PostToolUseFailure"]) {
-      const warn = changes.find(
-        (c) => c.action === "warn" && c.detail?.includes(event),
-      );
-      expect(warn).toBeTruthy();
-      expect(warn!.detail).toContain("no VS Code Copilot hook equivalent");
-      expect(cfg.hooks[event]).toBeUndefined();
-    }
-  });
-});
-
-describe("vscode-copilot — extended-event parse + replies", () => {
-  const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
-
-  it("SubagentStart/SubagentStop parse the Claude-compatible snake_case fields", () => {
-    const start = vscodeCopilotAdapter.parseEvent!("SubagentStart", {
-      ...COMMON,
-      agent_id: "agent-7",
-      agent_type: "code-reviewer",
-    }) as SubagentStartEvent;
-    expect(start.hostPlatform).toBe("vscode-copilot");
-    expect(start.agentId).toBe("agent-7");
-    expect(start.agentType).toBe("code-reviewer");
-
-    const stop = vscodeCopilotAdapter.parseEvent!("SubagentStop", {
-      ...COMMON,
-      agent_id: "agent-7",
-      agent_transcript_path: "/x/subagents/agent-7.jsonl",
-      last_assistant_message: "done",
-      stop_hook_active: false,
-    }) as SubagentStopEvent;
-    // The missing-agent_type quirk stays tolerated.
-    expect(stop.agentType).toBeUndefined();
-    expect(stop.agentId).toBe("agent-7");
-    expect(stop.agentTranscriptPath).toBe("/x/subagents/agent-7.jsonl");
-    expect(stop.lastAssistantMessage).toBe("done");
-    expect(stop.stopHookActive).toBe(false);
-  });
-
-  it("PermissionRequest / PostToolUseFailure throw (no VS Code analog)", () => {
-    expect(() =>
-      vscodeCopilotAdapter.parseEvent!("PermissionRequest", COMMON),
-    ).toThrow(/unsupported vscode-copilot hook event/);
-    expect(() =>
-      vscodeCopilotAdapter.parseEvent!("PostToolUseFailure", COMMON),
-    ).toThrow(/unsupported vscode-copilot hook event/);
-  });
-
-  it("SubagentStop deny → TOP-LEVEL {decision:'block', reason} (Stop semantics, NOT permissionDecision)", () => {
-    const reply = parseStdout(
-      vscodeCopilotAdapter.formatReply!("SubagentStop", {
-        decision: "deny",
-        reason: "keep going",
-      }),
-    );
-    expect(reply).toEqual({ decision: "block", reason: "keep going" });
-    expect(reply.hookSpecificOutput).toBeUndefined();
-  });
-
-  it("PreToolUse deny still uses hookSpecificOutput.permissionDecision (regression guard)", () => {
-    const reply = parseStdout(
-      vscodeCopilotAdapter.formatReply!("PreToolUse", {
-        decision: "deny",
-        reason: "nope",
-      }),
-    );
-    expect(reply.hookSpecificOutput.permissionDecision).toBe("deny");
-  });
-
-  it("SubagentStart: context → additionalContext; deny degrades to context+reason; void → exit 0", () => {
-    const context = parseStdout(
-      vscodeCopilotAdapter.formatReply!("SubagentStart", {
-        decision: "context",
-        additionalContext: "subagent ctx",
-      }),
-    );
-    expect(context.hookSpecificOutput).toEqual({
-      hookEventName: "SubagentStart",
-      additionalContext: "subagent ctx",
-    });
-
-    const denied = parseStdout(
-      vscodeCopilotAdapter.formatReply!("SubagentStart", {
-        decision: "deny",
-        reason: "spawn is not blockable",
-      }),
-    );
-    expect(denied.hookSpecificOutput.additionalContext).toBe(
-      "spawn is not blockable",
-    );
-    expect(denied.hookSpecificOutput.permissionDecision).toBeUndefined();
-
-    const noop = vscodeCopilotAdapter.formatReply!("SubagentStart", {});
-    expect(noop).toEqual({ exitCode: 0 });
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // GitHub Copilot CLI

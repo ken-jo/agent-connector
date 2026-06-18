@@ -2,7 +2,7 @@
  * adapters/phase2-render — render + round-trip tests for the Phase-2 adapters.
  *
  * Exercises the full install/uninstall path end-to-end against REAL files on disk
- * for each of vscode-copilot, copilot-cli, gemini-cli:
+ * for each of copilot-cli, gemini-cli:
  *   • installServer  → native MCP registration (correct ROOT KEY / fields / shape)
  *   • installHooks   → native hook registration (per-dialect event names + shape)
  *   • env-ref handling per platform (native ${env:VAR} token vs. resolved literal)
@@ -11,7 +11,8 @@
  *   • uninstall (entries removed; re-read from disk confirms gone)
  *
  * (warp — the mcp-only host — now lives in its own per-host file
- * tests/adapters/warp.test.ts.)
+ * tests/adapters/warp.test.ts; vscode-copilot's slice was migrated to its
+ * per-host file tests/adapters/vscode-copilot.test.ts.)
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, and
  * HOME is redirected there so the USER-scope adapters (copilot-cli) resolve their
@@ -29,7 +30,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-import vscodeCopilotAdapter from "../../src/adapters/vscode-copilot/index.js";
 import copilotCliAdapter from "../../src/adapters/copilot-cli/index.js";
 import geminiCliAdapter from "../../src/adapters/gemini-cli/index.js";
 
@@ -162,136 +162,6 @@ const wrappedArgsUser = (host: string): string[] => [
   "-y",
   "@x/y",
 ];
-
-// ─────────────────────────────────────────────────────────────────────────
-// VS Code Copilot
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("vscode-copilot adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes the entry under ROOT KEY 'servers' (NOT 'mcpServers'), wrapped, env as native ${env:VAR}", () => {
-    const changes = vscodeCopilotAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".vscode", "mcp.json");
-    expect(serverPath).toBe(vscodeCopilotAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    // The single most common VS Code footgun: root key is "servers", not "mcpServers".
-    expect(cfg).toHaveProperty("servers");
-    expect(cfg).not.toHaveProperty("mcpServers");
-
-    const entry = cfg.servers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.type).toBe("stdio");
-
-    // Telemetry serve-wrapper: command points at the home binary.
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("vscode-copilot"));
-
-    // VS Code keeps a NATIVE interpolation token (${env:VAR}) — secret not baked in.
-    expect(entry.env[ENV_VAR]).toBe(`\${env:${ENV_VAR}}`);
-    expect(entry.env[ENV_VAR]).not.toBe(ENV_LITERAL);
-
-    // cwd flows through as the native `cwd` key (VS Code stdio shape).
-    expect(entry.cwd).toBe(SERVER_CWD);
-  });
-
-  it("remote transports: sse → type:'sse', http → type:'http' (URL entry, no command)", () => {
-    const mk = (transport: "sse" | "http", url: string) =>
-      defineConnector({
-        id: CONNECTOR_ID,
-        displayName: "Remote",
-        version: "1.0.0",
-        server: { transport, url, tools: { include: ["*"] } },
-      });
-
-    // SSE → explicit type:"sse" (forces SSE-only, no Streamable-HTTP attempt).
-    const ssePd = freshProject();
-    vscodeCopilotAdapter.installServer(buildCtx(ssePd, mk("sse", "https://ex.com/sse")));
-    const sse = readJson(join(ssePd, ".vscode", "mcp.json")).servers[CONNECTOR_ID];
-    expect(sse.type).toBe("sse");
-    expect(sse.url).toBe("https://ex.com/sse");
-    expect("command" in sse).toBe(false);
-
-    // HTTP → type:"http".
-    const httpPd = freshProject();
-    vscodeCopilotAdapter.installServer(buildCtx(httpPd, mk("http", "https://ex.com/mcp")));
-    const http = readJson(join(httpPd, ".vscode", "mcp.json")).servers[CONNECTOR_ID];
-    expect(http.type).toBe("http");
-    expect(http.url).toBe("https://ex.com/mcp");
-  });
-
-  it("installHooks writes a .github/hooks/<id>.json with PascalCase event names + version 1, command at the home bin", () => {
-    const changes = vscodeCopilotAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const hooksPath = join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`);
-    expect(hooksPath).toBe(vscodeCopilotAdapter.getHookConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(true);
-
-    const cfg = readJson(hooksPath);
-    // The required top-level version — a version-less file is rejected by Copilot.
-    expect(cfg.version).toBe(1);
-
-    // PascalCase event keys + FLAT { type, command } entries.
-    const pre = cfg.hooks.PreToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    expect(pre[0].type).toBe("command");
-    expect(pre[0].command).toContain(HOME_BIN);
-    expect(pre[0].command).toContain("hook vscode-copilot PreToolUse");
-    expect(pre[0].command).toContain(`--connector ${CONNECTOR_ID}`);
-
-    // SessionStart is registered too (PascalCase, in the VS Code event map).
-    expect(cfg.hooks.SessionStart[0].command).toContain(
-      "hook vscode-copilot SessionStart",
-    );
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    vscodeCopilotAdapter.installServer(ctx);
-    const second = vscodeCopilotAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".vscode", "mcp.json"));
-    expect(Object.keys(cfg.servers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("installHooks is idempotent — second call yields skip and does not duplicate entries", () => {
-    vscodeCopilotAdapter.installHooks(ctx);
-    const second = vscodeCopilotAdapter.installHooks(ctx);
-    expect(second.every((c) => c.action === "skip")).toBe(true);
-
-    const cfg = readJson(
-      join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`),
-    );
-    expect(cfg.hooks.PreToolUse).toHaveLength(1);
-    expect(cfg.hooks.SessionStart).toHaveLength(1);
-  });
-
-  it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
-    vscodeCopilotAdapter.installServer(ctx);
-    vscodeCopilotAdapter.installHooks(ctx);
-
-    vscodeCopilotAdapter.uninstallServer(ctx);
-    const serverCfg = readJson(join(projectDir, ".vscode", "mcp.json"));
-    expect(serverCfg.servers?.[CONNECTOR_ID]).toBeUndefined();
-
-    vscodeCopilotAdapter.uninstallHooks(ctx);
-    const hooks = readJson(
-      join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`),
-    );
-    expect(JSON.stringify(hooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // GitHub Copilot CLI (user/global scope → resolves from homedir())

@@ -2,9 +2,6 @@
  * adapters/surfaces-s2 — content-surface (commands/skills/subagents) render +
  * round-trip tests for the third wave of supporting adapters:
  *
- *   • vscode-copilot    — md+fm prompt files (.github/prompts/<n>.prompt.md),
- *                          uniform SKILL.md skills, md+fm agent files
- *                          (.github/agents/<n>.agent.md). All three surfaces.
  *   • copilot-cli       — NO command surface (warn/skip), uniform SKILL.md
  *                          skills, md+fm subagents (.agent.md). user scope →
  *                          ~/.copilot; project scope → shared .github tree.
@@ -17,6 +14,12 @@
  *                          surface (BaseAdapter skip).
  *   • pi                — uniform SKILL.md skills only (.pi/skills/<n>/SKILL.md);
  *                          NO command/subagent surface (BaseAdapter skip).
+ *
+ * (vscode-copilot's content-surface slice was migrated to its per-host file
+ * tests/adapters/vscode-copilot.test.ts per the ONE-file-per-host convention —
+ * see tests/README.md. The vscode-copilot adapter is still imported here ONLY as
+ * the reference writer for jetbrains-copilot's byte-identical shared-.github
+ * comparison test below.)
  *
  * Each platform is exercised end-to-end against REAL files on disk in an
  * isolated temp project dir. For each connector we declare ONLY the surfaces the
@@ -167,111 +170,6 @@ function splitFrontmatter(text: string): {
     body: m[2]!,
   };
 }
-
-// ── vscode-copilot ────────────────────────────────────────────────────────
-
-describe("vscode-copilot adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(
-      projectDir,
-      buildConnector({ commands: true, skills: true, subagents: true }),
-    );
-  });
-
-  it("declares support for all three content surfaces", () => {
-    expect(vscodeAdapter.capabilities.supportsCommands).toBe(true);
-    expect(vscodeAdapter.capabilities.supportsSkills).toBe(true);
-    expect(vscodeAdapter.capabilities.supportsSubagents).toBe(true);
-  });
-
-  it("installCommands writes a md+fm prompt file at .github/prompts/<n>.prompt.md", () => {
-    const changes = vscodeAdapter.installCommands!(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const cmdPath = join(projectDir, ".github", "prompts", "deploy.prompt.md");
-    expect(changes[0]?.path).toBe(cmdPath);
-    expect(existsSync(cmdPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(cmdPath, "utf8"));
-    expect(frontmatter.description).toBe("Deploy the app to an environment.");
-    // VS Code prompt files express tools as an ARRAY (not CSV).
-    expect(frontmatter.tools).toEqual(["Bash", "Read"]);
-    expect(frontmatter.model).toBe("sonnet");
-    expect(frontmatter["argument-hint"]).toBe("[environment]");
-    expect(body.trim()).toBe(COMMAND.prompt);
-  });
-
-  it("installSkills writes uniform SKILL.md + resource with correct frontmatter", () => {
-    vscodeAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, ".github", "skills", "pdf-tools", "SKILL.md");
-    const resource = join(projectDir, ".github", "skills", "pdf-tools", "scripts", "extract.sh");
-    expect(existsSync(skillMd)).toBe(true);
-    expect(existsSync(resource)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(skillMd, "utf8"));
-    expect(frontmatter.name).toBe("pdf-tools");
-    expect(frontmatter.description).toBe(SKILL.description);
-    expect(frontmatter.model).toBe("haiku");
-    expect(frontmatter["allowed-tools"]).toBe("Bash");
-    expect(frontmatter["disable-model-invocation"]).toBe(false);
-    expect(body).toContain("# PDF Tools");
-    expect(readFileSync(resource, "utf8")).toBe(SKILL.resources["scripts/extract.sh"]);
-  });
-
-  it("installSubagents writes md+fm .github/agents/<n>.agent.md (name, description, tools, model)", () => {
-    const changes = vscodeAdapter.installSubagents!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const agentPath = join(projectDir, ".github", "agents", "reviewer.agent.md");
-    expect(changes[0]?.path).toBe(agentPath);
-    expect(existsSync(agentPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(agentPath, "utf8"));
-    expect(frontmatter.name).toBe("reviewer");
-    expect(frontmatter.description).toBe(SUBAGENT.description);
-    expect(frontmatter.tools).toBe("Read, Grep");
-    expect(frontmatter.model).toBe("opus");
-    expect(body.trim()).toBe(SUBAGENT.prompt);
-  });
-
-  it("is idempotent — second install yields skip across all surfaces", () => {
-    vscodeAdapter.installCommands!(ctx);
-    vscodeAdapter.installSkills!(ctx);
-    vscodeAdapter.installSubagents!(ctx);
-    expect(vscodeAdapter.installCommands!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(vscodeAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(vscodeAdapter.installSubagents!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes all written files", () => {
-    vscodeAdapter.installCommands!(ctx);
-    vscodeAdapter.installSkills!(ctx);
-    vscodeAdapter.installSubagents!(ctx);
-
-    vscodeAdapter.uninstallCommands!(ctx);
-    vscodeAdapter.uninstallSkills!(ctx);
-    vscodeAdapter.uninstallSubagents!(ctx);
-
-    expect(existsSync(join(projectDir, ".github", "prompts", "deploy.prompt.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".github", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".github", "skills", "pdf-tools"))).toBe(false);
-    expect(existsSync(join(projectDir, ".github", "agents", "reviewer.agent.md"))).toBe(false);
-  });
-
-  it("honors platforms['vscode-copilot'].commands === false", () => {
-    const disabled = defineConnector({
-      id: CONNECTOR_ID,
-      commands: [{ name: "deploy", prompt: "do it" }],
-      platforms: { "vscode-copilot": { commands: false } },
-    });
-    const c2 = buildCtx(projectDir, disabled);
-    expect(vscodeAdapter.installCommands!(c2)[0]?.action).toBe("skip");
-    expect(existsSync(join(projectDir, ".github", "prompts", "deploy.prompt.md"))).toBe(false);
-  });
-});
 
 // ── copilot-cli ─────────────────────────────────────────────────────────────
 
