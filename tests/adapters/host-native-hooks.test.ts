@@ -1,7 +1,8 @@
 /**
  * adapters/host-native-hooks — the OPT-IN AfterModel host-native usage hook (4a)
- * on the Gemini CLI + Antigravity adapters. Asserts the privacy + reversibility
- * contract the plan calls out:
+ * on the Gemini CLI adapter. Asserts the privacy + reversibility contract the
+ * plan calls out (the Antigravity IDE adapter shares this AfterModel hook; its
+ * copy of these assertions now lives in adapters/antigravity.test.ts):
  *
  *   • The AfterModel `usage-event` hook is installed ONLY when host-native capture
  *     is opted in (telemetry.hostNativeUsage === true, OR AGENT_CONNECTOR_HOST_NATIVE=1
@@ -28,16 +29,14 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
 import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
-import antigravityAdapter from "../../src/adapters/antigravity/index.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-db";
 
 // Each adapter under test, with the native event-bucket key its AfterModel usage
-// hook lands under (both Gemini-family adapters use the "AfterModel" key).
+// hook lands under (the Gemini-family adapter uses the "AfterModel" key).
 const ADAPTERS = [
   { name: "gemini-cli", adapter: geminiAdapter },
-  { name: "antigravity", adapter: antigravityAdapter },
 ] as const;
 const USAGE_EVENT_KEY = "AfterModel";
 

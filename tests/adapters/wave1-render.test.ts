@@ -1,10 +1,9 @@
 /**
  * adapters/wave1-render — render + round-trip tests for the Wave-1 `mcp-only`
- * adapters: roo-code, trae, zed, codebuff, mux. (antigravity has since been
- * upgraded to json-stdio with a hooks.json + content surfaces, so its block
- * below asserts the hook-dispatch contract, not the mcp-only skip. amp moved to
- * its own per-host file tests/adapters/amp.test.ts; droid moved to
- * tests/adapters/droid.test.ts.)
+ * adapters: roo-code, trae, zed, codebuff, mux. (amp moved to its own per-host
+ * file tests/adapters/amp.test.ts; droid moved to tests/adapters/droid.test.ts;
+ * antigravity — upgraded to json-stdio — moved to its own per-host file
+ * tests/adapters/antigravity.test.ts.)
  *
  * Each is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/phase3 pattern:
@@ -17,7 +16,7 @@
  *   • uninstallServer → entry removed (re-read from disk confirms gone).
  *
  * Per-adapter root-key contract asserted here:
- *   roo-code / trae / antigravity / codebuff → "mcpServers"
+ *   roo-code / trae / codebuff → "mcpServers"
  *   zed       → "context_servers"
  *   mux       → "servers", value is a STRING (space-joined shell command)
  *
@@ -42,7 +41,6 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 import traeAdapter from "../../src/adapters/trae/index.js";
-import antigravityAdapter from "../../src/adapters/antigravity/index.js";
 import zedAdapter from "../../src/adapters/zed/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import muxAdapter from "../../src/adapters/mux/index.js";
@@ -279,83 +277,6 @@ describe("trae adapter render/round-trip", () => {
     traeAdapter.installServer(ctx);
     traeAdapter.uninstallServer(ctx);
     const cfg = readJson(join(projectDir, ".trae", "mcp.json"));
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// antigravity (json-stdio; root key "mcpServers"; project → .agents/mcp_config.json;
-// hooks → SEPARATE .agents/hooks.json)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("antigravity adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave1-antig-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes mcpServers.<id> into .agents/mcp_config.json, wrapped, env LITERAL", () => {
-    const changes = antigravityAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".agents", "mcp_config.json");
-    expect(serverPath).toBe(antigravityAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("antigravity"));
-
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks writes a SEPARATE hooks.json (not mcp_config.json) with the PreToolUse entry", () => {
-    const changes = antigravityAdapter.installHooks(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const hooksPath = antigravityAdapter.getHookConfigPath(ctx);
-    // Hook file is SEPARATE from the MCP config file.
-    expect(hooksPath).not.toBe(antigravityAdapter.getServerConfigPath(ctx));
-    expect(hooksPath).toBe(join(projectDir, ".agents", "hooks.json"));
-    expect(existsSync(hooksPath)).toBe(true);
-
-    const file = readJson(hooksPath);
-    const entry = file.hooks?.PreToolUse?.[0];
-    expect(entry).toBeTruthy();
-    expect(entry.matcher).toBe("acme_query|acme_write");
-    expect(entry.hooks[0].type).toBe("command");
-    expect(entry.hooks[0].command).toContain(HOME_BIN);
-    expect(entry.hooks[0].command).toContain(`--connector ${CONNECTOR_ID}`);
-  });
-
-  it("uninstallHooks removes our hook entry (re-read confirms gone)", () => {
-    antigravityAdapter.installHooks(ctx);
-    antigravityAdapter.uninstallHooks(ctx);
-    const file = readJson(antigravityAdapter.getHookConfigPath(ctx));
-    expect(file.hooks?.PreToolUse).toBeUndefined();
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    antigravityAdapter.installServer(ctx);
-    const second = antigravityAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".agents", "mcp_config.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry (re-read confirms gone)", () => {
-    antigravityAdapter.installServer(ctx);
-    antigravityAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".agents", "mcp_config.json"));
     expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
   });
 });
