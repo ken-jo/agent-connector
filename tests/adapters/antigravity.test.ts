@@ -1,40 +1,41 @@
 /**
- * adapters/antigravity — dedicated suite for the Antigravity IDE (`antigravity`)
- * and Antigravity CLI (`antigravity-cli`) adapters.
+ * adapters/antigravity.test.ts — the ONE per-host file for the Antigravity IDE
+ * (`antigravity`) adapter.
  *
- * Antigravity is fast-moving and its docs render JS-only, so the adapters are
+ * Antigravity is fast-moving and its docs render JS-only, so the adapter is
  * MEDIUM-confidence + PATH-PROBE (prefer-existing-else-canonical) with doctor
- * warnings. This file asserts the four adapter-surface concerns the plan calls
- * out, with NO collision against the wave1-render / surfaces tests (which cover
- * project-scope round-trips):
+ * warnings. It is a `json-stdio` host (a real lifecycle-hook system on top of MCP).
+ * This file asserts every antigravity-surface concern:
  *
  *   1. MCP render — remote uses "serverUrl" (NOT "url"); stdio omits serverUrl;
  *      CONFIRMED USER-scope path (antigravity/ default, with config/ and
- *      antigravity-cli/ as probed fallbacks); the CLI SHARES the IDE dir;
- *      telemetry serve-wrap; env resolved to a LITERAL.
+ *      antigravity-cli/ as probed fallbacks); telemetry serve-wrap; env LITERAL.
+ *      NOTE: the references to the `antigravity-cli/` DIRECTORY here are this
+ *      IDE adapter's OWN getServerConfigPath probe-fallback resolution — not the
+ *      CLI adapter (which has its own file). One it() genuinely compares BOTH
+ *      adapters' fresh defaults to prove they DIFFER; it stays here (flagged).
  *   2. hooks.json round-trip + parseEvent/formatReply for PreToolUse / PostToolUse
  *      / SessionStart / Stop; warn-skip for unsupported events.
  *   3. Workflows .md + SKILL.md write / idempotent / uninstall (uninstall PRESERVES
  *      a user file in the skill dir via removeDirIfEmpty); subagents warn-skip.
  *   4. Path-probing prefer-existing-else-canonical for the user MCP config,
  *      hooks.json, workflows (.agent vs .agents), and the global skills dir.
+ *   5. The OPT-IN AfterModel host-native usage hook (4a) — install only when
+ *      opted in, reversible, preserves foreign + sibling hooks.
+ *   6. E1 extension-event DEGRADATION (PermissionRequest / PostToolUseFailure /
+ *      SubagentStart / SubagentStop) — capability flags stay falsy + per-event
+ *      warn-skip while PreToolUse still wires.
  *
- * Isolation: every test gets a fresh os.tmpdir mkdtemp dir and redirects HOME
- * there so user-scope path resolution stays in the sandbox; env is restored in
- * afterEach.
+ * Migrated to the shared harness (tests/support/env + adapter-suite + fs) per
+ * tests/README.md — ONE file per host. The host-native usage block was absorbed
+ * from the former host-native-hooks.test.ts; the render/round-trip block from
+ * wave1-render.test.ts; the E1 degradation block from extended-events-degrade.test.ts.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
@@ -50,15 +51,15 @@ import type {
 import antigravityAdapter, {
   AntigravityAdapter,
 } from "../../src/adapters/antigravity/index.js";
-import antigravityCliAdapter, {
-  AntigravityCliAdapter,
-} from "../../src/adapters/antigravity-cli/index.js";
+import antigravityCliAdapter from "../../src/adapters/antigravity-cli/index.js";
+import { buildCtx, freshProject, isolateEnv, tempDir, HOME_BIN } from "../support/env.js";
+import { readJson } from "../support/fs.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
 // ─────────────────────────────────────────────────────────────────────────
 
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
@@ -125,64 +126,122 @@ function surfaceConnector(): ResolvedConnector {
   });
 }
 
-/** Build an InstallContext at the given scope. */
-function buildCtx(
-  projectDir: string,
-  connector: ResolvedConnector,
-  scope: InstallContext["scope"],
-): InstallContext {
-  return {
-    connector,
-    scope,
-    projectDir,
-    homeBinPath: HOME_BIN,
-    dataRoot: projectDir,
-    dryRun: false,
-  };
+// ── E1 extension-event fixtures (absorbed from extended-events-degrade) ──────────
+
+const E1_EVENTS = [
+  "PermissionRequest",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "SubagentStop",
+] as const;
+
+/** PreToolUse (universally wired here) + ALL FOUR E1 extension events. */
+function e1Connector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    hooks: {
+      PreToolUse: {
+        matcher: "acme_query",
+        handler() {
+          return { decision: "allow" };
+        },
+      },
+      PermissionRequest: {
+        matcher: "acme_query",
+        handler() {
+          return { decision: "ask" };
+        },
+      },
+      PostToolUseFailure: {
+        handler() {
+          return { decision: "context", additionalContext: "retry hint" };
+        },
+      },
+      SubagentStart: {
+        matcher: "code-reviewer",
+        handler() {
+          return { decision: "context", additionalContext: "subagent ctx" };
+        },
+      },
+      SubagentStop: {
+        matcher: "code-reviewer",
+        handler() {
+          return { decision: "deny", reason: "keep going" };
+        },
+      },
+    },
+  });
 }
 
-function readJson(path: string): any {
-  return JSON.parse(readFileSync(path, "utf8"));
+// ── host-native usage hook fixtures (absorbed from host-native-hooks) ────────────
+
+const USAGE_EVENT_KEY = "AfterModel";
+
+/**
+ * A connector that declares NO normalized hook events. host-native capture is a
+ * host-native-only sink (no handler), so the usage hook may be installed for such
+ * a connector when opted in — and must NOT be installed when opted out.
+ */
+function noHooksConnector(hostNativeUsage: boolean): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.0.0",
+    server: {
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@acme/db-mcp"],
+      tools: { include: ["*"] },
+    },
+    telemetry: { hostNativeUsage },
+  });
 }
 
-// Track + restore mutated env so the suite never leaks state.
-let savedHome: string | undefined;
-let savedDataDir: string | undefined;
-let savedEnvVar: string | undefined;
-
-beforeEach(() => {
-  savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-  savedEnvVar = process.env[ENV_VAR];
-  process.env[ENV_VAR] = ENV_LITERAL;
-});
-
-afterEach(() => {
-  restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-  restore(ENV_VAR, savedEnvVar);
-});
-
-function restore(key: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
+/**
+ * A connector that ALSO declares a normalized PreToolUse hook — used to prove the
+ * usage hook is added alongside (and removed without touching) a real hook.
+ */
+function withPreToolUse(hostNativeUsage: boolean): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.0.0",
+    server: {
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@acme/db-mcp"],
+      tools: { include: ["*"] },
+    },
+    hooks: {
+      PreToolUse: { matcher: "acme_query", handler: () => ({ decision: "allow" }) },
+    },
+    telemetry: { hostNativeUsage },
+  });
 }
 
-/** Fresh temp dir; HOME redirected there so homedir()-based paths stay sandboxed. */
-function freshHome(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  return dir;
+/** All hook command strings under the given native event bucket. */
+function commandsUnder(file: any, eventKey: string): string[] {
+  const bucket = file?.hooks?.[eventKey];
+  if (!Array.isArray(bucket)) return [];
+  return bucket.flatMap((e: any) => (e.hooks ?? []).map((h: any) => h.command));
 }
+
+// Shared env isolation (default keys + the env-ref var the render slices mutate +
+// the host-native opt-in switch the usage-hook slice toggles) + the
+// same-rules-for-every-host baseline contract.
+isolateEnv([ENV_VAR, "AGENT_CONNECTOR_HOST_NATIVE"]);
+createAdapterSuite({ adapter: antigravityAdapter, paradigm: "json-stdio" });
 
 // ─────────────────────────────────────────────────────────────────────────
 // 1. MCP render — serverUrl (not url) + user-path order + telemetry wrap
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("antigravity + antigravity-cli MCP render", () => {
+describe("antigravity MCP render", () => {
   it("REMOTE server uses `serverUrl` (NOT `url`) with resolved-literal headers", () => {
-    const home = freshHome("ac-antig-remote-");
+    const home = freshProject("ac-antig-remote-");
+    process.env[ENV_VAR] = ENV_LITERAL;
     const ctx = buildCtx(home, remoteConnector(), "project");
 
     antigravityAdapter.installServer(ctx);
@@ -198,7 +257,8 @@ describe("antigravity + antigravity-cli MCP render", () => {
   });
 
   it("STDIO server has NO serverUrl, is telemetry-wrapped through the home bin, env LITERAL", () => {
-    const home = freshHome("ac-antig-stdio-");
+    const home = freshProject("ac-antig-stdio-");
+    process.env[ENV_VAR] = ENV_LITERAL;
     const ctx = buildCtx(home, stdioConnector(), "project");
 
     antigravityAdapter.installServer(ctx);
@@ -217,7 +277,7 @@ describe("antigravity + antigravity-cli MCP render", () => {
   });
 
   it("USER-scope MCP path: fresh install resolves to the CONFIRMED ~/.gemini/antigravity/ FIRST", () => {
-    const home = freshHome("ac-antig-userorder-");
+    const home = freshProject("ac-antig-userorder-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
     // Nothing on disk yet → prefer-existing-else-candidate[0] = antigravity/
@@ -234,7 +294,7 @@ describe("antigravity + antigravity-cli MCP render", () => {
 
   it("USER-scope MCP path: an existing config/ or antigravity-cli/ candidate is still PREFERRED when present", () => {
     // Seed an existing config/ candidate → prefer-existing must honor it.
-    const home1 = freshHome("ac-antig-prefer-config-");
+    const home1 = freshProject("ac-antig-prefer-config-");
     const ctx1 = buildCtx(home1, stdioConnector(), "user");
     const configPath = join(home1, ".gemini", "config", "mcp_config.json");
     mkdirSync(join(home1, ".gemini", "config"), { recursive: true });
@@ -242,8 +302,9 @@ describe("antigravity + antigravity-cli MCP render", () => {
     expect(antigravityAdapter.getServerConfigPath(ctx1)).toBe(configPath);
 
     // Seed only the antigravity-cli/ fallback (no antigravity/, no config/) →
-    // prefer-existing must honor it over the default.
-    const home2 = freshHome("ac-antig-prefer-cli-");
+    // prefer-existing must honor it over the default. (This `antigravity-cli/`
+    // DIR is the IDE adapter's OWN probe fallback, not the CLI adapter.)
+    const home2 = freshProject("ac-antig-prefer-cli-");
     const ctx2 = buildCtx(home2, stdioConnector(), "user");
     const cliPath = join(home2, ".gemini", "antigravity-cli", "mcp_config.json");
     mkdirSync(join(home2, ".gemini", "antigravity-cli"), { recursive: true });
@@ -251,36 +312,21 @@ describe("antigravity + antigravity-cli MCP render", () => {
     expect(antigravityAdapter.getServerConfigPath(ctx2)).toBe(cliPath);
   });
 
-  it("antigravity-cli USER-scope MCP resolves to ~/.gemini/config/ (agy v1.0.5 live-proven), NOT the IDE's antigravity/", () => {
-    const home = freshHome("ac-antigcli-userorder-");
+  // GENUINELY-BOTH it(): compares the IDE adapter's fresh user default against the
+  // CLI adapter's to prove they DIFFER (antigravity/ vs config/). Kept in the IDE
+  // file per the migration rule for compare-both assertions; the CLI side's own
+  // install + prefer-existing behaviour is exercised in antigravity-cli.test.ts.
+  it("IDE adapter's fresh USER default (antigravity/) DIFFERS from the CLI adapter's (config/)", () => {
+    const home = freshProject("ac-antig-vscli-userorder-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
-    // LIVE-PROVEN (2026-06-04): the standalone `agy` CLI reads user MCP from
-    // ~/.gemini/config/mcp_config.json, NOT the IDE's ~/.gemini/antigravity/.
-    // A fresh CLI install therefore resolves to config/ (its candidate[0]).
-    const cliCanonical = join(home, ".gemini", "config", "mcp_config.json");
     const ideDefault = join(home, ".gemini", "antigravity", "mcp_config.json");
-    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(cliCanonical);
-    // It DIFFERS from the IDE adapter's fresh default (which stays antigravity/).
-    expect(antigravityCliAdapter.getServerConfigPath(ctx)).not.toBe(
-      antigravityAdapter.getServerConfigPath(ctx),
-    );
+    const cliCanonical = join(home, ".gemini", "config", "mcp_config.json");
     expect(antigravityAdapter.getServerConfigPath(ctx)).toBe(ideDefault);
-
-    // Installing the CLI connector writes to the config/ path agy actually reads.
-    antigravityCliAdapter.installServer(ctx);
-    expect(existsSync(cliCanonical)).toBe(true);
-    expect(existsSync(ideDefault)).toBe(false);
-  });
-
-  it("antigravity-cli prefer-existing: an existing IDE antigravity/ file is still honored", () => {
-    const home = freshHome("ac-antigcli-prefer-ide-");
-    const ctx = buildCtx(home, stdioConnector(), "user");
-    const idePath = join(home, ".gemini", "antigravity", "mcp_config.json");
-    mkdirSync(join(home, ".gemini", "antigravity"), { recursive: true });
-    writeFileSync(idePath, "{}\n");
-    // config/ absent but antigravity/ present → prefer-existing honors the legacy file.
-    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(idePath);
+    expect(antigravityCliAdapter.getServerConfigPath(ctx)).toBe(cliCanonical);
+    expect(antigravityAdapter.getServerConfigPath(ctx)).not.toBe(
+      antigravityCliAdapter.getServerConfigPath(ctx),
+    );
   });
 });
 
@@ -293,7 +339,8 @@ describe("antigravity hooks.json round-trip + runtime parse/format", () => {
   let ctx: InstallContext;
 
   beforeEach(() => {
-    home = freshHome("ac-antig-hooks-");
+    home = freshProject("ac-antig-hooks-");
+    process.env[ENV_VAR] = ENV_LITERAL;
     ctx = buildCtx(home, stdioConnector(), "project");
   });
 
@@ -385,15 +432,6 @@ describe("antigravity hooks.json round-trip + runtime parse/format", () => {
     expect(stop.stopHookActive).toBe(true);
   });
 
-  it("parseEvent on antigravity-cli stamps hostPlatform = antigravity-cli", () => {
-    const ev = antigravityCliAdapter.parseEvent("PreToolUse", {
-      connector: CONNECTOR_ID,
-      toolName: "t",
-      toolInput: {},
-    }) as PreToolUseEvent;
-    expect(ev.hostPlatform).toBe("antigravity-cli");
-  });
-
   it("formatReply renders deny / modify-input / modify-output / context / allow (camelCase)", () => {
     const deny: HookResponse = { decision: "deny", reason: "nope" };
     const r1 = antigravityAdapter.formatReply("PreToolUse", deny);
@@ -431,7 +469,7 @@ describe("antigravity content surfaces (Workflows / Skills / Subagents)", () => 
   let ctx: InstallContext;
 
   beforeEach(() => {
-    home = freshHome("ac-antig-surf-");
+    home = freshProject("ac-antig-surf-");
     ctx = buildCtx(home, surfaceConnector(), "project");
   });
 
@@ -494,14 +532,6 @@ describe("antigravity content surfaces (Workflows / Skills / Subagents)", () => 
     // No subagent dir was created.
     expect(existsSync(join(home, ".agents", "agents"))).toBe(false);
   });
-
-  it("antigravity-cli writes the same surfaces (project scope identical to IDE)", () => {
-    const cliCtx = buildCtx(home, surfaceConnector(), "project");
-    antigravityCliAdapter.installCommands(cliCtx);
-    antigravityCliAdapter.installSkills(cliCtx);
-    expect(existsSync(join(home, ".agent", "workflows", "acme-report.md"))).toBe(true);
-    expect(existsSync(join(home, ".agents", "skills", "acme-skill", "SKILL.md"))).toBe(true);
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -510,7 +540,7 @@ describe("antigravity content surfaces (Workflows / Skills / Subagents)", () => 
 
 describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
   it("user MCP config: an EXISTING ~/.gemini/config/ fallback is honored over the antigravity/ default", () => {
-    const home = freshHome("ac-antig-probe-mcp-");
+    const home = freshProject("ac-antig-probe-mcp-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
     // Seed the config/ fallback; prefer-existing must pick it over the default.
@@ -521,7 +551,7 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
   });
 
   it("hooks.json sits in the SAME probed customization dir as the resolved user MCP config", () => {
-    const home = freshHome("ac-antig-probe-hooks-");
+    const home = freshProject("ac-antig-probe-hooks-");
     const ctx = buildCtx(home, stdioConnector(), "user");
 
     // Fresh → CONFIRMED antigravity/ dir for both mcp_config.json and hooks.json.
@@ -530,7 +560,7 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
     );
 
     // Seed a config/ mcp_config → hooks.json must follow into that same dir.
-    const home2 = freshHome("ac-antig-probe-hooks2-");
+    const home2 = freshProject("ac-antig-probe-hooks2-");
     const ctx2 = buildCtx(home2, stdioConnector(), "user");
     mkdirSync(join(home2, ".gemini", "config"), { recursive: true });
     writeFileSync(join(home2, ".gemini", "config", "mcp_config.json"), "{}\n");
@@ -540,7 +570,7 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
   });
 
   it("workflows dir: prefers an existing project .agents/workflows over the default .agent/workflows", () => {
-    const proj = freshHome("ac-antig-probe-wf-");
+    const proj = freshProject("ac-antig-probe-wf-");
     const ctx = buildCtx(proj, surfaceConnector(), "project");
 
     // Default (nothing seeded) → singular `.agent/workflows`.
@@ -548,7 +578,7 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
     expect(existsSync(join(proj, ".agent", "workflows", "acme-report.md"))).toBe(true);
 
     // Now seed a plural `.agents/workflows` dir in a SECOND project → preferred.
-    const proj2 = mkdtempSync(join(tmpdir(), "ac-antig-probe-wf2-"));
+    const proj2 = tempDir("ac-antig-probe-wf2-");
     mkdirSync(join(proj2, ".agents", "workflows"), { recursive: true });
     const ctx2 = buildCtx(proj2, surfaceConnector(), "project");
     antigravityAdapter.installCommands(ctx2);
@@ -557,7 +587,7 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
   });
 
   it("global skills dir: prefers existing ~/.gemini/antigravity-cli/skills, then ~/.gemini/skills; NEVER ~/.gemini/antigravity/skills", () => {
-    const home = freshHome("ac-antig-probe-skills-");
+    const home = freshProject("ac-antig-probe-skills-");
     const ctx = buildCtx(home, surfaceConnector(), "user");
 
     // Fresh → default canonical CLI skills dir (never the broken antigravity/skills).
@@ -569,7 +599,7 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
     ).toBe(false);
 
     // Seed ~/.gemini/skills in a fresh home → it is preferred over the (absent) CLI dir.
-    const home2 = freshHome("ac-antig-probe-skills2-");
+    const home2 = freshProject("ac-antig-probe-skills2-");
     mkdirSync(join(home2, ".gemini", "skills"), { recursive: true });
     const ctx2 = buildCtx(home2, surfaceConnector(), "user");
     antigravityAdapter.installSkills(ctx2);
@@ -577,26 +607,172 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
       existsSync(join(home2, ".gemini", "skills", "acme-skill", "SKILL.md")),
     ).toBe(true);
   });
+});
 
-  it("antigravity-cli global skills dir is the SHARED IDE resolution (CLI has no separate dir)", () => {
-    // CONFIRMED: `agy` shares the IDE tree, so the CLI inherits the IDE skills
-    // resolution (prefer existing antigravity-cli/skills, else ~/.gemini/skills).
-    const home = freshHome("ac-antigcli-probe-skills-");
-    const ctx = buildCtx(home, surfaceConnector(), "user");
+// ─────────────────────────────────────────────────────────────────────────
+// 5. OPT-IN AfterModel host-native usage hook (4a)
+//
+// The AfterModel `usage-event` hook is installed ONLY when host-native capture is
+// opted in (telemetry.hostNativeUsage === true OR AGENT_CONNECTOR_HOST_NATIVE=1 at
+// install). It routes to the hidden `usage-event` entrypoint with an empty matcher,
+// and uninstall reverses it while preserving foreign + sibling hooks.
+// (Absorbed from the former host-native-hooks.test.ts.)
+// ─────────────────────────────────────────────────────────────────────────
 
-    // Fresh → default canonical CLI skills dir (same as the IDE adapter).
-    antigravityCliAdapter.installSkills(ctx);
-    expect(
-      existsSync(join(home, ".gemini", "antigravity-cli", "skills", "acme-skill", "SKILL.md")),
-    ).toBe(true);
+describe("antigravity host-native usage hook (opt-in only)", () => {
+  let project: string;
 
-    // With ~/.gemini/skills pre-existing (and no CLI dir), it is preferred —
-    // identical to the IDE adapter's behavior.
-    const home2 = freshHome("ac-antigcli-probe-skills2-");
-    mkdirSync(join(home2, ".gemini", "skills"), { recursive: true });
-    const ctx2 = buildCtx(home2, surfaceConnector(), "user");
-    antigravityCliAdapter.installSkills(ctx2);
-    expect(existsSync(join(home2, ".gemini", "skills", "acme-skill", "SKILL.md"))).toBe(true);
+  beforeEach(() => {
+    project = freshProject("ac-hn-antigravity-");
+  });
+
+  it("does NOT install the AfterModel usage hook when the opt-in is OFF", () => {
+    const ctx = buildCtx(project, noHooksConnector(false));
+    const changes = antigravityAdapter.installHooks(ctx);
+
+    // A no-hooks connector with the opt-in off has nothing to install → skip.
+    expect(changes.every((c) => c.action === "skip")).toBe(true);
+    const hooksPath = antigravityAdapter.getHookConfigPath(ctx);
+    // No usage-event command anywhere (file may not even exist).
+    if (existsSync(hooksPath)) {
+      const file = readJson(hooksPath);
+      expect(commandsUnder(file, USAGE_EVENT_KEY)).toHaveLength(0);
+    }
+  });
+
+  it("installs the AfterModel usage-event hook when telemetry.hostNativeUsage is ON", () => {
+    const ctx = buildCtx(project, noHooksConnector(true));
+    const changes = antigravityAdapter.installHooks(ctx);
+
+    const created = changes.find(
+      (c) => c.action === "create" && c.detail.includes("host-native usage"),
+    );
+    expect(created).toBeTruthy();
+
+    const file = readJson(antigravityAdapter.getHookConfigPath(ctx));
+    const cmds = commandsUnder(file, USAGE_EVENT_KEY);
+    expect(cmds).toHaveLength(1);
+    // Routes to the hidden `usage-event` entrypoint (NOT the `hook` dispatcher).
+    expect(cmds[0]).toContain(" usage-event ");
+    expect(cmds[0]).toContain(HOME_BIN);
+    expect(cmds[0]).toContain(`--connector ${CONNECTOR_ID}`);
+    expect(cmds[0]).not.toContain(" hook ");
+    // The usage hook is not a tool event → empty matcher.
+    const entry = file.hooks[USAGE_EVENT_KEY].find((e: any) =>
+      (e.hooks ?? []).some((h: any) => h.command.includes(" usage-event ")),
+    );
+    expect(entry.matcher).toBe("");
+  });
+
+  it("installs the usage hook when AGENT_CONNECTOR_HOST_NATIVE=1 forces it on at install", () => {
+    process.env.AGENT_CONNECTOR_HOST_NATIVE = "1";
+    const ctx = buildCtx(project, noHooksConnector(false)); // config opt-in OFF
+    antigravityAdapter.installHooks(ctx);
+
+    const file = readJson(antigravityAdapter.getHookConfigPath(ctx));
+    expect(commandsUnder(file, USAGE_EVENT_KEY)).toHaveLength(1);
+  });
+
+  it("is idempotent: a second install skips the already-registered usage hook", () => {
+    const ctx = buildCtx(project, noHooksConnector(true));
+    antigravityAdapter.installHooks(ctx);
+    const second = antigravityAdapter.installHooks(ctx);
+    const usageChange = second.find((c) => c.detail.includes("host-native usage"));
+    expect(usageChange?.action).toBe("skip");
+    // Still exactly one usage-event command (no duplicate appended).
+    const file = readJson(antigravityAdapter.getHookConfigPath(ctx));
+    expect(commandsUnder(file, USAGE_EVENT_KEY)).toHaveLength(1);
+  });
+
+  it("uninstall removes the AfterModel usage hook (and leaves the bucket clean)", () => {
+    const ctx = buildCtx(project, noHooksConnector(true));
+    antigravityAdapter.installHooks(ctx);
+    expect(commandsUnder(readJson(antigravityAdapter.getHookConfigPath(ctx)), USAGE_EVENT_KEY))
+      .toHaveLength(1);
+
+    antigravityAdapter.uninstallHooks(ctx);
+    const after = existsSync(antigravityAdapter.getHookConfigPath(ctx))
+      ? readJson(antigravityAdapter.getHookConfigPath(ctx))
+      : { hooks: {} };
+    expect(commandsUnder(after, USAGE_EVENT_KEY)).toHaveLength(0);
+    // Our anchored cleanup empties the bucket entirely (no orphan entry left).
+    expect(after.hooks?.[USAGE_EVENT_KEY]).toBeUndefined();
+  });
+
+  it("uninstall PRESERVES a foreign hook command in the same AfterModel bucket", () => {
+    const ctx = buildCtx(project, noHooksConnector(true));
+    antigravityAdapter.installHooks(ctx);
+
+    // Inject a foreign hook command into the SAME bucket.
+    const hooksPath = antigravityAdapter.getHookConfigPath(ctx);
+    const file = readJson(hooksPath);
+    file.hooks[USAGE_EVENT_KEY].push({
+      matcher: "",
+      hooks: [{ type: "command", command: "/usr/local/bin/someone-elses-tool" }],
+    });
+    writeFileSync(hooksPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
+
+    antigravityAdapter.uninstallHooks(ctx);
+    const after = readJson(hooksPath);
+    const cmds = commandsUnder(after, USAGE_EVENT_KEY);
+    // Ours is gone; the foreign one survives.
+    expect(cmds).toContain("/usr/local/bin/someone-elses-tool");
+    expect(cmds.some((c) => c.includes(" usage-event "))).toBe(false);
+  });
+
+  it("uninstall removes the usage hook WITHOUT touching a sibling normalized hook", () => {
+    const ctx = buildCtx(project, withPreToolUse(true));
+    antigravityAdapter.installHooks(ctx);
+
+    const hooksPath = antigravityAdapter.getHookConfigPath(ctx);
+    // Both present after install: the usage hook AND the PreToolUse dispatcher.
+    let file = readJson(hooksPath);
+    expect(commandsUnder(file, USAGE_EVENT_KEY)).toHaveLength(1);
+
+    // Locate the PreToolUse bucket key.
+    const preKey = Object.keys(file.hooks).find((k) =>
+      commandsUnder(file, k).some((c) => c.includes(" hook ")),
+    );
+    expect(preKey).toBeTruthy();
+
+    antigravityAdapter.uninstallHooks(ctx);
+    file = existsSync(hooksPath) ? readJson(hooksPath) : { hooks: {} };
+    // Both of OUR hooks are gone after a full uninstall (anchored on our id).
+    expect(commandsUnder(file, USAGE_EVENT_KEY)).toHaveLength(0);
+    expect(commandsUnder(file, preKey!)).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 6. E1 extension-event DEGRADATION (no native analog for the four new events)
+// (Absorbed from the former extended-events-degrade.test.ts.)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("antigravity E1 extension-event degradation", () => {
+  it("leaves permissionRequest/postToolUseFailure/subagentStart/subagentStop falsy", () => {
+    expect(antigravityAdapter.capabilities.permissionRequest ?? false).toBe(false);
+    expect(antigravityAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
+    expect(antigravityAdapter.capabilities.subagentStart ?? false).toBe(false);
+    expect(antigravityAdapter.capabilities.subagentStop ?? false).toBe(false);
+  });
+
+  it("installHooks warn-skips all four E1 events; hooks.json wires PreToolUse only", () => {
+    const projectDir = freshProject("ac-e1-antigravity-");
+    const ctx = buildCtx(projectDir, e1Connector());
+
+    const changes = antigravityAdapter.installHooks!(ctx);
+    const warns = changes.filter((c) => c.action === "warn");
+    for (const event of E1_EVENTS) {
+      const warn = warns.find((c) => c.detail?.startsWith(`${event} `));
+      expect(warn, `expected a warn-skip record for ${event}`).toBeTruthy();
+      expect(warn!.platform).toBe("antigravity");
+      expect(warn!.detail).toBe(`${event} has no Antigravity hook equivalent — skipped`);
+    }
+    expect(warns).toHaveLength(E1_EVENTS.length);
+
+    const hooksPath = antigravityAdapter.getHookConfigPath!(ctx);
+    const file = readJson(hooksPath);
+    expect(Object.keys(file.hooks)).toEqual(["PreToolUse"]);
   });
 });
 
@@ -605,14 +781,9 @@ describe("antigravity path-probing (prefer-existing-else-canonical)", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("antigravity adapter identity + paradigm", () => {
-  it("both adapters are json-stdio with the correct ids/classes", () => {
+  it("is a json-stdio adapter with the correct id/class", () => {
     expect(antigravityAdapter).toBeInstanceOf(AntigravityAdapter);
-    expect(antigravityCliAdapter).toBeInstanceOf(AntigravityCliAdapter);
     expect(antigravityAdapter.id).toBe("antigravity");
-    expect(antigravityCliAdapter.id).toBe("antigravity-cli");
     expect(antigravityAdapter.paradigm).toBe("json-stdio");
-    expect(antigravityCliAdapter.paradigm).toBe("json-stdio");
-    // The CLI is a fork of the IDE adapter.
-    expect(antigravityCliAdapter).toBeInstanceOf(AntigravityAdapter);
   });
 });

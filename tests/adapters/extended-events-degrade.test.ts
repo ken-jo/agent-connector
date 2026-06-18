@@ -2,16 +2,16 @@
  * tests/adapters/extended-events-degrade — E1 extension-event DEGRADATION on
  * the batch of hook-capable hosts with NO native analog for the four new
  * canonical events (PermissionRequest, PostToolUseFailure, SubagentStart,
- * SubagentStop): gemini-cli, jetbrains-copilot, kiro, crush, antigravity, and
- * antigravity-cli. opencode and kilo-cli are the exceptions — both wire
- * PermissionRequest -> permission.ask (their native decision gate) but leave
- * the other three E1 events unsupported. (omp, the other former ts-plugin host
- * here, now lives in its own per-host file adapters/omp.test.ts.)
+ * SubagentStop): gemini-cli, jetbrains-copilot, kiro, and crush. opencode and
+ * kilo-cli are the exceptions — both wire PermissionRequest -> permission.ask
+ * (their native decision gate) but leave the other three E1 events unsupported.
+ * (omp, the other former ts-plugin host here, now lives in its own per-host file
+ * adapters/omp.test.ts; the antigravity IDE + CLI pair moved to their own per-host
+ * files adapters/antigravity.test.ts + adapters/antigravity-cli.test.ts.)
  *
  * Per host this pins three things:
  *   • capabilities — all four E1 flags stay unset (read as false), so the
- *     single-API layer treats the events as unsupported everywhere here
- *     (antigravity-cli must INHERIT that surface from the IDE adapter).
+ *     single-API layer treats the events as unsupported everywhere here.
  *   • installHooks — a connector declaring the four events is never silently
  *     dropped: json-stdio hosts surface the standard per-event warn-skip
  *     ("<Event> has no <Host> hook equivalent — skipped"), and the ts-plugin
@@ -46,8 +46,6 @@ import geminiCliAdapter from "../../src/adapters/gemini-cli/index.js";
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import kiroAdapter from "../../src/adapters/kiro/index.js";
 import crushAdapter from "../../src/adapters/crush/index.js";
-import antigravityAdapter from "../../src/adapters/antigravity/index.js";
-import antigravityCliAdapter from "../../src/adapters/antigravity-cli/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
 import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
 
@@ -209,8 +207,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
     ["jetbrains-copilot", jetbrainsCopilotAdapter],
     ["kiro", kiroAdapter],
     ["crush", crushAdapter],
-    ["antigravity", antigravityAdapter],
-    ["antigravity-cli", antigravityCliAdapter],
   ];
 
   it.each(hosts)("%s leaves permissionRequest/postToolUseFailure/subagentStart/subagentStop falsy", (_id, adapter) => {
@@ -237,12 +233,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
     expect(kiloCliAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
     expect(kiloCliAdapter.capabilities.subagentStart ?? false).toBe(false);
     expect(kiloCliAdapter.capabilities.subagentStop ?? false).toBe(false);
-  });
-
-  it("antigravity-cli INHERITS the IDE adapter's capability surface", () => {
-    // The class field initializer gives each instance its own object — assert
-    // structural identity (the CLI adapter declares no capabilities of its own).
-    expect(antigravityCliAdapter.capabilities).toStrictEqual(antigravityAdapter.capabilities);
   });
 });
 
@@ -354,28 +344,6 @@ describe("crush E1 degradation", () => {
     expect(changes.some((c) => c.action === "warn")).toBe(false);
     const cfg = readJson(join(projectDir, ".crush.json"));
     expect(Object.keys(cfg.hooks)).toEqual(["PreToolUse"]);
-  });
-});
-
-describe("antigravity (IDE + CLI) E1 degradation", () => {
-  it("antigravity installHooks warn-skips all four; hooks.json wires PreToolUse only", () => {
-    const projectDir = freshProject("ac-e1-antigravity-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const changes = antigravityAdapter.installHooks!(ctx);
-    expectE1WarnSkips(changes, "antigravity", "Antigravity");
-
-    const hooksPath = antigravityAdapter.getHookConfigPath!(ctx);
-    const file = readJson(hooksPath);
-    expect(Object.keys(file.hooks)).toEqual(["PreToolUse"]);
-  });
-
-  it("antigravity-cli inherits the same warn-skips under its OWN platform id", () => {
-    const projectDir = freshProject("ac-e1-agy-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const changes = antigravityCliAdapter.installHooks!(ctx);
-    expectE1WarnSkips(changes, "antigravity-cli", "Antigravity");
   });
 });
 
