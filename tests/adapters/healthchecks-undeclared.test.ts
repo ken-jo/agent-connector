@@ -22,9 +22,10 @@
  * file (name+detail must not match /mcp|server|hook/i).
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
+
+import { tempDir } from "../support/env.js";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -59,7 +60,7 @@ let saved: Partial<Record<(typeof SANDBOXED_ENV)[number], string | undefined>>;
 beforeEach(() => {
   saved = {};
   for (const key of SANDBOXED_ENV) saved[key] = process.env[key];
-  tmp = mkdtempSync(join(tmpdir(), "ac-hc-undeclared-"));
+  tmp = tempDir("ac-hc-undeclared-");
   process.env.HOME = tmp;
   process.env.USERPROFILE = tmp;
   process.env.APPDATA = join(tmp, "AppData", "Roaming");

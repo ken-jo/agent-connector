@@ -26,11 +26,9 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { parse as parseYaml } from "yaml";
@@ -51,7 +49,7 @@ import type {
 } from "../../src/core/types.js";
 
 import hermesAdapter from "../../src/adapters/hermes/index.js";
-import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN, tempDir } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { splitFrontmatter } from "../support/fs.js";
 
@@ -674,7 +672,7 @@ describe("hermes — actions emitter", () => {
 
   beforeEach(() => {
     tmpHome = freshProject("ac-actemit-home-");
-    tmpProject = mkdtempSync(join(tmpdir(), "ac-actemit-proj-"));
+    tmpProject = tempDir("ac-actemit-proj-");
   });
 
   it("advertises supportsActions", () => {

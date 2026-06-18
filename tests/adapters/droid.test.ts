@@ -21,8 +21,7 @@
  * (tests/support/env + adapter-suite + fs) per tests/README.md — ONE file per host.
  */
 
-import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
