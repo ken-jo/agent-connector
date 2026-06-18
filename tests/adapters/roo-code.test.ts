@@ -1,37 +1,43 @@
 /**
- * adapters/roo-code.test.ts — content-surface tests for the Roo Code adapter.
+ * adapters/roo-code.test.ts — the SINGLE per-host Roo Code file.
  *
- * Roo Code gained two native content surfaces (host-native gap-closing):
- *   command → <rooDir>/commands/<name>.md   md + OPTIONAL frontmatter
- *             {description?, argument-hint?, mode?} (mode only via cmd.extra)
- *   skill   → <rooDir>/skills/<name>/SKILL.md (+ resources), AgentSkills format
- * The `.roo` content root is ~/.roo (user) or <projectDir>/.roo (project) — both
- * scopes are supported. (MCP/render/round-trip is covered by wave1-render.test.ts;
- * memory by tests/core/memory-surface.test.ts.)
+ * Roo Code (rooveterinaryinc.roo-cline) is a Cline-fork VS Code extension and an
+ * **mcp-only** host: it exposes no lifecycle hook system, so MCP server
+ * registration is the only thing we install and hooks are reported unavailable.
  *
- * Tests:
- *   - supportsCommands / supportsSkills capability flags are true
- *   - installCommands writes <rooDir>/commands/<name>.md with correct frontmatter
- *     (project + user scope), `mode` passes through only via cmd.extra
- *   - installSkills writes <rooDir>/skills/<name>/SKILL.md + resources (both scopes)
- *   - install is idempotent (second call → skip)
- *   - uninstall removes the files (and the empty skill dir)
- *   - every ChangeRecord.platform === "roo-code"
- *   - platforms['roo-code'].<surface> === false disables the surface
+ * Covers:
+ *   1. Baseline adapter contract (shared factory; paradigm "mcp-only").
+ *   2. Content surfaces — commands + skills:
+ *        command → <rooDir>/commands/<name>.md  (md + OPTIONAL frontmatter
+ *                  {description?, argument-hint?, mode?}; mode only via cmd.extra)
+ *        skill   → <rooDir>/skills/<name>/SKILL.md (+ resources), AgentSkills.
+ *      The `.roo` content root is ~/.roo (user) or <projectDir>/.roo (project) —
+ *      both scopes supported; install idempotent + reversible; per-surface
+ *      platforms["roo-code"].<surface> === false opt-outs honored.
+ *   3. MCP render / round-trip (absorbed from the former wave1-render.test.ts):
+ *        installServer → mcpServers.<id> into .roo/mcp.json, command/args routed
+ *        through the home-bin serve wrapper, ${env:VAR} resolved to a LITERAL;
+ *        installHooks → exactly ONE skip, NO hook file; idempotent; uninstall.
+ *   4. `disabled` reflects server.enabled (absorbed from review-fixes.test.ts).
+ *
+ * (Memory surface lives in tests/core/memory-surface.test.ts.)
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { parse as parseYaml } from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
+import { readJson, splitFrontmatter } from "../support/fs.js";
+
+// ── shared content-surface fixtures ──────────────────────────────────────────
 
 const CONNECTOR_ID = "acme-roo-code";
 
@@ -71,66 +77,10 @@ function buildConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
   });
 }
 
-function buildCtx(
-  projectDir: string,
-  connector: ResolvedConnector,
-  scope: "project" | "user" = "project",
-): InstallContext {
-  return {
-    connector,
-    scope,
-    projectDir,
-    homeBinPath: "/fake/bin/agent-connector",
-    dataRoot: projectDir,
-    dryRun: false,
-  };
-}
-
-/** Split a md+frontmatter document into { frontmatter, body }. */
-function splitFrontmatter(text: string): {
-  frontmatter: Record<string, unknown>;
-  body: string;
-} {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
-  if (!m) throw new Error(`not a frontmatter doc:\n${text}`);
-  return {
-    frontmatter: parseYaml(m[1]!) as Record<string, unknown>,
-    body: m[2]!,
-  };
-}
-
-let savedHome: string | undefined;
-let savedUserProfile: string | undefined;
-let savedDataDir: string | undefined;
-
-beforeEach(() => {
-  savedHome = process.env.HOME;
-  savedUserProfile = process.env.USERPROFILE;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-});
-
-afterEach(() => {
-  restore("HOME", savedHome);
-  restore("USERPROFILE", savedUserProfile);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-});
-
-function restore(key: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
-}
-
-/**
- * Fresh isolated HOME + project dir. HOME drives the ~/.roo user-scope root, so
- * user-scope content lands under <tmp>/.roo and never touches the real home.
- */
-function freshProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ac-roo-code-"));
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
-  return dir;
-}
+// Shared env isolation (HOME/USERPROFILE/data-root + the env-ref var the MCP
+// render slice mutates) + the same-rules-for-every-host baseline contract.
+isolateEnv(["ACME_DB_DSN"]);
+createAdapterSuite({ adapter: rooCodeAdapter, paradigm: "mcp-only" });
 
 // ── capability flags ────────────────────────────────────────────────────────
 
@@ -321,5 +271,165 @@ describe("roo-code adapter — skills surface", () => {
     const changes = rooCodeAdapter.installSkills(ctx);
     expect(changes).toHaveLength(1);
     expect(changes[0]?.action).toBe("skip");
+  });
+});
+
+// ── MCP render / round-trip (absorbed from the former wave1-render.test.ts) ───
+// root key "mcpServers"; project → .roo/mcp.json. Its own connector (id
+// "acme-db", a stdio server with an env-ref + a PreToolUse hook) is kept
+// verbatim so it does not collide with the content-surface fixtures above.
+
+const MCP_CONNECTOR_ID = "acme-db";
+const ENV_VAR = "ACME_DB_DSN";
+const ENV_LITERAL = "postgres://acme/db";
+
+/** A connector with a stdio server (env-ref) + a PreToolUse hook. */
+function buildMcpConnector(): ResolvedConnector {
+  return defineConnector({
+    id: MCP_CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    server: {
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@x/y"],
+      env: { [ENV_VAR]: `\${env:${ENV_VAR}}` },
+      tools: { include: ["*"] },
+    },
+    hooks: {
+      PreToolUse: {
+        matcher: "acme_query|acme_write",
+        handler() {
+          return { decision: "allow" };
+        },
+      },
+    },
+  });
+}
+
+/**
+ * The serve-wrapper args bake the install TARGET platform as `--host <id>`
+ * (before the `--` separator) so the proxy stamps hostPlatform correctly under a
+ * headless spawn.
+ */
+const wrappedArgs = (host: string): string[] => [
+  "serve",
+  "--connector",
+  MCP_CONNECTOR_ID,
+  "--scope",
+  "project",
+  "--host",
+  host,
+  "--",
+  "npx",
+  "-y",
+  "@x/y",
+];
+
+describe("roo-code adapter render/round-trip", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-wave1-roo-");
+    // The env-ref var must be set so literal-resolution produces a known value.
+    process.env[ENV_VAR] = ENV_LITERAL;
+    ctx = buildCtx(projectDir, buildMcpConnector(), { dataRoot: projectDir });
+  });
+
+  it("installServer writes mcpServers.<id> into .roo/mcp.json, wrapped, env LITERAL", () => {
+    const changes = rooCodeAdapter.installServer(ctx);
+    expect(changes[0]?.action).toBe("create");
+
+    const serverPath = join(projectDir, ".roo", "mcp.json");
+    expect(serverPath).toBe(rooCodeAdapter.getServerConfigPath(ctx));
+    expect(existsSync(serverPath)).toBe(true);
+
+    const cfg = readJson(serverPath);
+    expect(cfg).toHaveProperty("mcpServers");
+    const entry = cfg.mcpServers[MCP_CONNECTOR_ID];
+    expect(entry).toBeTruthy();
+    expect(entry.disabled).toBe(false);
+
+    expect(entry.command).toBe(HOME_BIN);
+    expect(entry.args).toEqual(wrappedArgs("roo-code"));
+
+    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
+    expect(entry.env[ENV_VAR]).not.toContain("${");
+  });
+
+  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
+    const changes = rooCodeAdapter.installHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+
+    const hooksPath = rooCodeAdapter.getHookConfigPath(ctx);
+    expect(hooksPath).toBe(rooCodeAdapter.getServerConfigPath(ctx));
+    expect(existsSync(hooksPath)).toBe(false);
+  });
+
+  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
+    rooCodeAdapter.installServer(ctx);
+    const second = rooCodeAdapter.installServer(ctx);
+    expect(second[0]?.action).toBe("skip");
+
+    const cfg = readJson(join(projectDir, ".roo", "mcp.json"));
+    expect(Object.keys(cfg.mcpServers)).toEqual([MCP_CONNECTOR_ID]);
+  });
+
+  it("uninstallServer removes the entry (re-read confirms gone)", () => {
+    rooCodeAdapter.installServer(ctx);
+    rooCodeAdapter.uninstallServer(ctx);
+    const cfg = readJson(join(projectDir, ".roo", "mcp.json"));
+    expect(cfg.mcpServers?.[MCP_CONNECTOR_ID]).toBeUndefined();
+  });
+});
+
+// ── `disabled` reflects server.enabled (absorbed from review-fixes.test.ts) ───
+
+describe("roo-code disabled reflects server.enabled", () => {
+  function buildEnabledConnector(
+    overrides: Partial<Parameters<typeof defineConnector>[0]> = {},
+  ): ResolvedConnector {
+    return defineConnector({
+      id: MCP_CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      server: {
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@x/y"],
+      },
+      hooks: {
+        PreToolUse: { handler: () => ({ decision: "allow" }) },
+        SessionStart: { handler: () => ({ decision: "allow" }) },
+      },
+      ...overrides,
+    });
+  }
+
+  it("disabled:false when the server is enabled (default)", () => {
+    const projectDir = freshProject("ac-rf-roo-");
+    const ctx = buildCtx(projectDir, buildEnabledConnector(), { dataRoot: projectDir });
+    rooCodeAdapter.installServer(ctx);
+    const cfg = readJson(rooCodeAdapter.getServerConfigPath(ctx));
+    expect(cfg.mcpServers[MCP_CONNECTOR_ID].disabled).toBe(false);
+  });
+
+  it("disabled:true when the server is explicitly enabled:false", () => {
+    const projectDir = freshProject("ac-rf-roo2-");
+    const connector = buildEnabledConnector({
+      server: {
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@x/y"],
+        enabled: false,
+      },
+      hooks: {},
+    });
+    const ctx = buildCtx(projectDir, connector, { dataRoot: projectDir });
+    rooCodeAdapter.installServer(ctx);
+    const cfg = readJson(rooCodeAdapter.getServerConfigPath(ctx));
+    expect(cfg.mcpServers[MCP_CONNECTOR_ID].disabled).toBe(true);
   });
 });
