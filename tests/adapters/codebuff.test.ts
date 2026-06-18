@@ -1,38 +1,66 @@
 /**
- * adapters/codebuff — skills surface tests for the Codebuff adapter.
+ * adapters/codebuff.test.ts — the SINGLE per-host Codebuff file.
  *
- * Codebuff reads AgentSkills SKILL.md from:
- *   project scope → <projectDir>/.agents/skills/<name>/SKILL.md
- *   user scope    → ~/.agents/skills/<name>/SKILL.md
- * (getConfigDir resolves .agents per scope.) Verified against codebuff source
- * sdk/src/skills/load-skills.ts — the frontmatter `name` MUST equal the dir
- * name.
+ * Codebuff is an **mcp-only** host (src/adapters/codebuff/index.ts): it exposes
+ * no lifecycle hook system, so MCP server registration is the only server-side
+ * thing we install and hooks are reported unavailable (a single skip). It also
+ * reads two content surfaces — AgentSkills (SKILL.md) and executable TypeScript
+ * subagents in .agents/.
  *
- * Tests:
- *   - supportsSkills capability is true
- *   - installSkills (project scope) writes .agents/skills/<n>/SKILL.md with
- *     correct frontmatter (name === dir) + body + resource files
- *   - installSkills (user scope) writes ~/.agents/skills/<n>/SKILL.md
- *   - installSkills is idempotent (second call → skip)
- *   - uninstallSkills removes SKILL.md + resource + empty dir
- *   - platforms['codebuff'].skills === false disables the surface
- *   - ChangeRecord.platform === "codebuff"
+ * Covers:
+ *   1. Baseline adapter contract (shared factory; paradigm "mcp-only").
+ *   2. Skills surface:
+ *        project scope → <projectDir>/.agents/skills/<name>/SKILL.md
+ *        user scope    → ~/.agents/skills/<name>/SKILL.md
+ *      (getConfigDir resolves .agents per scope.) Verified against codebuff
+ *      source sdk/src/skills/load-skills.ts — the frontmatter `name` MUST equal
+ *      the dir name. Install idempotent + reversible; platforms["codebuff"].skills
+ *      === false opt-out honored; no skills → skip.
+ *   3. Subagents surface:
+ *        project scope → <projectDir>/.agents/<id>.ts, each ending with
+ *          const definition = { id: "...", ... };
+ *          export default definition;
+ *        (codebuff docs: "Create a new TypeScript file in .agents/"). The module
+ *        is emitted WITHOUT the type-only `agent-definition` import (erased at
+ *        runtime). No user-scope agents dir is documented, so user scope
+ *        warn-skips. Install idempotent + reversible; platforms["codebuff"]
+ *        .subagents === false opt-out honored; no subagents → skip.
+ *   4. MCP render / round-trip (absorbed from the former wave1-render.test.ts):
+ *        installServer → mcpServers.<id> with type 'stdio' into .agents/mcp.json,
+ *        command/args routed through the home-bin serve wrapper, env-ref rewritten
+ *        to a native $VAR token (Codebuff expands $VAR natively, NOT a literal);
+ *        installHooks → exactly ONE skip, NO hook file; idempotent; uninstall.
+ *   5. env-ref default is preserved, not dropped (absorbed from review-fixes.test.ts):
+ *        ${env:VAR:-fallback} → fallback literal when unset; ${env:VAR} → native
+ *        $VAR token.
+ *
+ * (Memory surface lives in tests/core/memory-surface.test.ts.)
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { parse as parseYaml } from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
-import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
+import type { ConnectorConfig, ResolvedConnector, SubagentDef } from "../../src/core/types.js";
 
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
+import { readJson, splitFrontmatter } from "../support/fs.js";
 
-const CONNECTOR_ID = "acme-codebuff-skills";
+// Shared env isolation (HOME/USERPROFILE/data-root + the env-ref vars the MCP
+// render + env-ref slices mutate) + the same-rules-for-every-host baseline
+// contract. ACME_DB_DSN is set by the render slice; AC_RF_CB_VAR by the
+// env-ref-default slice.
+isolateEnv(["ACME_DB_DSN", "AC_RF_CB_VAR"]);
+createAdapterSuite({ adapter: codebuffAdapter, paradigm: "mcp-only" });
+
+// ── skills surface ────────────────────────────────────────────────────────────
+
+const SKILLS_CONNECTOR_ID = "acme-codebuff-skills";
 
 const SKILL = {
   name: "pdf-tools",
@@ -52,64 +80,14 @@ function skill() {
   };
 }
 
-function buildConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
+function buildSkillsConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
   return defineConnector({
-    id: CONNECTOR_ID,
+    id: SKILLS_CONNECTOR_ID,
     displayName: "Acme Codebuff Skills",
     version: "1.0.0",
     skills: [skill()],
     ...cfg,
   });
-}
-
-function buildCtx(
-  projectDir: string,
-  connector: ResolvedConnector,
-  scope: "project" | "user" = "project",
-): InstallContext {
-  return {
-    connector,
-    scope,
-    projectDir,
-    homeBinPath: "/fake/bin/agent-connector",
-    dataRoot: projectDir,
-    dryRun: false,
-  };
-}
-
-let savedHome: string | undefined;
-let savedDataDir: string | undefined;
-
-beforeEach(() => {
-  savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-});
-
-afterEach(() => {
-  restore("HOME", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-});
-
-function restore(key: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
-}
-
-function freshProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ac-codebuff-skills-"));
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
-  return dir;
-}
-
-function splitFrontmatter(text: string): { frontmatter: Record<string, unknown>; body: string } {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
-  if (!m) throw new Error(`not a frontmatter doc:\n${text}`);
-  return {
-    frontmatter: parseYaml(m[1]!) as Record<string, unknown>,
-    body: m[2]!,
-  };
 }
 
 describe("codebuff adapter — skills surface", () => {
@@ -118,7 +96,7 @@ describe("codebuff adapter — skills surface", () => {
 
   beforeEach(() => {
     projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
+    ctx = buildCtx(projectDir, buildSkillsConnector());
   });
 
   it("declares supportsSkills true", () => {
@@ -152,7 +130,7 @@ describe("codebuff adapter — skills surface", () => {
   });
 
   it("installSkills (user scope) writes ~/.agents/skills/<n>/SKILL.md", () => {
-    const userCtx = buildCtx(projectDir, buildConnector(), "user");
+    const userCtx = buildCtx(projectDir, buildSkillsConnector(), "user");
     const changes = codebuffAdapter.installSkills!(userCtx);
     expect(changes[0]?.action).toBe("create");
     expect(changes[0]?.platform).toBe("codebuff");
@@ -190,7 +168,7 @@ describe("codebuff adapter — skills surface", () => {
 
   it("honors platforms['codebuff'].skills === false", () => {
     const disabled = defineConnector({
-      id: CONNECTOR_ID,
+      id: SKILLS_CONNECTOR_ID,
       skills: [skill()],
       platforms: { codebuff: { skills: false } },
     });
@@ -201,9 +179,355 @@ describe("codebuff adapter — skills surface", () => {
   });
 
   it("installSkills with no skills declared returns skip", () => {
-    const noSkills = defineConnector({ id: CONNECTOR_ID, memory: [{ content: "placeholder" }] });
+    const noSkills = defineConnector({ id: SKILLS_CONNECTOR_ID, memory: [{ content: "placeholder" }] });
     const c2 = buildCtx(projectDir, noSkills);
     const changes = codebuffAdapter.installSkills!(c2);
     expect(changes[0]?.action).toBe("skip");
+  });
+});
+
+// ── subagents surface ─────────────────────────────────────────────────────────
+
+const SUBAGENTS_CONNECTOR_ID = "acme-codebuff-agents";
+
+/** Fully-populated subagent (model + tools.allow). */
+const FULL: SubagentDef = {
+  name: "code-reviewer",
+  description: "Reviews diffs for correctness.",
+  prompt: "You are a meticulous reviewer.\nCheck for bugs.",
+  model: "anthropic/claude-sonnet-4.5",
+  tools: { allow: ["read_files", "end_turn"] },
+};
+
+/** Minimal subagent (no model, no tools) — model/toolNames must be omitted. */
+const MINIMAL: SubagentDef = {
+  name: "doc-writer",
+  description: "Writes documentation.",
+  prompt: "Write clear docs.",
+};
+
+function fullAgent(): SubagentDef {
+  return { ...FULL, tools: { allow: [...(FULL.tools?.allow ?? [])] } };
+}
+function minimalAgent(): SubagentDef {
+  return { ...MINIMAL };
+}
+
+function buildSubagentsConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
+  return defineConnector({
+    id: SUBAGENTS_CONNECTOR_ID,
+    displayName: "Acme Codebuff Agents",
+    version: "1.0.0",
+    subagents: [fullAgent(), minimalAgent()],
+    ...cfg,
+  });
+}
+
+function agentPath(projectDir: string, name: string): string {
+  return join(projectDir, ".agents", `${name}.ts`);
+}
+
+/**
+ * Evaluate the emitted AgentDefinition module by turning its ESM default export
+ * into a `return`, proving the generated source is valid JS AND yields the
+ * expected object. Keeps the raw module bytes out of brittle string matching.
+ */
+function evalDefinition(src: string): Record<string, unknown> {
+  const body = src.replace(/export default definition;\s*$/, "return definition;");
+  return new Function(body)() as Record<string, unknown>;
+}
+
+describe("codebuff adapter — subagents surface", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject();
+    ctx = buildCtx(projectDir, buildSubagentsConnector());
+  });
+
+  it("declares supportsSubagents true", () => {
+    expect(codebuffAdapter.capabilities.supportsSubagents).toBe(true);
+  });
+
+  it("installSubagents (project) writes one .agents/<id>.ts per declared subagent", () => {
+    const changes = codebuffAdapter.installSubagents!(ctx);
+    expect(changes).toHaveLength(2);
+    expect(changes.every((c) => c.action === "create")).toBe(true);
+    expect(changes.every((c) => c.platform === "codebuff")).toBe(true);
+
+    const full = agentPath(projectDir, "code-reviewer");
+    const minimal = agentPath(projectDir, "doc-writer");
+    expect(changes.map((c) => c.path)).toEqual([full, minimal]);
+    expect(existsSync(full)).toBe(true);
+    expect(existsSync(minimal)).toBe(true);
+  });
+
+  it("emits a valid default-exported AgentDefinition mapping name/description/prompt", () => {
+    codebuffAdapter.installSubagents!(ctx);
+    const src = readFileSync(agentPath(projectDir, "code-reviewer"), "utf8");
+
+    expect(src).toContain("const definition = {");
+    expect(src).toContain("export default definition;");
+
+    const def = evalDefinition(src);
+    // id ← name (already kebab-case → a valid codebuff id); displayName ← name.
+    expect(def.id).toBe("code-reviewer");
+    expect(def.id).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+    expect(def.displayName).toBe("code-reviewer");
+    expect(def.spawnerPrompt).toBe(FULL.description);
+    expect(def.instructionsPrompt).toBe(FULL.prompt);
+  });
+
+  it("includes model + toolNames ONLY when the connector declares them", () => {
+    codebuffAdapter.installSubagents!(ctx);
+
+    const full = evalDefinition(readFileSync(agentPath(projectDir, "code-reviewer"), "utf8"));
+    expect(full.model).toBe("anthropic/claude-sonnet-4.5");
+    expect(full.toolNames).toEqual(["read_files", "end_turn"]);
+
+    const minimalSrc = readFileSync(agentPath(projectDir, "doc-writer"), "utf8");
+    const minimal = evalDefinition(minimalSrc);
+    // model + toolNames are OMITTED (never fabricated) when not declared.
+    expect(minimal.model).toBeUndefined();
+    expect(minimal.toolNames).toBeUndefined();
+    expect(minimalSrc).not.toContain("model:");
+    expect(minimalSrc).not.toContain("toolNames:");
+  });
+
+  it("emits NO `agent-definition` type import line", () => {
+    codebuffAdapter.installSubagents!(ctx);
+    for (const name of ["code-reviewer", "doc-writer"]) {
+      const src = readFileSync(agentPath(projectDir, name), "utf8");
+      expect(src).not.toContain("agent-definition");
+      expect(src).not.toContain("import");
+    }
+  });
+
+  it("merges `extra` as the escape hatch for codebuff-native AgentDefinition fields", () => {
+    const withExtra = defineConnector({
+      id: SUBAGENTS_CONNECTOR_ID,
+      subagents: [{ ...minimalAgent(), extra: { version: "1.2.0", outputMode: "last_message" } }],
+    });
+    const c2 = buildCtx(projectDir, withExtra);
+    codebuffAdapter.installSubagents!(c2);
+    const def = evalDefinition(readFileSync(agentPath(projectDir, "doc-writer"), "utf8"));
+    expect(def.version).toBe("1.2.0");
+    expect(def.outputMode).toBe("last_message");
+  });
+
+  it("warn-skips at user scope (codebuff agents are project-scoped only)", () => {
+    const userCtx = buildCtx(projectDir, buildSubagentsConnector(), "user");
+    const changes = codebuffAdapter.installSubagents!(userCtx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.platform).toBe("codebuff");
+    // HOME redirected to projectDir → ~/.agents === projectDir/.agents; nothing written.
+    expect(existsSync(agentPath(projectDir, "code-reviewer"))).toBe(false);
+  });
+
+  it("installSubagents is idempotent — second call yields skip", () => {
+    codebuffAdapter.installSubagents!(ctx);
+    const second = codebuffAdapter.installSubagents!(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+    expect(second.every((c) => c.platform === "codebuff")).toBe(true);
+  });
+
+  it("uninstallSubagents removes the .agents/<id>.ts files", () => {
+    codebuffAdapter.installSubagents!(ctx);
+    const full = agentPath(projectDir, "code-reviewer");
+    const minimal = agentPath(projectDir, "doc-writer");
+    expect(existsSync(full)).toBe(true);
+
+    const changes = codebuffAdapter.uninstallSubagents!(ctx);
+    expect(changes.every((c) => c.action === "remove")).toBe(true);
+    expect(changes.every((c) => c.platform === "codebuff")).toBe(true);
+    expect(existsSync(full)).toBe(false);
+    expect(existsSync(minimal)).toBe(false);
+  });
+
+  it("honors platforms['codebuff'].subagents === false", () => {
+    const disabled = defineConnector({
+      id: SUBAGENTS_CONNECTOR_ID,
+      subagents: [fullAgent()],
+      platforms: { codebuff: { subagents: false } },
+    });
+    const c2 = buildCtx(projectDir, disabled);
+    const changes = codebuffAdapter.installSubagents!(c2);
+    expect(changes[0]?.action).toBe("skip");
+    expect(existsSync(agentPath(projectDir, "code-reviewer"))).toBe(false);
+  });
+
+  it("installSubagents with no subagents declared returns skip", () => {
+    const none = defineConnector({ id: SUBAGENTS_CONNECTOR_ID, memory: [{ content: "placeholder" }] });
+    const c2 = buildCtx(projectDir, none);
+    const changes = codebuffAdapter.installSubagents!(c2);
+    expect(changes[0]?.action).toBe("skip");
+  });
+});
+
+// ── MCP render / round-trip (absorbed from the former wave1-render.test.ts) ───
+// root key "mcpServers"; project → .agents/mcp.json; native $VAR env-ref. Its
+// own connector (id "acme-db", a stdio server with an env-ref + a PreToolUse
+// hook) is kept verbatim so it does not collide with the content-surface
+// fixtures above.
+
+const MCP_CONNECTOR_ID = "acme-db";
+const ENV_VAR = "ACME_DB_DSN";
+const ENV_LITERAL = "postgres://acme/db";
+
+/** A connector with a stdio server (env-ref) + a PreToolUse hook. */
+function buildMcpConnector(): ResolvedConnector {
+  return defineConnector({
+    id: MCP_CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    server: {
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@x/y"],
+      env: { [ENV_VAR]: `\${env:${ENV_VAR}}` },
+      tools: { include: ["*"] },
+    },
+    hooks: {
+      PreToolUse: {
+        matcher: "acme_query|acme_write",
+        handler() {
+          return { decision: "allow" };
+        },
+      },
+    },
+  });
+}
+
+/**
+ * The serve-wrapper args bake the install TARGET platform as `--host <id>`
+ * (before the `--` separator) so the proxy stamps hostPlatform correctly under a
+ * headless spawn.
+ */
+const wrappedArgs = (host: string): string[] => [
+  "serve",
+  "--connector",
+  MCP_CONNECTOR_ID,
+  "--scope",
+  "project",
+  "--host",
+  host,
+  "--",
+  "npx",
+  "-y",
+  "@x/y",
+];
+
+describe("codebuff adapter render/round-trip", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-wave1-codebuff-");
+    // The env-ref var must be set so literal-resolution produces a known value.
+    process.env[ENV_VAR] = ENV_LITERAL;
+    ctx = buildCtx(projectDir, buildMcpConnector(), { dataRoot: projectDir });
+  });
+
+  it("installServer writes mcpServers.<id> with type 'stdio' into .agents/mcp.json, wrapped, env as native $VAR", () => {
+    const changes = codebuffAdapter.installServer(ctx);
+    expect(changes[0]?.action).toBe("create");
+
+    const serverPath = join(projectDir, ".agents", "mcp.json");
+    expect(serverPath).toBe(codebuffAdapter.getServerConfigPath(ctx));
+    expect(existsSync(serverPath)).toBe(true);
+
+    const cfg = readJson(serverPath);
+    expect(cfg).toHaveProperty("mcpServers");
+    const entry = cfg.mcpServers[MCP_CONNECTOR_ID];
+    expect(entry).toBeTruthy();
+    expect(entry.type).toBe("stdio");
+
+    expect(entry.command).toBe(HOME_BIN);
+    expect(entry.args).toEqual(wrappedArgs("codebuff"));
+
+    // Codebuff expands $VAR natively → ref rewritten to $VAR, NOT a literal.
+    expect(entry.env[ENV_VAR]).toBe(`$${ENV_VAR}`);
+    expect(entry.env[ENV_VAR]).not.toBe(ENV_LITERAL);
+  });
+
+  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
+    const changes = codebuffAdapter.installHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+
+    const hooksPath = codebuffAdapter.getHookConfigPath(ctx);
+    expect(hooksPath).toBe(codebuffAdapter.getServerConfigPath(ctx));
+    expect(existsSync(hooksPath)).toBe(false);
+  });
+
+  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
+    codebuffAdapter.installServer(ctx);
+    const second = codebuffAdapter.installServer(ctx);
+    expect(second[0]?.action).toBe("skip");
+
+    const cfg = readJson(join(projectDir, ".agents", "mcp.json"));
+    expect(Object.keys(cfg.mcpServers)).toEqual([MCP_CONNECTOR_ID]);
+  });
+
+  it("uninstallServer removes the entry (re-read confirms gone)", () => {
+    codebuffAdapter.installServer(ctx);
+    codebuffAdapter.uninstallServer(ctx);
+    const cfg = readJson(join(projectDir, ".agents", "mcp.json"));
+    expect(cfg.mcpServers?.[MCP_CONNECTOR_ID]).toBeUndefined();
+  });
+});
+
+// ── env-ref default is preserved (absorbed from review-fixes.test.ts) ─────────
+// ${env:VAR:-fallback} must NOT be dropped: it resolves to the fallback literal
+// when the var is unset, while a bare ${env:VAR} becomes the native $VAR token.
+
+describe("codebuff env-ref default is preserved (not dropped)", () => {
+  const VAR = "AC_RF_CB_VAR";
+
+  function buildRfConnector(
+    overrides: Partial<Parameters<typeof defineConnector>[0]> = {},
+  ): ResolvedConnector {
+    return defineConnector({
+      id: MCP_CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      server: {
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@x/y"],
+      },
+      hooks: {
+        PreToolUse: { handler: () => ({ decision: "allow" }) },
+        SessionStart: { handler: () => ({ decision: "allow" }) },
+      },
+      ...overrides,
+    });
+  }
+
+  it("resolves to the fallback literal when unset; native $VAR token when no default", () => {
+    const projectDir = freshProject("ac-rf-cbdef-");
+    delete process.env[VAR];
+    const connector = buildRfConnector({
+      server: {
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@x/y"],
+        env: {
+          ENDPOINT: `\${env:${VAR}:-https://fallback.example}`,
+          TOKEN: `\${env:${VAR}}`,
+        },
+        wrapForTelemetry: false,
+      },
+      hooks: {},
+    });
+    const ctx = buildCtx(projectDir, connector, { scope: "user", dataRoot: projectDir });
+
+    codebuffAdapter.installServer(ctx);
+    const cfg = readJson(codebuffAdapter.getServerConfigPath(ctx));
+    const entry = cfg.mcpServers[MCP_CONNECTOR_ID];
+    expect(entry.env.ENDPOINT).toBe("https://fallback.example");
+    expect(entry.env.TOKEN).toBe(`$${VAR}`);
   });
 });

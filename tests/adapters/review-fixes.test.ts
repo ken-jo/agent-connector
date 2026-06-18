@@ -11,8 +11,9 @@
  * per-host file adapters/openclaw.test.ts, the omp modify-degrades-to-allow block
  * to adapters/omp.test.ts, the qwen-code remote-transport-key block to
  * adapters/qwen-code.test.ts, the kimi deny-protocol/base-dir/parseEvent blocks
- * to adapters/kimi.test.ts, and the roo-code disabled-reflects-server.enabled
- * block to adapters/roo-code.test.ts, per tests/README.md.)
+ * to adapters/kimi.test.ts, the roo-code disabled-reflects-server.enabled block
+ * to adapters/roo-code.test.ts, and the codebuff env-ref-default block to
+ * adapters/codebuff.test.ts, per tests/README.md.)
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -27,7 +28,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
 import zedAdapter from "../../src/adapters/zed/index.js";
-import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -159,46 +159,5 @@ describe("overwrite guard: present, non-empty, TRULY-malformed settings file", (
 
     // The original bytes are UNTOUCHED — never replaced with {}-based output.
     expect(readFileSync(settingsPath, "utf8")).toBe(malformed);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// codebuff — ${env:VAR:-fallback} default must NOT be dropped
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("codebuff env-ref default is preserved (not dropped)", () => {
-  const VAR = "AC_RF_CB_VAR";
-  let saved: string | undefined;
-  beforeEach(() => {
-    saved = process.env[VAR];
-  });
-  afterEach(() => {
-    if (saved === undefined) delete process.env[VAR];
-    else process.env[VAR] = saved;
-  });
-
-  it("resolves to the fallback literal when unset; native $VAR token when no default", () => {
-    const projectDir = freshProject("ac-rf-cbdef-");
-    delete process.env[VAR];
-    const connector = buildConnector({
-      server: {
-        transport: "stdio",
-        command: "npx",
-        args: ["-y", "@x/y"],
-        env: {
-          ENDPOINT: `\${env:${VAR}:-https://fallback.example}`,
-          TOKEN: `\${env:${VAR}}`,
-        },
-        wrapForTelemetry: false,
-      },
-      hooks: {},
-    });
-    const ctx = buildCtx(projectDir, connector, "user");
-
-    codebuffAdapter.installServer(ctx);
-    const cfg = readJson(codebuffAdapter.getServerConfigPath(ctx));
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry.env.ENDPOINT).toBe("https://fallback.example");
-    expect(entry.env.TOKEN).toBe(`$${VAR}`);
   });
 });
