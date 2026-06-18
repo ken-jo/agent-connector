@@ -28,11 +28,11 @@
  *   - Windows:            %APPDATA%/Block/goose/config/config.yaml
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { BaseAdapter } from "../base.js";
+import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
@@ -55,7 +55,6 @@ import type {
   StopEvent,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
-import { ensureDir } from "../../core/paths.js";
 import { removeFromObjectMap, upsertInObjectMap } from "../../core/object-map.js";
 import { readYaml, yamlObjectMapCodec } from "../../core/yaml.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -384,135 +383,90 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
   // ── Hook install / uninstall (JSON Open-Plugins hooks.json) ───────────────
 
   override installHooks(ctx: InstallContext): ChangeRecord[] {
-    const { connector, dryRun } = ctx;
+    const { connector } = ctx;
     const path = this.getHookConfigPath(ctx);
 
     if (connector.platforms[HOST]?.hooks === false) {
       return [{ platform: this.id, action: "skip", path, detail: "hooks disabled for goose" }];
     }
-    const events = connector.hookEvents;
-    if (events.length === 0) {
+    if (connector.hookEvents.length === 0) {
       return [{ platform: this.id, action: "skip", path, detail: "connector declares no hooks" }];
     }
 
-    const file = this.readHooksFile(path);
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const event of events) {
-      // CAPABILITY FILTER: only write events Goose's Open-Plugins runtime
-      // actually delivers. Derive support from THIS adapter's capabilities (the
-      // single source of truth) so an event Goose does not support (e.g.
-      // UserPromptSubmit) is reported as a graceful warn and never written
-      // verbatim into hooks.json — mirroring the cursor adapter's pattern.
-      if (this.capabilities[EVENT_CAPABILITY[event]] !== true) {
-        changes.push({
-          platform: this.id,
-          action: "warn",
-          path,
-          detail: `${event} unsupported on goose — skipped`,
-        });
-        continue;
-      }
-
-      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const matcher = connector.hooks[event]?.matcher ?? "";
-      const desired: GooseHookRule = {
-        matcher,
-        hooks: [{ type: "command", command }],
-      };
-      const bucket = (file.hooks[event] ??= []);
-      const idx = bucket.findIndex((rule) => this.ruleHasOurCommand(rule, ctx));
-
-      if (idx >= 0) {
-        if (JSON.stringify(bucket[idx]) === JSON.stringify(desired)) {
-          changes.push({ platform: this.id, action: "skip", path, detail: `hooks.${event}` });
-          continue;
-        }
-        bucket[idx] = desired;
-        changes.push({ platform: this.id, action: "update", path, detail: `hooks.${event}` });
-      } else {
-        bucket.push(desired);
-        changes.push({ platform: this.id, action: "create", path, detail: `hooks.${event}` });
-      }
-      mutated = true;
-    }
-
-    if (mutated) this.writeHooksFile(path, file, dryRun);
-    return changes;
+    const pending = connector.hookEvents.map((event) => ({
+      event,
+      matcher: connector.hooks[event]?.matcher ?? "",
+    }));
+    return this.upsertHookEntries(ctx, path, pending, this.hookDescriptor(ctx));
   }
 
   override uninstallHooks(ctx: InstallContext): ChangeRecord[] {
-    const path = this.getHookConfigPath(ctx);
-    const file = this.readJson<GooseHooksFile>(path);
-    if (!file || !file.hooks || typeof file.hooks !== "object") {
-      return [{ platform: this.id, action: "skip", path, detail: "no hooks.json" }];
-    }
+    return this.removeHookEntries(ctx, this.getHookConfigPath(ctx), this.hookDescriptor(ctx));
+  }
 
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-    for (const event of Object.keys(file.hooks)) {
-      const bucket = file.hooks[event];
-      if (!Array.isArray(bucket)) continue;
-
-      // Strip our command from each rule's inner `hooks` array; drop rules left
-      // empty so we never remove another connector's (or the user's own) hooks.
-      const next: GooseHookRule[] = [];
-      let removed = 0;
-      for (const rule of bucket) {
+  /**
+   * Goose's hook-merge descriptor for the shared object-map engine. Goose's hook
+   * file is the DEDICATED per-connector `.agents/plugins/<id>/hooks/hooks.json`
+   * (NESTED rule shape `{ matcher?, hooks:[{type,command}] }`), so every
+   * observable string + ownership predicate is carried here to reproduce the
+   * prior in-adapter loop byte-for-byte:
+   *  - malformedPolicy "coerce" — a present-but-malformed `hooks` root (array /
+   *    primitive, hand-edited) and a non-array event bucket are coerced to fresh
+   *    containers, matching the old readHooksFile coerce + the `??=` bucket fill.
+   *  - mapEvent = the CAPABILITY FILTER: an event Goose's Open-Plugins runtime
+   *    does not deliver (e.g. UserPromptSubmit, PreCompact) maps to undefined →
+   *    the engine emits the `<event> unsupported on goose — skipped` warn and
+   *    never writes it; supported events map to themselves (identity).
+   *  - entryOwnsCommand is connector-GENERIC (ANY of our commands in the nested
+   *    inner `hooks`) — the old ruleHasOurCommand.
+   *  - uninstall is NESTED: ownsEntryForRemove is never-true so the engine only
+   *    runs stripInner — strip our owned inner commands, keep foreign ones, drop
+   *    emptied rules. The rebuilt rule OMITS `matcher` when it was undefined
+   *    (distinct from claude/droid/qwen, which always emit a matcher); `removed`
+   *    is the inner-command count, surfaced in the `(<n>)` remove detail.
+   */
+  private hookDescriptor(ctx: InstallContext): HookMergeDescriptor<GooseHookRule> {
+    return {
+      malformedPolicy: "coerce",
+      // CAPABILITY FILTER → identity-or-undefined: supported events map to
+      // themselves; an unsupported one (capability !== true) maps to undefined,
+      // routing it to the warn-skip path.
+      mapEvent: (e) =>
+        this.capabilities[EVENT_CAPABILITY[e as HookEventName]] === true ? e : undefined,
+      unmappedWarnDetail: (e) => `${e} unsupported on goose — skipped`,
+      // NESTED rule, matcher-FIRST key order (matches the old `desired`).
+      renderEntry: (_event, matcher, command) => ({
+        matcher,
+        hooks: [{ type: "command", command }],
+      }),
+      // Connector-generic find (= the old ruleHasOurCommand): ANY inner command ours.
+      entryOwnsCommand: (rule, _command) =>
+        (rule.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx)),
+      // NESTED: never drop a whole rule; inner-strip only.
+      ownsEntryForRemove: () => () => false,
+      stripInner: (c) => (rule) => {
         const innerBefore = rule.hooks?.length ?? 0;
-        const inner = (rule.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
-        removed += innerBefore - inner.length;
-        if (inner.length > 0) {
-          next.push({ ...(rule.matcher !== undefined ? { matcher: rule.matcher } : {}), hooks: inner });
-        }
-      }
-
-      if (removed === 0) continue;
-      mutated = true;
-      if (next.length > 0) file.hooks[event] = next;
-      else delete file.hooks[event];
-      changes.push({
-        platform: this.id,
-        action: "remove",
-        path,
-        detail: `hooks.${event} (${removed})`,
-      });
-    }
-
-    if (mutated) this.writeHooksFile(path, file, ctx.dryRun);
-    if (changes.length === 0) {
-      return [{ platform: this.id, action: "skip", path, detail: "no matching hook entries" }];
-    }
-    return changes;
+        const inner = (rule.hooks ?? []).filter((h) => !this.isOurCommand(h.command, c));
+        return {
+          // MATCHER-OMITTED-WHEN-UNDEFINED: reproduce the old rebuild exactly —
+          // key order is `matcher` (only when present) then `hooks`.
+          next:
+            inner.length > 0
+              ? { ...(rule.matcher !== undefined ? { matcher: rule.matcher } : {}), hooks: inner }
+              : null,
+          removed: innerBefore - inner.length,
+        };
+      },
+      skipDetail: (e) => `hooks.${e}`,
+      removeDetail: (e, n) => `hooks.${e} (${n})`,
+      absentDetail: "no hooks.json",
+      noMatchDetail: "no matching hook entries",
+    };
   }
 
   /** True when a hook command is ours (anchored home-bin + connector id). */
   private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
-  }
-
-  /** True when any inner command of a nested rule is ours. */
-  private ruleHasOurCommand(rule: GooseHookRule, ctx: InstallContext): boolean {
-    return (rule.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx));
-  }
-
-  private readHooksFile(path: string): GooseHooksFile {
-    const existing = this.readJson<GooseHooksFile>(path);
-    // An ARRAY passes `typeof === "object"`; without the array guard a hand-edited
-    // `hooks: []` would survive and corrupt (named-property writes dropped by
-    // JSON.stringify). Coerce a malformed root to a fresh object (matches Goose's
-    // coerce policy), like a primitive.
-    if (existing && existing.hooks && typeof existing.hooks === "object" && !Array.isArray(existing.hooks)) {
-      return { hooks: existing.hooks };
-    }
-    return { hooks: {} };
-  }
-
-  private writeHooksFile(path: string, file: GooseHooksFile, dryRun: boolean): void {
-    if (dryRun) return;
-    ensureDir(dirname(path));
-    writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`, "utf8");
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────
