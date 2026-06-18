@@ -39,7 +39,7 @@
 
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
@@ -55,6 +55,7 @@ import type {
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { roamingAppData } from "../../core/host-paths.js";
 import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
@@ -166,11 +167,7 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
    */
   private userConfigDir(): string {
     if (process.platform === "win32") {
-      const appData =
-        process.env.APPDATA && process.env.APPDATA.trim() !== ""
-          ? process.env.APPDATA
-          : resolve(homedir(), "AppData", "Roaming");
-      return join(appData, "Zed");
+      return join(roamingAppData(), "Zed");
     }
     return join(homedir(), ".config", "zed");
   }
