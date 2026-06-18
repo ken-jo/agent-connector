@@ -8,11 +8,11 @@
  *     left untouched (a "warn"), never blanked to {}.
  *   • kimi — deny uses the Claude/Codex hookSpecificOutput shape (exit 0); the
  *     base dir defaults to ~/.kimi (live-confirmed), honoring $KIMI_HOME / $KIMI_CODE_HOME.
- *   • qwen-code — remote http renders key "httpUrl" (not type:"http"); sse → "url".
  *
  * (The openclaw parseJsonc-tolerance + dual-registration block has moved to the
- * per-host file adapters/openclaw.test.ts, and the omp modify-degrades-to-allow
- * block to adapters/omp.test.ts, per tests/README.md.)
+ * per-host file adapters/openclaw.test.ts, the omp modify-degrades-to-allow block
+ * to adapters/omp.test.ts, and the qwen-code remote-transport-key block to
+ * adapters/qwen-code.test.ts, per tests/README.md.)
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,7 +29,6 @@ import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js
 import zedAdapter from "../../src/adapters/zed/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
-import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -213,42 +212,6 @@ describe("kimi deny protocol + base dir", () => {
     process.env.KIMI_CODE_HOME = custom;
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     expect(kimiAdapter.getServerConfigPath(ctx)).toBe(join(custom, "mcp.json"));
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// qwen-code — remote transport selected by KEY (Gemini-fork)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("qwen-code remote transport key", () => {
-  it("a remote http server renders with key 'httpUrl' (NOT type:'http')", () => {
-    const projectDir = freshProject("ac-rf-qwen-http-");
-    const connector = buildConnector({
-      server: { transport: "http", url: "https://mcp.example.com/mcp" },
-    });
-    const ctx = buildCtx(projectDir, connector);
-
-    qwenCodeAdapter.installServer(ctx);
-    const cfg = readJson(qwenCodeAdapter.getServerConfigPath(ctx));
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry.httpUrl).toBe("https://mcp.example.com/mcp");
-    expect(entry.type).toBeUndefined();
-    expect(entry.url).toBeUndefined();
-  });
-
-  it("an sse server renders with key 'url'", () => {
-    const projectDir = freshProject("ac-rf-qwen-sse-");
-    const connector = buildConnector({
-      server: { transport: "sse", url: "https://mcp.example.com/sse" },
-    });
-    const ctx = buildCtx(projectDir, connector);
-
-    qwenCodeAdapter.installServer(ctx);
-    const cfg = readJson(qwenCodeAdapter.getServerConfigPath(ctx));
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry.url).toBe("https://mcp.example.com/sse");
-    expect(entry.httpUrl).toBeUndefined();
-    expect(entry.type).toBeUndefined();
   });
 });
 

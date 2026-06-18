@@ -1,14 +1,17 @@
 /**
- * adapters/wave2 — render + parse/format round-trip tests for the five Wave-2
- * json-stdio adapters: qwen-code, kiro, jetbrains-copilot, kimi, crush.
+ * adapters/wave2 — render + parse/format round-trip tests for the Wave-2
+ * json-stdio adapters: kiro, jetbrains-copilot, kimi, crush.
+ *
+ * (qwen-code's render/round-trip slice was migrated to
+ * tests/adapters/qwen-code.test.ts per the ONE-file-per-host convention — see
+ * tests/README.md.)
  *
  * Each adapter is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/wave1 pattern, plus a runtime parse/format round-trip:
  *   • installServer  → native MCP registration under the CORRECT root key
- *                      (mcpServers for qwen-code/kiro/kimi; "mcp" for crush;
+ *                      (mcpServers for kiro/kimi; "mcp" for crush;
  *                      jetbrains-copilot writes NOTHING and returns a WARN).
  *   • installHooks   → native hook registration in the right FILE + SHAPE:
- *       qwen-code   → sibling "hooks" key in the SAME settings.json (PascalCase).
  *       kiro        → "hooks" in the agent file kiro_default.json (SessionStart
  *                     → native "agentSpawn").
  *       jetbrains   → .github/hooks/<id>.json with version:1 + FLAT {type,command}.
@@ -17,8 +20,7 @@
  *     Every hook command references the home-bin + connector id.
  *   • idempotency    → second installHooks/installServer → skip, no duplicates.
  *   • uninstall      → entries removed (re-read from disk confirms gone) for the
- *                      file-writing surfaces; anchored-match uninstall (acme vs.
- *                      acme-db) verified for qwen-code.
+ *                      file-writing surfaces.
  *   • parseEvent/formatReply round-trip → a native PreToolUse stdin payload maps
  *     to a normalized PreToolUse event; formatReply({decision:"deny"}) yields the
  *     platform-native deny (exit 2 or a stdout decision per platform).
@@ -40,7 +42,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js";
 
-import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
 import kiroAdapter from "../../src/adapters/kiro/index.js";
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
@@ -61,15 +62,15 @@ const PRE_MATCHER = "acme_query|acme_write";
 // (before `--`) so the proxy stamps hostPlatform under a headless spawn.
 const wrappedArgs = (host: string): string[] =>
   ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--host", host, "--", "npx", "-y", "@x/y"];
-// User-scoped adapters (kimi, qwen-code, kiro) stamp `--scope user` instead.
+// User-scoped adapters (kimi, kiro) stamp `--scope user` instead.
 const wrappedArgsUser = (host: string): string[] =>
   ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--host", host, "--", "npx", "-y", "@x/y"];
 
 /**
  * A connector with a stdio server (env-ref + cwd) + PreToolUse and SessionStart
  * hooks. The PreToolUse + SessionStart pair lets a host that supports SessionStart
- * (qwen-code, kiro, jetbrains) register both, while deny-only hosts (kimi, crush)
- * register PreToolUse only and prove SessionStart is correctly dropped.
+ * (kiro, jetbrains) register both, while deny-only hosts (kimi, crush) register
+ * PreToolUse only and prove SessionStart is correctly dropped.
  */
 function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
   return defineConnector({
@@ -94,20 +95,6 @@ function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
       SessionStart: {
         handler() {
           return { decision: "context", additionalContext: "hello" };
-        },
-      },
-    },
-  });
-}
-
-/** A hooks-only connector (no server) — used for the anchored-uninstall test. */
-function buildHooksOnlyConnector(id: string): ResolvedConnector {
-  return defineConnector({
-    id,
-    hooks: {
-      PreToolUse: {
-        handler() {
-          return { decision: "allow" };
         },
       },
     },
@@ -201,151 +188,6 @@ function assertPreToolUse(
   expect(ev.toolName).toBe("acme_query");
   expect(ev.toolInput).toEqual({ sql: "SELECT 1" });
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// qwen-code  (mcpServers + sibling "hooks" in the SAME settings.json)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("qwen-code adapter render + round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave2-qwen-");
-    // user scope → ~/.qwen/settings.json resolves into the HOME sandbox.
-    ctx = buildCtx(projectDir, buildConnector(), "user");
-  });
-
-  it("installServer writes mcpServers.<id> (type stdio) into ~/.qwen/settings.json, wrapped, env LITERAL", () => {
-    const changes = qwenCodeAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".qwen", "settings.json");
-    expect(serverPath).toBe(qwenCodeAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.type).toBe("stdio");
-
-    // Telemetry serve-wrapper: command points at the home binary.
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgsUser("qwen-code"));
-
-    // Qwen has no ${env:VAR} support → env-ref resolves to a LITERAL value.
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-    expect(entry.cwd).toBe(SERVER_CWD);
-  });
-
-  it("installHooks writes the sibling 'hooks' key in the SAME settings.json (PascalCase, nested shape)", () => {
-    const changes = qwenCodeAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const settingsPath = join(projectDir, ".qwen", "settings.json");
-    expect(settingsPath).toBe(qwenCodeAdapter.getHookConfigPath(ctx));
-
-    const cfg = readJson(settingsPath);
-    // PascalCase event keys, identical to Claude — NOT Gemini's BeforeTool.
-    const pre = cfg.hooks.PreToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    expect(pre[0].matcher).toBe(PRE_MATCHER);
-    const cmd = pre[0].hooks[0].command;
-    expect(cmd).toContain(HOME_BIN);
-    expect(cmd).toContain("hook qwen-code PreToolUse");
-    expect(cmd).toContain(`--connector ${CONNECTOR_ID}`);
-
-    // SessionStart is supported and registered under the canonical PascalCase name.
-    expect(cfg.hooks.SessionStart[0].hooks[0].command).toContain(
-      "hook qwen-code SessionStart",
-    );
-  });
-
-  it("installServer + installHooks coexist in ONE settings.json; idempotent on a second run", () => {
-    qwenCodeAdapter.installServer(ctx);
-    qwenCodeAdapter.installHooks(ctx);
-
-    const both = readJson(join(projectDir, ".qwen", "settings.json"));
-    expect(both.mcpServers?.[CONNECTOR_ID]).toBeTruthy();
-    expect(both.hooks?.PreToolUse).toBeTruthy();
-
-    const secondServer = qwenCodeAdapter.installServer(ctx);
-    expect(secondServer[0]?.action).toBe("skip");
-    const secondHooks = qwenCodeAdapter.installHooks(ctx);
-    expect(secondHooks.every((c) => c.action === "skip")).toBe(true);
-
-    const cfg = readJson(join(projectDir, ".qwen", "settings.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-    expect(cfg.hooks.PreToolUse).toHaveLength(1);
-    expect(cfg.hooks.SessionStart).toHaveLength(1);
-  });
-
-  it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
-    qwenCodeAdapter.installServer(ctx);
-    qwenCodeAdapter.installHooks(ctx);
-
-    qwenCodeAdapter.uninstallServer(ctx);
-    const afterServer = readJson(join(projectDir, ".qwen", "settings.json"));
-    expect(afterServer.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-    // Removing the server must not disturb the hooks section.
-    expect(afterServer.hooks?.PreToolUse).toBeTruthy();
-
-    qwenCodeAdapter.uninstallHooks(ctx);
-    const afterHooks = readJson(join(projectDir, ".qwen", "settings.json"));
-    expect(JSON.stringify(afterHooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-
-  it("uninstallHooks removes via ANCHORED match — uninstalling 'acme' leaves 'acme-db' intact", () => {
-    const acme = buildCtx(projectDir, buildHooksOnlyConnector("acme"), "user");
-    const acmedb = buildCtx(projectDir, buildHooksOnlyConnector("acme-db"), "user");
-
-    qwenCodeAdapter.installHooks(acme);
-    qwenCodeAdapter.installHooks(acmedb);
-
-    const settingsPath = qwenCodeAdapter.getHookConfigPath(acmedb);
-    let text = readFileSync(settingsPath, "utf8");
-    expect(text).toContain("--connector acme-db");
-    expect(text).toContain("--connector acme");
-
-    // Remove only 'acme' — its id is a prefix of 'acme-db'.
-    qwenCodeAdapter.uninstallHooks(acme);
-
-    text = readFileSync(settingsPath, "utf8");
-    // acme-db must survive; the standalone 'acme' token must be gone.
-    expect(text).toContain("--connector acme-db");
-    expect(text).not.toContain('--connector acme"');
-
-    // Doctor agrees: acme-db still registered, acme no longer.
-    const acmedbHealthy = qwenCodeAdapter
-      .getHealthChecks!(acmedb)
-      .find((c) => c.name.includes("hook command registered"))!
-      .check();
-    const acmeHealthy = qwenCodeAdapter
-      .getHealthChecks!(acme)
-      .find((c) => c.name.includes("hook command registered"))!
-      .check();
-    expect(acmedbHealthy.status).toBe("OK");
-    expect(acmeHealthy.status).toBe("FAIL");
-  });
-
-  it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout hookSpecificOutput deny, exit 0", () => {
-    const ev = qwenCodeAdapter.parseEvent!("PreToolUse", preToolUsePayload()) as PreToolUseEvent;
-    assertPreToolUse(ev, "qwen-code");
-    expect(ev.sessionId).toBe("sess-123");
-
-    const reply = qwenCodeAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "blocked by policy",
-    });
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout!);
-    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
-    expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked by policy");
-    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // kiro  (mcpServers in .kiro/settings/mcp.json; hooks in the agent file)
