@@ -1,10 +1,11 @@
 /**
  * adapters/wave1-render — render + round-trip tests for the Wave-1 `mcp-only`
- * adapters: trae, zed, codebuff, mux. (amp moved to its own per-host file
+ * adapters: zed, codebuff, mux. (amp moved to its own per-host file
  * tests/adapters/amp.test.ts; droid moved to tests/adapters/droid.test.ts;
  * antigravity — upgraded to json-stdio — moved to its own per-host file
  * tests/adapters/antigravity.test.ts; roo-code moved to its single per-host file
- * tests/adapters/roo-code.test.ts.)
+ * tests/adapters/roo-code.test.ts; trae moved to its single per-host file
+ * tests/adapters/trae.test.ts.)
  *
  * Each is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/phase3 pattern:
@@ -17,7 +18,7 @@
  *   • uninstallServer → entry removed (re-read from disk confirms gone).
  *
  * Per-adapter root-key contract asserted here:
- *   trae / codebuff → "mcpServers"
+ *   codebuff  → "mcpServers"
  *   zed       → "context_servers"
  *   mux       → "servers", value is a STRING (space-joined shell command)
  *
@@ -40,7 +41,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-import traeAdapter from "../../src/adapters/trae/index.js";
 import zedAdapter from "../../src/adapters/zed/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import muxAdapter from "../../src/adapters/mux/index.js";
@@ -159,66 +159,6 @@ const wrappedArgs = (host: string): string[] => [
   "-y",
   "@x/y",
 ];
-
-// ─────────────────────────────────────────────────────────────────────────
-// trae (root key "mcpServers"; .trae/mcp.json)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("trae adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave1-trae-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes mcpServers.<id> into .trae/mcp.json, wrapped, env LITERAL", () => {
-    const changes = traeAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".trae", "mcp.json");
-    expect(serverPath).toBe(traeAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("trae"));
-
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
-    const changes = traeAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
-
-    const hooksPath = traeAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(traeAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    traeAdapter.installServer(ctx);
-    const second = traeAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".trae", "mcp.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry (re-read confirms gone)", () => {
-    traeAdapter.installServer(ctx);
-    traeAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".trae", "mcp.json"));
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // zed (root key "context_servers"; FLAT stdio shape; merge-preserving)
