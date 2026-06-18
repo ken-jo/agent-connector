@@ -43,7 +43,6 @@ import TOML from "@iarna/toml";
 
 import type {
   ChangeRecord,
-  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -68,7 +67,7 @@ import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
-import { renderSkillMd } from "../claude-code/render.js";
+import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
 import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type {
   HookReply,
@@ -574,7 +573,11 @@ export class CodexAdapter extends BaseAdapter {
       return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
     }
     return connector.commands.map((cmd) =>
-      this.writeContentFile(this.commandPath(cmd.name), this.renderCommand(cmd), ctx.dryRun),
+      this.writeContentFile(
+        this.commandPath(cmd.name),
+        renderCommandMd(cmd, { includeToolsAndModel: false }),
+        ctx.dryRun,
+      ),
     );
   }
 
@@ -589,15 +592,6 @@ export class CodexAdapter extends BaseAdapter {
     return connector.commands.map((cmd) =>
       this.removeContentFile(this.commandPath(cmd.name), ctx.dryRun),
     );
-  }
-
-  /** Render a command to md+frontmatter (description, argument-hint). */
-  private renderCommand(cmd: CommandDef): string {
-    const frontmatter: Record<string, unknown> = {};
-    if (cmd.description !== undefined) frontmatter.description = cmd.description;
-    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
-    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
-    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
   }
 
   // ── Skills ───────────────────────────────────────────────────────────────

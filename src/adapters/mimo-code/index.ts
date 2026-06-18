@@ -84,7 +84,6 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
-  SubagentDef,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -93,7 +92,7 @@ import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
-import { renderSkillMd } from "../claude-code/render.js";
+import { renderOpenCodeSubagentMd, renderSkillMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "mimo-code";
 const MCP_ROOT_KEY = "mcp";
@@ -616,7 +615,7 @@ export class MiMoCodeAdapter extends BaseAdapter implements Adapter {
     return connector.subagents.map((agent) =>
       this.writeContentFile(
         this.subagentPath(ctx, agent.name),
-        this.renderSubagent(agent),
+        renderOpenCodeSubagentMd(agent),
         ctx.dryRun,
       ),
     );
@@ -630,25 +629,6 @@ export class MiMoCodeAdapter extends BaseAdapter implements Adapter {
     return connector.subagents.map((agent) =>
       this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
     );
-  }
-
-  /**
-   * Render a subagent to md+frontmatter (OpenCode's shape, inherited by
-   * MiMoCode): (description, mode:"subagent", model, permission) with the system
-   * prompt as the body. `name` comes from the filename. A readonly agent gets a
-   * per-tool deny map (edit/bash) so it cannot mutate the workspace.
-   */
-  private renderSubagent(agent: SubagentDef): string {
-    const frontmatter: Record<string, unknown> = {
-      description: agent.description,
-      mode: "subagent",
-    };
-    if (agent.model !== undefined) frontmatter.model = agent.model;
-    if (agent.readonly === true) {
-      frontmatter.permission = { edit: "deny", bash: "deny" };
-    }
-    if (agent.extra) Object.assign(frontmatter, agent.extra);
-    return this.renderFrontmatterMd(frontmatter, agent.prompt);
   }
 
   // ── ts-plugin synthesis ────────────────────────────────────────────────
