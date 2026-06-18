@@ -1,5 +1,5 @@
 /**
- * tests/adapters/pi — Pi adapter unit tests.
+ * tests/adapters/pi — Pi adapter unit tests (the SINGLE per-host pi file).
  *
  * Covers:
  *   1. Capability flags: supportsCommands=true, supportsSkills=true,
@@ -18,21 +18,24 @@
  *   6. Skill full round-trip: install/idempotent/uninstall (project + user scope).
  *   7. platforms["pi"].commands/skills === false opt-outs.
  *   8. installServer / installHooks always skip (no MCP config, no hook layer).
+ *   9. Content-surface round-trip slice (absorbed from the former
+ *      tests/adapters/surfaces-s2.test.ts — pi was its last remaining host).
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { parse as parseYaml } from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 import piAdapter from "../../src/adapters/pi/index.js";
 
-const HOME_BIN = "/fake/home/.agent-connector/bin/agent-connector";
+import { buildCtx, freshProject, isolateEnv } from "../support/env.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
+import { splitFrontmatter } from "../support/fs.js";
+
 const CONNECTOR_ID = "acme-pi";
 
 const COMMAND = {
@@ -67,43 +70,9 @@ function buildConnector(surfaces: {
   return defineConnector(cfg);
 }
 
-function buildCtx(
-  projectDir: string,
-  connector: ResolvedConnector,
-  scope: "project" | "user" = "project",
-): InstallContext {
-  return { connector, scope, projectDir, homeBinPath: HOME_BIN, dataRoot: projectDir, dryRun: false };
-}
-
-/** Split md+frontmatter into { frontmatter, body }. */
-function splitFm(text: string): { frontmatter: Record<string, unknown>; body: string } {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
-  if (!m) throw new Error(`not a frontmatter doc:\n${text}`);
-  return { frontmatter: parseYaml(m[1]!) as Record<string, unknown>, body: m[2]! };
-}
-
-let savedHome: string | undefined;
-let savedDataDir: string | undefined;
-
-beforeEach(() => {
-  savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-});
-
-afterEach(() => {
-  if (savedHome === undefined) delete process.env.HOME;
-  else process.env.HOME = savedHome;
-  if (savedDataDir === undefined) delete process.env.AGENT_CONNECTOR_DATA_DIR;
-  else process.env.AGENT_CONNECTOR_DATA_DIR = savedDataDir;
-});
-
-function freshProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "ac-pi-test-"));
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
-  return dir;
-}
+// Shared env isolation + the same-rules-for-every-host baseline contract.
+isolateEnv();
+createAdapterSuite({ adapter: piAdapter, paradigm: "mcp-only" });
 
 // ── 1. Capability flags ───────────────────────────────────────────────────────
 
@@ -184,7 +153,7 @@ describe("pi adapter — commands (project scope)", () => {
   it("rendered command file has correct frontmatter + body", () => {
     piAdapter.installCommands!(ctx);
     const cmdPath = join(projectDir, ".pi", "prompts", "deploy.md");
-    const { frontmatter, body } = splitFm(readFileSync(cmdPath, "utf8"));
+    const { frontmatter, body } = splitFrontmatter(readFileSync(cmdPath, "utf8"));
     expect(frontmatter.description).toBe(COMMAND.description);
     expect(frontmatter.model).toBe(COMMAND.model);
     expect(frontmatter["argument-hint"]).toBe(COMMAND.argumentHint);
@@ -269,7 +238,7 @@ describe("pi adapter — skills (project scope)", () => {
   it("rendered SKILL.md has correct frontmatter with SPACE-delimited allowed-tools", () => {
     piAdapter.installSkills!(ctx);
     const skillMd = join(projectDir, ".pi", "skills", "pdf-tools", "SKILL.md");
-    const { frontmatter, body } = splitFm(readFileSync(skillMd, "utf8"));
+    const { frontmatter, body } = splitFrontmatter(readFileSync(skillMd, "utf8"));
     expect(frontmatter.name).toBe("pdf-tools");
     expect(frontmatter.description).toBe(SKILL.description);
     expect(frontmatter.model).toBe("haiku");
@@ -365,7 +334,7 @@ describe("pi adapter — allowed-tools space-delimited", () => {
     piAdapter.installSkills!(ctx);
 
     const skillMd = join(projectDir, ".pi", "skills", "multi-tool", "SKILL.md");
-    const { frontmatter } = splitFm(readFileSync(skillMd, "utf8"));
+    const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
     // Must be space-delimited
     expect(frontmatter["allowed-tools"]).toBe("Bash Read Grep");
     // Must NOT be comma-delimited
@@ -389,7 +358,7 @@ describe("pi adapter — allowed-tools space-delimited", () => {
     piAdapter.installSkills!(ctx);
 
     const skillMd = join(projectDir, ".pi", "skills", "single-tool", "SKILL.md");
-    const { frontmatter } = splitFm(readFileSync(skillMd, "utf8"));
+    const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
     expect(frontmatter["allowed-tools"]).toBe("Bash");
   });
 });
@@ -416,5 +385,140 @@ describe("pi adapter — subagents unsupported", () => {
     // BaseAdapter default: declared-but-unsupported → warn
     expect(changes).toHaveLength(1);
     expect(changes[0]?.action).toBe("warn");
+  });
+});
+
+// ── 9. Content-surface round-trip (absorbed from surfaces-s2.test.ts) ─────────
+// pi was the LAST host in the former tests/adapters/surfaces-s2.test.ts; its
+// content-surface slice is preserved verbatim here under its own fixtures
+// (connector id "acme-surfaces", a single-tool skill) so it does not collide
+// with the per-host fixtures above.
+
+const SURFACES_CONNECTOR_ID = "acme-surfaces";
+
+const SURFACES_COMMAND = {
+  name: "deploy",
+  description: "Deploy the app to an environment.",
+  prompt: "Deploy to {{args}} / $ARGUMENTS and report the result.",
+  argumentHint: "[environment]",
+  tools: { allow: ["Bash", "Read"] },
+  model: "sonnet",
+} as const;
+
+const SURFACES_SKILL = {
+  name: "pdf-tools",
+  description: "Extract and summarize text from PDF files when the user asks.",
+  body: "# PDF Tools\n\nUse the bundled script to extract text.",
+  model: "haiku",
+  tools: { allow: ["Bash"] },
+  disableModelInvocation: false,
+  resources: { "scripts/extract.sh": "#!/bin/sh\necho extracting\n" },
+} as const;
+
+const SURFACES_SUBAGENT = {
+  name: "reviewer",
+  description: "Reviews code diffs for correctness bugs.",
+  prompt: "You are a meticulous code reviewer. Find correctness bugs.",
+  tools: { allow: ["Read", "Grep"] },
+  model: "opus",
+  readonly: true,
+} as const;
+
+/** Deep-clone the shared command fixture (fresh arrays so adapters never alias). */
+function surfacesCommand() {
+  return { ...SURFACES_COMMAND, tools: { allow: [...SURFACES_COMMAND.tools.allow] } };
+}
+function surfacesSkill() {
+  return {
+    ...SURFACES_SKILL,
+    tools: { allow: [...SURFACES_SKILL.tools.allow] },
+    resources: { ...SURFACES_SKILL.resources },
+  };
+}
+function surfacesSubagent() {
+  return { ...SURFACES_SUBAGENT, tools: { allow: [...SURFACES_SUBAGENT.tools.allow] } };
+}
+
+/** Build a connector declaring ONLY the surfaces a platform supports. */
+function buildSurfacesConnector(surfaces: {
+  commands?: boolean;
+  skills?: boolean;
+  subagents?: boolean;
+}): ResolvedConnector {
+  const cfg: ConnectorConfig = {
+    id: SURFACES_CONNECTOR_ID,
+    displayName: "Acme Surfaces",
+    version: "1.0.0",
+  };
+  if (surfaces.commands) cfg.commands = [surfacesCommand()];
+  if (surfaces.skills) cfg.skills = [surfacesSkill()];
+  if (surfaces.subagents) cfg.subagents = [surfacesSubagent()];
+  return defineConnector(cfg);
+}
+
+describe("pi adapter — content surfaces", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject();
+    // Declare ONLY the supported surface (skills). Commands/subagents are
+    // unsupported on Pi; with none declared they resolve to a skip.
+    ctx = buildCtx(projectDir, buildSurfacesConnector({ skills: true }));
+  });
+
+  it("declares commands + skills (prompt templates + Agent Skills), no subagents", () => {
+    expect(piAdapter.capabilities.supportsSkills).toBe(true);
+    expect(piAdapter.capabilities.supportsCommands).toBe(true);
+    expect(piAdapter.capabilities.supportsSubagents).toBe(false);
+  });
+
+  it("installSkills writes uniform SKILL.md + resource at .pi/skills/<n>/SKILL.md", () => {
+    const changes = piAdapter.installSkills!(ctx);
+    expect(changes[0]?.action).toBe("create");
+    const skillMd = join(projectDir, ".pi", "skills", "pdf-tools", "SKILL.md");
+    expect(changes[0]?.path).toBe(skillMd);
+    expect(existsSync(skillMd)).toBe(true);
+    expect(existsSync(join(projectDir, ".pi", "skills", "pdf-tools", "scripts", "extract.sh"))).toBe(true);
+
+    const { frontmatter, body } = splitFrontmatter(readFileSync(skillMd, "utf8"));
+    expect(frontmatter.name).toBe("pdf-tools");
+    expect(frontmatter.description).toBe(SURFACES_SKILL.description);
+    expect(frontmatter.model).toBe("haiku");
+    expect(frontmatter["allowed-tools"]).toBe("Bash");
+    expect(frontmatter["disable-model-invocation"]).toBe(false);
+    expect(body).toContain("# PDF Tools");
+  });
+
+  it("installCommands skips when none declared; installSubagents (unsupported) skips — no files", () => {
+    // ctx declares only skills, so commands resolve to a skip ("none declared");
+    // subagents are unsupported on pi and also skip. Neither writes a file.
+    expect(piAdapter.installCommands!(ctx)[0]?.action).toBe("skip");
+    expect(piAdapter.installSubagents!(ctx)[0]?.action).toBe("skip");
+    expect(existsSync(join(projectDir, ".pi", "prompts"))).toBe(false);
+    expect(existsSync(join(projectDir, ".pi", "agents"))).toBe(false);
+  });
+
+  it("is idempotent — second install yields skip", () => {
+    piAdapter.installSkills!(ctx);
+    expect(piAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
+  });
+
+  it("uninstall removes the skill dir", () => {
+    piAdapter.installSkills!(ctx);
+    piAdapter.uninstallSkills!(ctx);
+    expect(existsSync(join(projectDir, ".pi", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".pi", "skills", "pdf-tools"))).toBe(false);
+  });
+
+  it("honors platforms['pi'].skills === false", () => {
+    const disabled = defineConnector({
+      id: SURFACES_CONNECTOR_ID,
+      skills: [{ name: "pdf-tools", description: SURFACES_SKILL.description, body: "x" }],
+      platforms: { pi: { skills: false } },
+    });
+    const c2 = buildCtx(projectDir, disabled);
+    expect(piAdapter.installSkills!(c2)[0]?.action).toBe("skip");
+    expect(existsSync(join(projectDir, ".pi", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
   });
 });
