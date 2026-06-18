@@ -11,17 +11,18 @@
  * mcp-only pattern.
  */
 
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
-import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 
 import amazonQAdapter from "../../src/adapters/amazon-q/index.js";
+import { buildCtx, freshHomeProject, isolateEnv } from "../support/env.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
+import { readJson } from "../support/fs.js";
 
 const CONNECTOR_ID = "acme-amazon-q";
 
@@ -45,56 +46,9 @@ function buildConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
   });
 }
 
-function buildCtx(
-  projectDir: string,
-  connector: ResolvedConnector,
-  scope: "project" | "user" = "project",
-): InstallContext {
-  return {
-    connector,
-    scope,
-    projectDir,
-    homeBinPath: "/fake/bin/agent-connector",
-    dataRoot: projectDir,
-    dryRun: false,
-  };
-}
-
-let saved: Record<string, string | undefined> = {};
-const ENV_KEYS = [
-  "HOME",
-  "USERPROFILE",
-  "APPDATA",
-  "XDG_CONFIG_HOME",
-  "AGENT_CONNECTOR_DATA_DIR",
-] as const;
-
-beforeEach(() => {
-  saved = {};
-  for (const k of ENV_KEYS) saved[k] = process.env[k];
-});
-
-afterEach(() => {
-  for (const k of ENV_KEYS) {
-    if (saved[k] === undefined) delete process.env[k];
-    else process.env[k] = saved[k];
-  }
-});
-
-/**
- * Fresh isolated HOME + project dir. HOME drives ~/.aws/amazonq (user scope).
- */
-function freshProject(): { home: string; projectDir: string } {
-  const home = mkdtempSync(join(tmpdir(), "ac-amazon-q-"));
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  process.env.APPDATA = join(home, "AppData", "Roaming");
-  process.env.XDG_CONFIG_HOME = join(home, ".config");
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(home, ".agent-connector");
-  const projectDir = join(home, "project");
-  mkdirSync(projectDir, { recursive: true });
-  return { home, projectDir };
-}
+// Shared env isolation + the same-rules-for-every-host baseline contract.
+isolateEnv();
+createAdapterSuite({ adapter: amazonQAdapter, paradigm: "mcp-only" });
 
 // ── capability flags ────────────────────────────────────────────────────────
 
@@ -129,7 +83,7 @@ describe("amazon-q adapter — path resolution", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   it("user scope resolves to ~/.aws/amazonq/mcp.json", () => {
@@ -173,7 +127,7 @@ describe("amazon-q adapter — detection", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   it("not installed on a bare box", () => {
@@ -239,7 +193,7 @@ describe("amazon-q adapter — MCP install (user scope)", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   it("writes mcpServers.<id> at ~/.aws/amazonq/mcp.json", () => {
@@ -252,7 +206,7 @@ describe("amazon-q adapter — MCP install (user scope)", () => {
     expect(changes[0]?.path).toBe(mcpPath);
     expect(existsSync(mcpPath)).toBe(true);
 
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, { command: string; args?: string[] }>;
     };
     expect(cfg.mcpServers[CONNECTOR_ID]).toBeTruthy();
@@ -264,7 +218,7 @@ describe("amazon-q adapter — MCP install (user scope)", () => {
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     amazonQAdapter.installServer(ctx);
     const mcpPath = join(home, ".aws", "amazonq", "mcp.json");
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, Record<string, unknown>>;
     };
     const entry = cfg.mcpServers[CONNECTOR_ID]!;
@@ -298,7 +252,7 @@ describe("amazon-q adapter — MCP install (user scope)", () => {
     expect(removed[0]?.action).toBe("remove");
 
     const mcpPath = join(home, ".aws", "amazonq", "mcp.json");
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, unknown>;
     };
     expect(CONNECTOR_ID in cfg.mcpServers).toBe(false);
@@ -316,7 +270,7 @@ describe("amazon-q adapter — MCP install (user scope)", () => {
     amazonQAdapter.installServer(ctx);
     amazonQAdapter.uninstallServer(ctx);
 
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, unknown>;
     };
     expect("other-tool" in cfg.mcpServers).toBe(true);
@@ -360,7 +314,7 @@ describe("amazon-q adapter — remote (http) server", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   it("http server writes { type: \"http\", url } entry (no headers, no disabled)", () => {
@@ -371,7 +325,7 @@ describe("amazon-q adapter — remote (http) server", () => {
     amazonQAdapter.installServer(ctx);
 
     const mcpPath = join(home, ".aws", "amazonq", "mcp.json");
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, Record<string, unknown>>;
     };
     const entry = cfg.mcpServers[CONNECTOR_ID]!;
@@ -392,7 +346,7 @@ describe("amazon-q adapter — timeout field", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   it("emits timeout in MILLISECONDS when timeoutMs is set (no division)", () => {
@@ -403,7 +357,7 @@ describe("amazon-q adapter — timeout field", () => {
     amazonQAdapter.installServer(ctx);
 
     const mcpPath = join(home, ".aws", "amazonq", "mcp.json");
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, { timeout?: number }>;
     };
     // Must pass 60000 through unchanged (milliseconds) — NOT divide to 60 (seconds)
@@ -415,7 +369,7 @@ describe("amazon-q adapter — timeout field", () => {
     amazonQAdapter.installServer(ctx);
 
     const mcpPath = join(home, ".aws", "amazonq", "mcp.json");
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, Record<string, unknown>>;
     };
     expect("timeout" in cfg.mcpServers[CONNECTOR_ID]!).toBe(false);
@@ -429,7 +383,7 @@ describe("amazon-q adapter — memory (.amazonq/rules/agent-connector.md)", () =
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   function memFile(): string {
@@ -497,7 +451,7 @@ describe("amazon-q adapter — hooks (mcp-only)", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ projectDir } = freshProject());
+    ({ projectDir } = freshHomeProject());
   });
 
   it("installHooks returns a single skip record", () => {
@@ -526,7 +480,7 @@ describe("amazon-q adapter — env interpolation (resolve to literal)", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
     process.env.MY_MCP_SECRET = "actual-secret-value";
   });
 
@@ -546,7 +500,7 @@ describe("amazon-q adapter — env interpolation (resolve to literal)", () => {
     amazonQAdapter.installServer(ctx);
 
     const mcpPath = join(home, ".aws", "amazonq", "mcp.json");
-    const cfg = JSON.parse(readFileSync(mcpPath, "utf8")) as {
+    const cfg = readJson(mcpPath) as {
       mcpServers: Record<string, { env?: Record<string, string> }>;
     };
     // Must be resolved to literal, NOT left as ${env:MY_MCP_SECRET}
