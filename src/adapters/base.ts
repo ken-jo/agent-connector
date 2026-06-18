@@ -107,6 +107,15 @@ export interface HookMergeDescriptor<E> {
   noMatchDetail: string;
   /** Optional post-mutation hook on the whole parsed file, before the single write. */
   onMutate?(file: Record<string, unknown>): void;
+  /**
+   * Native-pass ownership find (EXACT command match, vs the normalized
+   * entryOwnsCommand). Set only when a `native` list is passed.
+   */
+  nativeOwnsCommand?(entry: E, command: string): boolean;
+  /** Native-pass skip detail, e.g. `hooks.<event> (native) already registered`. */
+  nativeSkipDetail?(event: string): string;
+  /** Native-pass create/update detail, e.g. `hooks.<event> (native)`. */
+  nativeMutateDetail?(event: string): string;
 }
 
 /**
@@ -926,18 +935,24 @@ export abstract class BaseAdapter implements Adapter {
   // The write-gate is the `mutated` bool, matching the migrated host exactly.
 
   /**
-   * Install: upsert each `{ event, matcher }` in `pending` (normalized THEN
-   * native — the caller supplies both lists already ordered) into the object-map
+   * Install: upsert each `{ event, matcher }` in `pending` into the object-map
    * `hooks` root at `configPath`. Reproduces the canonical host's loop: read
    * `?? {}`, warn-skip on a malformed `hooks` root, then per pending item render
    * the entry, find the owned slot, and create/update/skip. Writes once at the
    * end iff anything mutated.
+   *
+   * Hosts that fold their `nativeHooks` surface into `pending` (claude-code) pass
+   * no `native` arg. Hosts that keep the native surface SEPARATE — verbatim
+   * event keys, EXACT-command ownership, a distinct `(native)` detail — pass it
+   * as the optional `native` list (cursor); that pass runs after the normalized
+   * loop and before the single write. Omitting it is byte-identical to before.
    */
   protected upsertHookEntries<E>(
     ctx: InstallContext,
     configPath: string,
     pending: ReadonlyArray<{ event: string; matcher: string }>,
     descriptor: HookMergeDescriptor<E>,
+    native?: ReadonlyArray<{ event: string; matcher: string }>,
   ): ChangeRecord[] {
     const file = this.readJson<Record<string, unknown>>(configPath) ?? {};
     const skip = this.malformedHookRootSkip(configPath, file.hooks);
@@ -985,6 +1000,39 @@ export abstract class BaseAdapter implements Adapter {
           r.action === "skip"
             ? descriptor.skipDetail(hostEvent)
             : `hooks.${hostEvent}`,
+      });
+    }
+
+    // Native pass (json-stdio hosts with a verbatim `nativeHooks` surface):
+    // native event-name keys are NOT mapEvent-mapped, are found by EXACT command
+    // (so a native key coinciding with a normalized event's mapped key adds a
+    // SECOND distinct command rather than clobbering it), and carry the `(native)`
+    // detail. Hosts passing no `native` list skip this loop entirely → the
+    // normalized-only behavior is byte-identical.
+    for (const { event, matcher } of native ?? []) {
+      const command = buildHomeBinHookCommand(
+        ctx.homeBinPath,
+        this.id,
+        event,
+        ctx.connector.id,
+      );
+      const entry = descriptor.renderEntry(event, matcher, command);
+      const bucket = (hooks[event] ??= []);
+      const r = upsertInArray(bucket, entry, (e) =>
+        descriptor.nativeOwnsCommand!(e, command),
+      );
+      if (r.action !== "skip") {
+        hooks[event] = r.array;
+        mutated = true;
+      }
+      changes.push({
+        platform: this.id,
+        action: r.action,
+        path: configPath,
+        detail:
+          r.action === "skip"
+            ? descriptor.nativeSkipDetail!(event)
+            : descriptor.nativeMutateDetail!(event),
       });
     }
 

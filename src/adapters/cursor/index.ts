@@ -3,8 +3,8 @@
  *
  * Generalized from context-mode's proven Cursor adapter: the served identity is
  * now `ctx.connector` (not a hardcoded "context-mode"), and every hook command
- * points at the single stable home binary (`buildHomeBinHookCommand`) so one
- * framework update propagates everywhere.
+ * points at the single stable home binary (the shared hook-merge engine builds
+ * the command) so one framework update propagates everywhere.
  *
  * Cursor is a json-stdio host:
  *   - MCP servers: user scope → ~/.cursor/mcp.json ("mcpServers"); project scope
@@ -24,7 +24,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { BaseAdapter } from "../base.js";
+import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
@@ -53,7 +53,6 @@ import type {
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
 import {
-  buildHomeBinHookCommand,
   buildServeWrapperCommand,
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
@@ -116,12 +115,6 @@ const EVENT_MAP: Partial<Record<HookEventName, string>> = {
 interface CursorHookEntry {
   command: string;
   matcher?: string;
-}
-
-/** The shape of Cursor's hooks.json. */
-interface CursorHooksFile {
-  version?: number;
-  hooks?: Record<string, CursorHookEntry[]>;
 }
 
 /** Native MCP server entry shapes Cursor accepts under `mcpServers`. */
@@ -395,167 +388,63 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
-    const hooksPath = this.getHookConfigPath(ctx);
-    const file = this.readJson<CursorHooksFile>(hooksPath) ?? {};
-    const __skip = this.malformedHookRootSkip(hooksPath, (file as Record<string, unknown>).hooks);
-    if (__skip) return [__skip];
-    const hooks = (file.hooks ??= {});
-
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const event of normalizedEvents) {
-      const cursorEvent = EVENT_MAP[event];
-      if (!cursorEvent) {
-        // No Cursor equivalent for this normalized event — report and skip.
-        changes.push({
-          platform: this.id,
-          action: "warn",
-          path: hooksPath,
-          detail: `${event} has no Cursor hook equivalent — skipped`,
-        });
-        continue;
-      }
-
-      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const matcher = connector.hooks[event]?.matcher;
-      const entry: CursorHookEntry = matcher ? { command, matcher } : { command };
-
-      const bucket = (hooks[cursorEvent] ??= []);
-      const existingIdx = bucket.findIndex((e) => this.isOurCommand(e.command, ctx));
-
-      if (existingIdx >= 0) {
-        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
-          changes.push({
-            platform: this.id,
-            action: "skip",
-            path: hooksPath,
-            detail: `hooks.${cursorEvent} already registered`,
-          });
-          continue;
-        }
-        bucket[existingIdx] = entry;
-        changes.push({
-          platform: this.id,
-          action: "update",
-          path: hooksPath,
-          detail: `hooks.${cursorEvent}`,
-        });
-      } else {
-        bucket.push(entry);
-        changes.push({
-          platform: this.id,
-          action: "create",
-          path: hooksPath,
-          detail: `hooks.${cursorEvent}`,
-        });
-      }
-      mutated = true;
-    }
-
-    // NATIVE passthrough events: cursor-native event-name keys (e.g.
-    // beforeShellExecution, beforeReadFile, afterFileEdit) written VERBATIM — no
-    // EVENT_MAP, since they ARE Cursor events. Same entry shape + idempotency.
-    for (const event of nativeEvents) {
-      if (this.upsertNativeHook(ctx, hooks, event, nativeHooks[event]?.matcher, hooksPath, changes)) {
-        mutated = true;
-      }
-    }
-
-    if (mutated) {
-      file.version = CURSOR_HOOKS_VERSION;
-      this.writeJson(hooksPath, file, ctx.dryRun);
-    }
-    return changes;
-  }
-
-  /**
-   * Upsert one NATIVE (cursor-native event-name) hook into `hooks[event]`. The
-   * key is written verbatim. Matched by EXACT command — not just "one of ours" —
-   * so a native key that coincides with a normalized event's mapped key never
-   * clobbers the normalized entry; it adds a second, distinct command instead.
-   * Idempotent: byte-identical → skip, drifted → update.
-   */
-  private upsertNativeHook(
-    ctx: InstallContext,
-    hooks: Record<string, CursorHookEntry[]>,
-    event: string,
-    matcher: string | undefined,
-    hooksPath: string,
-    changes: ChangeRecord[],
-  ): boolean {
-    const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, ctx.connector.id);
-    const entry: CursorHookEntry = matcher ? { command, matcher } : { command };
-    const bucket = (hooks[event] ??= []);
-    const existingIdx = bucket.findIndex((e) => e.command === command);
-
-    if (existingIdx >= 0) {
-      if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
-        changes.push({
-          platform: this.id,
-          action: "skip",
-          path: hooksPath,
-          detail: `hooks.${event} (native) already registered`,
-        });
-        return false;
-      }
-      bucket[existingIdx] = entry;
-      changes.push({ platform: this.id, action: "update", path: hooksPath, detail: `hooks.${event} (native)` });
-    } else {
-      bucket.push(entry);
-      changes.push({ platform: this.id, action: "create", path: hooksPath, detail: `hooks.${event} (native)` });
-    }
-    return true;
+    // Normalized events go through the engine's mapEvent/warn path; native
+    // event-name keys ride the separate `native` pass (verbatim keys, EXACT
+    // command, the `(native)` detail) — see the descriptor + base.upsertHookEntries.
+    const pending = normalizedEvents.map((event) => ({
+      event,
+      matcher: connector.hooks[event]?.matcher ?? "",
+    }));
+    const native = nativeEvents.map((event) => ({
+      event,
+      matcher: nativeHooks[event]?.matcher ?? "",
+    }));
+    return this.upsertHookEntries(
+      ctx,
+      this.getHookConfigPath(ctx),
+      pending,
+      this.hookDescriptor(ctx),
+      native,
+    );
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
-    const hooksPath = this.getHookConfigPath(ctx);
-    const file = this.readJson<CursorHooksFile>(hooksPath);
-    const hooks = file?.hooks;
-    if (!file || !hooks) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path: hooksPath,
-          detail: "no hooks section present",
-        },
-      ];
-    }
+    return this.removeHookEntries(ctx, this.getHookConfigPath(ctx), this.hookDescriptor(ctx));
+  }
 
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const cursorEvent of Object.keys(hooks)) {
-      const bucket = hooks[cursorEvent];
-      if (!Array.isArray(bucket)) continue;
-
-      const before = bucket.length;
-      const next = bucket.filter((e) => !this.isOurCommand(e.command, ctx));
-      const removed = before - next.length;
-      if (removed > 0) {
-        if (next.length > 0) hooks[cursorEvent] = next;
-        else delete hooks[cursorEvent];
-        changes.push({
-          platform: this.id,
-          action: "remove",
-          path: hooksPath,
-          detail: `hooks.${cursorEvent} (${removed})`,
-        });
-        mutated = true;
-      }
-    }
-
-    if (mutated) this.writeJson(hooksPath, file, ctx.dryRun);
-    if (changes.length === 0) {
-      changes.push({
-        platform: this.id,
-        action: "skip",
-        path: hooksPath,
-        detail: "no matching hook entries",
-      });
-    }
-    return changes;
+  /**
+   * Cursor's hook-merge descriptor (FLAT shape `{ command, matcher? }`):
+   *  - mapEvent renames canonical → Cursor's lower-camel native key (EVENT_MAP);
+   *    an unmapped event warn-skips (no Cursor equivalent).
+   *  - renderEntry omits the `matcher` key when the matcher is falsy — this
+   *    `{command}` vs `{command,matcher}` distinction is load-bearing on-disk
+   *    bytes (Cursor's flat entry shape), reproduced exactly here.
+   *  - install find is connector-generic (ANY of our commands at the flat
+   *    `entry.command`); uninstall drops whole owned entries (flat — NO
+   *    stripInner). The version stamp is install-only via onMutate.
+   *  - the native pass uses EXACT-command ownership so a native key coinciding
+   *    with a normalized event's mapped key adds a SECOND distinct command
+   *    rather than clobbering the normalized entry.
+   */
+  private hookDescriptor(ctx: InstallContext): HookMergeDescriptor<CursorHookEntry> {
+    return {
+      mapEvent: (e) => EVENT_MAP[e as HookEventName],
+      unmappedWarnDetail: (e) => `${e} has no Cursor hook equivalent — skipped`,
+      renderEntry: (_event, matcher, command) =>
+        matcher ? { command, matcher } : { command },
+      entryOwnsCommand: (entry, _command) => this.isOurCommand(entry.command, ctx),
+      ownsEntryForRemove: (c) => (entry) => this.isOurCommand(entry.command, c),
+      skipDetail: (e) => `hooks.${e} already registered`,
+      removeDetail: (e, n) => `hooks.${e} (${n})`,
+      absentDetail: "no hooks section present",
+      noMatchDetail: "no matching hook entries",
+      onMutate: (file) => {
+        (file as { version?: number }).version = CURSOR_HOOKS_VERSION;
+      },
+      nativeOwnsCommand: (entry, command) => entry.command === command,
+      nativeSkipDetail: (e) => `hooks.${e} (native) already registered`,
+      nativeMutateDetail: (e) => `hooks.${e} (native)`,
+    };
   }
 
   /** True when a hook command references our home binary AND this connector id
