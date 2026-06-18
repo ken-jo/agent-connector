@@ -80,6 +80,7 @@ import type {
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { xdgConfigHome } from "../../core/host-paths.js";
 import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
@@ -160,10 +161,7 @@ interface KiloRemoteServer {
  * differ only by filename — kilo.json here vs kilo.jsonc for the CLI).
  */
 function kiloConfigDir(): string {
-  const xdg = process.env.XDG_CONFIG_HOME;
-  const base =
-    xdg && xdg.trim() !== "" ? xdg : join(homedir(), ".config");
-  return join(base, "kilo");
+  return join(xdgConfigHome(), "kilo");
 }
 
 /**

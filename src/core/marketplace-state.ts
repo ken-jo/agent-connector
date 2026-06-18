@@ -40,6 +40,7 @@ import TOML from "@iarna/toml";
 import type { InstallScope, PlatformId } from "./types.js";
 import type { PackageFormat } from "./package.js";
 import { connectorDir, connectorsDir, dataRoot, ensureDir } from "./paths.js";
+import { xdgConfigHome } from "./host-paths.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // State record: connectorDir(id)/marketplace-installs.json
@@ -526,12 +527,6 @@ export function qwenExtensionInstalled(connectorId: string): boolean {
 // posix-resolve path comparison is inlined here rather than importing
 // shared.ts's samePath (and samePath does not strip the `file://` scheme).
 // ─────────────────────────────────────────────────────────────────────────
-
-/** $XDG_CONFIG_HOME when set & non-empty, else ~/.config (matches the adapters). */
-function xdgConfigHome(): string {
-  const xdg = process.env.XDG_CONFIG_HOME;
-  return xdg && xdg.trim() !== "" ? resolve(xdg) : join(homedir(), ".config");
-}
 
 /** opencode's config dir: $XDG_CONFIG_HOME/opencode (or ~/.config/opencode). */
 export function opencodeConfigDir(): string {

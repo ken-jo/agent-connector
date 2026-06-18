@@ -55,6 +55,7 @@ import type {
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { removeFromObjectMap, upsertInObjectMap } from "../../core/object-map.js";
+import { roamingAppData } from "../../core/host-paths.js";
 import { readYaml, yamlObjectMapCodec } from "../../core/yaml.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
@@ -252,11 +253,7 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
    */
   private userConfigPath(): string {
     if (process.platform === "win32") {
-      const appData =
-        process.env.APPDATA && process.env.APPDATA.trim() !== ""
-          ? process.env.APPDATA
-          : join(homedir(), "AppData", "Roaming");
-      return join(appData, "Block", "goose", "config", "config.yaml");
+      return join(roamingAppData(), "Block", "goose", "config", "config.yaml");
     }
     return join(homedir(), ".config", "goose", "config.yaml");
   }

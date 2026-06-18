@@ -27,7 +27,7 @@
 
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
@@ -45,6 +45,7 @@ import type {
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { localAppData } from "../../core/host-paths.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
@@ -229,11 +230,7 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
    */
   private userConfigDir(): string {
     if (process.platform === "win32") {
-      const localAppData =
-        process.env.LOCALAPPDATA && process.env.LOCALAPPDATA.trim() !== ""
-          ? process.env.LOCALAPPDATA
-          : resolve(homedir(), "AppData", "Local");
-      return join(localAppData, "crush");
+      return join(localAppData(), "crush");
     }
     return join(homedir(), ".config", "crush");
   }
