@@ -1,8 +1,7 @@
 /**
- * adapters/phase2-render — render + round-trip tests for the Phase-2 adapters.
+ * adapters/phase2-render — render + round-trip tests for gemini-cli.
  *
- * Exercises the full install/uninstall path end-to-end against REAL files on disk
- * for each of copilot-cli, gemini-cli:
+ * Exercises the full install/uninstall path end-to-end against REAL files on disk:
  *   • installServer  → native MCP registration (correct ROOT KEY / fields / shape)
  *   • installHooks   → native hook registration (per-dialect event names + shape)
  *   • env-ref handling per platform (native ${env:VAR} token vs. resolved literal)
@@ -11,13 +10,13 @@
  *   • uninstall (entries removed; re-read from disk confirms gone)
  *
  * (warp — the mcp-only host — now lives in its own per-host file
- * tests/adapters/warp.test.ts; vscode-copilot's slice was migrated to its
- * per-host file tests/adapters/vscode-copilot.test.ts.)
+ * tests/adapters/warp.test.ts; vscode-copilot's and copilot-cli's slices were
+ * migrated to their per-host files tests/adapters/vscode-copilot.test.ts and
+ * tests/adapters/copilot-cli.test.ts.)
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, and
- * HOME is redirected there so the USER-scope adapters (copilot-cli) resolve their
- * homedir()-based paths into the sandbox — never the real home. HOME and
- * AGENT_CONNECTOR_DATA_DIR are restored in afterEach.
+ * HOME is redirected there so homedir()-based path resolution stays in the sandbox
+ * — never the real home. HOME and AGENT_CONNECTOR_DATA_DIR are restored in afterEach.
  */
 
 import { existsSync, readFileSync, mkdtempSync } from "node:fs";
@@ -30,7 +29,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-import copilotCliAdapter from "../../src/adapters/copilot-cli/index.js";
 import geminiCliAdapter from "../../src/adapters/gemini-cli/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -112,9 +110,8 @@ function restore(key: string, value: string | undefined): void {
 }
 
 /**
- * Fresh temp project dir + redirect HOME/data-root there so nothing escapes.
- * Critical for the USER-scope adapters (copilot-cli) which resolve paths from
- * homedir() — pointing HOME at a temp dir keeps every write in the sandbox.
+ * Fresh temp project dir + redirect HOME/data-root there so nothing escapes —
+ * pointing HOME at a temp dir keeps any homedir()-based resolution in the sandbox.
  */
 function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-p2-render-"));
@@ -148,128 +145,6 @@ const wrappedArgs = (host: string): string[] => [
   "-y",
   "@x/y",
 ];
-// User-scoped adapters (copilot-cli) stamp `--scope user` instead of project.
-const wrappedArgsUser = (host: string): string[] => [
-  "serve",
-  "--connector",
-  CONNECTOR_ID,
-  "--scope",
-  "user",
-  "--host",
-  host,
-  "--",
-  "npx",
-  "-y",
-  "@x/y",
-];
-
-// ─────────────────────────────────────────────────────────────────────────
-// GitHub Copilot CLI (user/global scope → resolves from homedir())
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("copilot-cli adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    // Copilot CLI is user-scoped; HOME was redirected to projectDir by freshProject,
-    // so ~/.copilot/* lands inside the sandbox.
-    ctx = buildCtx(projectDir, buildConnector(), "user");
-  });
-
-  it("installServer writes mcpServers.<id> with type 'local' into ~/.copilot/mcp-config.json, env as LITERAL", () => {
-    const changes = copilotCliAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".copilot", "mcp-config.json");
-    expect(serverPath).toBe(copilotCliAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    // stdio is registered as type "local" with a tools allow-list.
-    expect(entry.type).toBe("local");
-    expect(entry.tools).toEqual(["*"]);
-
-    // Telemetry serve-wrapper: command points at the home binary.
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgsUser("copilot-cli"));
-
-    // No native interpolation → env-ref resolves to a LITERAL value.
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks writes ~/.copilot/hooks/agent-connector.json with version 1 + Claude-shaped entries", () => {
-    const changes = copilotCliAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const hooksPath = join(
-      projectDir,
-      ".copilot",
-      "hooks",
-      "agent-connector.json",
-    );
-    expect(hooksPath).toBe(copilotCliAdapter.getHookConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(true);
-
-    const cfg = readJson(hooksPath);
-    expect(cfg.version).toBe(1);
-
-    // PascalCase event keys; nested { matcher, hooks: [{ type, command }] } shape.
-    const pre = cfg.hooks.PreToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    expect(pre[0].matcher).toBe("acme_query|acme_write");
-    const cmd = pre[0].hooks[0].command;
-    expect(cmd).toContain(HOME_BIN);
-    expect(cmd).toContain("hook copilot-cli PreToolUse");
-    expect(cmd).toContain(`--connector ${CONNECTOR_ID}`);
-
-    expect(cfg.hooks.SessionStart[0].hooks[0].command).toContain(
-      "hook copilot-cli SessionStart",
-    );
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    copilotCliAdapter.installServer(ctx);
-    const second = copilotCliAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".copilot", "mcp-config.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("installHooks is idempotent — second call yields skip and does not duplicate entries", () => {
-    copilotCliAdapter.installHooks(ctx);
-    const second = copilotCliAdapter.installHooks(ctx);
-    expect(second.every((c) => c.action === "skip")).toBe(true);
-
-    const cfg = readJson(
-      join(projectDir, ".copilot", "hooks", "agent-connector.json"),
-    );
-    expect(cfg.hooks.PreToolUse).toHaveLength(1);
-    expect(cfg.hooks.SessionStart).toHaveLength(1);
-  });
-
-  it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
-    copilotCliAdapter.installServer(ctx);
-    copilotCliAdapter.installHooks(ctx);
-
-    copilotCliAdapter.uninstallServer(ctx);
-    const serverCfg = readJson(join(projectDir, ".copilot", "mcp-config.json"));
-    expect(serverCfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-
-    copilotCliAdapter.uninstallHooks(ctx);
-    const hooks = readJson(
-      join(projectDir, ".copilot", "hooks", "agent-connector.json"),
-    );
-    expect(JSON.stringify(hooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // Gemini CLI
