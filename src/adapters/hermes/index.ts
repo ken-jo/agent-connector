@@ -70,6 +70,7 @@ import {
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
+import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "hermes";
 /** Root key under which Hermes stores MCP servers in config.yaml (snake_case). */
@@ -933,7 +934,7 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "SessionStart": {
-        const ev: SessionStartEvent = { ...base, source: normalizeSource(input.source) };
+        const ev: SessionStartEvent = { ...base, source: normalizeSessionSource(input.source) };
         return ev;
       }
       case "SessionEnd": {
@@ -1111,19 +1112,6 @@ function toStringOrUndefined(value: unknown): string | undefined {
     return JSON.stringify(value);
   } catch {
     return String(value);
-  }
-}
-
-function normalizeSource(raw: string | undefined): SessionStartEvent["source"] {
-  switch (raw) {
-    case "compact":
-      return "compact";
-    case "resume":
-      return "resume";
-    case "clear":
-      return "clear";
-    default:
-      return "startup";
   }
 }
 

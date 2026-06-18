@@ -72,6 +72,7 @@ import {
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "droid";
 const MCP_ROOT_KEY = "mcpServers";
@@ -913,24 +914,6 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
 
   private stdout(payload: unknown): HookReply {
     return { exitCode: 0, stdout: JSON.stringify(payload) };
-  }
-}
-
-/**
- * Coerce Droid's SessionStart `source` matcher value onto the normalized
- * SessionStartEvent enum. Droid documents startup | resume | clear | compact
- * (docs.factory.ai/reference/hooks-reference); anything else defaults to startup.
- */
-function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
-  switch (source) {
-    case "compact":
-      return "compact";
-    case "resume":
-      return "resume";
-    case "clear":
-      return "clear";
-    default:
-      return "startup";
   }
 }
 

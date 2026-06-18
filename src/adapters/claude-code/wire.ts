@@ -32,6 +32,8 @@
  * decision.
  */
 
+import type { SessionStartEvent } from "../../core/types.js";
+
 /** Canonical Claude Code hook event names (the values of `hook_event_name`). */
 export const CLAUDE_HOOK_EVENTS = [
   "PreToolUse",
@@ -129,5 +131,19 @@ export function toolResponseToString(value: unknown): string | undefined {
     return JSON.stringify(value);
   } catch {
     return String(value);
+  }
+}
+
+/** Map a host's raw session-start "source" to the canonical SessionStart source. */
+export function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
+  switch (source) {
+    case "compact":
+      return "compact";
+    case "resume":
+      return "resume";
+    case "clear":
+      return "clear";
+    default:
+      return "startup";
   }
 }

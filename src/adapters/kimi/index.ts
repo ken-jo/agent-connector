@@ -98,6 +98,7 @@ import {
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "kimi";
 const MCP_ROOT_KEY = "mcpServers";
@@ -946,19 +947,6 @@ function toolResponseToString(value: unknown): string | undefined {
     return JSON.stringify(value);
   } catch {
     return undefined;
-  }
-}
-
-function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
-  switch (source) {
-    case "compact":
-      return "compact";
-    case "resume":
-      return "resume";
-    case "clear":
-      return "clear";
-    default:
-      return "startup";
   }
 }
 

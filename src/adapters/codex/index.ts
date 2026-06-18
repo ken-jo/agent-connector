@@ -69,6 +69,7 @@ import {
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
+import { normalizeSessionSource } from "../claude-code/wire.js";
 import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type {
   HookReply,
@@ -748,7 +749,7 @@ export class CodexAdapter extends BaseAdapter {
           isError: input.is_error ?? false,
         };
       case "SessionStart":
-        return { ...base, source: this.normalizeSource(input.source) };
+        return { ...base, source: normalizeSessionSource(input.source) };
       case "SessionEnd":
         return { ...base, reason: input.message };
       case "UserPromptSubmit":
@@ -1011,19 +1012,6 @@ export class CodexAdapter extends BaseAdapter {
     const ours = buildHomeBinHookCommand(ctx.homeBinPath, "codex", event, ctx.connector.id);
     const needle = ours.replace(/\\/g, "/");
     return entry.hooks.some((h) => (h.command ?? "").replace(/\\/g, "/") === needle);
-  }
-
-  private normalizeSource(raw: string | undefined): "startup" | "compact" | "resume" | "clear" {
-    switch (raw) {
-      case "compact":
-        return "compact";
-      case "resume":
-        return "resume";
-      case "clear":
-        return "clear";
-      default:
-        return "startup";
-    }
   }
 }
 

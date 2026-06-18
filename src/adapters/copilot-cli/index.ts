@@ -82,6 +82,7 @@ import {
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd, renderSubagentMd } from "../claude-code/render.js";
+import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "copilot-cli";
 const MCP_ROOT_KEY = "mcpServers";
@@ -1075,19 +1076,6 @@ function toolResponseToString(value: unknown): string | undefined {
     return JSON.stringify(value);
   } catch {
     return String(value);
-  }
-}
-
-function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
-  switch (source) {
-    case "compact":
-      return "compact";
-    case "resume":
-      return "resume";
-    case "clear":
-      return "clear";
-    default:
-      return "startup";
   }
 }
 
