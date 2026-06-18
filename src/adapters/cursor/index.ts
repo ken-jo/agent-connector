@@ -57,6 +57,7 @@ import {
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
+import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "cursor";
 const MCP_ROOT_KEY = "mcpServers";
@@ -930,19 +931,6 @@ function extractSessionId(input: CursorWireInput): string {
   if (typeof input.conversation_id === "string") return input.conversation_id;
   if (typeof input.session_id === "string") return input.session_id;
   return "";
-}
-
-function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
-  switch (source) {
-    case "compact":
-      return "compact";
-    case "resume":
-      return "resume";
-    case "clear":
-      return "clear";
-    default:
-      return "startup";
-  }
 }
 
 export const adapter = new CursorAdapter();

@@ -94,6 +94,7 @@ import {
   type ClaudeHookEvent,
   type ClaudeWireInput,
   extractSessionId,
+  normalizeSessionSource,
   toolResponseToString,
 } from "./wire.js";
 import { renderCommandMd, renderSkillMd, renderSubagentMd } from "./render.js";
@@ -2041,19 +2042,6 @@ function deleteJsonLeaf(root: Record<string, unknown>, segments: string[]): void
 /** Claude Code native interpolation token: `${env:VAR}` → `${VAR}`. */
 function claudeEnvToken(name: string): string {
   return `\${${name}}`;
-}
-
-function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
-  switch (source) {
-    case "compact":
-      return "compact";
-    case "resume":
-      return "resume";
-    case "clear":
-      return "clear";
-    default:
-      return "startup";
-  }
 }
 
 export const adapter = new ClaudeCodeAdapter();

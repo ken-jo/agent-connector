@@ -120,6 +120,7 @@ import {
   type ClaudeHookEvent,
   type ClaudeWireInput,
   extractSessionId,
+  normalizeSessionSource,
   toolResponseToString,
 } from "../claude-code/wire.js";
 
@@ -1086,24 +1087,6 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     const base = ctx.connector.server;
     if (!base) return undefined;
     return override && typeof override === "object" ? { ...base, ...override } : base;
-  }
-}
-
-/**
- * Coerce Continue's SessionStart `source` matcher value onto the normalized
- * SessionStartEvent enum. Continue documents startup | resume | clear | compact
- * (PR #11029 types.ts SessionStartSource); anything else defaults to startup.
- */
-function normalizeSessionSource(source: string | undefined): SessionStartEvent["source"] {
-  switch (source) {
-    case "compact":
-      return "compact";
-    case "resume":
-      return "resume";
-    case "clear":
-      return "clear";
-    default:
-      return "startup";
   }
 }
 
