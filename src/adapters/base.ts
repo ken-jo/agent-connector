@@ -38,7 +38,8 @@ import {
   upsertInObjectMap,
   type ObjectMapCodec,
 } from "../core/object-map.js";
-import { buildHomeBinActionCommand } from "../core/spawn.js";
+import { removeFromArray, upsertInArray } from "../core/hook-array.js";
+import { buildHomeBinActionCommand, buildHomeBinHookCommand } from "../core/spawn.js";
 import {
   MEMORY_CONTENT_SOFT_BUDGET_BYTES,
   listManagedBlocks,
@@ -59,6 +60,46 @@ type ContentSurface =
   | "memory"
   | "statusline"
   | "actions";
+
+/**
+ * Per-host policy + observables for the shared object-map hook-array merge
+ * engine ({@link BaseAdapter.upsertHookEntries} / {@link BaseAdapter.removeHookEntries}).
+ * `E` is the host's per-event array element type (e.g. claude-code's
+ * `{ matcher, hooks: [...] }`). EVERY observable string + ownership predicate
+ * is carried here so the engine body hardcodes none of them and per-host
+ * wording never drifts; a future host needing divergent details overrides only
+ * its descriptor, not the engine.
+ */
+export interface HookMergeDescriptor<E> {
+  /** Render one host entry from the event name, declared matcher, and home-bin command. */
+  renderEntry(event: string, matcher: string, command: string): E;
+  /** Upsert find: does `entry` already carry THIS specific command (idempotency check)? */
+  entryOwnsCommand(entry: E, command: string): boolean;
+  /**
+   * Uninstall whole-entry predicate (FLAT hosts): does `entry` belong to us?
+   * NESTED hosts supplying {@link stripInner} may return a never-true predicate —
+   * the engine then only ever invokes `stripInner`. Bound to `ctx` because
+   * ownership is connector-generic (ANY of our commands), wider than the
+   * install-time specific-command check.
+   */
+  ownsEntryForRemove(ctx: InstallContext): (entry: E) => boolean;
+  /**
+   * Uninstall inner-strip (NESTED hosts): strip our owned inner commands from
+   * `entry`, returning the rebuilt entry (`null` when fully emptied) and the
+   * count of inner commands removed. Omit for FLAT hosts.
+   */
+  stripInner?(ctx: InstallContext): (entry: E) => { next: E | null; removed: number };
+  /** Idempotent-reinstall skip detail, e.g. `hooks.<event> already registered`. */
+  skipDetail(event: string): string;
+  /** Uninstall remove detail, e.g. `hooks.<event> (<n>)`. */
+  removeDetail(event: string, removed: number): string;
+  /** Uninstall skip detail when no hooks section is present at all. */
+  absentDetail: string;
+  /** Uninstall skip detail when a hooks section exists but nothing matched. */
+  noMatchDetail: string;
+  /** Optional post-mutation hook on the whole parsed file, before the single write. */
+  onMutate?(file: Record<string, unknown>): void;
+}
 
 /**
  * One resolved action trigger for an EMITTER adapter: the host-native trigger
@@ -864,6 +905,133 @@ export abstract class BaseAdapter implements Adapter {
       }
     }
     return null;
+  }
+
+  // ── Shared object-map hook-array merge engine ────────────────────────────
+  // installHooks/uninstallHooks for every json-stdio host that stores hooks as
+  // `{ <event>: HookEntry[] }` share ONE create/update/skip + strip/remove
+  // orchestration. The host supplies a {@link HookMergeDescriptor} carrying
+  // EVERY observable string and ownership predicate — the engine body hardcodes
+  // none of them, so per-host wording (skip/remove/absent/no-match details) and
+  // FLAT-vs-NESTED removal stay host-controlled and never drift to a lowest-
+  // common-denominator phrasing the suites (which assert by action) would miss.
+  // The write-gate is the `mutated` bool, matching the migrated host exactly.
+
+  /**
+   * Install: upsert each `{ event, matcher }` in `pending` (normalized THEN
+   * native — the caller supplies both lists already ordered) into the object-map
+   * `hooks` root at `configPath`. Reproduces the canonical host's loop: read
+   * `?? {}`, warn-skip on a malformed `hooks` root, then per pending item render
+   * the entry, find the owned slot, and create/update/skip. Writes once at the
+   * end iff anything mutated.
+   */
+  protected upsertHookEntries<E>(
+    ctx: InstallContext,
+    configPath: string,
+    pending: ReadonlyArray<{ event: string; matcher: string }>,
+    descriptor: HookMergeDescriptor<E>,
+  ): ChangeRecord[] {
+    const file = this.readJson<Record<string, unknown>>(configPath) ?? {};
+    const skip = this.malformedHookRootSkip(configPath, file.hooks);
+    if (skip) return [skip];
+    const hooks = (file.hooks ??= {}) as Record<string, E[]>;
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+
+    for (const { event, matcher } of pending) {
+      const command = buildHomeBinHookCommand(
+        ctx.homeBinPath,
+        this.id,
+        event,
+        ctx.connector.id,
+      );
+      const entry = descriptor.renderEntry(event, matcher, command);
+      const bucket = (hooks[event] ??= []);
+      const r = upsertInArray(bucket, entry, (e) =>
+        descriptor.entryOwnsCommand(e, command),
+      );
+
+      if (r.action !== "skip") {
+        hooks[event] = r.array;
+        mutated = true;
+      }
+      changes.push({
+        platform: this.id,
+        action: r.action,
+        path: configPath,
+        detail:
+          r.action === "skip" ? descriptor.skipDetail(event) : `hooks.${event}`,
+      });
+    }
+
+    if (mutated) {
+      descriptor.onMutate?.(file);
+      this.writeJson(configPath, file, ctx.dryRun);
+    }
+    return changes;
+  }
+
+  /**
+   * Uninstall: strip owned content from every event bucket in the object-map
+   * `hooks` root at `configPath`. NESTED hosts pass `descriptor.stripInner`
+   * (strip owned inner commands, drop emptied entries; `removed` = inner
+   * commands); FLAT hosts omit it (drop whole owned entries). Reproduces the
+   * canonical host: read (NO `?? {}`), `[skip]` (absentDetail) when no hooks
+   * section, per-event remove → delete-or-replace bucket, write once iff
+   * mutated, and a single `[skip]` (noMatchDetail) when nothing matched.
+   */
+  protected removeHookEntries<E>(
+    ctx: InstallContext,
+    configPath: string,
+    descriptor: HookMergeDescriptor<E>,
+  ): ChangeRecord[] {
+    const file = this.readJson<Record<string, unknown>>(configPath);
+    const hooks = file?.hooks as Record<string, E[]> | undefined;
+    if (!file || !hooks) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: configPath,
+          detail: descriptor.absentDetail,
+        },
+      ];
+    }
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+    const ownsEntry = descriptor.ownsEntryForRemove(ctx);
+    const stripInner = descriptor.stripInner?.(ctx);
+
+    for (const event of Object.keys(hooks)) {
+      const bucket = hooks[event];
+      if (!Array.isArray(bucket)) continue;
+
+      const r = removeFromArray(bucket, ownsEntry, stripInner);
+      if (r.removed > 0) {
+        if (r.array.length > 0) hooks[event] = r.array;
+        else delete hooks[event];
+        changes.push({
+          platform: this.id,
+          action: "remove",
+          path: configPath,
+          detail: descriptor.removeDetail(event, r.removed),
+        });
+        mutated = true;
+      }
+    }
+
+    if (mutated) this.writeJson(configPath, file, ctx.dryRun);
+    if (changes.length === 0) {
+      changes.push({
+        platform: this.id,
+        action: "skip",
+        path: configPath,
+        detail: descriptor.noMatchDetail,
+      });
+    }
+    return changes;
   }
 
   /** Bind BaseAdapter's JSON leaf IO (readJson/writeJson + the unparseable
