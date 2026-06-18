@@ -1,14 +1,15 @@
 /**
  * adapters/wave1-render — render + round-trip tests for the Wave-1 `mcp-only`
- * adapters: zed, mux. (amp moved to its own per-host file
+ * adapter mux (US-021). (amp moved to its own per-host file
  * tests/adapters/amp.test.ts; droid moved to tests/adapters/droid.test.ts;
  * antigravity — upgraded to json-stdio — moved to its own per-host file
  * tests/adapters/antigravity.test.ts; roo-code moved to its single per-host file
  * tests/adapters/roo-code.test.ts; trae moved to its single per-host file
  * tests/adapters/trae.test.ts; codebuff moved to its single per-host file
- * tests/adapters/codebuff.test.ts.)
+ * tests/adapters/codebuff.test.ts; zed moved to its single per-host file
+ * tests/adapters/zed.test.ts.)
  *
- * Each is exercised end-to-end against REAL files on disk, mirroring the
+ * mux is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/phase3 pattern:
  *   • installServer  → native MCP registration under the CORRECT root key,
  *                      with the command/args routed through the home-bin serve
@@ -19,11 +20,7 @@
  *   • uninstallServer → entry removed (re-read from disk confirms gone).
  *
  * Per-adapter root-key contract asserted here:
- *   zed       → "context_servers"
  *   mux       → "servers", value is a STRING (space-joined shell command)
- *
- * zed additionally asserts pre-existing unrelated settings keys SURVIVE the
- * merge (the settings.json is a shared, user-owned file).
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir,
  * and HOME + AGENT_CONNECTOR_DATA_DIR are redirected there so any user-scope path
@@ -31,9 +28,9 @@
  * afterEach so the suite never leaks state.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -41,7 +38,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
-import zedAdapter from "../../src/adapters/zed/index.js";
 import muxAdapter from "../../src/adapters/mux/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -134,12 +130,6 @@ function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-/** Seed a JSON settings file on disk with arbitrary contents (creating dirs). */
-function seedJson(path: string, data: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
-}
-
 /**
  * The serve-wrapper args now also bake the install TARGET platform as
  * `--host <id>` (before the `--` separator) so the proxy stamps hostPlatform
@@ -158,90 +148,6 @@ const wrappedArgs = (host: string): string[] => [
   "-y",
   "@x/y",
 ];
-
-// ─────────────────────────────────────────────────────────────────────────
-// zed (root key "context_servers"; FLAT stdio shape; merge-preserving)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("zed adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave1-zed-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes context_servers.<id> (NOT mcpServers) into .zed/settings.json, FLAT command, env LITERAL", () => {
-    const changes = zedAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".zed", "settings.json");
-    expect(serverPath).toBe(zedAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    // ROOT KEY is "context_servers", never "mcpServers".
-    expect(cfg).toHaveProperty("context_servers");
-    expect(cfg).not.toHaveProperty("mcpServers");
-
-    const entry = cfg.context_servers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    // FLAT shape — `command` is a STRING (the home bin), not a nested object.
-    expect(typeof entry.command).toBe("string");
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("zed"));
-
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
-    const changes = zedAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
-
-    const hooksPath = zedAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(zedAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    zedAdapter.installServer(ctx);
-    const second = zedAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".zed", "settings.json"));
-    expect(Object.keys(cfg.context_servers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry (re-read confirms gone)", () => {
-    zedAdapter.installServer(ctx);
-    zedAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".zed", "settings.json"));
-    expect(cfg.context_servers?.[CONNECTOR_ID]).toBeUndefined();
-  });
-
-  it("preserves pre-existing unrelated settings keys (shared settings.json merge)", () => {
-    const serverPath = join(projectDir, ".zed", "settings.json");
-    seedJson(serverPath, {
-      theme: "One Dark",
-      buffer_font_size: 14,
-      context_servers: { "other-server": { command: "other" } },
-    });
-
-    zedAdapter.installServer(ctx);
-
-    const cfg = readJson(serverPath);
-    // Unrelated top-level keys survive.
-    expect(cfg.theme).toBe("One Dark");
-    expect(cfg.buffer_font_size).toBe(14);
-    // A sibling context server survives, and ours is added alongside it.
-    expect(cfg.context_servers["other-server"]).toEqual({ command: "other" });
-    expect(cfg.context_servers[CONNECTOR_ID]).toBeTruthy();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // mux (root key "servers"; value is a STRING shell command; .mux/mcp.jsonc)
