@@ -57,8 +57,13 @@ describe("codexConfigHome()", () => {
   });
 
   it("passes an absolute path through unchanged", () => {
-    process.env.CODEX_HOME = "/abs/cx";
-    expect(codexConfigHome()).toBe("/abs/cx");
+    // Must be an already-absolute, already-normalized path FOR THIS OS so that
+    // resolve() is a no-op (on Windows "/abs/cx" is NOT absolute → resolve would
+    // rewrite it to "C:\\abs\\cx"). A platform-correct literal keeps the
+    // "absolute passes through unchanged" contract true cross-OS.
+    const abs = process.platform === "win32" ? "C:\\abs\\cx" : "/abs/cx";
+    process.env.CODEX_HOME = abs;
+    expect(codexConfigHome()).toBe(abs);
   });
 
   it("resolves a relative path against cwd", () => {
