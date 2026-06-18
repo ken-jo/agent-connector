@@ -702,8 +702,42 @@ describe("droid — extended-event install", () => {
       const warn = changes.find((c) => c.action === "warn" && c.detail?.includes(event));
       expect(warn).toBeTruthy();
       expect(warn!.detail).toContain("no Droid hook equivalent");
+      // BYTE-IDENTICAL GUARD: the unmapped-warn detail is pinned to the exact
+      // literal the pre-engine droid emitted (mapEvent → unmappedWarnDetail path).
+      expect(warn!.detail).toBe(`${event} has no Droid hook equivalent — skipped`);
       expect(cfg.hooks[event]).toBeUndefined();
     }
+  });
+
+  it("BYTE-IDENTICAL detail strings: idempotent skip + uninstall remove/absent/no-match", () => {
+    // (b) idempotent-reinstall skip detail === `hooks.<event> already registered`
+    droidAdapter.installHooks(ctx);
+    const second = droidAdapter.installHooks(ctx);
+    const skip = second.find((c) => c.action === "skip");
+    expect(skip).toBeTruthy();
+    expect(skip!.detail).toBe("hooks.SubagentStop already registered");
+
+    // (c) uninstall remove detail === `hooks.<event> (<n>)` (one inner stripped)
+    const removed = droidAdapter.uninstallHooks(ctx);
+    const remove = removed.find((c) => c.action === "remove");
+    expect(remove).toBeTruthy();
+    expect(remove!.detail).toBe("hooks.SubagentStop (1)");
+
+    // (d-no-match) hooks section still present (file written) but nothing of ours
+    // remains → the single `no matching hook entries` skip.
+    const again = droidAdapter.uninstallHooks(ctx);
+    expect(again).toHaveLength(1);
+    expect(again[0]!.action).toBe("skip");
+    expect(again[0]!.detail).toBe("no matching hook entries");
+  });
+
+  it("BYTE-IDENTICAL detail string: uninstall with no hooks.json present → absent skip", () => {
+    // (d-absent) no hooks file written at all → the single `no hooks section present` skip.
+    const fresh = buildCtx(freshProject("ac-ext-events2-"), buildExtConnector());
+    const changes = droidAdapter.uninstallHooks(fresh);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toBe("no hooks section present");
   });
 });
 

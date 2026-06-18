@@ -40,7 +40,7 @@ import { chmodSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { BaseAdapter } from "../base.js";
+import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
@@ -68,7 +68,6 @@ import type {
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
-  buildHomeBinHookCommand,
   buildServeWrapperCommand,
   isHomeBinHookCommand,
   shouldWrapForTelemetry,
@@ -377,134 +376,58 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
       return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
     }
 
-    const hookPath = this.getHookConfigPath(ctx);
-    // Merge into any existing hooks.json so the user's own hooks survive.
-    const file = this.readJson<DroidHooksFile>(hookPath) ?? {};
-    const __skip = this.malformedHookRootSkip(hookPath, (file as Record<string, unknown>).hooks);
-    if (__skip) return [__skip];
-    const hooks = (file.hooks ??= {});
-
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const event of connector.hookEvents) {
-      if (!SUPPORTED_EVENTS.has(event)) {
-        changes.push({
-          platform: this.id,
-          action: "warn",
-          path: hookPath,
-          detail: `${event} has no Droid hook equivalent — skipped`,
-        });
-        continue;
-      }
-
-      // Droid's event names are Claude-identical (PascalCase) — register the
-      // canonical event name directly.
-      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const matcher = connector.hooks[event]?.matcher ?? "";
-      const entry: DroidHookEntry = {
-        matcher,
-        hooks: [{ type: "command", command }],
-      };
-
-      const bucket = (hooks[event] ??= []);
-      const existingIdx = bucket.findIndex((e) => this.entryHasOurCommand(e, ctx));
-
-      if (existingIdx >= 0) {
-        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
-          changes.push({
-            platform: this.id,
-            action: "skip",
-            path: hookPath,
-            detail: `hooks.${event} already registered`,
-          });
-          continue;
-        }
-        bucket[existingIdx] = entry;
-        changes.push({
-          platform: this.id,
-          action: "update",
-          path: hookPath,
-          detail: `hooks.${event}`,
-        });
-      } else {
-        bucket.push(entry);
-        changes.push({
-          platform: this.id,
-          action: "create",
-          path: hookPath,
-          detail: `hooks.${event}`,
-        });
-      }
-      mutated = true;
-    }
-
-    if (mutated) this.writeJson(hookPath, file, ctx.dryRun);
-    return changes;
+    const pending = connector.hookEvents.map((event) => ({
+      event,
+      matcher: connector.hooks[event]?.matcher ?? "",
+    }));
+    return this.upsertHookEntries(
+      ctx,
+      this.getHookConfigPath(ctx),
+      pending,
+      this.hookDescriptor(ctx),
+    );
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
-    const hookPath = this.getHookConfigPath(ctx);
-    const file = this.readJson<DroidHooksFile>(hookPath);
-    const hooks = file?.hooks;
-    if (!file || !hooks) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path: hookPath,
-          detail: "no hooks section present",
-        },
-      ];
-    }
-
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const event of Object.keys(hooks)) {
-      const bucket = hooks[event];
-      if (!Array.isArray(bucket)) continue;
-
-      // Strip our hook command from each entry; drop entries left empty so we
-      // never remove another connector's (or the user's own) hook commands. The
-      // id token is anchored (isHomeBinHookCommand) so a shared-prefix connector
-      // id is never affected.
-      const next: DroidHookEntry[] = [];
-      let removed = 0;
-      for (const e of bucket) {
-        const innerBefore = e.hooks?.length ?? 0;
-        const inner = (e.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
-        removed += innerBefore - inner.length;
-        if (inner.length > 0) next.push({ matcher: e.matcher ?? "", hooks: inner });
-      }
-
-      if (removed > 0) {
-        if (next.length > 0) hooks[event] = next;
-        else delete hooks[event];
-        changes.push({
-          platform: this.id,
-          action: "remove",
-          path: hookPath,
-          detail: `hooks.${event} (${removed})`,
-        });
-        mutated = true;
-      }
-    }
-
-    if (mutated) this.writeJson(hookPath, file, ctx.dryRun);
-    if (changes.length === 0) {
-      changes.push({
-        platform: this.id,
-        action: "skip",
-        path: hookPath,
-        detail: "no matching hook entries",
-      });
-    }
-    return changes;
+    return this.removeHookEntries(ctx, this.getHookConfigPath(ctx), this.hookDescriptor(ctx));
   }
 
-  private entryHasOurCommand(entry: DroidHookEntry, ctx: InstallContext): boolean {
-    return (entry.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx));
+  /**
+   * Droid's hook-merge descriptor (NESTED shape `{ matcher, hooks: [...] }`).
+   * Bound to `ctx` because droid's ownership is CONNECTOR-GENERIC (ANY of our
+   * commands in the entry's inner `hooks`, not a specific-command match):
+   *  - mapEvent = drop events outside SUPPORTED_EVENTS (Droid has no equivalent
+   *    for PermissionRequest / PostToolUseFailure / SubagentStart / PostCompact);
+   *    droid's event names are Claude-identical, so supported events map 1:1.
+   *  - entryOwnsCommand ignores the specific command — it reuses isOurCommand
+   *    over the inner commands (the old entryHasOurCommand, folded in here).
+   *  - uninstall = inner-strip ONLY (ownsEntryForRemove never-true); every detail
+   *    string is the literal droid wording.
+   */
+  private hookDescriptor(ctx: InstallContext): HookMergeDescriptor<DroidHookEntry> {
+    return {
+      mapEvent: (e) => (SUPPORTED_EVENTS.has(e as HookEventName) ? e : undefined),
+      unmappedWarnDetail: (e) => `${e} has no Droid hook equivalent — skipped`,
+      renderEntry: (_event, matcher, command) => ({
+        matcher,
+        hooks: [{ type: "command", command }],
+      }),
+      entryOwnsCommand: (entry, _command) =>
+        (entry.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx)),
+      ownsEntryForRemove: () => () => false,
+      stripInner: (c) => (entry) => {
+        const innerBefore = entry.hooks?.length ?? 0;
+        const inner = (entry.hooks ?? []).filter((h) => !this.isOurCommand(h.command, c));
+        return {
+          next: inner.length > 0 ? { matcher: entry.matcher ?? "", hooks: inner } : null,
+          removed: innerBefore - inner.length,
+        };
+      },
+      skipDetail: (event) => `hooks.${event} already registered`,
+      removeDetail: (event, removed) => `hooks.${event} (${removed})`,
+      absentDetail: "no hooks section present",
+      noMatchDetail: "no matching hook entries",
+    };
   }
 
   /** True when a hook command references our home binary AND this connector id

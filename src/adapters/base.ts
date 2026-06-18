@@ -71,6 +71,14 @@ type ContentSurface =
  * its descriptor, not the engine.
  */
 export interface HookMergeDescriptor<E> {
+  /**
+   * Canonical → host event name. `undefined` = the host has no equivalent for
+   * this event → the engine emits a warn (via unmappedWarnDetail) and skips it.
+   * Omit the field entirely for identity hosts (claude-code) — no warn path.
+   */
+  mapEvent?(event: string): string | undefined;
+  /** Warn detail for an event mapEvent returns undefined for. Required iff mapEvent can return undefined. */
+  unmappedWarnDetail?(event: string): string;
   /** Render one host entry from the event name, declared matcher, and home-bin command. */
   renderEntry(event: string, matcher: string, command: string): E;
   /** Upsert find: does `entry` already carry THIS specific command (idempotency check)? */
@@ -940,20 +948,33 @@ export abstract class BaseAdapter implements Adapter {
     let mutated = false;
 
     for (const { event, matcher } of pending) {
+      const hostEvent = descriptor.mapEvent ? descriptor.mapEvent(event) : event;
+      if (hostEvent === undefined) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: configPath,
+          detail: descriptor.unmappedWarnDetail!(event),
+        });
+        continue;
+      }
+      // Command is built from the CANONICAL `event` (NOT hostEvent) — the home
+      // binary dispatches on the canonical name; only the host's bucket key,
+      // detail, and skipDetail use the mapped `hostEvent`.
       const command = buildHomeBinHookCommand(
         ctx.homeBinPath,
         this.id,
         event,
         ctx.connector.id,
       );
-      const entry = descriptor.renderEntry(event, matcher, command);
-      const bucket = (hooks[event] ??= []);
+      const entry = descriptor.renderEntry(hostEvent, matcher, command);
+      const bucket = (hooks[hostEvent] ??= []);
       const r = upsertInArray(bucket, entry, (e) =>
         descriptor.entryOwnsCommand(e, command),
       );
 
       if (r.action !== "skip") {
-        hooks[event] = r.array;
+        hooks[hostEvent] = r.array;
         mutated = true;
       }
       changes.push({
@@ -961,7 +982,9 @@ export abstract class BaseAdapter implements Adapter {
         action: r.action,
         path: configPath,
         detail:
-          r.action === "skip" ? descriptor.skipDetail(event) : `hooks.${event}`,
+          r.action === "skip"
+            ? descriptor.skipDetail(hostEvent)
+            : `hooks.${hostEvent}`,
       });
     }
 
