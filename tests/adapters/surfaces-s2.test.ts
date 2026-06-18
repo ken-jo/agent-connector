@@ -5,12 +5,12 @@
  *   • jetbrains-copilot — md+fm prompt files + uniform SKILL.md skills under the
  *                          SHARED project .github tree; NO subagent surface
  *                          (BaseAdapter skip).
- *   • kilo              — Kilo Code VS Code extension. md+fm commands
- *                          (.kilo/commands/<n>.md) + md+fm subagents
- *                          (.kilo/agents/<n>.md, mode:subagent); NO skill
- *                          surface (BaseAdapter skip).
  *   • pi                — uniform SKILL.md skills only (.pi/skills/<n>/SKILL.md);
  *                          NO command/subagent surface (BaseAdapter skip).
+ *
+ * (The kilo content-surface slice migrated to its per-host file
+ * tests/adapters/kilo.test.ts per the ONE-file-per-host convention — see
+ * tests/README.md.)
  *
  * (vscode-copilot's and copilot-cli's content-surface slices were migrated to
  * their per-host files tests/adapters/vscode-copilot.test.ts and
@@ -47,7 +47,6 @@ import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js
 
 import vscodeAdapter from "../../src/adapters/vscode-copilot/index.js";
 import jetbrainsAdapter from "../../src/adapters/jetbrains-copilot/index.js";
-import kiloAdapter from "../../src/adapters/kilo/index.js";
 import piAdapter from "../../src/adapters/pi/index.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
@@ -261,86 +260,6 @@ describe("jetbrains-copilot adapter — content surfaces", () => {
     jetbrainsAdapter.uninstallSkills!(ctx);
     expect(existsSync(join(projectDir, ".github", "prompts", "deploy.prompt.md"))).toBe(false);
     expect(existsSync(join(projectDir, ".github", "skills", "pdf-tools"))).toBe(false);
-  });
-});
-
-// ── kilo ────────────────────────────────────────────────────────────────────
-
-describe("kilo adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    // Declare ONLY the supported surfaces (commands + subagents). Skills are
-    // unsupported on Kilo; with none declared they resolve to a skip.
-    ctx = buildCtx(projectDir, buildConnector({ commands: true, subagents: true }));
-  });
-
-  it("declares commands + subagents + skills (OpenCode-fork backend)", () => {
-    expect(kiloAdapter.capabilities.supportsCommands).toBe(true);
-    expect(kiloAdapter.capabilities.supportsSubagents).toBe(true);
-    expect(kiloAdapter.capabilities.supportsSkills).toBe(true);
-  });
-
-  it("installCommands writes md+fm command at .kilo/commands/<n>.md", () => {
-    const changes = kiloAdapter.installCommands!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const cmdPath = join(projectDir, ".kilo", "commands", "deploy.md");
-    expect(changes[0]?.path).toBe(cmdPath);
-    expect(existsSync(cmdPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(cmdPath, "utf8"));
-    expect(frontmatter.description).toBe("Deploy the app to an environment.");
-    expect(frontmatter["argument-hint"]).toBe("[environment]");
-    expect(frontmatter.model).toBe("sonnet");
-    expect(body.trim()).toBe(COMMAND.prompt);
-  });
-
-  it("installSubagents writes md+fm subagent at .kilo/agents/<n>.md (mode:subagent, permission)", () => {
-    const changes = kiloAdapter.installSubagents!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const agentPath = join(projectDir, ".kilo", "agents", "reviewer.md");
-    expect(changes[0]?.path).toBe(agentPath);
-    expect(existsSync(agentPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(agentPath, "utf8"));
-    expect(frontmatter.description).toBe(SUBAGENT.description);
-    expect(frontmatter.mode).toBe("subagent");
-    expect(frontmatter.model).toBe("opus");
-    // readonly → per-tool deny permission map.
-    expect(frontmatter.permission).toEqual({ edit: "deny", bash: "deny" });
-    expect(body.trim()).toBe(SUBAGENT.prompt);
-  });
-
-  it("installSkills writes uniform SKILL.md at .kilo/skills/<n>/SKILL.md", () => {
-    const withSkill = buildCtx(
-      projectDir,
-      buildConnector({ commands: true, skills: true, subagents: true }),
-    );
-    const changes = kiloAdapter.installSkills!(withSkill);
-    expect(changes[0]?.action).toBe("create");
-    const skillMd = join(projectDir, ".kilo", "skills", "pdf-tools", "SKILL.md");
-    expect(changes[0]?.path).toBe(skillMd);
-    expect(existsSync(skillMd)).toBe(true);
-    // Skills live under the .kilo/skills tree, never the legacy .kilocode tree.
-    expect(existsSync(join(projectDir, ".kilocode", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
-  });
-
-  it("is idempotent — second install yields skip (commands + subagents)", () => {
-    kiloAdapter.installCommands!(ctx);
-    kiloAdapter.installSubagents!(ctx);
-    expect(kiloAdapter.installCommands!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(kiloAdapter.installSubagents!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes command + subagent files", () => {
-    kiloAdapter.installCommands!(ctx);
-    kiloAdapter.installSubagents!(ctx);
-    kiloAdapter.uninstallCommands!(ctx);
-    kiloAdapter.uninstallSubagents!(ctx);
-    expect(existsSync(join(projectDir, ".kilo", "commands", "deploy.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".kilo", "agents", "reviewer.md"))).toBe(false);
   });
 });
 
