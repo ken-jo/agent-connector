@@ -10,8 +10,9 @@
  * (The openclaw parseJsonc-tolerance + dual-registration block has moved to the
  * per-host file adapters/openclaw.test.ts, the omp modify-degrades-to-allow block
  * to adapters/omp.test.ts, the qwen-code remote-transport-key block to
- * adapters/qwen-code.test.ts, and the kimi deny-protocol/base-dir/parseEvent
- * blocks to adapters/kimi.test.ts, per tests/README.md.)
+ * adapters/qwen-code.test.ts, the kimi deny-protocol/base-dir/parseEvent blocks
+ * to adapters/kimi.test.ts, and the roo-code disabled-reflects-server.enabled
+ * block to adapters/roo-code.test.ts, per tests/README.md.)
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -27,7 +28,6 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 
 import zedAdapter from "../../src/adapters/zed/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
-import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -200,36 +200,5 @@ describe("codebuff env-ref default is preserved (not dropped)", () => {
     const entry = cfg.mcpServers[CONNECTOR_ID];
     expect(entry.env.ENDPOINT).toBe("https://fallback.example");
     expect(entry.env.TOKEN).toBe(`$${VAR}`);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// roo-code — `disabled` reflects the per-call server's enabled flag
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("roo-code disabled reflects server.enabled", () => {
-  it("disabled:false when the server is enabled (default)", () => {
-    const projectDir = freshProject("ac-rf-roo-");
-    const ctx = buildCtx(projectDir, buildConnector());
-    rooCodeAdapter.installServer(ctx);
-    const cfg = readJson(rooCodeAdapter.getServerConfigPath(ctx));
-    expect(cfg.mcpServers[CONNECTOR_ID].disabled).toBe(false);
-  });
-
-  it("disabled:true when the server is explicitly enabled:false", () => {
-    const projectDir = freshProject("ac-rf-roo2-");
-    const connector = buildConnector({
-      server: {
-        transport: "stdio",
-        command: "npx",
-        args: ["-y", "@x/y"],
-        enabled: false,
-      },
-      hooks: {},
-    });
-    const ctx = buildCtx(projectDir, connector);
-    rooCodeAdapter.installServer(ctx);
-    const cfg = readJson(rooCodeAdapter.getServerConfigPath(ctx));
-    expect(cfg.mcpServers[CONNECTOR_ID].disabled).toBe(true);
   });
 });
