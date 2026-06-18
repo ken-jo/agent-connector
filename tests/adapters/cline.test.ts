@@ -11,22 +11,24 @@
  *              (Cline "Workflows" — the slash-command equivalent).
  *   skill    → project <projectDir>/.clinerules/skills/<name>/SKILL.md.
  *
- * All tests are HOME-isolated (mkdtemp + redirected HOME/USERPROFILE/APPDATA/
- * XDG) and deterministic. Mirrors tests/adapters/roo-code.test.ts.
+ * All tests are HOME-isolated via the shared harness (separate HOME + project/
+ * subdir + APPDATA/XDG roots) and deterministic. Mirrors tests/adapters/
+ * roo-code.test.ts.
  */
 
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, platform as osPlatform, tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, platform as osPlatform } from "node:os";
 import { join } from "node:path";
 
-import { parse as parseYaml } from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
-import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 
 import clineAdapter from "../../src/adapters/cline/index.js";
+import { buildCtx, freshHomeProject, isolateEnv } from "../support/env.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
+import { splitFrontmatter } from "../support/fs.js";
 
 const CONNECTOR_ID = "acme-cline";
 
@@ -77,21 +79,6 @@ function buildConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
   });
 }
 
-function buildCtx(
-  projectDir: string,
-  connector: ResolvedConnector,
-  scope: "project" | "user" = "project",
-): InstallContext {
-  return {
-    connector,
-    scope,
-    projectDir,
-    homeBinPath: "/fake/bin/agent-connector",
-    dataRoot: projectDir,
-    dryRun: false,
-  };
-}
-
 /** The cross-OS VS Code globalStorage cline_mcp_settings.json path under HOME. */
 function clineMcpSettingsPath(home: string): string {
   let userDir: string;
@@ -114,57 +101,11 @@ function clineMcpSettingsPath(home: string): string {
   );
 }
 
-/** Split a md+frontmatter document into { frontmatter, body }. */
-function splitFrontmatter(text: string): {
-  frontmatter: Record<string, unknown>;
-  body: string;
-} {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
-  if (!m) throw new Error(`not a frontmatter doc:\n${text}`);
-  return {
-    frontmatter: parseYaml(m[1]!) as Record<string, unknown>,
-    body: m[2]!,
-  };
-}
-
-let saved: Record<string, string | undefined> = {};
-const ENV_KEYS = [
-  "HOME",
-  "USERPROFILE",
-  "APPDATA",
-  "XDG_CONFIG_HOME",
-  "XDG_DOCUMENTS_DIR",
-  "AGENT_CONNECTOR_DATA_DIR",
-] as const;
-
-beforeEach(() => {
-  saved = {};
-  for (const k of ENV_KEYS) saved[k] = process.env[k];
-});
-
-afterEach(() => {
-  for (const k of ENV_KEYS) {
-    if (saved[k] === undefined) delete process.env[k];
-    else process.env[k] = saved[k];
-  }
-});
-
-/**
- * Fresh isolated HOME + project dir. HOME drives every user-scope path (VS Code
- * globalStorage + ~/Documents/Cline), so nothing touches the real home.
- */
-function freshProject(): { home: string; projectDir: string } {
-  const home = mkdtempSync(join(tmpdir(), "ac-cline-"));
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  process.env.APPDATA = join(home, "AppData", "Roaming");
-  process.env.XDG_CONFIG_HOME = join(home, ".config");
-  process.env.XDG_DOCUMENTS_DIR = join(home, "Documents");
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(home, ".agent-connector");
-  const projectDir = join(home, "project");
-  mkdirSync(projectDir, { recursive: true });
-  return { home, projectDir };
-}
+// Shared env isolation + the same-rules-for-every-host baseline contract.
+// XDG_DOCUMENTS_DIR is snapshot/restored too: the user-scope Workflows path is
+// derived from it on POSIX, and the commands suite pins it to <home>/Documents.
+isolateEnv(["XDG_DOCUMENTS_DIR"]);
+createAdapterSuite({ adapter: clineAdapter, paradigm: "mcp-only" });
 
 // ── capability flags ────────────────────────────────────────────────────────
 
@@ -189,7 +130,7 @@ describe("cline adapter — detection", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   it("not installed on a bare box", () => {
@@ -258,7 +199,7 @@ describe("cline adapter — MCP install (globalStorage cline_mcp_settings.json)"
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
   });
 
   it("writes mcpServers.<id> at the cross-OS globalStorage path, stamped platform=cline", () => {
@@ -322,7 +263,7 @@ describe("cline adapter — memory (.clinerules directory form)", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ projectDir } = freshProject());
+    ({ projectDir } = freshHomeProject());
   });
 
   it("writes .clinerules/agent-connector.md at project scope", () => {
@@ -357,7 +298,11 @@ describe("cline adapter — commands (Workflows)", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ home, projectDir } = freshProject());
+    ({ home, projectDir } = freshHomeProject());
+    // User-scope Workflows resolve under <documentsDir>/Cline; pin the POSIX
+    // XDG_DOCUMENTS_DIR to the isolated <home>/Documents so the user-scope path
+    // is deterministic regardless of the ambient environment.
+    process.env.XDG_DOCUMENTS_DIR = join(home, "Documents");
   });
 
   it("project scope writes .clinerules/workflows/<name>.md with frontmatter", () => {
@@ -411,7 +356,7 @@ describe("cline adapter — skills (.clinerules/skills)", () => {
   let projectDir: string;
 
   beforeEach(() => {
-    ({ projectDir } = freshProject());
+    ({ projectDir } = freshHomeProject());
   });
 
   it("project scope writes .clinerules/skills/<name>/SKILL.md + resources", () => {
