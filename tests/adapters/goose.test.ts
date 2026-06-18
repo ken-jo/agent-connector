@@ -320,6 +320,94 @@ describe("goose adapter render + round-trip", () => {
     expect(JSON.stringify(afterHooks.hooks ?? {})).not.toContain(HOME_BIN);
   });
 
+  // ── PINNED detail strings (hook-engine migration safety net) ──────────────
+  // goose hook install/uninstall emit DIVERGENT detail strings vs other hosts
+  // (notably the `(<n>)` count on remove, which codex omits); these exact-match
+  // assertions characterize the CURRENT behavior so a future hook-engine
+  // migration must reproduce them byte-identically.
+  it("installHooks with NO hooks declared → skip detail `connector declares no hooks`", () => {
+    const noHooks = defineConnector({
+      id: CONNECTOR_ID,
+      server: {
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@x/y"],
+        tools: { include: ["*"] },
+      },
+    });
+    const changes = gooseAdapter.installHooks(buildCtx(projectDir, noHooks, "user"));
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("connector declares no hooks");
+  });
+
+  it("installHooks create detail is the bare `hooks.<event>` form", () => {
+    const changes = gooseAdapter.installHooks(ctx);
+    const pre = changes.find((c) => c.detail === "hooks.PreToolUse");
+    expect(pre?.action).toBe("create");
+    expect(pre?.detail).toBe("hooks.PreToolUse");
+  });
+
+  it("installHooks idempotent skip detail is the BARE `hooks.<event>` (no 'already registered')", () => {
+    gooseAdapter.installHooks(ctx);
+    const second = gooseAdapter.installHooks(ctx);
+    const pre = second.find((c) => c.detail?.includes("PreToolUse"));
+    expect(pre?.action).toBe("skip");
+    // goose does NOT append "already registered" — bare event form is the pin.
+    expect(pre?.detail).toBe("hooks.PreToolUse");
+    expect(pre?.detail).not.toContain("already registered");
+  });
+
+  it("unsupported-event warn detail is the EXACT `<event> unsupported on goose — skipped`", () => {
+    const upsConnector = defineConnector({
+      id: CONNECTOR_ID,
+      hooks: {
+        PreCompact: {
+          handler() {
+            return { decision: "allow" };
+          },
+        },
+      },
+    });
+    const changes = gooseAdapter.installHooks(buildCtx(projectDir, upsConnector, "user"));
+    const warn = changes.find((c) => c.action === "warn");
+    expect(warn?.detail).toBe("PreCompact unsupported on goose — skipped");
+  });
+
+  it("uninstallHooks with no hooks.json present → skip detail `no hooks.json`", () => {
+    const changes = gooseAdapter.uninstallHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("no hooks.json");
+  });
+
+  it("uninstallHooks remove detail INCLUDES the `(<n>)` count: `hooks.<event> (1)` for a single removal", () => {
+    gooseAdapter.installHooks(ctx);
+    const changes = gooseAdapter.uninstallHooks(ctx);
+    const pre = changes.find((c) => c.detail?.startsWith("hooks.PreToolUse"));
+    expect(pre?.action).toBe("remove");
+    // goose DOES include the count — exactly `(1)` for one removed inner command.
+    expect(pre?.detail).toBe("hooks.PreToolUse (1)");
+  });
+
+  it("uninstallHooks when hooks.json has none of ours → skip detail `no matching hook entries`", () => {
+    const hookPath = gooseAdapter.getHookConfigPath(ctx);
+    ensureDir(dirname(hookPath));
+    writeFileSync(
+      hookPath,
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: "/usr/bin/other run" }] }],
+        },
+      }),
+      "utf8",
+    );
+    const changes = gooseAdapter.uninstallHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("no matching hook entries");
+  });
+
   it("MERGE: a pre-authored unrelated YAML key survives installServer", () => {
     const serverPath = gooseAdapter.getServerConfigPath(ctx);
     seedUnrelatedYaml(serverPath);
