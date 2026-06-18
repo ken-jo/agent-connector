@@ -2,9 +2,6 @@
  * adapters/surfaces-s2 — content-surface (commands/skills/subagents) render +
  * round-trip tests for the third wave of supporting adapters:
  *
- *   • copilot-cli       — NO command surface (warn/skip), uniform SKILL.md
- *                          skills, md+fm subagents (.agent.md). user scope →
- *                          ~/.copilot; project scope → shared .github tree.
  *   • jetbrains-copilot — md+fm prompt files + uniform SKILL.md skills under the
  *                          SHARED project .github tree; NO subagent surface
  *                          (BaseAdapter skip).
@@ -15,10 +12,11 @@
  *   • pi                — uniform SKILL.md skills only (.pi/skills/<n>/SKILL.md);
  *                          NO command/subagent surface (BaseAdapter skip).
  *
- * (vscode-copilot's content-surface slice was migrated to its per-host file
- * tests/adapters/vscode-copilot.test.ts per the ONE-file-per-host convention —
- * see tests/README.md. The vscode-copilot adapter is still imported here ONLY as
- * the reference writer for jetbrains-copilot's byte-identical shared-.github
+ * (vscode-copilot's and copilot-cli's content-surface slices were migrated to
+ * their per-host files tests/adapters/vscode-copilot.test.ts and
+ * tests/adapters/copilot-cli.test.ts per the ONE-file-per-host convention — see
+ * tests/README.md. The vscode-copilot adapter is still imported here ONLY as the
+ * reference writer for jetbrains-copilot's byte-identical shared-.github
  * comparison test below.)
  *
  * Each platform is exercised end-to-end against REAL files on disk in an
@@ -33,7 +31,7 @@
  *
  * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test. HOME and
  * AGENT_CONNECTOR_DATA_DIR point at temp and are restored in afterEach so the
- * user-scope copilot-cli subagent / pi skill paths resolve under the temp HOME.
+ * user-scope pi skill paths resolve under the temp HOME.
  */
 
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
@@ -48,7 +46,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 
 import vscodeAdapter from "../../src/adapters/vscode-copilot/index.js";
-import copilotCliAdapter from "../../src/adapters/copilot-cli/index.js";
 import jetbrainsAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import kiloAdapter from "../../src/adapters/kilo/index.js";
 import piAdapter from "../../src/adapters/pi/index.js";
@@ -151,7 +148,7 @@ function restore(key: string, value: string | undefined): void {
 
 function freshProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "ac-surfaces-s2-"));
-  // Redirect HOME so user-scope writes (copilot-cli, pi) land under the temp dir.
+  // Redirect HOME so user-scope writes (pi) land under the temp dir.
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
@@ -170,100 +167,6 @@ function splitFrontmatter(text: string): {
     body: m[2]!,
   };
 }
-
-// ── copilot-cli ─────────────────────────────────────────────────────────────
-
-describe("copilot-cli adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    // Declare ONLY the supported surfaces (skills + subagents). Commands are
-    // unsupported on Copilot CLI; with none declared they resolve to a skip.
-    ctx = buildCtx(projectDir, buildConnector({ skills: true, subagents: true }));
-  });
-
-  it("declares skills + subagents but NOT commands", () => {
-    expect(copilotCliAdapter.capabilities.supportsCommands).toBe(false);
-    expect(copilotCliAdapter.capabilities.supportsSkills).toBe(true);
-    expect(copilotCliAdapter.capabilities.supportsSubagents).toBe(true);
-  });
-
-  it("installCommands is unsupported → BaseAdapter skip/warn, writes no prompt file", () => {
-    // Even when a command IS declared, Copilot CLI has no command surface: the
-    // BaseAdapter default routes it through warn (declared) without writing any
-    // native file. The CONTRACT permits warn OR skip here.
-    const withCmd = buildCtx(
-      projectDir,
-      buildConnector({ commands: true, skills: true, subagents: true }),
-    );
-    const changes = copilotCliAdapter.installCommands!(withCmd);
-    expect(changes).toHaveLength(1);
-    expect(["warn", "skip"]).toContain(changes[0]?.action);
-    expect(existsSync(join(projectDir, ".github", "prompts", "deploy.prompt.md"))).toBe(false);
-  });
-
-  it("installSkills writes uniform SKILL.md + resource (project scope under .github)", () => {
-    copilotCliAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, ".github", "skills", "pdf-tools", "SKILL.md");
-    const resource = join(projectDir, ".github", "skills", "pdf-tools", "scripts", "extract.sh");
-    expect(existsSync(skillMd)).toBe(true);
-    expect(existsSync(resource)).toBe(true);
-
-    const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
-    expect(frontmatter.name).toBe("pdf-tools");
-    expect(frontmatter.description).toBe(SKILL.description);
-  });
-
-  it("installSubagents (project scope) writes md+fm .github/agents/<n>.agent.md", () => {
-    const changes = copilotCliAdapter.installSubagents!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const agentPath = join(projectDir, ".github", "agents", "reviewer.agent.md");
-    expect(changes[0]?.path).toBe(agentPath);
-    expect(existsSync(agentPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(agentPath, "utf8"));
-    expect(frontmatter.name).toBe("reviewer");
-    expect(frontmatter.description).toBe(SUBAGENT.description);
-    expect(frontmatter.tools).toBe("Read, Grep");
-    expect(frontmatter.model).toBe("opus");
-    expect(body.trim()).toBe(SUBAGENT.prompt);
-  });
-
-  it("installSubagents (USER scope) writes to ~/.copilot/agents (HOME temp)", () => {
-    const userCtx = buildCtx(
-      projectDir,
-      buildConnector({ skills: true, subagents: true }),
-      "user",
-    );
-    const changes = copilotCliAdapter.installSubagents!(userCtx);
-    expect(changes[0]?.action).toBe("create");
-
-    // HOME redirected to projectDir → ~/.copilot === projectDir/.copilot.
-    const agentPath = join(projectDir, ".copilot", "agents", "reviewer.agent.md");
-    expect(changes[0]?.path).toBe(agentPath);
-    expect(existsSync(agentPath)).toBe(true);
-    // Must NOT have written into the shared project .github tree at user scope.
-    expect(existsSync(join(projectDir, ".github", "agents", "reviewer.agent.md"))).toBe(false);
-  });
-
-  it("is idempotent — second install yields skip (skills + subagents)", () => {
-    copilotCliAdapter.installSkills!(ctx);
-    copilotCliAdapter.installSubagents!(ctx);
-    expect(copilotCliAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(copilotCliAdapter.installSubagents!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes skill + subagent files (project scope)", () => {
-    copilotCliAdapter.installSkills!(ctx);
-    copilotCliAdapter.installSubagents!(ctx);
-    copilotCliAdapter.uninstallSkills!(ctx);
-    copilotCliAdapter.uninstallSubagents!(ctx);
-    expect(existsSync(join(projectDir, ".github", "skills", "pdf-tools"))).toBe(false);
-    expect(existsSync(join(projectDir, ".github", "agents", "reviewer.agent.md"))).toBe(false);
-  });
-});
 
 // ── jetbrains-copilot ───────────────────────────────────────────────────────
 
