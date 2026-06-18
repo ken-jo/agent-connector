@@ -17,6 +17,7 @@ import { dirname } from "node:path";
 
 import { parse, stringify } from "yaml";
 
+import type { ObjectMapCodec } from "./object-map.js";
 import { ensureDir } from "./paths.js";
 
 /**
@@ -43,4 +44,19 @@ export function writeYaml(path: string, data: unknown, dryRun = false): void {
   if (dryRun) return;
   ensureDir(dirname(path));
   writeFileSync(path, stringify(data), "utf8");
+}
+
+/**
+ * An ObjectMapCodec over YAML for the core/object-map engine. Shared by the YAML
+ * object-map server hosts (Goose's `extensions`, Hermes's `mcp_servers`) and any
+ * future YAML host. `isPresentButUnparseable` is `() => false`: YAML server hosts
+ * historically coerce/overwrite (readYaml(path) ?? {}) rather than warn-skip on an
+ * unparseable file — preserved here for byte-identical behavior.
+ */
+export function yamlObjectMapCodec(): ObjectMapCodec {
+  return {
+    parse: (path) => readYaml<Record<string, unknown>>(path),
+    serialize: (path, data, dryRun) => writeYaml(path, data, dryRun),
+    isPresentButUnparseable: () => false,
+  };
 }

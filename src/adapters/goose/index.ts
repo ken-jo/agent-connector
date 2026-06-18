@@ -56,7 +56,8 @@ import type {
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { ensureDir } from "../../core/paths.js";
-import { readYaml, writeYaml } from "../../core/yaml.js";
+import { removeFromObjectMap, upsertInObjectMap } from "../../core/object-map.js";
+import { readYaml, yamlObjectMapCodec } from "../../core/yaml.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
@@ -303,53 +304,33 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     const entry = this.renderExtension(ctx, server);
 
     // Merge into existing YAML, preserving every other config key + extension.
-    const cfg = readYaml<Record<string, unknown>>(path) ?? {};
-    const bucketRaw = cfg[MCP_ROOT_KEY];
-    const bucket: Record<string, unknown> =
-      bucketRaw && typeof bucketRaw === "object" && !Array.isArray(bucketRaw)
-        ? (bucketRaw as Record<string, unknown>)
-        : {};
-    cfg[MCP_ROOT_KEY] = bucket;
-
-    const before = JSON.stringify(bucket[connector.id]);
-    const after = JSON.stringify(entry);
-    let action: ChangeRecord["action"];
-    if (before === undefined) action = "create";
-    else if (before === after) action = "skip";
-    else action = "update";
-
-    if (action !== "skip") {
-      bucket[connector.id] = entry;
-      writeYaml(path, cfg, dryRun);
-    }
-    return [{ platform: this.id, action, path, detail: `${MCP_ROOT_KEY}.${connector.id}` }];
+    return [
+      upsertInObjectMap({
+        codec: yamlObjectMapCodec(),
+        rootKey: MCP_ROOT_KEY,
+        policy: "coerce",
+        platform: this.id,
+        configPath: path,
+        entryId: connector.id,
+        entry,
+        dryRun,
+      }),
+    ];
   }
 
   override uninstallServer(ctx: InstallContext): ChangeRecord[] {
     const { connector, dryRun } = ctx;
     const path = this.getServerConfigPath(ctx);
-    const cfg = readYaml<Record<string, unknown>>(path);
-    const bucketRaw = cfg?.[MCP_ROOT_KEY];
-    if (
-      !cfg ||
-      !bucketRaw ||
-      typeof bucketRaw !== "object" ||
-      Array.isArray(bucketRaw) ||
-      !(connector.id in (bucketRaw as Record<string, unknown>))
-    ) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path,
-          detail: `${MCP_ROOT_KEY}.${connector.id} absent`,
-        },
-      ];
-    }
-    delete (bucketRaw as Record<string, unknown>)[connector.id];
-    writeYaml(path, cfg, dryRun);
     return [
-      { platform: this.id, action: "remove", path, detail: `${MCP_ROOT_KEY}.${connector.id}` },
+      removeFromObjectMap({
+        codec: yamlObjectMapCodec(),
+        rootKey: MCP_ROOT_KEY,
+        policy: "coerce",
+        platform: this.id,
+        configPath: path,
+        entryId: connector.id,
+        dryRun,
+      }),
     ];
   }
 
