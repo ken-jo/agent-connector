@@ -2,13 +2,14 @@
  * tests/adapters/extended-events-degrade — E1 extension-event DEGRADATION on
  * the batch of hook-capable hosts with NO native analog for the four new
  * canonical events (PermissionRequest, PostToolUseFailure, SubagentStart,
- * SubagentStop): gemini-cli, jetbrains-copilot, kiro, and crush.
+ * SubagentStop): jetbrains-copilot, kiro, and crush.
  * (omp, the other former ts-plugin host here, now lives in its own per-host file
  * adapters/omp.test.ts; the antigravity IDE + CLI pair moved to their own per-host
  * files adapters/antigravity.test.ts + adapters/antigravity-cli.test.ts; the
  * kilo-cli OpenCode fork moved to adapters/kilo-cli.test.ts; opencode — which
  * wires PermissionRequest -> permission.ask but leaves the other three E1 events
- * unsupported — moved to adapters/opencode.test.ts.)
+ * unsupported — moved to adapters/opencode.test.ts; gemini-cli's E1-degrade slice
+ * moved to adapters/gemini-cli.test.ts.)
  *
  * Per host this pins three things:
  *   • capabilities — all four E1 flags stay unset (read as false), so the
@@ -42,7 +43,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { Adapter, InstallContext } from "../../src/adapters/spi.js";
 import type { HookEventName, ResolvedConnector } from "../../src/core/types.js";
 
-import geminiCliAdapter from "../../src/adapters/gemini-cli/index.js";
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import kiroAdapter from "../../src/adapters/kiro/index.js";
 import crushAdapter from "../../src/adapters/crush/index.js";
@@ -201,7 +201,6 @@ function expectE1WarnSkips(
 
 describe("E1 capability flags stay unset on hosts without a native analog", () => {
   const hosts: ReadonlyArray<[string, Adapter]> = [
-    ["gemini-cli", geminiCliAdapter],
     ["jetbrains-copilot", jetbrainsCopilotAdapter],
     ["kiro", kiroAdapter],
     ["crush", crushAdapter],
@@ -218,24 +217,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
 // ─────────────────────────────────────────────────────────────────────────
 // json-stdio hosts — per-event warn-skip + native file never references E1
 // ─────────────────────────────────────────────────────────────────────────
-
-describe("gemini-cli E1 degradation", () => {
-  it("installHooks warn-skips all four; settings.json wires BeforeTool only", () => {
-    const projectDir = freshProject("ac-e1-gemini-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const changes = geminiCliAdapter.installHooks!(ctx);
-    expectE1WarnSkips(changes, "gemini-cli", "Gemini CLI");
-
-    const settingsPath = geminiCliAdapter.getHookConfigPath!(ctx);
-    const cfg = readJson(settingsPath);
-    expect(Object.keys(cfg.hooks)).toEqual(["BeforeTool"]);
-    const text = readFileSync(settingsPath, "utf8");
-    for (const token of FORBIDDEN_NATIVE_TOKENS) {
-      expect(text).not.toContain(token);
-    }
-  });
-});
 
 describe("jetbrains-copilot E1 degradation", () => {
   it("installHooks warn-skips all four; hooks file wires PreToolUse only", () => {
