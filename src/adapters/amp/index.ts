@@ -105,6 +105,7 @@ import type {
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
+import { renderBridgePrelude } from "../../core/ts-plugin-bridge.js";
 import {
   buildWrappedStdio,
 } from "../../core/spawn.js";
@@ -583,9 +584,6 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
 
   /** Compose the generated plugin source with plain string concatenation. */
   private buildPluginSource(ctx: InstallContext): string {
-    const homeBin = JSON.stringify(ctx.homeBinPath);
-    const connectorId = JSON.stringify(ctx.connector.id);
-
     // `platforms.amp.hooks === false` disables only the CANONICAL events (the
     // native loop below reads platforms.amp.nativeHooks directly and is a sibling,
     // unaffected). When canonical hooks are off the module may still be
@@ -613,34 +611,13 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
 import type { PluginAPI } from "@ampcode/plugin";
 import { execFileSync, execSync } from "node:child_process";
 
-const HOME_BIN = ${homeBin};
-const CONNECTOR_ID = ${connectorId};
-
-/**
- * Invoke the universal hook entrypoint for one event.
- * @param {string} event canonical event name
- * @param {object} payload amp-shaped payload posted on stdin
- * @returns {object|null} normalized HookResponse, or null on any failure
- */
-function bridge(event, payload) {
-  try {
-    // On Windows HOME_BIN is the agent-connector.cmd launcher: Node cannot
-    // execFile a batch file, and shell+args is deprecated (DEP0190), so run one
-    // quoted command line via a shell. POSIX keeps the direct execFile (no shell).
-    const args = ["hook", "amp", event, "--connector", CONNECTOR_ID];
-    const opts = { input: JSON.stringify(payload), encoding: "utf8" };
-    const stdout =
-      process.platform === "win32"
-        ? execSync([HOME_BIN, ...args].map((a) => '"' + a + '"').join(" "), opts)
-        : execFileSync(HOME_BIN, args, opts);
-    const text = (stdout || "").trim();
-    if (text === "") return { decision: "allow" };
-    return JSON.parse(text);
-  } catch {
-    // Fail-open — never wedge an Amp tool call / lifecycle event.
-    return null;
-  }
-}
+${renderBridgePrelude({
+  homeBin: ctx.homeBinPath,
+  connectorId: ctx.connector.id,
+  hookSlug: "amp",
+  payloadNoun: "amp",
+  failOpenComment: "Fail-open — never wedge an Amp tool call / lifecycle event.",
+})}
 
 // Amp documents no project-dir env var; the plugin process runs in the workspace
 // root, so resolve once at load. Session id is rebound on each session.start.

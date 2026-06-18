@@ -103,6 +103,7 @@ import type {
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
+import { renderBridgePrelude } from "../../core/ts-plugin-bridge.js";
 import {
   buildWrappedStdio,
 } from "../../core/spawn.js";
@@ -711,9 +712,6 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
 
   /** Compose the generated plugin source with plain string concatenation. */
   private buildPluginSource(ctx: InstallContext): string {
-    const homeBin = JSON.stringify(ctx.homeBinPath);
-    const connectorId = JSON.stringify(ctx.connector.id);
-
     // The OpenCode event keys this connector declares (and that we can map).
     // `hooks: false` disables the canonical events but leaves nativeHooks (a
     // sibling, opencode-scoped declaration) intact.
@@ -735,34 +733,14 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
  */
 import { execFileSync, execSync } from "node:child_process";
 
-const HOME_BIN = ${homeBin};
-const CONNECTOR_ID = ${connectorId};
-
-/**
- * Invoke the universal hook entrypoint for one event.
- * @param {string} event canonical event name (PreToolUse|PostToolUse|SessionStart)
- * @param {object} payload OpenCode-shaped payload posted on stdin
- * @returns {object|null} normalized HookResponse, or null on any failure
- */
-function bridge(event, payload) {
-  try {
-    // On Windows HOME_BIN is the agent-connector.cmd launcher: Node cannot
-    // execFile a batch file, and shell+args is deprecated (DEP0190), so run one
-    // quoted command line via a shell. POSIX keeps the direct execFile (no shell).
-    const args = ["hook", "opencode", event, "--connector", CONNECTOR_ID];
-    const opts = { input: JSON.stringify(payload), encoding: "utf8" };
-    const stdout =
-      process.platform === "win32"
-        ? execSync([HOME_BIN, ...args].map((a) => '"' + a + '"').join(" "), opts)
-        : execFileSync(HOME_BIN, args, opts);
-    const text = (stdout || "").trim();
-    if (text === "") return { decision: "allow" };
-    return JSON.parse(text);
-  } catch {
-    // Fail-open — never wedge a tool call on a bridge error.
-    return null;
-  }
-}
+${renderBridgePrelude({
+  homeBin: ctx.homeBinPath,
+  connectorId: ctx.connector.id,
+  hookSlug: "opencode",
+  payloadNoun: "OpenCode",
+  eventDoc: " (PreToolUse|PostToolUse|SessionStart)",
+  failOpenComment: "Fail-open — never wedge a tool call on a bridge error.",
+})}
 `;
 
     const handlers: string[] = [];
