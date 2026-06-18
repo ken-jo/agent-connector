@@ -13,16 +13,24 @@
  * createAdapterSuite). Adopts the shared harness (tests/support/env).
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
+import { BaseAdapter } from "../../src/adapters/base.js";
+import type { InstallContext } from "../../src/adapters/spi.js";
+import type {
+  ChangeRecord,
+  DetectedPlatform,
+  PlatformCapabilities,
+  PlatformId,
+} from "../../src/core/types.js";
 
 import warpAdapter from "../../src/adapters/warp/index.js";
 
-import { buildCtx, freshProject, isolateEnv } from "../support/env.js";
+import { buildCtx, freshProject, isolateEnv, tempDir } from "../support/env.js";
 
 isolateEnv();
 
@@ -86,5 +94,130 @@ describe("BaseAdapter — unsupported content surfaces (warp)", () => {
       expect(changes[0]?.action).toBe("warn");
       expect(changes[0]?.detail).toContain("subagents not supported on warp");
     }
+  });
+});
+
+/**
+ * BaseAdapter — malformed JSON ROOT-KEY guard (upsertServerInJson /
+ * removeServerFromJson). The two shared JSON helpers every object-map server
+ * host routes through must NEVER corrupt a config whose root key the user
+ * hand-edited to the wrong type:
+ *   • Array root  (`"mcpServers": []`): assigning a named property onto an Array
+ *     is dropped by JSON.stringify — silent data loss reported as a false
+ *     "create".
+ *   • String root (`"mcpServers": "foo"`): under strict mode a property write
+ *     (upsert) and the `in` operator (remove) BOTH THROW against a primitive.
+ * The guard turns all four cases into a visible warn-skip that leaves the file
+ * byte-for-byte intact. This is the focused proof of BOTH root types and BOTH
+ * methods; the registry contract (tests/contracts/root-key-malformed) is the
+ * auto-coverage half for the array case across every real host.
+ *
+ * Exercises the BASE CLASS via a minimal stand-in subclass (the
+ * base-adapter-surfaces pattern), so it lives in tests/core and uses no
+ * per-host install path.
+ */
+class RootKeyProbe extends BaseAdapter {
+  readonly id = "root-key-probe" as PlatformId;
+  readonly name = "Root Key Probe";
+  readonly paradigm = "json-stdio" as const;
+  readonly capabilities: PlatformCapabilities = {};
+  detectInstalled(): DetectedPlatform {
+    return {
+      id: this.id,
+      name: this.name,
+      installed: false,
+      paradigm: this.paradigm,
+      capabilities: this.capabilities,
+      configPath: "",
+      scope: "user",
+      reason: "stub",
+      confidence: "low",
+    };
+  }
+  getConfigDir(ctx: InstallContext): string {
+    return ctx.projectDir;
+  }
+  getServerConfigPath(ctx: InstallContext): string {
+    return join(ctx.projectDir, "mcp.json");
+  }
+  getHookConfigPath(ctx: InstallContext): string {
+    return this.getServerConfigPath(ctx);
+  }
+  installServer(): ChangeRecord[] {
+    return [];
+  }
+  uninstallServer(): ChangeRecord[] {
+    return [];
+  }
+  installHooks(): ChangeRecord[] {
+    return [];
+  }
+  uninstallHooks(): ChangeRecord[] {
+    return [];
+  }
+  // Expose the protected JSON helpers for the focused assertions below.
+  upsert(path: string, rootKey: string, id: string, entry: unknown): ChangeRecord {
+    return this.upsertServerInJson(path, rootKey, id, entry);
+  }
+  remove(path: string, rootKey: string, id: string): ChangeRecord {
+    return this.removeServerFromJson(path, rootKey, id);
+  }
+}
+
+describe("BaseAdapter — malformed JSON root-key guard (warn-skip, file preserved, no throw)", () => {
+  const probe = new RootKeyProbe();
+  const ROOT_KEY = "mcpServers";
+
+  function seed(value: unknown): { path: string; before: string } {
+    const dir = tempDir("ac-rootkey-");
+    const path = join(dir, "mcp.json");
+    const before = `${JSON.stringify({ [ROOT_KEY]: value }, null, 2)}\n`;
+    writeFileSync(path, before, "utf8");
+    return { path, before };
+  }
+
+  // Both helpers, against both malformed root shapes (array drops silently;
+  // primitive throws), table-driven so each cell is its own assertion.
+  for (const rootValue of [[] as unknown, "foo" as unknown]) {
+    const label = Array.isArray(rootValue) ? "array root" : "string root";
+
+    it(`upsertServerInJson warns + preserves the file (${label})`, () => {
+      const { path, before } = seed(rootValue);
+
+      let change!: ChangeRecord;
+      expect(() => {
+        change = probe.upsert(path, ROOT_KEY, "acme-db", { command: "node" });
+      }).not.toThrow();
+
+      expect(change.action).toBe("warn");
+      expect(change.path).toBe(path);
+      expect(change.detail).toContain(ROOT_KEY);
+      expect(change.detail).toContain("not an object map");
+      // File untouched byte-for-byte — the user's malformed value preserved.
+      expect(readFileSync(path, "utf8")).toBe(before);
+    });
+
+    it(`removeServerFromJson warns + preserves the file (${label})`, () => {
+      const { path, before } = seed(rootValue);
+
+      let change!: ChangeRecord;
+      expect(() => {
+        change = probe.remove(path, ROOT_KEY, "acme-db");
+      }).not.toThrow();
+
+      expect(change.action).toBe("warn");
+      expect(change.path).toBe(path);
+      expect(change.detail).toContain(ROOT_KEY);
+      expect(change.detail).toContain("not an object map");
+      expect(readFileSync(path, "utf8")).toBe(before);
+    });
+  }
+
+  it("a well-formed object-map root still upserts (guard does not over-trigger)", () => {
+    const { path } = seed({});
+    const change = probe.upsert(path, ROOT_KEY, "acme-db", { command: "node" });
+    expect(change.action).toBe("create");
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
+    expect(parsed[ROOT_KEY]["acme-db"]).toEqual({ command: "node" });
   });
 });
