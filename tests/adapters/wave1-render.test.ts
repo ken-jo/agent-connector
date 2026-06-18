@@ -1,11 +1,12 @@
 /**
  * adapters/wave1-render — render + round-trip tests for the Wave-1 `mcp-only`
- * adapters: zed, codebuff, mux. (amp moved to its own per-host file
+ * adapters: zed, mux. (amp moved to its own per-host file
  * tests/adapters/amp.test.ts; droid moved to tests/adapters/droid.test.ts;
  * antigravity — upgraded to json-stdio — moved to its own per-host file
  * tests/adapters/antigravity.test.ts; roo-code moved to its single per-host file
  * tests/adapters/roo-code.test.ts; trae moved to its single per-host file
- * tests/adapters/trae.test.ts.)
+ * tests/adapters/trae.test.ts; codebuff moved to its single per-host file
+ * tests/adapters/codebuff.test.ts.)
  *
  * Each is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/phase3 pattern:
@@ -18,7 +19,6 @@
  *   • uninstallServer → entry removed (re-read from disk confirms gone).
  *
  * Per-adapter root-key contract asserted here:
- *   codebuff  → "mcpServers"
  *   zed       → "context_servers"
  *   mux       → "servers", value is a STRING (space-joined shell command)
  *
@@ -42,7 +42,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
 import zedAdapter from "../../src/adapters/zed/index.js";
-import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import muxAdapter from "../../src/adapters/mux/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -241,68 +240,6 @@ describe("zed adapter render/round-trip", () => {
     // A sibling context server survives, and ours is added alongside it.
     expect(cfg.context_servers["other-server"]).toEqual({ command: "other" });
     expect(cfg.context_servers[CONNECTOR_ID]).toBeTruthy();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// codebuff (root key "mcpServers"; native $VAR; .agents/mcp.json)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("codebuff adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave1-codebuff-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes mcpServers.<id> with type 'stdio' into .agents/mcp.json, wrapped, env as native $VAR", () => {
-    const changes = codebuffAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".agents", "mcp.json");
-    expect(serverPath).toBe(codebuffAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.type).toBe("stdio");
-
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("codebuff"));
-
-    // Codebuff expands $VAR natively → ref rewritten to $VAR, NOT a literal.
-    expect(entry.env[ENV_VAR]).toBe(`$${ENV_VAR}`);
-    expect(entry.env[ENV_VAR]).not.toBe(ENV_LITERAL);
-  });
-
-  it("installHooks returns a single skip ChangeRecord and writes NO hook file", () => {
-    const changes = codebuffAdapter.installHooks(ctx);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("skip");
-
-    const hooksPath = codebuffAdapter.getHookConfigPath(ctx);
-    expect(hooksPath).toBe(codebuffAdapter.getServerConfigPath(ctx));
-    expect(existsSync(hooksPath)).toBe(false);
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    codebuffAdapter.installServer(ctx);
-    const second = codebuffAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".agents", "mcp.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry (re-read confirms gone)", () => {
-    codebuffAdapter.installServer(ctx);
-    codebuffAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".agents", "mcp.json"));
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
   });
 });
 
