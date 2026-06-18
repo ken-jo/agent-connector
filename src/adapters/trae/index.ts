@@ -38,9 +38,8 @@ import type {
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
-  buildServeWrapperCommand,
+  buildWrappedStdio,
   isHomeBinHookCommand,
-  shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
 
@@ -190,18 +189,7 @@ export class TraeAdapter extends BaseAdapter implements Adapter {
 
       // Transparent telemetry wrapping: route the real command through
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
-      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-        const wrapped = buildServeWrapperCommand(
-          ctx.homeBinPath,
-          ctx.connector.id,
-          command,
-          args,
-          ctx.scope,
-          this.id,
-        );
-        command = wrapped.command;
-        args = wrapped.args;
-      }
+      ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
       // Trae has no documented native interpolation token, so resolve every
       // ${env:VAR} to a literal at install time.

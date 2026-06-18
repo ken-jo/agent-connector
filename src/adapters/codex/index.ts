@@ -65,8 +65,7 @@ import {
 import { writeTomlString } from "../../core/toml.js";
 import {
   buildHomeBinHookCommand,
-  buildServeWrapperCommand,
-  shouldWrapForTelemetry,
+  buildWrappedStdio,
 } from "../../core/spawn.js";
 import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
 import { normalizeSessionSource } from "../claude-code/wire.js";
@@ -978,11 +977,7 @@ export class CodexAdapter extends BaseAdapter {
     let command = server.command as string;
     let args = [...(server.args ?? [])];
 
-    if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-      const wrapped = buildServeWrapperCommand(ctx.homeBinPath, ctx.connector.id, command, args, ctx.scope, this.id);
-      command = wrapped.command;
-      args = wrapped.args;
-    }
+    ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
     // Resolve env-refs to literals (TOML cannot interpolate).
     command = resolveEnvRefsDeep(command);

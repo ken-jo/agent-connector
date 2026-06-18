@@ -76,8 +76,7 @@ import type {
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
-  buildServeWrapperCommand,
-  shouldWrapForTelemetry,
+  buildWrappedStdio,
 } from "../../core/spawn.js";
 
 const HOST: PlatformId = "windsurf";
@@ -516,18 +515,7 @@ export class WindsurfAdapter extends BaseAdapter implements Adapter {
 
       // Transparent telemetry wrapping: route the real command through
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
-      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-        const wrapped = buildServeWrapperCommand(
-          ctx.homeBinPath,
-          ctx.connector.id,
-          command,
-          args,
-          ctx.scope,
-          this.id,
-        );
-        command = wrapped.command;
-        args = wrapped.args;
-      }
+      ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
       // Windsurf supports ${env:VAR} natively, but AC resolves references to
       // literals at install time (the safe path, same as amazon-q/droid/crush).

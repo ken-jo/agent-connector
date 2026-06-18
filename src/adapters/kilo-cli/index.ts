@@ -103,8 +103,7 @@ import type {
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
-  buildServeWrapperCommand,
-  shouldWrapForTelemetry,
+  buildWrappedStdio,
 } from "../../core/spawn.js";
 
 const HOST: PlatformId = "kilo-cli";
@@ -357,18 +356,7 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
 
       // Transparent telemetry wrapping: route the real command through
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
-      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-        const wrapped = buildServeWrapperCommand(
-          ctx.homeBinPath,
-          ctx.connector.id,
-          command,
-          args,
-          ctx.scope,
-          this.id,
-        );
-        command = wrapped.command;
-        args = wrapped.args;
-      }
+      ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
       // QUIRK: the Kilo CLI's new-gen local server keys its whole invocation as
       // a single `command` ARRAY (executable + args together), like OpenCode.
