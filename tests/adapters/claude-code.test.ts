@@ -248,6 +248,64 @@ describe("claude-code adapter render/round-trip", () => {
     expect(cfg.hooks.SessionStart).toHaveLength(1);
   });
 
+  // BYTE-IDENTICAL GUARD: the suites above assert reinstall by ACTION only, so a
+  // wording drift in the skip detail would pass silently. Pin the EXACT detail
+  // string per skipped event so the shared hook-merge engine can never quietly
+  // narrow it to a lowest-common-denominator phrasing.
+  it("installHooks idempotent skip records carry the EXACT 'hooks.<event> already registered' detail", () => {
+    claudeAdapter.installHooks(ctx);
+    const second = claudeAdapter.installHooks(ctx);
+
+    const byEvent = (event: string) =>
+      second.find((c) => c.detail === `hooks.${event} already registered`);
+    expect(byEvent("PreToolUse")?.action).toBe("skip");
+    expect(byEvent("SessionStart")?.action).toBe("skip");
+    // No skip record uses any other detail wording.
+    expect(second.every((c) => /^hooks\..+ already registered$/.test(c.detail))).toBe(true);
+  });
+
+  // BYTE-IDENTICAL GUARD: pin the uninstall remove detail (event + per-event
+  // count) and the two uninstall skip details (absent / no-match).
+  it("uninstallHooks remove records carry the EXACT 'hooks.<event> (<n>)' detail with the right count", () => {
+    claudeAdapter.installHooks(ctx);
+    const removed = claudeAdapter.uninstallHooks(ctx);
+
+    const byEvent = (event: string) =>
+      removed.find((c) => c.action === "remove" && c.detail === `hooks.${event} (1)`);
+    // Each event had exactly one of our inner commands → "(1)".
+    expect(byEvent("PreToolUse")).toBeTruthy();
+    expect(byEvent("SessionStart")).toBeTruthy();
+    expect(removed.every((c) => c.action !== "remove" || /^hooks\..+ \(\d+\)$/.test(c.detail))).toBe(
+      true,
+    );
+  });
+
+  it("uninstallHooks emits the EXACT 'no hooks section present' skip when no hooks config exists", () => {
+    const absent = claudeAdapter.uninstallHooks(ctx);
+    expect(absent).toHaveLength(1);
+    expect(absent[0]?.action).toBe("skip");
+    expect(absent[0]?.detail).toBe("no hooks section present");
+  });
+
+  it("uninstallHooks emits the EXACT 'no matching hook entries' skip when a hooks section has none of ours", () => {
+    const settingsPath = join(projectDir, ".claude", "settings.json");
+    mkdirSync(join(projectDir, ".claude"), { recursive: true });
+    // A well-formed hooks section that contains NO agent-connector command.
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify(
+        { hooks: { PreToolUse: [{ matcher: "x", hooks: [{ type: "command", command: "echo foreign" }] }] } },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    const noMatch = claudeAdapter.uninstallHooks(ctx);
+    expect(noMatch).toHaveLength(1);
+    expect(noMatch[0]?.action).toBe("skip");
+    expect(noMatch[0]?.detail).toBe("no matching hook entries");
+  });
+
   it("nativeHooks passthrough: capability flag + verbatim event-name keys beside normalized hooks", () => {
     expect(claudeAdapter.capabilities.supportsNativeHooks).toBe(true);
 

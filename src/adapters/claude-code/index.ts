@@ -19,7 +19,7 @@ import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync } from 
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-import { BaseAdapter } from "../base.js";
+import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
@@ -55,7 +55,6 @@ import type {
 } from "../../core/types.js";
 import { resolveEnvRefsDeep, rewriteEnvRefs } from "../../core/interpolate.js";
 import {
-  buildHomeBinHookCommand,
   buildHomeBinStatuslineCommand,
   buildServeWrapperCommand,
   isHomeBinHookCommand,
@@ -377,13 +376,6 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     }
 
     const settingsPath = this.getHookConfigPath(ctx);
-    const settings = this.readJson<Record<string, unknown>>(settingsPath) ?? {};
-    const __skip = this.malformedHookRootSkip(settingsPath, settings.hooks);
-    if (__skip) return [__skip];
-    const hooks = (settings.hooks ??= {}) as Record<string, ClaudeHookEntry[]>;
-
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
 
     // One pass over normalized + NATIVE events: native event-name keys are
     // written VERBATIM (e.g. "TaskCreated"), matcher from the def, and the
@@ -400,110 +392,43 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
       })),
     ];
 
-    for (const { event, matcher } of pending) {
-      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const entry: ClaudeHookEntry = {
-        matcher,
-        hooks: [{ type: "command", command }],
-      };
-
-      const bucket = (hooks[event] ??= []);
-      const existingIdx = bucket.findIndex((e) => this.entryHasCommand(e, command));
-
-      if (existingIdx >= 0) {
-        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
-          changes.push({
-            platform: this.id,
-            action: "skip",
-            path: settingsPath,
-            detail: `hooks.${event} already registered`,
-          });
-          continue;
-        }
-        bucket[existingIdx] = entry;
-        changes.push({
-          platform: this.id,
-          action: "update",
-          path: settingsPath,
-          detail: `hooks.${event}`,
-        });
-      } else {
-        bucket.push(entry);
-        changes.push({
-          platform: this.id,
-          action: "create",
-          path: settingsPath,
-          detail: `hooks.${event}`,
-        });
-      }
-      mutated = true;
-    }
-
-    if (mutated) this.writeJson(settingsPath, settings, ctx.dryRun);
-    return changes;
+    return this.upsertHookEntries(ctx, settingsPath, pending, this.hookDescriptor());
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
-    const settingsPath = this.getHookConfigPath(ctx);
-    const settings = this.readJson<Record<string, unknown>>(settingsPath);
-    const hooks = settings?.hooks as Record<string, ClaudeHookEntry[]> | undefined;
-    if (!settings || !hooks) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path: settingsPath,
-          detail: "no hooks section present",
-        },
-      ];
-    }
-
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const event of Object.keys(hooks)) {
-      const bucket = hooks[event];
-      if (!Array.isArray(bucket)) continue;
-
-      // Strip our hook command from each entry; drop entries left empty.
-      const next: ClaudeHookEntry[] = [];
-      let removed = 0;
-      for (const e of bucket) {
-        const innerBefore = e.hooks?.length ?? 0;
-        const inner = (e.hooks ?? []).filter(
-          (h) => !this.isOurCommand(h.command, ctx),
-        );
-        removed += innerBefore - inner.length;
-        if (inner.length > 0) next.push({ matcher: e.matcher ?? "", hooks: inner });
-      }
-
-      if (removed > 0) {
-        if (next.length > 0) hooks[event] = next;
-        else delete hooks[event];
-        changes.push({
-          platform: this.id,
-          action: "remove",
-          path: settingsPath,
-          detail: `hooks.${event} (${removed})`,
-        });
-        mutated = true;
-      }
-    }
-
-    if (mutated) this.writeJson(settingsPath, settings, ctx.dryRun);
-    if (changes.length === 0) {
-      changes.push({
-        platform: this.id,
-        action: "skip",
-        path: settingsPath,
-        detail: "no matching hook entries",
-      });
-    }
-    return changes;
+    return this.removeHookEntries(ctx, this.getHookConfigPath(ctx), this.hookDescriptor());
   }
 
-  private entryHasCommand(entry: ClaudeHookEntry, command: string): boolean {
-    return (entry.hooks ?? []).some((h) => h.command === command);
+  /**
+   * Claude's hook-merge descriptor (NESTED shape `{ matcher, hooks: [...] }`):
+   *  - install find = THIS exact command present in the entry's inner `hooks`;
+   *  - uninstall = inner-strip ONLY (connector-generic `isOurCommand` over the
+   *    inner commands, drop entries left empty) — claude never removes a whole
+   *    entry by ownership, so `ownsEntryForRemove` is a never-true predicate;
+   *  - every detail string is the literal claude-code wording.
+   */
+  private hookDescriptor(): HookMergeDescriptor<ClaudeHookEntry> {
+    return {
+      renderEntry: (_event, matcher, command) => ({
+        matcher,
+        hooks: [{ type: "command", command }],
+      }),
+      entryOwnsCommand: (entry, command) =>
+        (entry.hooks ?? []).some((h) => h.command === command),
+      ownsEntryForRemove: () => () => false,
+      stripInner: (ctx) => (entry) => {
+        const innerBefore = entry.hooks?.length ?? 0;
+        const inner = (entry.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
+        return {
+          next: inner.length > 0 ? { matcher: entry.matcher ?? "", hooks: inner } : null,
+          removed: innerBefore - inner.length,
+        };
+      },
+      skipDetail: (event) => `hooks.${event} already registered`,
+      removeDetail: (event, removed) => `hooks.${event} (${removed})`,
+      absentDetail: "no hooks section present",
+      noMatchDetail: "no matching hook entries",
+    };
   }
 
   // ── Declarative host-config key patches (configPatch) ────────────────────
