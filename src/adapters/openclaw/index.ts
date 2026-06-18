@@ -129,8 +129,7 @@ import type {
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { parseJsonc } from "../../core/jsonc.js";
 import {
-  buildServeWrapperCommand,
-  shouldWrapForTelemetry,
+  buildWrappedStdio,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
 
@@ -502,18 +501,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
 
       // Transparent telemetry wrapping: route the real command through
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
-      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-        const wrapped = buildServeWrapperCommand(
-          ctx.homeBinPath,
-          ctx.connector.id,
-          command,
-          args,
-          ctx.scope,
-          this.id,
-        );
-        command = wrapped.command;
-        args = wrapped.args;
-      }
+      ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
       // NO `transport` key: OpenClaw infers a stdio sidecar from `command` and
       // its validator rejects transport:"stdio" (only "sse"/"streamable-http").

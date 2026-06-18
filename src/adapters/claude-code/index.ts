@@ -56,10 +56,9 @@ import type {
 import { resolveEnvRefsDeep, rewriteEnvRefs } from "../../core/interpolate.js";
 import {
   buildHomeBinStatuslineCommand,
-  buildServeWrapperCommand,
+  buildWrappedStdio,
   isHomeBinHookCommand,
   isHomeBinStatuslineCommand,
-  shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import {
   type ConfigPatchLedgerEntry,
@@ -303,18 +302,7 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
 
       // Transparent telemetry wrapping: route the real command through
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
-      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-        const wrapped = buildServeWrapperCommand(
-          ctx.homeBinPath,
-          ctx.connector.id,
-          command,
-          args,
-          ctx.scope,
-          this.id,
-        );
-        command = wrapped.command;
-        args = wrapped.args;
-      }
+      ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
       const entry: ClaudeStdioServer = { type: "stdio", command, args };
       const env = this.renderEnv(server.env);

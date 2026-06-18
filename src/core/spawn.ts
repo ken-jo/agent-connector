@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import type { InstallScope, PlatformId, ServerDef } from "./types.js";
+import type { InstallContext } from "../adapters/spi.js";
 import type {
   LaunchMethod,
   TelemetryInstallScope,
@@ -295,6 +296,32 @@ export function buildServeWrapperCommand(
     command: homeBinPath,
     args: [...flags, "--", realCommand, ...realArgs],
   };
+}
+
+/**
+ * Telemetry serve-wrap for a stdio command: when the connector opts in, route
+ * `command`/`args` through `<homeBin> serve --connector <id> -- …`; otherwise
+ * return them unchanged. Consolidates the per-host wrap snippet — the caller
+ * keeps its own command/args seeding + downstream env-resolution + entry shaping.
+ */
+export function buildWrappedStdio(
+  ctx: Pick<InstallContext, "homeBinPath" | "connector" | "scope">,
+  server: ServerDef,
+  platformId: PlatformId,
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  if (!shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
+    return { command, args };
+  }
+  return buildServeWrapperCommand(
+    ctx.homeBinPath,
+    ctx.connector.id,
+    command,
+    args,
+    ctx.scope,
+    platformId,
+  );
 }
 
 /** Injectable deps for {@link resolveSpawnCommand} (so the win32 branch is unit-testable on POSIX). */

@@ -65,9 +65,8 @@ import type {
 import { rewriteEnvRefs } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
-  buildServeWrapperCommand,
+  buildWrappedStdio,
   isHomeBinHookCommand,
-  shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd, renderSubagentMd } from "../claude-code/render.js";
 import { normalizeSessionSource } from "../claude-code/wire.js";
@@ -333,18 +332,7 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
 
       // Transparent telemetry wrapping: route the real command through
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
-      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-        const wrapped = buildServeWrapperCommand(
-          ctx.homeBinPath,
-          ctx.connector.id,
-          command,
-          args,
-          ctx.scope,
-          this.id,
-        );
-        command = wrapped.command;
-        args = wrapped.args;
-      }
+      ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
       const entry: VSCodeStdioServer = { type: "stdio", command: this.rewrite(command) };
       if (args.length > 0) entry.args = args.map((a) => this.rewrite(a));

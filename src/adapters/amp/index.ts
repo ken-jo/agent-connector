@@ -106,8 +106,7 @@ import type {
 } from "../../core/types.js";
 import { rewriteEnvRefs } from "../../core/interpolate.js";
 import {
-  buildServeWrapperCommand,
-  shouldWrapForTelemetry,
+  buildWrappedStdio,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
 
@@ -322,18 +321,7 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
 
       // Transparent telemetry wrapping: route the real command through
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
-      if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-        const wrapped = buildServeWrapperCommand(
-          ctx.homeBinPath,
-          ctx.connector.id,
-          command,
-          args,
-          ctx.scope,
-          this.id,
-        );
-        command = wrapped.command;
-        args = wrapped.args;
-      }
+      ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
       // Amp expands ${VAR_NAME} natively, so keep refs native (no literals).
       const entry: AmpStdioServer = { command: this.rewrite(command) };

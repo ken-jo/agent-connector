@@ -60,9 +60,8 @@ import { readYaml, yamlObjectMapCodec } from "../../core/yaml.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
-  buildServeWrapperCommand,
+  buildWrappedStdio,
   isHomeBinHookCommand,
-  shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
 import { normalizeSessionSource } from "../claude-code/wire.js";
@@ -340,18 +339,7 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     let cmd = server.command ?? "";
     let args = [...(server.args ?? [])];
 
-    if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-      const wrapped = buildServeWrapperCommand(
-        ctx.homeBinPath,
-        ctx.connector.id,
-        cmd,
-        args,
-        ctx.scope,
-        this.id,
-      );
-      cmd = wrapped.command;
-      args = wrapped.args;
-    }
+    ({ command: cmd, args } = buildWrappedStdio(ctx, server, this.id, cmd, args));
 
     cmd = resolveEnvRefsDeep(cmd);
     args = resolveEnvRefsDeep(args);

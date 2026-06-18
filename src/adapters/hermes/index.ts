@@ -64,10 +64,9 @@ import { readYaml, writeYaml, yamlObjectMapCodec } from "../../core/yaml.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildHomeBinHookCommand,
-  buildServeWrapperCommand,
+  buildWrappedStdio,
   isHomeBinActionCommand,
   isHomeBinHookCommand,
-  shouldWrapForTelemetry,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
 import { normalizeSessionSource } from "../claude-code/wire.js";
@@ -399,18 +398,7 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     let command = server.command as string;
     let args = [...(server.args ?? [])];
 
-    if (shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
-      const wrapped = buildServeWrapperCommand(
-        ctx.homeBinPath,
-        ctx.connector.id,
-        command,
-        args,
-        ctx.scope,
-        this.id,
-      );
-      command = wrapped.command;
-      args = wrapped.args;
-    }
+    ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
     command = resolveEnvRefsDeep(command);
     args = resolveEnvRefsDeep(args);
