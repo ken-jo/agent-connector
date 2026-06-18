@@ -1,21 +1,20 @@
 /**
  * adapters/wave2 — render + parse/format round-trip tests for the Wave-2
- * json-stdio adapters: kiro, jetbrains-copilot, kimi, crush.
+ * json-stdio adapters: kiro, jetbrains-copilot, crush.
  *
  * (qwen-code's render/round-trip slice was migrated to
- * tests/adapters/qwen-code.test.ts per the ONE-file-per-host convention — see
- * tests/README.md.)
+ * tests/adapters/qwen-code.test.ts, and kimi's to tests/adapters/kimi.test.ts,
+ * per the ONE-file-per-host convention — see tests/README.md.)
  *
  * Each adapter is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/wave1 pattern, plus a runtime parse/format round-trip:
  *   • installServer  → native MCP registration under the CORRECT root key
- *                      (mcpServers for kiro/kimi; "mcp" for crush;
+ *                      (mcpServers for kiro; "mcp" for crush;
  *                      jetbrains-copilot writes NOTHING and returns a WARN).
  *   • installHooks   → native hook registration in the right FILE + SHAPE:
  *       kiro        → "hooks" in the agent file kiro_default.json (SessionStart
  *                     → native "agentSpawn").
  *       jetbrains   → .github/hooks/<id>.json with version:1 + FLAT {type,command}.
- *       kimi        → [[hooks]] array-of-tables in config.toml (TOML).
  *       crush       → top-level "hooks" key in crush.json.
  *     Every hook command references the home-bin + connector id.
  *   • idempotency    → second installHooks/installServer → skip, no duplicates.
@@ -26,16 +25,15 @@
  *     platform-native deny (exit 2 or a stdout decision per platform).
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir,
- * with HOME + KIMI_CODE_HOME + AGENT_CONNECTOR_DATA_DIR redirected there so any
- * user-scope path (resolved from homedir()/$KIMI_CODE_HOME) lands in the sandbox.
- * All mutated env is restored in afterEach so the suite never leaks state.
+ * with HOME + AGENT_CONNECTOR_DATA_DIR redirected there so any user-scope path
+ * (resolved from homedir()) lands in the sandbox. All mutated env is restored in
+ * afterEach so the suite never leaks state.
  */
 
 import { existsSync, readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import TOML from "@iarna/toml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
@@ -44,7 +42,6 @@ import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js
 
 import kiroAdapter from "../../src/adapters/kiro/index.js";
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
-import kimiAdapter from "../../src/adapters/kimi/index.js";
 import crushAdapter from "../../src/adapters/crush/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -62,15 +59,15 @@ const PRE_MATCHER = "acme_query|acme_write";
 // (before `--`) so the proxy stamps hostPlatform under a headless spawn.
 const wrappedArgs = (host: string): string[] =>
   ["serve", "--connector", CONNECTOR_ID, "--scope", "project", "--host", host, "--", "npx", "-y", "@x/y"];
-// User-scoped adapters (kimi, kiro) stamp `--scope user` instead.
+// User-scoped adapters (kiro) stamp `--scope user` instead.
 const wrappedArgsUser = (host: string): string[] =>
   ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--host", host, "--", "npx", "-y", "@x/y"];
 
 /**
  * A connector with a stdio server (env-ref + cwd) + PreToolUse and SessionStart
  * hooks. The PreToolUse + SessionStart pair lets a host that supports SessionStart
- * (kiro, jetbrains) register both, while deny-only hosts (kimi, crush) register
- * PreToolUse only and prove SessionStart is correctly dropped.
+ * (kiro, jetbrains) register both, while the deny-only host (crush) registers
+ * PreToolUse only and proves SessionStart is correctly dropped.
  */
 function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
   return defineConnector({
@@ -119,20 +116,17 @@ function buildCtx(
 
 // Track + restore mutated env so the suite never leaks state.
 let savedHome: string | undefined;
-let savedKimiHome: string | undefined;
 let savedDataDir: string | undefined;
 let savedEnvVar: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
-  savedKimiHome = process.env.KIMI_CODE_HOME;
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
-  restore("KIMI_CODE_HOME", savedKimiHome);
   restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
 });
@@ -143,16 +137,13 @@ function restore(key: string, value: string | undefined): void {
 }
 
 /**
- * Fresh temp project dir + redirect HOME / KIMI_CODE_HOME / data-root there so
- * nothing escapes the sandbox. KIMI_CODE_HOME is pointed at a `.kimi` subdir so
- * the Kimi adapter's user-scope paths resolve inside the temp tree. The env-ref
- * var is set so literal-resolution produces a known value.
+ * Fresh temp project dir + redirect HOME / data-root there so nothing escapes the
+ * sandbox. The env-ref var is set so literal-resolution produces a known value.
  */
 function freshProject(prefix = "ac-wave2-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
-  process.env.KIMI_CODE_HOME = join(dir, ".kimi");
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
@@ -160,10 +151,6 @@ function freshProject(prefix = "ac-wave2-"): string {
 
 function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function readToml(path: string): Record<string, any> {
-  return TOML.parse(readFileSync(path, "utf8")) as Record<string, any>;
 }
 
 /** A representative native PreToolUse hook stdin payload (Claude-style fields). */
@@ -396,101 +383,6 @@ describe("jetbrains-copilot adapter render + round-trip", () => {
     expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked by policy");
     expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// kimi  (mcpServers in mcp.json; [[hooks]] array-of-tables in config.toml)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("kimi adapter render + round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave2-kimi-");
-    // Kimi is user-scoped via $KIMI_CODE_HOME (set by freshProject to <dir>/.kimi).
-    ctx = buildCtx(projectDir, buildConnector(), "user");
-  });
-
-  it("installServer writes mcpServers.<id> into $KIMI_CODE_HOME/mcp.json, wrapped, env LITERAL", () => {
-    const changes = kimiAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".kimi", "mcp.json");
-    expect(serverPath).toBe(kimiAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgsUser("kimi"));
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks writes a [[hooks]] table in config.toml (TOML); PreToolUse + SessionStart both registered", () => {
-    const changes = kimiAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const hookPath = join(projectDir, ".kimi", "config.toml");
-    expect(hookPath).toBe(kimiAdapter.getHookConfigPath(ctx));
-    expect(existsSync(hookPath)).toBe(true);
-
-    const cfg = readToml(hookPath);
-    expect(Array.isArray(cfg.hooks)).toBe(true);
-    // Kimi now supports every canonical event — both register (PascalCase 1:1).
-    expect(cfg.hooks).toHaveLength(2);
-    const byEvent = new Map(cfg.hooks.map((h: any) => [h.event, h]));
-    const pre = byEvent.get("PreToolUse") as any;
-    expect(pre, "PreToolUse entry").toBeDefined();
-    expect(pre.command).toContain(HOME_BIN);
-    expect(pre.command).toContain("hook kimi PreToolUse");
-    expect(pre.command).toContain(`--connector ${CONNECTOR_ID}`);
-    expect((byEvent.get("SessionStart") as any)?.command).toContain("hook kimi SessionStart");
-  });
-
-  it("installHooks is idempotent (skip on second run); uninstallHooks removes the [[hooks]] table", () => {
-    kimiAdapter.installHooks(ctx);
-    const second = kimiAdapter.installHooks(ctx);
-    expect(second.every((c) => c.action === "skip")).toBe(true);
-
-    const hookPath = join(projectDir, ".kimi", "config.toml");
-    expect(readToml(hookPath).hooks).toHaveLength(2);
-
-    kimiAdapter.uninstallHooks(ctx);
-    const after = readToml(hookPath);
-    // The hooks key is dropped entirely once our entries are removed.
-    expect(after.hooks).toBeUndefined();
-  });
-
-  it("installServer idempotent; uninstallServer removes the entry (re-read confirms gone)", () => {
-    kimiAdapter.installServer(ctx);
-    expect(kimiAdapter.installServer(ctx)[0]?.action).toBe("skip");
-
-    kimiAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".kimi", "mcp.json"));
-    expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-  });
-
-  it("parseEvent yields a normalized PreToolUse; formatReply(deny) → exit 2 + reason on stdout", () => {
-    const ev = kimiAdapter.parseEvent!("PreToolUse", preToolUsePayload()) as PreToolUseEvent;
-    assertPreToolUse(ev, "kimi");
-    expect(ev.sessionId).toBe("sess-123");
-
-    // Kimi Code uses the Claude/Codex deny shape: exit 0 + hookSpecificOutput
-    // permissionDecision:"deny" on stdout (NOT exit 2 + bare reason).
-    const reply = kimiAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "blocked by policy",
-    });
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout ?? "{}");
-    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
-    expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked by policy");
   });
 });
 
