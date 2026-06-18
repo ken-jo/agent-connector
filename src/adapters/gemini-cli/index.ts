@@ -82,8 +82,6 @@ import type {
   ServerDef,
   SessionEndEvent,
   SessionStartEvent,
-  SkillDef,
-  SubagentDef,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -98,6 +96,7 @@ import {
   isUsageEventCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import { renderSkillMd, renderSubagentMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "gemini-cli";
 const MCP_ROOT_KEY = "mcpServers";
@@ -748,7 +747,7 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     for (const skill of connector.skills) {
       const dir = this.skillDir(ctx, skill.name);
       changes.push(
-        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+        this.writeContentFile(join(dir, "SKILL.md"), renderSkillMd(skill), ctx.dryRun),
       );
       // Bundle any resource files beside SKILL.md (relative path → contents).
       // Defense-in-depth: skip+warn on any key that escapes the skill dir
@@ -792,25 +791,6 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     return changes;
   }
 
-  /**
-   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
-   * allowed-tools, disable-model-invocation) + body. Uniform across platforms.
-   */
-  private renderSkill(skill: SkillDef): string {
-    const frontmatter: Record<string, unknown> = {
-      name: skill.name,
-      description: skill.description,
-    };
-    if (skill.model !== undefined) frontmatter.model = skill.model;
-    const allow = skill.tools?.allow;
-    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
-    if (skill.disableModelInvocation !== undefined) {
-      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
-    }
-    if (skill.extra) Object.assign(frontmatter, skill.extra);
-    return this.renderFrontmatterMd(frontmatter, skill.body);
-  }
-
   // ── Subagents ───────────────────────────────────────────────────────────────
 
   override installSubagents(ctx: InstallContext): ChangeRecord[] {
@@ -822,7 +802,7 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
       return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
     }
     return connector.subagents.map((agent) =>
-      this.writeContentFile(this.subagentPath(ctx, agent.name), this.renderSubagent(agent), ctx.dryRun),
+      this.writeContentFile(this.subagentPath(ctx, agent.name), renderSubagentMd(agent), ctx.dryRun),
     );
   }
 
@@ -834,19 +814,6 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
     return connector.subagents.map((agent) =>
       this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun),
     );
-  }
-
-  /** Render a subagent to md+frontmatter (name, description, tools, model) + prompt body. */
-  private renderSubagent(agent: SubagentDef): string {
-    const frontmatter: Record<string, unknown> = {
-      name: agent.name,
-      description: agent.description,
-    };
-    const allow = agent.tools?.allow;
-    if (allow && allow.length > 0) frontmatter.tools = allow.join(", ");
-    if (agent.model !== undefined) frontmatter.model = agent.model;
-    if (agent.extra) Object.assign(frontmatter, agent.extra);
-    return this.renderFrontmatterMd(frontmatter, agent.prompt);
   }
 
   // ── Memory surface: GEMINI.md (default) / AGENTS.md (context.fileName opt-in) ─
