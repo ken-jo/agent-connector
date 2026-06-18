@@ -33,14 +33,26 @@ export function renderFrontmatterMd(
 /**
  * Render a command to md+frontmatter
  * (description, argument-hint, allowed-tools, model + verbatim extra).
+ *
+ * `opts.includeToolsAndModel` (default `true`) controls the allowed-tools and
+ * model insertions. Hosts whose command frontmatter is only
+ * (description, argument-hint + verbatim extra) — i.e. they have no native
+ * allowed-tools/model keys — pass `{ includeToolsAndModel: false }` to suppress
+ * both; the default reproduces the full shape byte-for-byte.
  */
-export function renderCommandMd(cmd: CommandDef): string {
+export function renderCommandMd(
+  cmd: CommandDef,
+  opts: { includeToolsAndModel?: boolean } = {},
+): string {
+  const { includeToolsAndModel = true } = opts;
   const frontmatter: Record<string, unknown> = {};
   if (cmd.description !== undefined) frontmatter.description = cmd.description;
   if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
-  const allow = cmd.tools?.allow;
-  if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
-  if (cmd.model !== undefined) frontmatter.model = cmd.model;
+  if (includeToolsAndModel) {
+    const allow = cmd.tools?.allow;
+    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
+    if (cmd.model !== undefined) frontmatter.model = cmd.model;
+  }
   if (cmd.extra) Object.assign(frontmatter, cmd.extra);
   return renderFrontmatterMd(frontmatter, cmd.prompt);
 }
@@ -73,6 +85,28 @@ export function renderSubagentMd(agent: SubagentDef): string {
   const allow = agent.tools?.allow;
   if (allow && allow.length > 0) frontmatter.tools = allow.join(", ");
   if (agent.model !== undefined) frontmatter.model = agent.model;
+  if (agent.extra) Object.assign(frontmatter, agent.extra);
+  return renderFrontmatterMd(frontmatter, agent.prompt);
+}
+
+/**
+ * Render a subagent in OpenCode's shape (shared by opencode/kilo/mimo-code):
+ * frontmatter (description, mode:"subagent", model?, permission? + verbatim
+ * extra) with the system prompt as the body. `name` is NOT a frontmatter
+ * field — it comes from the filename. `permission` is derived from the coarse
+ * `readonly` knob: a readonly agent gets a per-tool deny map (edit/bash) so it
+ * cannot mutate the workspace.
+ */
+export function renderOpenCodeSubagentMd(agent: SubagentDef): string {
+  const frontmatter: Record<string, unknown> = {
+    description: agent.description,
+    mode: "subagent",
+  };
+  if (agent.model !== undefined) frontmatter.model = agent.model;
+  if (agent.readonly === true) {
+    // Per-tool permission map: deny mutating tools for a readonly subagent.
+    frontmatter.permission = { edit: "deny", bash: "deny" };
+  }
   if (agent.extra) Object.assign(frontmatter, agent.extra);
   return renderFrontmatterMd(frontmatter, agent.prompt);
 }

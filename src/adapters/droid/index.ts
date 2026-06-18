@@ -41,10 +41,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
+import { renderCommandMd } from "../claude-code/render.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
-  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookEventName,
@@ -472,7 +472,11 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
       return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
     }
     return connector.commands.map((cmd) =>
-      this.writeContentFile(this.commandPath(ctx, cmd.name), this.renderCommand(cmd), ctx.dryRun),
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        renderCommandMd(cmd, { includeToolsAndModel: false }),
+        ctx.dryRun,
+      ),
     );
   }
 
@@ -484,15 +488,6 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     return connector.commands.map((cmd) =>
       this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
     );
-  }
-
-  /** Render a command to md+frontmatter (description, argument-hint). */
-  private renderCommand(cmd: CommandDef): string {
-    const frontmatter: Record<string, unknown> = {};
-    if (cmd.description !== undefined) frontmatter.description = cmd.description;
-    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
-    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
-    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
   }
 
   // ── Skills ───────────────────────────────────────────────────────────────

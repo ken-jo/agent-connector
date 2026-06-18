@@ -59,7 +59,6 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
-  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookParadigm,
@@ -73,7 +72,7 @@ import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
-import { renderSkillMd } from "../claude-code/render.js";
+import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "cline";
 const MCP_ROOT_KEY = "mcpServers";
@@ -491,7 +490,11 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
       return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
     }
     return connector.commands.map((cmd) =>
-      this.writeContentFile(this.commandPath(ctx, cmd.name), this.renderCommand(cmd), ctx.dryRun),
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        renderCommandMd(cmd, { includeToolsAndModel: false }),
+        ctx.dryRun,
+      ),
     );
   }
 
@@ -503,15 +506,6 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
     return connector.commands.map((cmd) =>
       this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
     );
-  }
-
-  /** Render a command (Cline Workflow) to md + optional frontmatter. */
-  private renderCommand(cmd: CommandDef): string {
-    const frontmatter: Record<string, unknown> = {};
-    if (cmd.description !== undefined) frontmatter.description = cmd.description;
-    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
-    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
-    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
   }
 
   // ── Skills (project .clinerules/skills + user ~/.cline/skills) ────────────

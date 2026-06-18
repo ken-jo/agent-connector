@@ -39,7 +39,6 @@ import { BaseAdapter } from "../base.js";
 import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
-  CommandDef,
   DetectedPlatform,
   HealthCheck,
   HookParadigm,
@@ -53,7 +52,7 @@ import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
-import { renderSkillMd } from "../claude-code/render.js";
+import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "roo-code";
 const MCP_ROOT_KEY = "mcpServers";
@@ -397,8 +396,16 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
     if (connector.commands.length === 0) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
     }
+    // Roo Code additionally honors a `mode` frontmatter key; it is passed
+    // through only when cmd.extra carries it (renderCommandMd merges extra
+    // verbatim). includeToolsAndModel:false suppresses allowed-tools/model so
+    // the shape stays (description, argument-hint + verbatim extra).
     return connector.commands.map((cmd) =>
-      this.writeContentFile(this.commandPath(ctx, cmd.name), this.renderCommand(cmd), ctx.dryRun),
+      this.writeContentFile(
+        this.commandPath(ctx, cmd.name),
+        renderCommandMd(cmd, { includeToolsAndModel: false }),
+        ctx.dryRun,
+      ),
     );
   }
 
@@ -410,20 +417,6 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
     return connector.commands.map((cmd) =>
       this.removeContentFile(this.commandPath(ctx, cmd.name), ctx.dryRun),
     );
-  }
-
-  /**
-   * Render a command to md+optional frontmatter (description, argument-hint).
-   * Roo Code additionally honors a `mode` frontmatter key; it is passed through
-   * only when cmd.extra carries it (the escape-hatch Object.assign below) — the
-   * standard description/argument-hint shape otherwise.
-   */
-  private renderCommand(cmd: CommandDef): string {
-    const frontmatter: Record<string, unknown> = {};
-    if (cmd.description !== undefined) frontmatter.description = cmd.description;
-    if (cmd.argumentHint !== undefined) frontmatter["argument-hint"] = cmd.argumentHint;
-    if (cmd.extra) Object.assign(frontmatter, cmd.extra);
-    return this.renderFrontmatterMd(frontmatter, cmd.prompt);
   }
 
   // ── Skills ───────────────────────────────────────────────────────────────
