@@ -32,6 +32,12 @@ import type {
 } from "../core/types.js";
 import { backupsDir, ensureDir } from "../core/paths.js";
 import { parseJsonc } from "../core/jsonc.js";
+import {
+  isMalformedRootValue as isMalformedRootValueFn,
+  removeFromObjectMap,
+  upsertInObjectMap,
+  type ObjectMapCodec,
+} from "../core/object-map.js";
 import { buildHomeBinActionCommand } from "../core/spawn.js";
 import {
   MEMORY_CONTENT_SOFT_BUDGET_BYTES,
@@ -820,7 +826,7 @@ export abstract class BaseAdapter implements Adapter {
    * case the helpers create fresh.
    */
   protected isMalformedRootValue(value: unknown): boolean {
-    return value != null && (typeof value !== "object" || Array.isArray(value));
+    return isMalformedRootValueFn(value);
   }
 
   /**
@@ -860,6 +866,16 @@ export abstract class BaseAdapter implements Adapter {
     return null;
   }
 
+  /** Bind BaseAdapter's JSON leaf IO (readJson/writeJson + the unparseable
+   * overwrite guard) as a Codec for the object-map engine. */
+  private jsonObjectMapCodec(): ObjectMapCodec {
+    return {
+      parse: (path) => this.readJson<Record<string, unknown>>(path),
+      serialize: (path, data, dryRun) => this.writeJson(path, data, dryRun),
+      isPresentButUnparseable: (path) => this.isPresentButUnparseable(path),
+    };
+  }
+
   /**
    * Upsert `entry` at `config[rootKey][serverId]` in a JSON file, creating the
    * file/object as needed. Returns a ChangeRecord describing create/update/skip.
@@ -872,42 +888,15 @@ export abstract class BaseAdapter implements Adapter {
     entry: unknown,
     dryRun = false,
   ): ChangeRecord {
-    // OVERWRITE GUARD: never replace a present, non-empty, unparseable settings
-    // file with a `{}`-based config — that would silently destroy the user's
-    // data. Warn and skip so they can back it up / fix it and re-run.
-    if (this.isPresentButUnparseable(configPath)) {
-      return {
-        platform: this.id,
-        action: "warn",
-        path: configPath,
-        detail: `existing ${configPath} is not parseable; left untouched (back it up / fix it, then re-run)`,
-      };
-    }
-    const cfg = this.readJson<Record<string, Record<string, unknown>>>(configPath) ?? {};
-    // ROOT-KEY GUARD: a present-but-malformed rootKey (hand-edited to an array /
-    // primitive) cannot hold a named server entry — assigning into it would
-    // silently drop the entry (array) or throw (primitive). Warn and skip so the
-    // user's malformed data is preserved untouched.
-    if (this.isMalformedRootValue(cfg[rootKey])) {
-      return {
-        platform: this.id,
-        action: "warn",
-        path: configPath,
-        detail: `existing "${rootKey}" in ${configPath} is not an object map; left untouched (fix it, then re-run)`,
-      };
-    }
-    const bucket = (cfg[rootKey] ??= {});
-    const before = JSON.stringify(bucket[serverId]);
-    const after = JSON.stringify(entry);
-    let action: ChangeRecord["action"];
-    if (before === undefined) action = "create";
-    else if (before === after) action = "skip";
-    else action = "update";
-    if (action !== "skip") {
-      bucket[serverId] = entry;
-      this.writeJson(configPath, cfg, dryRun);
-    }
-    return { platform: this.id, action, path: configPath, detail: `${rootKey}.${serverId}` };
+    return upsertInObjectMap({
+      codec: this.jsonObjectMapCodec(),
+      rootKey,
+      platform: this.id,
+      configPath,
+      entryId: serverId,
+      entry,
+      dryRun,
+    });
   }
 
   /** Remove `config[rootKey][serverId]` from a JSON file. */
@@ -917,37 +906,14 @@ export abstract class BaseAdapter implements Adapter {
     serverId: string,
     dryRun = false,
   ): ChangeRecord {
-    // OVERWRITE GUARD (see upsertServerInJson): a present-but-unparseable file
-    // would round-trip to `{}` and erase the user's config, so warn and skip.
-    if (this.isPresentButUnparseable(configPath)) {
-      return {
-        platform: this.id,
-        action: "warn",
-        path: configPath,
-        detail: `existing ${configPath} is not parseable; left untouched (back it up / fix it, then re-run)`,
-      };
-    }
-    const cfg = this.readJson<Record<string, Record<string, unknown>>>(configPath);
-    // ROOT-KEY GUARD (see upsertServerInJson): a present-but-malformed rootKey
-    // would make the `in` operator below throw against a primitive (and we must
-    // never rewrite the user's hand-edited array/primitive), so warn and skip
-    // BEFORE touching the bucket. The well-formed absent case (cfg == null or
-    // rootKey missing) keeps its existing skip below.
-    if (cfg && this.isMalformedRootValue(cfg[rootKey])) {
-      return {
-        platform: this.id,
-        action: "warn",
-        path: configPath,
-        detail: `existing "${rootKey}" in ${configPath} is not an object map; left untouched (fix it, then re-run)`,
-      };
-    }
-    const bucket = cfg?.[rootKey];
-    if (!cfg || !bucket || !(serverId in bucket)) {
-      return { platform: this.id, action: "skip", path: configPath, detail: `${rootKey}.${serverId} absent` };
-    }
-    delete bucket[serverId];
-    this.writeJson(configPath, cfg, dryRun);
-    return { platform: this.id, action: "remove", path: configPath, detail: `${rootKey}.${serverId}` };
+    return removeFromObjectMap({
+      codec: this.jsonObjectMapCodec(),
+      rootKey,
+      platform: this.id,
+      configPath,
+      entryId: serverId,
+      dryRun,
+    });
   }
 
   // ── Backup ───────────────────────────────────────────────────────────────

@@ -190,41 +190,9 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     }
 
     const entry = this.renderCommandString(ctx, server);
-
-    // QUIRK: each server value is a STRING, not an object — so we cannot use the
-    // generic object upsert helper. Build the string and upsert idempotently.
-    const cfg =
-      this.readJson<Record<string, Record<string, unknown>>>(path) ?? {};
-    // ROOT-KEY GUARD (mirrors BaseAdapter.upsertServerInJson): a present-but-
-    // malformed root key (hand-edited to an array / primitive) cannot hold a
-    // named server entry — assigning into it would silently drop the entry
-    // (array) or throw (primitive). Warn and skip so the user's data survives.
-    if (this.isMalformedRootValue(cfg[MCP_ROOT_KEY])) {
-      return [
-        {
-          platform: this.id,
-          action: "warn",
-          path,
-          detail: `existing "${MCP_ROOT_KEY}" in ${path} is not an object map; left untouched (fix it, then re-run)`,
-        },
-      ];
-    }
-    const bucket = (cfg[MCP_ROOT_KEY] ??= {});
-    const before = JSON.stringify(bucket[connector.id]);
-    const after = JSON.stringify(entry);
-
-    let action: ChangeRecord["action"];
-    if (before === undefined) action = "create";
-    else if (before === after) action = "skip";
-    else action = "update";
-
-    if (action !== "skip") {
-      bucket[connector.id] = entry;
-      this.writeJson(path, cfg, dryRun);
-    }
-    return [
-      { platform: this.id, action, path, detail: `${MCP_ROOT_KEY}.${connector.id}` },
-    ];
+    // Mux's server VALUE is a command string, but the object-map upsert is
+    // value-agnostic — route through the shared helper (byte-identical output).
+    return [this.upsertServerInJson(path, MCP_ROOT_KEY, connector.id, entry, dryRun)];
   }
 
   uninstallServer(ctx: InstallContext): ChangeRecord[] {
