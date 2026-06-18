@@ -6,13 +6,12 @@
  *     carries a // comment (the data-loss bug before the parseJsonc fix).
  *   • overwrite guard — a present, non-empty, TRULY-malformed settings file is
  *     left untouched (a "warn"), never blanked to {}.
- *   • kimi — deny uses the Claude/Codex hookSpecificOutput shape (exit 0); the
- *     base dir defaults to ~/.kimi (live-confirmed), honoring $KIMI_HOME / $KIMI_CODE_HOME.
  *
  * (The openclaw parseJsonc-tolerance + dual-registration block has moved to the
  * per-host file adapters/openclaw.test.ts, the omp modify-degrades-to-allow block
- * to adapters/omp.test.ts, and the qwen-code remote-transport-key block to
- * adapters/qwen-code.test.ts, per tests/README.md.)
+ * to adapters/omp.test.ts, the qwen-code remote-transport-key block to
+ * adapters/qwen-code.test.ts, and the kimi deny-protocol/base-dir/parseEvent
+ * blocks to adapters/kimi.test.ts, per tests/README.md.)
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -24,11 +23,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ensureDir } from "../../src/core/paths.js";
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
-import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js";
+import type { ResolvedConnector } from "../../src/core/types.js";
 
 import zedAdapter from "../../src/adapters/zed/index.js";
 import codebuffAdapter from "../../src/adapters/codebuff/index.js";
-import kimiAdapter from "../../src/adapters/kimi/index.js";
 import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -75,21 +73,15 @@ function buildCtx(
 
 let savedHome: string | undefined;
 let savedDataDir: string | undefined;
-let savedKimiHome: string | undefined;
-let savedKimiHomeNew: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-  savedKimiHome = process.env.KIMI_CODE_HOME;
-  savedKimiHomeNew = process.env.KIMI_HOME;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
   restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-  restore("KIMI_CODE_HOME", savedKimiHome);
-  restore("KIMI_HOME", savedKimiHomeNew);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -102,8 +94,6 @@ function freshProject(prefix: string): string {
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
-  delete process.env.KIMI_CODE_HOME;
-  delete process.env.KIMI_HOME;
   return dir;
 }
 
@@ -173,49 +163,6 @@ describe("overwrite guard: present, non-empty, TRULY-malformed settings file", (
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// kimi — deny protocol + base dir
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("kimi deny protocol + base dir", () => {
-  it("formatReply(deny) yields exit 0 + hookSpecificOutput permissionDecision 'deny'", () => {
-    const reply = kimiAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "blocked by policy",
-    });
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout ?? "{}");
-    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
-    expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked by policy");
-  });
-
-  it("allow → exit 0 with empty stdout", () => {
-    const reply = kimiAdapter.formatReply!("PreToolUse", { decision: "allow" });
-    expect(reply.exitCode).toBe(0);
-    expect(reply.stdout).toBeUndefined();
-  });
-
-  it("baseDir defaults to ~/.kimi (live-confirmed real Kimi CLI path, NOT ~/.kimi-code) when no env override is set", () => {
-    const projectDir = freshProject("ac-rf-kimi-");
-    delete process.env.KIMI_HOME;
-    delete process.env.KIMI_CODE_HOME;
-    const ctx = buildCtx(projectDir, buildConnector(), "user");
-    // HOME is redirected to projectDir, so the base dir resolves into the sandbox.
-    const serverPath = kimiAdapter.getServerConfigPath(ctx);
-    expect(serverPath).toBe(join(projectDir, ".kimi", "mcp.json"));
-    expect(serverPath).not.toContain(".kimi-code");
-  });
-
-  it("baseDir honors $KIMI_CODE_HOME when set", () => {
-    const projectDir = freshProject("ac-rf-kimi2-");
-    const custom = join(projectDir, "custom-kimi");
-    process.env.KIMI_CODE_HOME = custom;
-    const ctx = buildCtx(projectDir, buildConnector(), "user");
-    expect(kimiAdapter.getServerConfigPath(ctx)).toBe(join(custom, "mcp.json"));
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
 // codebuff — ${env:VAR:-fallback} default must NOT be dropped
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -253,19 +200,6 @@ describe("codebuff env-ref default is preserved (not dropped)", () => {
     const entry = cfg.mcpServers[CONNECTOR_ID];
     expect(entry.env.ENDPOINT).toBe("https://fallback.example");
     expect(entry.env.TOKEN).toBe(`$${VAR}`);
-  });
-});
-
-describe("kimi parseEvent normalizes a PreToolUse payload", () => {
-  it("maps a native payload to a normalized PreToolUse event", () => {
-    const ev = kimiAdapter.parseEvent!("PreToolUse", {
-      tool_name: "acme_query",
-      tool_input: { sql: "select 1" },
-      session_id: "sess-1",
-      cwd: "/work",
-    }) as PreToolUseEvent;
-    expect(ev.toolName).toBe("acme_query");
-    expect(ev.sessionId).toBe("sess-1");
   });
 });
 
