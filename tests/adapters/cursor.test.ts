@@ -293,10 +293,22 @@ describe("cursor adapter render/round-trip", () => {
     const changes = cursorAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
 
+    // The normalized create detail is exactly `hooks.<cursorEvent>` (the mapped
+    // lower-camel key, NOT the canonical event name).
+    const preCreate = changes.find(
+      (c) => c.action === "create" && c.detail === "hooks.preToolUse",
+    );
+    expect(preCreate).toBeTruthy();
+    const startCreate = changes.find(
+      (c) => c.action === "create" && c.detail === "hooks.sessionStart",
+    );
+    expect(startCreate).toBeTruthy();
+
     const hooksPath = join(projectDir, ".cursor", "hooks.json");
     expect(hooksPath).toBe(cursorAdapter.getHookConfigPath(ctx));
 
     const cfg = readJson(hooksPath);
+    // The onMutate version stamp: a mutating install writes version === 1 EXACTLY.
     expect(cfg.version).toBe(1);
 
     // Cursor uses lower-camel native event keys and FLAT command objects.
@@ -326,6 +338,14 @@ describe("cursor adapter render/round-trip", () => {
     cursorAdapter.installHooks(ctx);
     const second = cursorAdapter.installHooks(ctx);
     expect(second.every((c) => c.action === "skip")).toBe(true);
+
+    // The normalized skip detail is exactly `hooks.<cursorEvent> already registered`.
+    expect(second.map((c) => c.detail)).toEqual(
+      expect.arrayContaining([
+        "hooks.preToolUse already registered",
+        "hooks.sessionStart already registered",
+      ]),
+    );
 
     const cfg = readJson(join(projectDir, ".cursor", "hooks.json"));
     expect(cfg.hooks.preToolUse).toHaveLength(1);
@@ -405,7 +425,7 @@ describe("cursor adapter — nativeHooks passthrough", () => {
 
   it("installHooks writes native event-name keys VERBATIM beside the normalized (mapped) hook", () => {
     const projectDir = freshProject("ac-cursor-native-");
-    cursorAdapter.installHooks(buildCtx(projectDir, nativeConnector()));
+    const changes = cursorAdapter.installHooks(buildCtx(projectDir, nativeConnector()));
     const cfg = readJson(hooksFile(projectDir));
 
     // Normalized PreToolUse maps to Cursor's native "preToolUse" key.
@@ -415,6 +435,18 @@ describe("cursor adapter — nativeHooks passthrough", () => {
     expect(cfg.hooks.beforeReadFile[0].matcher).toBe("Read");
     expect(cfg.hooks.beforeReadFile[0].command).toContain("hook cursor beforeReadFile");
     expect(cfg.version).toBe(1);
+
+    // The native create detail is exactly `hooks.<event> (native)` — distinct
+    // from the normalized `hooks.<cursorEvent>` wording, with the verbatim key.
+    expect(changes.map((c) => c.detail)).toEqual(
+      expect.arrayContaining([
+        "hooks.beforeShellExecution (native)",
+        "hooks.beforeReadFile (native)",
+      ]),
+    );
+    // beforeShellExecution declares no matcher → flat `{command}` with NO matcher
+    // key (the omit-when-empty on-disk byte shape).
+    expect(cfg.hooks.beforeShellExecution[0]).not.toHaveProperty("matcher");
   });
 
   it("is idempotent (second install → skip) and uninstall removes the native entries", () => {
@@ -424,7 +456,24 @@ describe("cursor adapter — nativeHooks passthrough", () => {
     const second = cursorAdapter.installHooks(ctx);
     expect(second.every((c) => c.action === "skip")).toBe(true);
 
-    cursorAdapter.uninstallHooks(ctx);
+    // The native skip detail is exactly `hooks.<event> (native) already registered`.
+    expect(second.map((c) => c.detail)).toEqual(
+      expect.arrayContaining([
+        "hooks.beforeShellExecution (native) already registered",
+        "hooks.beforeReadFile (native) already registered",
+      ]),
+    );
+
+    const removal = cursorAdapter.uninstallHooks(ctx);
+    // FLAT whole-entry removal detail is exactly `hooks.<event> (<n>)` — both the
+    // mapped normalized key and the verbatim native keys are dropped.
+    expect(removal.map((c) => c.detail)).toEqual(
+      expect.arrayContaining([
+        "hooks.preToolUse (1)",
+        "hooks.beforeShellExecution (1)",
+        "hooks.beforeReadFile (1)",
+      ]),
+    );
     const after = readJson(hooksFile(projectDir));
     expect(JSON.stringify(after.hooks ?? {})).not.toContain(HOME_BIN);
   });
@@ -492,14 +541,43 @@ describe("cursor — extended-event install", () => {
     expect(cfg.hooks.subagentStart[0].matcher).toBe(AGENT_MATCHER);
     expect(cfg.hooks.subagentStop[0].matcher).toBe(AGENT_MATCHER);
 
-    // PermissionRequest: never silently dropped — the standard warn-skip.
+    // PermissionRequest: never silently dropped — the standard warn-skip, with
+    // the EXACT unmapped-event detail `<event> has no Cursor hook equivalent — skipped`.
     const warn = changes.find(
       (c) => c.action === "warn" && c.detail?.includes("PermissionRequest"),
     );
     expect(warn).toBeTruthy();
-    expect(warn!.detail).toContain("no Cursor hook equivalent");
+    expect(warn!.detail).toBe("PermissionRequest has no Cursor hook equivalent — skipped");
     expect(cfg.hooks.permissionRequest).toBeUndefined();
     expect(cfg.hooks.PermissionRequest).toBeUndefined();
+  });
+});
+
+// ── uninstall details: absent file + no-match (exact skip wording) ────────────
+
+describe("cursor — uninstall skip details", () => {
+  it("absent hooks.json → skip 'no hooks section present'", () => {
+    const projectDir = freshProject("ac-cursor-uninstall-");
+    const ctx = buildCtx(projectDir, buildConnector());
+    // Nothing installed: hooks.json does not exist.
+    expect(existsSync(hooksFile(projectDir))).toBe(false);
+    const changes = cursorAdapter.uninstallHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("no hooks section present");
+  });
+
+  it("present hooks.json with no entries of ours → skip 'no matching hook entries'", () => {
+    const projectDir = freshProject("ac-cursor-uninstall-");
+    const ctx = buildCtx(projectDir, buildConnector());
+    cursorAdapter.installHooks(ctx);
+    // First uninstall clears our entries; the file/section still exists.
+    cursorAdapter.uninstallHooks(ctx);
+    // Second uninstall: a hooks section is present but nothing of ours matches.
+    const again = cursorAdapter.uninstallHooks(ctx);
+    expect(again).toHaveLength(1);
+    expect(again[0]?.action).toBe("skip");
+    expect(again[0]?.detail).toBe("no matching hook entries");
   });
 });
 
