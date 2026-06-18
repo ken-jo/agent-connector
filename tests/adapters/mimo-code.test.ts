@@ -16,16 +16,15 @@
  * Filesystem isolation: every test gets a fresh mkdtemp project dir with HOME +
  * AGENT_CONNECTOR_DATA_DIR redirected there, restored in afterEach. Project scope
  * throughout for deterministic paths.
+ *
+ * Migrated to the shared harness (tests/support/env + adapter-suite). The ONE
+ * hoisted node:child_process mock (carried below) backs the LIVE bridge tests;
+ * the render / runtime-dispatch slices only inspect written bytes and never
+ * spawn but share this file's one mock.
  */
 
 import { createRequire } from "node:module";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -36,6 +35,9 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { HookResponse, ResolvedConnector } from "../../src/core/types.js";
 
 import mimoAdapter from "../../src/adapters/mimo-code/index.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { readJson } from "../support/fs.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
 
 // ── node:child_process mock (hoisted above imports) ───────────────────────
 let execFileSyncImpl: (...args: any[]) => string = () => "";
@@ -49,6 +51,8 @@ vi.mock("node:child_process", () => ({
 const REAL_PLATFORM = process.platform;
 beforeEach(() => {
   Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  execFileSyncMock.mockClear();
+  execFileSyncImpl = () => "";
 });
 afterEach(() => {
   Object.defineProperty(process, "platform", { value: REAL_PLATFORM, configurable: true });
@@ -57,7 +61,6 @@ afterEach(() => {
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
 const ENV_LITERAL = "postgres://acme/db";
-const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 
 function buildConnector(): ResolvedConnector {
   return defineConnector({
@@ -87,55 +90,23 @@ function buildConnector(): ResolvedConnector {
   });
 }
 
-function buildCtx(projectDir: string, connector: ResolvedConnector): InstallContext {
-  return {
-    connector,
-    scope: "project",
-    projectDir,
-    homeBinPath: HOME_BIN,
-    dataRoot: projectDir,
-    dryRun: false,
-  };
+/** Project ctx with dataRoot pinned to the project dir (mimocode's mimocode.json
+ * lives at the project root, so server/hook paths resolve there). */
+function mimoCtx(projectDir: string, connector: ResolvedConnector): InstallContext {
+  return buildCtx(projectDir, connector, { dataRoot: projectDir });
 }
 
-let savedHome: string | undefined;
-let savedUserProfile: string | undefined;
-let savedDataDir: string | undefined;
-let savedEnvVar: string | undefined;
-
-beforeEach(() => {
-  savedHome = process.env.HOME;
-  savedUserProfile = process.env.USERPROFILE;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-  savedEnvVar = process.env[ENV_VAR];
-  execFileSyncMock.mockClear();
-  execFileSyncImpl = () => "";
-});
-
-afterEach(() => {
-  restore("HOME", savedHome);
-  restore("USERPROFILE", savedUserProfile);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-  restore(ENV_VAR, savedEnvVar);
-});
-
-function restore(key: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
-}
-
-function freshProject(prefix: string): string {
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+/** Shape-A fresh project + the env-ref var every mimo-code test sets. */
+function freshMimoProject(prefix: string): string {
+  const dir = freshProject(prefix);
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
 }
 
-function readJson(path: string): Record<string, any> {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
+// Shared env isolation (default keys + the env-ref var the server slice mutates)
+// + the same-rules-for-every-host baseline contract.
+isolateEnv([ENV_VAR]);
+createAdapterSuite({ adapter: mimoAdapter, paradigm: "ts-plugin" });
 
 describe("mimo-code adapter — identity + detection (distinct from opencode)", () => {
   it("has the mimo-code identity and the ts-plugin paradigm", () => {
@@ -145,11 +116,11 @@ describe("mimo-code adapter — identity + detection (distinct from opencode)", 
   });
 
   it("detects only when the mimocode config (.mimocode/mimocode.json) is present", () => {
-    const projectDir = freshProject("ac-mimo-detect-");
+    const projectDir = freshMimoProject("ac-mimo-detect-");
     expect(mimoAdapter.detectInstalled(projectDir).installed).toBe(false);
 
     // A project-scope mimocode.json at the project root → installed.
-    const ctx = buildCtx(projectDir, buildConnector());
+    const ctx = mimoCtx(projectDir, buildConnector());
     mimoAdapter.installServer(ctx);
     const det = mimoAdapter.detectInstalled(projectDir);
     expect(det.installed).toBe(true);
@@ -164,8 +135,8 @@ describe("mimo-code adapter — MCP install (root key 'mcp', mimocode.json)", ()
   let serverPath: string;
 
   beforeEach(() => {
-    projectDir = freshProject("ac-mimo-mcp-");
-    ctx = buildCtx(projectDir, buildConnector());
+    projectDir = freshMimoProject("ac-mimo-mcp-");
+    ctx = mimoCtx(projectDir, buildConnector());
     serverPath = join(projectDir, "mimocode.json");
     expect(serverPath).toBe(mimoAdapter.getServerConfigPath(ctx));
   });
@@ -220,8 +191,8 @@ describe("mimo-code adapter — ts-plugin hooks dispatch to `hook mimo-code` (st
   let pluginPath: string;
 
   beforeEach(() => {
-    projectDir = freshProject("ac-mimo-hooks-");
-    ctx = buildCtx(projectDir, buildConnector());
+    projectDir = freshMimoProject("ac-mimo-hooks-");
+    ctx = mimoCtx(projectDir, buildConnector());
     pluginPath = mimoAdapter.getHookConfigPath(ctx);
   });
 
@@ -335,8 +306,8 @@ describe("mimo-code adapter — UserPromptSubmit → chat.message", () => {
   let pluginPath: string;
 
   beforeEach(() => {
-    projectDir = freshProject("ac-mimo-prompt-");
-    ctx = buildCtx(projectDir, buildPromptConnector());
+    projectDir = freshMimoProject("ac-mimo-prompt-");
+    ctx = mimoCtx(projectDir, buildPromptConnector());
     pluginPath = mimoAdapter.getHookConfigPath(ctx);
   });
 
