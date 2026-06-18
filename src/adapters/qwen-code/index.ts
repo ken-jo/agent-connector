@@ -50,7 +50,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { BaseAdapter } from "../base.js";
+import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
@@ -86,7 +86,6 @@ import { renderSkillMd } from "../claude-code/render.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { writeTomlString } from "../../core/toml.js";
 import {
-  buildHomeBinHookCommand,
   buildHomeBinStatuslineCommand,
   buildServeWrapperCommand,
   isHomeBinHookCommand,
@@ -485,162 +484,69 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
-    const settingsPath = this.getHookConfigPath(ctx);
-    // MERGE into any existing settings (JSONC written as strict JSON) so the
-    // user's own mcpServers / theme / other keys are preserved.
-    const settings = this.readJson<QwenSettingsFile>(settingsPath) ?? {};
-    const __skip = this.malformedHookRootSkip(
-      settingsPath,
-      (settings as Record<string, unknown>).hooks,
+    // Normalized events register their canonical PascalCase name verbatim (qwen's
+    // hook vocabulary is Claude-identical — NO mapEvent, no warn path). Native
+    // event-name keys ride the separate `native` pass (verbatim keys, FIRST-INNER
+    // command match, the `(native)` detail) — see hookDescriptor + upsertHookEntries.
+    const pending = normalizedEvents.map((event) => ({
+      event,
+      matcher: connector.hooks[event]?.matcher ?? "",
+    }));
+    const native = nativeEvents.map((event) => ({
+      event,
+      matcher: nativeHooks[event]?.matcher ?? "",
+    }));
+    return this.upsertHookEntries(
+      ctx,
+      this.getHookConfigPath(ctx),
+      pending,
+      this.hookDescriptor(ctx),
+      native,
     );
-    if (__skip) return [__skip];
-    const hooks = (settings.hooks ??= {});
-
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const event of normalizedEvents) {
-      // Qwen's hook event names are Claude-identical (PascalCase) — register the
-      // canonical event name directly. Write-all is AUDITED here: every canonical
-      // event (incl. PermissionRequest / PostToolUseFailure / SubagentStart /
-      // SubagentStop) exists natively on Qwen, whose 16-event surface is strictly
-      // wider than the canonical union.
-      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const matcher = connector.hooks[event]?.matcher ?? "";
-      const entry: QwenHookEntry = {
-        matcher,
-        hooks: [{ type: "command", command }],
-      };
-
-      const bucket = (hooks[event] ??= []);
-      const existingIdx = bucket.findIndex((e) => this.entryHasOurCommand(e, ctx));
-
-      if (existingIdx >= 0) {
-        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
-          changes.push({
-            platform: this.id,
-            action: "skip",
-            path: settingsPath,
-            detail: `hooks.${event} already registered`,
-          });
-          continue;
-        }
-        bucket[existingIdx] = entry;
-        changes.push({
-          platform: this.id,
-          action: "update",
-          path: settingsPath,
-          detail: `hooks.${event}`,
-        });
-      } else {
-        bucket.push(entry);
-        changes.push({
-          platform: this.id,
-          action: "create",
-          path: settingsPath,
-          detail: `hooks.${event}`,
-        });
-      }
-      mutated = true;
-    }
-
-    // NATIVE passthrough events: qwen-native event-name keys (e.g. TodoCreated,
-    // TodoCompleted, StopFailure) filed VERBATIM into settings.json hooks — no
-    // EVENT_MAP, since they ARE Qwen events. Same nested entry shape; matched by
-    // EXACT command so a native key coinciding with a normalized one never clobbers.
-    for (const nativeEvent of nativeEvents) {
-      const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, nativeEvent, connector.id);
-      const entry: QwenHookEntry = {
-        matcher: nativeHooks[nativeEvent]?.matcher ?? "",
-        hooks: [{ type: "command", command }],
-      };
-      const bucket = (hooks[nativeEvent] ??= []);
-      const existingIdx = bucket.findIndex((e) => e.hooks?.[0]?.command === command);
-      if (existingIdx >= 0) {
-        if (JSON.stringify(bucket[existingIdx]) === JSON.stringify(entry)) {
-          changes.push({
-            platform: this.id,
-            action: "skip",
-            path: settingsPath,
-            detail: `hooks.${nativeEvent} (native) already registered`,
-          });
-          continue;
-        }
-        bucket[existingIdx] = entry;
-        changes.push({ platform: this.id, action: "update", path: settingsPath, detail: `hooks.${nativeEvent} (native)` });
-      } else {
-        bucket.push(entry);
-        changes.push({ platform: this.id, action: "create", path: settingsPath, detail: `hooks.${nativeEvent} (native)` });
-      }
-      mutated = true;
-    }
-
-    if (mutated) this.writeJson(settingsPath, settings, ctx.dryRun);
-    return changes;
   }
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
-    const settingsPath = this.getHookConfigPath(ctx);
-    const settings = this.readJson<QwenSettingsFile>(settingsPath);
-    const hooks = settings?.hooks;
-    if (!settings || !hooks) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path: settingsPath,
-          detail: "no hooks section present",
-        },
-      ];
-    }
-
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-
-    for (const event of Object.keys(hooks)) {
-      const bucket = hooks[event];
-      if (!Array.isArray(bucket)) continue;
-
-      // Strip our hook command from each entry; drop entries left empty so we
-      // never remove another connector's (or the user's own) hook commands. The
-      // id token is anchored (isHomeBinHookCommand) so a shared-prefix connector
-      // id is never affected.
-      const next: QwenHookEntry[] = [];
-      let removed = 0;
-      for (const e of bucket) {
-        const innerBefore = e.hooks?.length ?? 0;
-        const inner = (e.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
-        removed += innerBefore - inner.length;
-        if (inner.length > 0) next.push({ matcher: e.matcher ?? "", hooks: inner });
-      }
-
-      if (removed > 0) {
-        if (next.length > 0) hooks[event] = next;
-        else delete hooks[event];
-        changes.push({
-          platform: this.id,
-          action: "remove",
-          path: settingsPath,
-          detail: `hooks.${event} (${removed})`,
-        });
-        mutated = true;
-      }
-    }
-
-    if (mutated) this.writeJson(settingsPath, settings, ctx.dryRun);
-    if (changes.length === 0) {
-      changes.push({
-        platform: this.id,
-        action: "skip",
-        path: settingsPath,
-        detail: "no matching hook entries",
-      });
-    }
-    return changes;
+    return this.removeHookEntries(ctx, this.getHookConfigPath(ctx), this.hookDescriptor(ctx));
   }
 
-  private entryHasOurCommand(entry: QwenHookEntry, ctx: InstallContext): boolean {
-    return (entry.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx));
+  /**
+   * Qwen's hook-merge descriptor (NESTED shape `{ matcher, hooks:[{type,command}] }`):
+   *  - NO mapEvent — qwen's events are Claude-identical, every canonical event is
+   *    supported natively, so there is no unmapped/warn path.
+   *  - install find (entryOwnsCommand) is connector-GENERIC: ANY of our commands in
+   *    the nested hooks array (= the old entryHasOurCommand).
+   *  - uninstall is NESTED: ownsEntryForRemove is never-true, so the engine only
+   *    ever runs stripInner — strip our owned inner commands, keep foreign ones,
+   *    drop entries left empty; `removed` = inner commands removed.
+   *  - the native pass uses FIRST-INNER (`hooks[0].command`) EXACT-command ownership
+   *    — qwen's exact current native match (NOT a `.some()`), distinct from the
+   *    connector-generic normalized find. qwen writes no version/envelope (no onMutate).
+   */
+  private hookDescriptor(ctx: InstallContext): HookMergeDescriptor<QwenHookEntry> {
+    return {
+      renderEntry: (_event, matcher, command) => ({
+        matcher,
+        hooks: [{ type: "command", command }],
+      }),
+      entryOwnsCommand: (entry, _command) =>
+        (entry.hooks ?? []).some((h) => this.isOurCommand(h.command, ctx)),
+      ownsEntryForRemove: () => () => false,
+      stripInner: (c) => (entry) => {
+        const innerBefore = entry.hooks?.length ?? 0;
+        const inner = (entry.hooks ?? []).filter((h) => !this.isOurCommand(h.command, c));
+        return {
+          next: inner.length > 0 ? { matcher: entry.matcher ?? "", hooks: inner } : null,
+          removed: innerBefore - inner.length,
+        };
+      },
+      skipDetail: (e) => `hooks.${e} already registered`,
+      removeDetail: (e, n) => `hooks.${e} (${n})`,
+      absentDetail: "no hooks section present",
+      noMatchDetail: "no matching hook entries",
+      nativeOwnsCommand: (entry, command) => entry.hooks?.[0]?.command === command,
+      nativeSkipDetail: (e) => `hooks.${e} (native) already registered`,
+      nativeMutateDetail: (e) => `hooks.${e} (native)`,
+    };
   }
 
   /** True when a hook command references our home binary AND this connector id
