@@ -2,23 +2,22 @@
  * tests/adapters/extended-events-degrade — E1 extension-event DEGRADATION on
  * the batch of hook-capable hosts with NO native analog for the four new
  * canonical events (PermissionRequest, PostToolUseFailure, SubagentStart,
- * SubagentStop): gemini-cli, jetbrains-copilot, kiro, and crush. opencode is the
- * exception — it wires PermissionRequest -> permission.ask (its native decision
- * gate) but leaves the other three E1 events unsupported.
+ * SubagentStop): gemini-cli, jetbrains-copilot, kiro, and crush.
  * (omp, the other former ts-plugin host here, now lives in its own per-host file
  * adapters/omp.test.ts; the antigravity IDE + CLI pair moved to their own per-host
  * files adapters/antigravity.test.ts + adapters/antigravity-cli.test.ts; the
- * kilo-cli OpenCode fork moved to adapters/kilo-cli.test.ts.)
+ * kilo-cli OpenCode fork moved to adapters/kilo-cli.test.ts; opencode — which
+ * wires PermissionRequest -> permission.ask but leaves the other three E1 events
+ * unsupported — moved to adapters/opencode.test.ts.)
  *
  * Per host this pins three things:
  *   • capabilities — all four E1 flags stay unset (read as false), so the
  *     single-API layer treats the events as unsupported everywhere here.
  *   • installHooks — a connector declaring the four events is never silently
- *     dropped: json-stdio hosts surface the standard per-event warn-skip
- *     ("<Event> has no <Host> hook equivalent — skipped"), and the ts-plugin
- *     hosts report them via the "unsupported here: …" detail. The native
- *     hook file / generated bridge must NOT reference any of the four events
- *     (canonical or host-native analog names).
+ *     dropped: these json-stdio hosts surface the standard per-event warn-skip
+ *     ("<Event> has no <Host> hook equivalent — skipped"). The native hook file
+ *     must NOT reference any of the four events (canonical or host-native analog
+ *     names).
  *   • parseEvent — jetbrains-copilot's exhaustive switch now routes the four
  *     events to an explicit unsupported-throw (the compile-forced degrade
  *     case), so a runtime mis-dispatch stays loud rather than mis-parsing.
@@ -47,7 +46,6 @@ import geminiCliAdapter from "../../src/adapters/gemini-cli/index.js";
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import kiroAdapter from "../../src/adapters/kiro/index.js";
 import crushAdapter from "../../src/adapters/crush/index.js";
-import opencodeAdapter from "../../src/adapters/opencode/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -215,16 +213,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
     expect(adapter.capabilities.subagentStart ?? false).toBe(false);
     expect(adapter.capabilities.subagentStop ?? false).toBe(false);
   });
-
-  // opencode wires PermissionRequest -> permission.ask (its native decision-
-  // capable gate), so it supports permissionRequest but still leaves the other
-  // three E1 flags falsy (no Stop/subagent/tool-failure analog).
-  it("opencode supports permissionRequest but leaves the other three E1 flags falsy", () => {
-    expect(opencodeAdapter.capabilities.permissionRequest ?? false).toBe(true);
-    expect(opencodeAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
-    expect(opencodeAdapter.capabilities.subagentStart ?? false).toBe(false);
-    expect(opencodeAdapter.capabilities.subagentStop ?? false).toBe(false);
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -335,47 +323,5 @@ describe("crush E1 degradation", () => {
     expect(changes.some((c) => c.action === "warn")).toBe(false);
     const cfg = readJson(join(projectDir, ".crush.json"));
     expect(Object.keys(cfg.hooks)).toEqual(["PreToolUse"]);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// ts-plugin hosts — generated bridge must NOT reference the new events
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("ts-plugin bridges never reference E1 events (opencode)", () => {
-  // opencode wires PermissionRequest -> permission.ask, so it is NOT in the
-  // "never reference E1" group: its bridge legitimately carries permission.ask.
-  // Only the OTHER three E1 events stay unsupported here. The forbidden-token
-  // set is narrowed to drop the now-supported PermissionRequest spellings.
-  it("opencode: install detail reports only THREE as unsupported; bridge wires tool.execute.before + permission.ask", () => {
-    const projectDir = freshProject("ac-e1-opencode-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const changes = opencodeAdapter.installHooks!(ctx);
-    const moduleChange = changes.find((c) => c.detail?.startsWith("opencode plugin module"));
-    expect(moduleChange?.detail).toBe(
-      "opencode plugin module (PreToolUse,PermissionRequest; " +
-        "unsupported here: PostToolUseFailure,SubagentStart,SubagentStop)",
-    );
-
-    const source = readFileSync(opencodeAdapter.getHookConfigPath!(ctx), "utf8");
-    expect(source).toContain("tool.execute.before");
-    expect(source).toContain('"permission.ask"');
-    expect(source).toContain('bridge("PermissionRequest"');
-    // The remaining three E1 events still never leak into the bridge.
-    const stillForbidden = [
-      "PostToolUseFailure",
-      "SubagentStart",
-      "SubagentStop",
-      "postToolUseFailure",
-      "subagentStart",
-      "subagentStop",
-      "subagent_spawned",
-      "subagent_ended",
-      "subagent_stop",
-    ];
-    for (const token of stillForbidden) {
-      expect(source).not.toContain(token);
-    }
   });
 });

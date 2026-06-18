@@ -3,13 +3,13 @@
  * round-trip tests for the second wave of supporting adapters:
  *
  *   • gemini-cli  — TOML commands, uniform SKILL.md skills, md+fm subagents
- *   • opencode    — md+fm commands, SKILL.md skills, md+fm subagents under the
- *                   SINGULAR agent/ dir
  *
  * (cursor's content-surface slice — body-only commands, SKILL.md skills, md+fm
  * subagents — was migrated to tests/adapters/cursor.test.ts, codex's to
- * tests/adapters/codex.test.ts, and qwen-code's to tests/adapters/qwen-code.test.ts,
- * per the ONE-file-per-host convention; see tests/README.md.)
+ * tests/adapters/codex.test.ts, qwen-code's to tests/adapters/qwen-code.test.ts,
+ * and opencode's — md+fm commands, SKILL.md skills, md+fm subagents under the
+ * SINGULAR agent/ dir — to tests/adapters/opencode.test.ts, per the
+ * ONE-file-per-host convention; see tests/README.md.)
  *
  * Each platform is exercised end-to-end against REAL files on disk in an
  * isolated temp project dir:
@@ -35,7 +35,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
 import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
-import opencodeAdapter from "../../src/adapters/opencode/index.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-surfaces";
@@ -233,85 +232,5 @@ describe("gemini-cli adapter — content surfaces", () => {
     const c2 = buildCtx(projectDir, disabled);
     expect(geminiAdapter.installCommands!(c2)[0]?.action).toBe("skip");
     expect(existsSync(join(projectDir, ".gemini", "commands", "deploy.toml"))).toBe(false);
-  });
-});
-
-// ── opencode ────────────────────────────────────────────────────────────────
-
-describe("opencode adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("declares support for all three content surfaces", () => {
-    expect(opencodeAdapter.capabilities.supportsCommands).toBe(true);
-    expect(opencodeAdapter.capabilities.supportsSkills).toBe(true);
-    expect(opencodeAdapter.capabilities.supportsSubagents).toBe(true);
-  });
-
-  it("installCommands writes md+fm commands/<name>.md (description, model)", () => {
-    const changes = opencodeAdapter.installCommands!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    // Project scope: opencode getConfigDir === projectDir (no dot-dir wrapper).
-    const cmdPath = join(projectDir, ".opencode", "commands", "deploy.md");
-    expect(changes[0]?.path).toBe(cmdPath);
-    expect(existsSync(cmdPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(cmdPath, "utf8"));
-    expect(frontmatter.description).toBe("Deploy the app to an environment.");
-    expect(frontmatter.model).toBe("sonnet");
-    expect(body.trim()).toBe(COMMAND.prompt);
-  });
-
-  it("installSkills writes uniform SKILL.md + resource", () => {
-    opencodeAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, ".opencode", "skills", "pdf-tools", "SKILL.md");
-    expect(existsSync(skillMd)).toBe(true);
-    expect(existsSync(join(projectDir, ".opencode", "skills", "pdf-tools", "scripts", "extract.sh"))).toBe(true);
-
-    const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
-    expect(frontmatter.name).toBe("pdf-tools");
-    expect(frontmatter.description).toBe(SKILL.description);
-  });
-
-  it("installSubagents writes md+fm under the SINGULAR agent/ dir (mode:subagent)", () => {
-    opencodeAdapter.installSubagents!(ctx);
-    // SINGULAR "agent" dir, not "agents".
-    const agentPath = join(projectDir, ".opencode", "agent", "reviewer.md");
-    expect(existsSync(agentPath)).toBe(true);
-    expect(existsSync(join(projectDir, "agents", "reviewer.md"))).toBe(false);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(agentPath, "utf8"));
-    expect(frontmatter.description).toBe(SUBAGENT.description);
-    expect(frontmatter.mode).toBe("subagent");
-    expect(frontmatter.model).toBe("opus");
-    expect(body.trim()).toBe(SUBAGENT.prompt);
-  });
-
-  it("is idempotent — second install yields skip across all surfaces", () => {
-    opencodeAdapter.installCommands!(ctx);
-    opencodeAdapter.installSkills!(ctx);
-    opencodeAdapter.installSubagents!(ctx);
-    expect(opencodeAdapter.installCommands!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(opencodeAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(opencodeAdapter.installSubagents!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes all written files", () => {
-    opencodeAdapter.installCommands!(ctx);
-    opencodeAdapter.installSkills!(ctx);
-    opencodeAdapter.installSubagents!(ctx);
-
-    opencodeAdapter.uninstallCommands!(ctx);
-    opencodeAdapter.uninstallSkills!(ctx);
-    opencodeAdapter.uninstallSubagents!(ctx);
-
-    expect(existsSync(join(projectDir, ".opencode", "commands", "deploy.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".opencode", "skills", "pdf-tools"))).toBe(false);
-    expect(existsSync(join(projectDir, ".opencode", "agent", "reviewer.md"))).toBe(false);
   });
 });
