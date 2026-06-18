@@ -2,9 +2,6 @@
  * adapters/surfaces-s2 — content-surface (commands/skills/subagents) render +
  * round-trip tests for the third wave of supporting adapters:
  *
- *   • jetbrains-copilot — md+fm prompt files + uniform SKILL.md skills under the
- *                          SHARED project .github tree; NO subagent surface
- *                          (BaseAdapter skip).
  *   • pi                — uniform SKILL.md skills only (.pi/skills/<n>/SKILL.md);
  *                          NO command/subagent surface (BaseAdapter skip).
  *
@@ -12,22 +9,18 @@
  * tests/adapters/kilo.test.ts per the ONE-file-per-host convention — see
  * tests/README.md.)
  *
- * (vscode-copilot's and copilot-cli's content-surface slices were migrated to
- * their per-host files tests/adapters/vscode-copilot.test.ts and
- * tests/adapters/copilot-cli.test.ts per the ONE-file-per-host convention — see
- * tests/README.md. The vscode-copilot adapter is still imported here ONLY as the
- * reference writer for jetbrains-copilot's byte-identical shared-.github
- * comparison test below.)
+ * (vscode-copilot's, copilot-cli's, and jetbrains-copilot's content-surface
+ * slices were migrated to their per-host files tests/adapters/vscode-copilot.test.ts,
+ * tests/adapters/copilot-cli.test.ts, and tests/adapters/jetbrains-copilot.test.ts
+ * per the ONE-file-per-host convention — see tests/README.md. jetbrains-copilot
+ * also took with it the byte-identical-vs-vscode comparison test, so this file no
+ * longer imports the vscode-copilot adapter.)
  *
  * Each platform is exercised end-to-end against REAL files on disk in an
  * isolated temp project dir. For each connector we declare ONLY the surfaces the
  * platform supports (per the CONTRACT), so the unsupported surfaces resolve to a
  * "connector declares no <surface>" skip via the BaseAdapter default rather than
  * a warn.
- *
- * The .github tree (prompts/skills/agents) is shared across vscode-copilot,
- * copilot-cli, and jetbrains-copilot: those connectors write byte-identical,
- * idempotent content and uninstall removes only the files THIS connector wrote.
  *
  * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test. HOME and
  * AGENT_CONNECTOR_DATA_DIR point at temp and are restored in afterEach so the
@@ -45,8 +38,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 
-import vscodeAdapter from "../../src/adapters/vscode-copilot/index.js";
-import jetbrainsAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 import piAdapter from "../../src/adapters/pi/index.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
@@ -166,102 +157,6 @@ function splitFrontmatter(text: string): {
     body: m[2]!,
   };
 }
-
-// ── jetbrains-copilot ───────────────────────────────────────────────────────
-
-describe("jetbrains-copilot adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    // Declare ONLY the supported surfaces (commands + skills). Subagents are
-    // unsupported here; with none declared they resolve to a skip.
-    ctx = buildCtx(projectDir, buildConnector({ commands: true, skills: true }));
-  });
-
-  it("declares commands + skills but NOT subagents", () => {
-    expect(jetbrainsAdapter.capabilities.supportsCommands).toBe(true);
-    expect(jetbrainsAdapter.capabilities.supportsSkills).toBe(true);
-    expect(jetbrainsAdapter.capabilities.supportsSubagents).toBe(false);
-  });
-
-  it("installCommands writes a md+fm prompt file at .github/prompts/<n>.prompt.md", () => {
-    const changes = jetbrainsAdapter.installCommands!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const cmdPath = join(projectDir, ".github", "prompts", "deploy.prompt.md");
-    expect(changes[0]?.path).toBe(cmdPath);
-    expect(existsSync(cmdPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(cmdPath, "utf8"));
-    expect(frontmatter.description).toBe("Deploy the app to an environment.");
-    expect(frontmatter.tools).toEqual(["Bash", "Read"]);
-    expect(frontmatter.model).toBe("sonnet");
-    expect(frontmatter["argument-hint"]).toBe("[environment]");
-    expect(body.trim()).toBe(COMMAND.prompt);
-  });
-
-  it("installSkills writes uniform SKILL.md + resource under the shared .github tree", () => {
-    jetbrainsAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, ".github", "skills", "pdf-tools", "SKILL.md");
-    const resource = join(projectDir, ".github", "skills", "pdf-tools", "scripts", "extract.sh");
-    expect(existsSync(skillMd)).toBe(true);
-    expect(existsSync(resource)).toBe(true);
-
-    const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
-    expect(frontmatter.name).toBe("pdf-tools");
-    expect(frontmatter.description).toBe(SKILL.description);
-  });
-
-  it("installSubagents routes through BaseAdapter (unsupported) and writes nothing", () => {
-    // Declare a subagent so the BaseAdapter default takes the "warn" branch
-    // (declared but unsupported); no agent file is created.
-    const withAgent = buildCtx(
-      projectDir,
-      buildConnector({ commands: true, skills: true, subagents: true }),
-    );
-    const changes = jetbrainsAdapter.installSubagents!(withAgent);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("warn");
-    expect(existsSync(join(projectDir, ".github", "agents", "reviewer.agent.md"))).toBe(false);
-  });
-
-  it("renders byte-identical command + skill to the vscode-copilot writer (shared .github)", () => {
-    // The .github tree is shared; both writers must produce identical bytes so a
-    // shared folder never thrashes. Render both into separate temp trees and
-    // compare the on-disk content.
-    const vsDir = freshProject();
-    const vsCtx = buildCtx(vsDir, buildConnector({ commands: true, skills: true }));
-    jetbrainsAdapter.installCommands!(ctx);
-    jetbrainsAdapter.installSkills!(ctx);
-    vscodeAdapter.installCommands!(vsCtx);
-    vscodeAdapter.installSkills!(vsCtx);
-
-    const jbCmd = readFileSync(join(projectDir, ".github", "prompts", "deploy.prompt.md"), "utf8");
-    const vsCmd = readFileSync(join(vsDir, ".github", "prompts", "deploy.prompt.md"), "utf8");
-    expect(jbCmd).toBe(vsCmd);
-
-    const jbSkill = readFileSync(join(projectDir, ".github", "skills", "pdf-tools", "SKILL.md"), "utf8");
-    const vsSkill = readFileSync(join(vsDir, ".github", "skills", "pdf-tools", "SKILL.md"), "utf8");
-    expect(jbSkill).toBe(vsSkill);
-  });
-
-  it("is idempotent — second install yields skip (commands + skills)", () => {
-    jetbrainsAdapter.installCommands!(ctx);
-    jetbrainsAdapter.installSkills!(ctx);
-    expect(jetbrainsAdapter.installCommands!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(jetbrainsAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes command + skill files", () => {
-    jetbrainsAdapter.installCommands!(ctx);
-    jetbrainsAdapter.installSkills!(ctx);
-    jetbrainsAdapter.uninstallCommands!(ctx);
-    jetbrainsAdapter.uninstallSkills!(ctx);
-    expect(existsSync(join(projectDir, ".github", "prompts", "deploy.prompt.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".github", "skills", "pdf-tools"))).toBe(false);
-  });
-});
 
 // ── pi ──────────────────────────────────────────────────────────────────────
 
