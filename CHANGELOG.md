@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.4.8 — 2026-06-18
+
+The second consolidation wave. One user-facing correctness fix (codex
+`$CODEX_HOME` resolution); everything else is **byte-identical** internal
+dedup — every migrated host's existing test suite passes unchanged, and the
+generated artifacts are verified equal to the prior output byte-for-byte.
+**35 platforms**, **2710 tests**. No new host features, so the patch stays a
+single increment (0.4.7 → 0.4.8).
+
+### Fixes
+
+- **codex `$CODEX_HOME` is now resolved consistently.** The codex config
+  **writer** (where the MCP server entry is written) and the marketplace
+  **detection probe** (where an existing install is found) previously resolved
+  `$CODEX_HOME` with different rules, so a tilde (`~/cx`) or relative
+  (`rel-codex`) value made them target different directories — the writer could
+  land a `config.toml` somewhere the probe never looked. Both now route through
+  one `codexConfigHome()` resolver (tilde-expanded, then resolved; empty/unset →
+  `~/.codex`). Absolute, already-canonical `$CODEX_HOME` values are unaffected.
+  (#138)
+
+### Internal — shared engines, wave 2 (behavior-preserving)
+
+Continuing the 0.4.7 consolidation: per-host logic that had been hand-rolled
+across adapters is lifted into shared, audited helpers. Every migration is
+**byte-identical**, verified by the host's own unedited test suite plus
+independent review:
+
+- **`renderSkillMd` / `renderSubagentMd`** — the skill- and subagent-markdown
+  emitters, adopted across 22 hosts (rank 4). (#135)
+- **`renderCommandMd` (parameterized) + `renderOpenCodeSubagentMd`** — the
+  command-markdown emitter gains an `includeToolsAndModel` switch, and the
+  OpenCode-shaped subagent renderer is shared (rank 5). (#136)
+- **`core/host-paths.ts`** — shared OS user-config-base resolvers
+  (`xdgConfigHome` / `roamingAppData` / `localAppData` / `codexConfigHome`),
+  adopted in 4 hosts; the codex resolver also backs the fix above (rank 7).
+  (#137)
+- **`buildWrappedStdio`** — the telemetry serve-wrap decision (route a stdio
+  command through `serve --connector` when telemetry is on, else pass through),
+  lifted out of 31 adapters into one `core/spawn.ts` helper; each host keeps its
+  own command/args seeding and entry shaping (rank 6). (#140)
+- **`normalizeSessionSource`** — the SessionStart `source` normalizer, lifted
+  into `claude-code/wire.ts` and shared by 15 hosts (rank 8). (#139)
+- **`renderBridgePrelude`** — the byte-identical head of every ts-plugin host's
+  generated plugin module (the `HOME_BIN`/`CONNECTOR_ID` consts + the cross-OS
+  `bridge()` entrypoint), extracted into `core/ts-plugin-bridge.ts` and adopted
+  by 6 ts-plugin hosts; `openclaw`'s wrapper-variant bridge is intentionally
+  left as-is (rank 9). (#141)
+
+This completes the commonization arc begun in 0.4.7 (ranks 1–9).
+
 ## 0.4.7 — 2026-06-18
 
 A correctness fix plus a large internal consolidation. The one user-facing
