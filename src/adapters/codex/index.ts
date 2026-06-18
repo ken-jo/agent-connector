@@ -68,7 +68,7 @@ import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
-import { BaseAdapter } from "../base.js";
+import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
 import type {
   HookReply,
   InstallContext,
@@ -109,11 +109,6 @@ interface CodexHookInput {
 interface CodexHookEntry {
   matcher?: string;
   hooks: Array<{ type: "command"; command: string }>;
-}
-
-interface CodexHooksFile {
-  hooks?: Record<string, CodexHookEntry[]>;
-  [key: string]: unknown;
 }
 
 /** Rendered `[mcp_servers.<id>]` table — string env table, no interpolation. */
@@ -390,7 +385,6 @@ export class CodexAdapter extends BaseAdapter {
   // ── Install hooks (hooks.json) ──────────────────────────────────────────
 
   override installHooks(ctx: InstallContext): ChangeRecord[] {
-    const { dryRun } = ctx;
     const path = this.getHookConfigPath(ctx);
     const events = this.effectiveHookEvents(ctx);
     const dropped = this.warnSkipHookEvents(ctx);
@@ -399,77 +393,69 @@ export class CodexAdapter extends BaseAdapter {
       return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
     }
 
-    const file = this.readHooksFile(path);
-    // COERCE a present-but-malformed `hooks` root (hand-edited to an array /
-    // primitive) to a fresh object map, matching Codex's TOML server-path policy
-    // (tomlBucket) — never throw, never silently drop. A well-formed object is
-    // kept as-is.
-    const existingHooks = file.hooks;
-    const hooks: Record<string, CodexHookEntry[]> =
-      existingHooks && typeof existingHooks === "object" && !Array.isArray(existingHooks)
-        ? existingHooks
-        : (file.hooks = {});
-    const changes: ChangeRecord[] = [];
-
-    // Declared events Codex cannot fire are reported, never silently dropped.
-    for (const event of dropped) {
-      changes.push({
-        platform: this.id,
-        action: "warn",
-        path,
-        detail: `${event} has no Codex hook equivalent — skipped`,
-      });
-    }
-
-    for (const event of events) {
-      const desired = this.renderHookEntry(ctx, event);
-      const list = Array.isArray(hooks[event]) ? hooks[event] : (hooks[event] = []);
-      const idx = list.findIndex((e) => this.isOurEntry(ctx, event, e));
-      if (idx < 0) {
-        list.push(desired);
-        changes.push({ platform: this.id, action: "create", path, detail: `hooks.${event}` });
-      } else if (JSON.stringify(list[idx]) !== JSON.stringify(desired)) {
-        list[idx] = desired;
-        changes.push({ platform: this.id, action: "update", path, detail: `hooks.${event}` });
-      } else {
-        changes.push({ platform: this.id, action: "skip", path, detail: `hooks.${event}` });
-      }
-    }
-
-    // Only a real entry mutation rewrites the file (a warn-skip must not
-    // create/touch hooks.json by itself).
-    if (changes.some((c) => c.action === "create" || c.action === "update")) {
-      this.writeJson(path, file, dryRun);
-    }
-    return changes;
+    // HOST-ORDERED pending: warn-skip events (mapEvent → undefined → warn) FIRST,
+    // then the supported events in CODEX_HOOK_EVENTS order. Events neither
+    // supported nor in WARN_SKIP_EVENTS are never enqueued → silently dropped, as
+    // before. matcher is "" for every item; renderEntry derives the real matcher
+    // from the event (PreToolUse/PermissionRequest), never from this field.
+    const pending = [
+      ...dropped.map((event) => ({ event: event as string, matcher: "" })),
+      ...events.map((event) => ({ event: event as string, matcher: "" })),
+    ];
+    return this.upsertHookEntries(ctx, path, pending, this.hookDescriptor(ctx));
   }
 
   override uninstallHooks(ctx: InstallContext): ChangeRecord[] {
-    const path = this.getHookConfigPath(ctx);
-    const file = this.readJson<CodexHooksFile>(path);
-    const hooks = file?.hooks;
-    if (!file || !hooks) {
-      return [{ platform: this.id, action: "skip", path, detail: "no hooks.json" }];
-    }
+    return this.removeHookEntries(ctx, this.getHookConfigPath(ctx), this.hookDescriptor(ctx));
+  }
 
-    const changes: ChangeRecord[] = [];
-    let mutated = false;
-    for (const event of CODEX_HOOK_EVENTS) {
-      const list = hooks[event];
-      if (!Array.isArray(list)) continue;
-      const kept = list.filter((e) => !this.isOurEntry(ctx, event, e));
-      if (kept.length === list.length) continue;
-      mutated = true;
-      if (kept.length > 0) hooks[event] = kept;
-      else delete hooks[event];
-      changes.push({ platform: this.id, action: "remove", path, detail: `hooks.${event}` });
-    }
-
-    if (mutated) this.writeJson(path, file, ctx.dryRun);
-    if (changes.length === 0) {
-      return [{ platform: this.id, action: "skip", path, detail: "no agent-connector hooks present" }];
-    }
-    return changes;
+  /**
+   * Codex hook-merge policy for the shared object-map engine. EVENT-SPECIFIC by
+   * construction: every observable (coerce root + bucket, the path-normalized
+   * per-event ownership find, the event-derived matcher with `hooks`-then-
+   * `matcher` key order, the BARE `hooks.<event>` skip/remove details with NO
+   * count, the warn wording, and the absent/no-match skips) is carried here so
+   * the engine reproduces the prior in-adapter loop byte-for-byte.
+   */
+  private hookDescriptor(ctx: InstallContext): HookMergeDescriptor<CodexHookEntry> {
+    return {
+      // Codex's server path coerces a malformed root; the hook path matches it.
+      malformedPolicy: "coerce",
+      // Supported event → identity; a WARN_SKIP event (PostToolUseFailure, which
+      // is the only thing `dropped` ever contains) → undefined → warn.
+      mapEvent: (e) =>
+        (CODEX_HOOK_EVENTS as readonly string[]).includes(e) ? e : undefined,
+      unmappedWarnDetail: (e) => `${e} has no Codex hook equivalent — skipped`,
+      renderEntry: (event, _matcher, command) => {
+        const entry: CodexHookEntry = { hooks: [{ type: "command", command }] };
+        // KEY ORDER: hooks THEN matcher. Matcher is EVENT-derived, not from the
+        // connector's declared matcher: PermissionRequest matches tool names like
+        // PreToolUse (charset-clean), everything else registers "" (all).
+        entry.matcher =
+          event === "PreToolUse" || event === "PermissionRequest" ? PRE_TOOL_USE_MATCHER : "";
+        return entry;
+      },
+      // Idempotency find for the CANONICAL event the engine built `command` from —
+      // path-normalized, exact-command, the body of isOurEntry's command check.
+      entryOwnsCommand: (entry, command) =>
+        Array.isArray(entry.hooks) &&
+        entry.hooks.some(
+          (h) => (h.command ?? "").replace(/\\/g, "/") === command.replace(/\\/g, "/"),
+        ),
+      // FLAT whole-entry removal, EVENT-SPECIFIC: isOurEntry rebuilds our command
+      // from the event key being stripped, so a SubagentStop entry is never matched
+      // while iterating the PreToolUse bucket.
+      ownsEntryForRemove: (c, event) => (entry) =>
+        this.isOurEntry(c, event as CodexHookEventName, entry),
+      skipDetail: (e) => `hooks.${e}`,
+      removeDetail: (e, _n) => `hooks.${e}`,
+      absentDetail: "no hooks.json",
+      noMatchDetail: "no agent-connector hooks present",
+      // Uninstall scans EXACTLY codex's fixed event set (not Object.keys), so a
+      // home-bin command hand-placed under a foreign event key is left untouched —
+      // byte-identical to the prior `for (const event of CODEX_HOOK_EVENTS)` loop.
+      removeEventKeys: CODEX_HOOK_EVENTS,
+    };
   }
 
   // ── Health checks (default doctor renders these) ────────────────────────
@@ -1043,35 +1029,17 @@ export class CodexAdapter extends BaseAdapter {
     return entry;
   }
 
-  /** Render one hooks.json entry pointing at the stable home binary. */
-  private renderHookEntry(ctx: InstallContext, event: CodexHookEventName): CodexHookEntry {
-    const command = buildHomeBinHookCommand(
-      ctx.homeBinPath,
-      "codex",
-      event,
-      ctx.connector.id,
-    );
-    const entry: CodexHookEntry = { hooks: [{ type: "command", command }] };
-    // PermissionRequest matches tool names exactly like PreToolUse (Bash,
-    // apply_patch aliases, mcp__* names), so it carries the same charset-clean
-    // matcher. Subagent* match agent_type — register "" (all agents) and let the
-    // universal entrypoint apply the connector's own matcher at runtime.
-    if (event === "PreToolUse" || event === "PermissionRequest") {
-      entry.matcher = PRE_TOOL_USE_MATCHER;
-    } else entry.matcher = "";
-    return entry;
-  }
-
-  /** Does this hooks.json entry belong to this connector (by home-bin command)? */
+  /**
+   * Does this hooks.json entry belong to this connector for `event`? EVENT-
+   * SPECIFIC + path-normalized exact-command match. The engine binds this per
+   * event in the uninstall (whole-entry FLAT removal) and the install idempotency
+   * find reuses its command body via the descriptor's entryOwnsCommand.
+   */
   private isOurEntry(ctx: InstallContext, event: CodexHookEventName, entry: CodexHookEntry): boolean {
     if (!entry || typeof entry !== "object" || !Array.isArray(entry.hooks)) return false;
     const ours = buildHomeBinHookCommand(ctx.homeBinPath, "codex", event, ctx.connector.id);
     const needle = ours.replace(/\\/g, "/");
     return entry.hooks.some((h) => (h.command ?? "").replace(/\\/g, "/") === needle);
-  }
-
-  private readHooksFile(path: string): CodexHooksFile {
-    return this.readJson<CodexHooksFile>(path) ?? {};
   }
 
   private normalizeSource(raw: string | undefined): "startup" | "compact" | "resume" | "clear" {

@@ -72,6 +72,18 @@ type ContentSurface =
  */
 export interface HookMergeDescriptor<E> {
   /**
+   * How to handle a present-but-malformed `hooks` root (an array / primitive
+   * instead of an object map) on install:
+   *  - "warn-skip" (DEFAULT): route through {@link BaseAdapter.malformedHookRootSkip}
+   *    — surface a `warn`, write nothing, leave the user's value untouched. This
+   *    is byte-identical to the pre-axis engine, so existing hosts that omit the
+   *    field are unchanged.
+   *  - "coerce": replace a malformed root (and any non-array event bucket) with a
+   *    fresh object map / array, then proceed — matching the container hosts
+   *    (codex, goose) whose server path already coerces a malformed root.
+   */
+  malformedPolicy?: "warn-skip" | "coerce";
+  /**
    * Canonical → host event name. `undefined` = the host has no equivalent for
    * this event → the engine emits a warn (via unmappedWarnDetail) and skips it.
    * Omit the field entirely for identity hosts (claude-code) — no warn path.
@@ -88,9 +100,13 @@ export interface HookMergeDescriptor<E> {
    * NESTED hosts supplying {@link stripInner} may return a never-true predicate —
    * the engine then only ever invokes `stripInner`. Bound to `ctx` because
    * ownership is connector-generic (ANY of our commands), wider than the
-   * install-time specific-command check.
+   * install-time specific-command check. The `event` param lets EVENT-SPECIFIC
+   * hosts (codex, whose ownership is per-event by construction) match the
+   * canonical event being stripped; hosts whose ownership is event-independent
+   * (claude-code/droid/cursor/qwen) ignore it — a `(ctx) => …` arrow is assignable
+   * to this 2-param type (fewer params is fine in TS), so they need no change.
    */
-  ownsEntryForRemove(ctx: InstallContext): (entry: E) => boolean;
+  ownsEntryForRemove(ctx: InstallContext, event: string): (entry: E) => boolean;
   /**
    * Uninstall inner-strip (NESTED hosts): strip our owned inner commands from
    * `entry`, returning the rebuilt entry (`null` when fully emptied) and the
@@ -105,6 +121,14 @@ export interface HookMergeDescriptor<E> {
   absentDetail: string;
   /** Uninstall skip detail when a hooks section exists but nothing matched. */
   noMatchDetail: string;
+  /**
+   * Uninstall: the exact event keys to scan, in order. Omit (default) to scan
+   * every key actually present (`Object.keys(hooks)`). EVENT-SPECIFIC hosts whose
+   * ownership predicate rebuilds a per-event command (codex) MUST pin their fixed
+   * event set here so a home-bin command hand-placed under a foreign event key is
+   * left untouched — byte-identical to a fixed-event-list uninstall loop.
+   */
+  removeEventKeys?: readonly string[];
   /** Optional post-mutation hook on the whole parsed file, before the single write. */
   onMutate?(file: Record<string, unknown>): void;
   /**
@@ -947,6 +971,23 @@ export abstract class BaseAdapter implements Adapter {
    * as the optional `native` list (cursor); that pass runs after the normalized
    * loop and before the single write. Omitting it is byte-identical to before.
    */
+  /**
+   * Resolve the per-event hook bucket. With "coerce" policy a present-but-non-
+   * array bucket (hand-edited) is replaced by a fresh array; otherwise `??=` is
+   * used (the warn-skip path already rejected any non-array bucket via
+   * malformedHookRootSkip, so `??=` only ever fills the absent case).
+   */
+  private coerceHookBucket<E>(
+    hooks: Record<string, E[]>,
+    event: string,
+    coerce: boolean,
+  ): E[] {
+    if (coerce) {
+      return Array.isArray(hooks[event]) ? hooks[event] : (hooks[event] = []);
+    }
+    return (hooks[event] ??= []);
+  }
+
   protected upsertHookEntries<E>(
     ctx: InstallContext,
     configPath: string,
@@ -955,9 +996,23 @@ export abstract class BaseAdapter implements Adapter {
     native?: ReadonlyArray<{ event: string; matcher: string }>,
   ): ChangeRecord[] {
     const file = this.readJson<Record<string, unknown>>(configPath) ?? {};
-    const skip = this.malformedHookRootSkip(configPath, file.hooks);
-    if (skip) return [skip];
-    const hooks = (file.hooks ??= {}) as Record<string, E[]>;
+    const coerce = descriptor.malformedPolicy === "coerce";
+    let hooks: Record<string, E[]>;
+    if (coerce) {
+      // COERCE policy: a present-but-malformed `hooks` root (array / primitive,
+      // hand-edited) is replaced by a fresh object map; a well-formed object map
+      // is kept as-is. Never warn, never throw — matches the container hosts'
+      // server-path policy.
+      const existing = file.hooks;
+      hooks =
+        existing && typeof existing === "object" && !Array.isArray(existing)
+          ? (existing as Record<string, E[]>)
+          : ((file.hooks = {}) as Record<string, E[]>);
+    } else {
+      const skip = this.malformedHookRootSkip(configPath, file.hooks);
+      if (skip) return [skip];
+      hooks = (file.hooks ??= {}) as Record<string, E[]>;
+    }
 
     const changes: ChangeRecord[] = [];
     let mutated = false;
@@ -983,7 +1038,7 @@ export abstract class BaseAdapter implements Adapter {
         ctx.connector.id,
       );
       const entry = descriptor.renderEntry(hostEvent, matcher, command);
-      const bucket = (hooks[hostEvent] ??= []);
+      const bucket = this.coerceHookBucket(hooks, hostEvent, coerce);
       const r = upsertInArray(bucket, entry, (e) =>
         descriptor.entryOwnsCommand(e, command),
       );
@@ -1017,7 +1072,7 @@ export abstract class BaseAdapter implements Adapter {
         ctx.connector.id,
       );
       const entry = descriptor.renderEntry(event, matcher, command);
-      const bucket = (hooks[event] ??= []);
+      const bucket = this.coerceHookBucket(hooks, event, coerce);
       const r = upsertInArray(bucket, entry, (e) =>
         descriptor.nativeOwnsCommand!(e, command),
       );
@@ -1072,13 +1127,20 @@ export abstract class BaseAdapter implements Adapter {
 
     const changes: ChangeRecord[] = [];
     let mutated = false;
-    const ownsEntry = descriptor.ownsEntryForRemove(ctx);
+    // stripInner is event-independent for current hosts → computed once. The
+    // whole-entry ownership predicate is rebuilt PER EVENT so EVENT-SPECIFIC
+    // hosts (codex) can match the canonical event being stripped; event-agnostic
+    // hosts simply ignore the param.
     const stripInner = descriptor.stripInner?.(ctx);
 
-    for (const event of Object.keys(hooks)) {
+    // Default: scan every present key. EVENT-SPECIFIC hosts pin a fixed event set
+    // (descriptor.removeEventKeys) so a foreign-key bucket is never inspected —
+    // matching their original fixed-event-list uninstall loop byte-for-byte.
+    for (const event of descriptor.removeEventKeys ?? Object.keys(hooks)) {
       const bucket = hooks[event];
       if (!Array.isArray(bucket)) continue;
 
+      const ownsEntry = descriptor.ownsEntryForRemove(ctx, event);
       const r = removeFromArray(bucket, ownsEntry, stripInner);
       if (r.removed > 0) {
         if (r.array.length > 0) hooks[event] = r.array;
