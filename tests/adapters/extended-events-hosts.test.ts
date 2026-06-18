@@ -1,14 +1,12 @@
 /**
  * tests/adapters/extended-events-hosts — E1 extension-event wiring
  * (PermissionRequest, PostToolUseFailure, SubagentStart, SubagentStop) on the
- * codex / qwen-code / kimi adapters.
+ * qwen-code / kimi adapters.
+ *
+ * (codex's E1 + PostCompact slices were migrated to tests/adapters/codex.test.ts
+ * per the ONE-file-per-host convention — see tests/README.md.)
  *
  * Per-host native truth this pins (verified against the live host docs):
- *   • codex     — PermissionRequest (nested decision{behavior} envelope; Codex
- *                 fails CLOSED on updatedInput, so "modify" must fall through),
- *                 SubagentStart (additionalContext), SubagentStop (TOP-LEVEL
- *                 {"decision":"block"} Stop shape). NO failure event → declared
- *                 PostToolUseFailure hooks warn-skip at install.
  *   • qwen-code — all four are native and Claude-identical: nested permission
  *                 decision (updatedInput honored), additionalContext feedback
  *                 on PostToolUseFailure/SubagentStart, top-level block on
@@ -23,7 +21,7 @@
  * restored in afterEach.
  */
 
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -34,14 +32,12 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   PermissionRequestEvent,
-  PostCompactEvent,
   PostToolUseFailureEvent,
   ResolvedConnector,
   SubagentStartEvent,
   SubagentStopEvent,
 } from "../../src/core/types.js";
 
-import codexAdapter from "../../src/adapters/codex/index.js";
 import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
 
@@ -165,268 +161,6 @@ function readToml(path: string): Record<string, any> {
 function parsed(reply: { stdout?: string }): Record<string, any> {
   return JSON.parse(reply.stdout ?? "{}");
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// codex
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("codex E1 events", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-ext-codex-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("capabilities: PermissionRequest + Subagent* native; postToolUseFailure unset", () => {
-    expect(codexAdapter.capabilities.permissionRequest).toBe(true);
-    expect(codexAdapter.capabilities.subagentStart).toBe(true);
-    expect(codexAdapter.capabilities.subagentStop).toBe(true);
-    expect(codexAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
-  });
-
-  it("installHooks registers the 3 native events; PostToolUseFailure warn-skips (never silent)", () => {
-    const changes = codexAdapter.installHooks(ctx);
-
-    const warns = changes.filter((c) => c.action === "warn");
-    expect(warns).toHaveLength(1);
-    expect(warns[0]?.detail).toContain("PostToolUseFailure");
-    expect(warns[0]?.detail).toContain("skipped");
-
-    const cfg = readJson(join(projectDir, ".codex", "hooks.json"));
-    expect(cfg.hooks.PermissionRequest).toHaveLength(1);
-    expect(cfg.hooks.SubagentStart).toHaveLength(1);
-    expect(cfg.hooks.SubagentStop).toHaveLength(1);
-    expect(cfg.hooks.PostToolUseFailure).toBeUndefined();
-
-    // PermissionRequest matches tool names like PreToolUse → same charset-clean
-    // matcher; Subagent* match agent_type → register all ("").
-    expect(cfg.hooks.PermissionRequest[0].matcher).toContain("mcp__");
-    expect(cfg.hooks.SubagentStart[0].matcher).toBe("");
-    expect(cfg.hooks.SubagentStop[0].matcher).toBe("");
-    expect(cfg.hooks.SubagentStop[0].hooks[0].command).toContain(
-      "hook codex SubagentStop",
-    );
-  });
-
-  it("installHooks stays idempotent (second run: no create/update, warn repeats)", () => {
-    codexAdapter.installHooks(ctx);
-    const before = readFileSync(join(projectDir, ".codex", "hooks.json"), "utf8");
-    const second = codexAdapter.installHooks(ctx);
-    expect(second.every((c) => c.action === "skip" || c.action === "warn")).toBe(true);
-    expect(readFileSync(join(projectDir, ".codex", "hooks.json"), "utf8")).toBe(before);
-  });
-
-  it("a PostToolUseFailure-only connector warns WITHOUT creating hooks.json", () => {
-    const only = buildCtx(projectDir, buildSingleEventConnector("acme-fail", "PostToolUseFailure"));
-    const changes = codexAdapter.installHooks(only);
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("warn");
-    expect(existsSync(join(projectDir, ".codex", "hooks.json"))).toBe(false);
-  });
-
-  it("uninstallHooks removes the new-event entries too", () => {
-    codexAdapter.installHooks(ctx);
-    codexAdapter.uninstallHooks(ctx);
-    const cfg = readJson(join(projectDir, ".codex", "hooks.json"));
-    expect(JSON.stringify(cfg.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-
-  it("parseEvent: PermissionRequest + SubagentStop (incl. missing-agent_type tolerance)", () => {
-    const perm = codexAdapter.parseEvent!("PermissionRequest", {
-      session_id: "cx-9",
-      cwd: projectDir,
-      tool_name: "Bash",
-      tool_input: { command: "rm -rf /tmp/x" },
-    }) as PermissionRequestEvent;
-    expect(perm.hostPlatform).toBe("codex");
-    expect(perm.toolName).toBe("Bash");
-    expect(perm.toolInput).toEqual({ command: "rm -rf /tmp/x" });
-    expect(perm.permissionSuggestions).toBeUndefined();
-
-    const stop = codexAdapter.parseEvent!("SubagentStop", {
-      session_id: "cx-9",
-      agent_id: "agent-3",
-      agent_type: "code-reviewer",
-      agent_transcript_path: "/tmp/t.jsonl",
-      last_assistant_message: "done",
-      stop_hook_active: true,
-    }) as SubagentStopEvent;
-    expect(stop.agentId).toBe("agent-3");
-    expect(stop.agentType).toBe("code-reviewer");
-    expect(stop.agentTranscriptPath).toBe("/tmp/t.jsonl");
-    expect(stop.lastAssistantMessage).toBe("done");
-    expect(stop.stopHookActive).toBe(true);
-
-    const bare = codexAdapter.parseEvent!("SubagentStop", {
-      session_id: "cx-9",
-    }) as SubagentStopEvent;
-    expect(bare.agentId).toBeUndefined();
-    expect(bare.agentType).toBeUndefined();
-  });
-
-  it("formatReply PermissionRequest: deny/allow use the nested decision envelope", () => {
-    const deny = parsed(
-      codexAdapter.formatReply!("PermissionRequest", {
-        decision: "deny",
-        reason: "secrets stay local",
-      }),
-    );
-    expect(deny.hookSpecificOutput.hookEventName).toBe("PermissionRequest");
-    expect(deny.hookSpecificOutput.decision).toEqual({
-      behavior: "deny",
-      message: "secrets stay local",
-    });
-
-    const allow = parsed(codexAdapter.formatReply!("PermissionRequest", { decision: "allow" }));
-    expect(allow.hookSpecificOutput.decision).toEqual({ behavior: "allow" });
-  });
-
-  it("formatReply PermissionRequest: modify falls through (Codex fails CLOSED on updatedInput)", () => {
-    const reply = codexAdapter.formatReply!("PermissionRequest", {
-      decision: "modify",
-      updatedInput: { command: "ls" },
-    });
-    expect(reply.exitCode).toBe(0);
-    expect(reply.stdout).toBeUndefined();
-
-    // ask / void-normalized {} also fall through to the native approval prompt.
-    expect(codexAdapter.formatReply!("PermissionRequest", { decision: "ask" }).stdout).toBeUndefined();
-    expect(codexAdapter.formatReply!("PermissionRequest", {}).stdout).toBeUndefined();
-  });
-
-  it("formatReply SubagentStart: context (and deny-degrade) → additionalContext", () => {
-    const out = parsed(
-      codexAdapter.formatReply!("SubagentStart", {
-        decision: "context",
-        additionalContext: "use the repo test conventions",
-      }),
-    );
-    expect(out.hookSpecificOutput.hookEventName).toBe("SubagentStart");
-    expect(out.hookSpecificOutput.additionalContext).toBe("use the repo test conventions");
-
-    const degraded = parsed(
-      codexAdapter.formatReply!("SubagentStart", { decision: "deny", reason: "not blockable" }),
-    );
-    expect(degraded.hookSpecificOutput.additionalContext).toBe("not blockable");
-    expect(degraded.decision).toBeUndefined();
-  });
-
-  it("formatReply SubagentStop: deny → TOP-LEVEL block; context unsupported → passthrough", () => {
-    const out = parsed(
-      codexAdapter.formatReply!("SubagentStop", {
-        decision: "deny",
-        reason: "one more pass",
-      }),
-    );
-    expect(out.decision).toBe("block");
-    expect(out.reason).toBe("one more pass");
-    expect(out.hookSpecificOutput).toBeUndefined();
-
-    const ctxReply = codexAdapter.formatReply!("SubagentStop", {
-      decision: "context",
-      additionalContext: "ignored on codex",
-    });
-    expect(ctxReply.exitCode).toBe(0);
-    expect(ctxReply.stdout).toBeUndefined();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// codex — PostCompact (post-compaction sibling of PreCompact, observe-only)
-// ─────────────────────────────────────────────────────────────────────────
-
-/** A connector declaring both PreCompact and PostCompact (the compaction pair). */
-function buildCompactionConnector(id = "acme-compact"): ResolvedConnector {
-  return defineConnector({
-    id,
-    hooks: {
-      PreCompact: {
-        handler() {
-          return {};
-        },
-      },
-      PostCompact: {
-        handler() {
-          return {};
-        },
-      },
-    },
-  });
-}
-
-describe("codex PostCompact", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-ext-codex-pc-");
-    ctx = buildCtx(projectDir, buildCompactionConnector());
-  });
-
-  it("capabilities: postCompact native (sibling of preCompact)", () => {
-    expect(codexAdapter.capabilities.postCompact ?? false).toBe(true);
-    expect(codexAdapter.capabilities.preCompact).toBe(true);
-  });
-
-  it("installHooks writes hooks.PostCompact (and PreCompact) with the codex command + empty matcher", () => {
-    const changes = codexAdapter.installHooks(ctx);
-    // No warn-skip: both compaction events are native to codex.
-    expect(changes.some((c) => c.action === "warn")).toBe(false);
-
-    const cfg = readJson(join(projectDir, ".codex", "hooks.json"));
-    expect(cfg.hooks.PostCompact).toHaveLength(1);
-    expect(cfg.hooks.PreCompact).toHaveLength(1);
-    expect(cfg.hooks.PostCompact[0].matcher).toBe("");
-    expect(cfg.hooks.PostCompact[0].hooks[0].command).toContain("hook codex PostCompact");
-  });
-
-  it("uninstallHooks removes the PostCompact entry", () => {
-    codexAdapter.installHooks(ctx);
-    codexAdapter.uninstallHooks(ctx);
-    const cfg = readJson(join(projectDir, ".codex", "hooks.json"));
-    expect(JSON.stringify(cfg.hooks ?? {})).not.toContain("PostCompact");
-  });
-
-  it("parseEvent maps the `trigger` enum (manual|auto); unknown/missing coerces to auto", () => {
-    const manual = codexAdapter.parseEvent!("PostCompact", {
-      session_id: "cx-pc",
-      cwd: projectDir,
-      trigger: "manual",
-    }) as PostCompactEvent;
-    expect(manual.hostPlatform).toBe("codex");
-    expect(manual.trigger).toBe("manual");
-
-    const auto = codexAdapter.parseEvent!("PostCompact", {
-      session_id: "cx-pc",
-      trigger: "auto",
-    }) as PostCompactEvent;
-    expect(auto.trigger).toBe("auto");
-
-    // Codex's compaction events default an unknown/missing trigger to "auto"
-    // (same normalization the PreCompact case uses).
-    const unknown = codexAdapter.parseEvent!("PostCompact", {
-      session_id: "cx-pc",
-      trigger: "nonsense",
-    }) as PostCompactEvent;
-    expect(unknown.trigger).toBe("auto");
-    const none = codexAdapter.parseEvent!("PostCompact", { session_id: "cx-pc" }) as PostCompactEvent;
-    expect(none.trigger).toBe("auto");
-  });
-
-  it("formatReply is an observe-only passthrough (any decision → exit 0, no stdout)", () => {
-    for (const response of [
-      {},
-      { decision: "deny" as const, reason: "cannot block a completed compaction" },
-      { decision: "context" as const, additionalContext: "ignored on PostCompact" },
-    ]) {
-      const reply = codexAdapter.formatReply!("PostCompact", response);
-      expect(reply.exitCode).toBe(0);
-      expect(reply.stdout).toBeUndefined();
-    }
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // qwen-code

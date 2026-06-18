@@ -1,11 +1,11 @@
 /**
- * adapters/render — render + round-trip tests for the Phase-1 adapters.
+ * adapters/render — render + round-trip tests for the claude-code adapter.
  *
- * For each of claude-code, codex this exercises the full json-stdio path
- * end-to-end against REAL files on disk in an isolated temp project dir:
- *   • installServer  → native MCP registration (root key / TOML table / fields)
+ * For claude-code this exercises the full json-stdio path end-to-end against REAL
+ * files on disk in an isolated temp project dir:
+ *   • installServer  → native MCP registration (root key / fields)
  *   • installHooks   → native hook registration (per-dialect shape)
- *   • env-ref handling per platform (native token vs. resolved literal)
+ *   • env-ref handling (native ${VAR} token)
  *   • telemetry serve-wrapper command points at the stable home binary
  *   • idempotency (second install → "skip", no duplicates)
  *   • uninstall (entries removed; re-read from disk confirms gone)
@@ -13,11 +13,12 @@
  *     SessionStart context response → platform-native reply shape.
  *
  * (cursor's render/round-trip slice was migrated to tests/adapters/cursor.test.ts
- * per the ONE-file-per-host convention — see tests/README.md.)
+ * and codex's to tests/adapters/codex.test.ts per the ONE-file-per-host
+ * convention — see tests/README.md.)
  *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, so
- * config files land under <tempDir>/.claude, /.codex — never the real home or the
- * repo tree. HOME + AGENT_CONNECTOR_DATA_DIR are pointed at temp and restored in
+ * config files land under <tempDir>/.claude — never the real home or the repo
+ * tree. HOME + AGENT_CONNECTOR_DATA_DIR are pointed at temp and restored in
  * afterEach.
  */
 
@@ -27,8 +28,6 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import TOML from "@iarna/toml";
-
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
@@ -37,7 +36,6 @@ import type {
 } from "../../src/core/types.js";
 
 import claudeAdapter from "../../src/adapters/claude-code/index.js";
-import codexAdapter from "../../src/adapters/codex/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -93,20 +91,17 @@ function buildCtx(projectDir: string, connector: ResolvedConnector): InstallCont
 let savedHome: string | undefined;
 let savedDataDir: string | undefined;
 let savedEnvVar: string | undefined;
-let savedCodexHome: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
   savedEnvVar = process.env[ENV_VAR];
-  savedCodexHome = process.env.CODEX_HOME;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
   restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
   restore(ENV_VAR, savedEnvVar);
-  restore("CODEX_HOME", savedCodexHome);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -122,7 +117,7 @@ function freshProject(): string {
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
-  // Set the env-ref var so codex literal-resolution produces a known value.
+  // Set the env-ref var so the native ${VAR} token assertion has a known value.
   process.env[ENV_VAR] = ENV_LITERAL;
   return dir;
 }
@@ -323,164 +318,5 @@ describe("claude-code adapter render/round-trip", () => {
     const out = JSON.parse(reply.stdout!);
     expect(out.hookSpecificOutput.hookEventName).toBe("SessionStart");
     expect(out.hookSpecificOutput.additionalContext).toBe("ctx here");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Codex
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("codex adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes [mcp_servers.<id>] TOML table, wrapped for telemetry, env as a LITERAL (no native interpolation)", () => {
-    const changes = codexAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const tomlPath = join(projectDir, ".codex", "config.toml");
-    expect(tomlPath).toBe(codexAdapter.getServerConfigPath(ctx));
-    expect(existsSync(tomlPath)).toBe(true);
-
-    const cfg = TOML.parse(readFileSync(tomlPath, "utf8")) as any;
-    expect(cfg.mcp_servers).toBeTruthy();
-    const entry = cfg.mcp_servers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    // Serve-wrapper points at the home binary.
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual([
-      "serve",
-      "--connector",
-      CONNECTOR_ID,
-      "--scope",
-      "project",
-      "--host",
-      "codex",
-      "--",
-      "npx",
-      "-y",
-      "@x/y",
-    ]);
-
-    // TOML cannot interpolate → the env-ref is resolved to a LITERAL value.
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.env[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installHooks writes hooks.json entries referencing the home binary + codex platform token", () => {
-    const changes = codexAdapter.installHooks(ctx);
-    expect(changes.length).toBeGreaterThan(0);
-
-    const hooksPath = join(projectDir, ".codex", "hooks.json");
-    expect(hooksPath).toBe(codexAdapter.getHookConfigPath(ctx));
-
-    const cfg = readJson(hooksPath);
-    const pre = cfg.hooks.PreToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    const cmd = pre[0].hooks[0].command;
-    expect(cmd).toContain(HOME_BIN);
-    expect(cmd).toContain("hook codex PreToolUse");
-    expect(cmd).toContain(`--connector ${CONNECTOR_ID}`);
-    // PreToolUse carries the charset-clean Codex matcher.
-    expect(pre[0].matcher).toContain("mcp__");
-
-    // SessionStart is registered too (it is in CODEX_HOOK_EVENTS).
-    expect(cfg.hooks.SessionStart[0].hooks[0].command).toContain(
-      "hook codex SessionStart",
-    );
-  });
-
-  it("installServer is idempotent — second call yields skip, no duplicate table", () => {
-    codexAdapter.installServer(ctx);
-    const second = codexAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = TOML.parse(
-      readFileSync(join(projectDir, ".codex", "config.toml"), "utf8"),
-    ) as any;
-    expect(Object.keys(cfg.mcp_servers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("installHooks is idempotent — second call yields skip and does not duplicate entries", () => {
-    codexAdapter.installHooks(ctx);
-    const second = codexAdapter.installHooks(ctx);
-    expect(second.every((c) => c.action === "skip")).toBe(true);
-
-    const cfg = readJson(join(projectDir, ".codex", "hooks.json"));
-    expect(cfg.hooks.PreToolUse).toHaveLength(1);
-    expect(cfg.hooks.SessionStart).toHaveLength(1);
-  });
-
-  it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
-    codexAdapter.installServer(ctx);
-    codexAdapter.installHooks(ctx);
-
-    codexAdapter.uninstallServer(ctx);
-    const cfg = TOML.parse(
-      readFileSync(join(projectDir, ".codex", "config.toml"), "utf8"),
-    ) as any;
-    expect(cfg.mcp_servers?.[CONNECTOR_ID]).toBeUndefined();
-
-    codexAdapter.uninstallHooks(ctx);
-    const hooks = readJson(join(projectDir, ".codex", "hooks.json"));
-    expect(JSON.stringify(hooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-
-  it("parseEvent + formatReply round-trip: PreToolUse deny → native hookSpecificOutput", () => {
-    const evt = codexAdapter.parseEvent!("PreToolUse", {
-      tool_name: "acme_write",
-      tool_input: { sql: "DROP" },
-      cwd: projectDir,
-      session_id: "cx-1",
-    });
-    expect(evt).toMatchObject({
-      hostPlatform: "codex",
-      toolName: "acme_write",
-      toolInput: { sql: "DROP" },
-      sessionId: "cx-1",
-    });
-
-    const reply = codexAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "blocked",
-    });
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout!);
-    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
-    expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked");
-  });
-
-  it("formatReply: SessionStart context → additionalContext native wrapper", () => {
-    const evt = codexAdapter.parseEvent!("SessionStart", {
-      source: "startup",
-      cwd: projectDir,
-      session_id: "cx-2",
-    });
-    expect(evt).toMatchObject({ hostPlatform: "codex", source: "startup" });
-
-    const reply = codexAdapter.formatReply!("SessionStart", {
-      decision: "context",
-      additionalContext: "codex ctx",
-    });
-    const out = JSON.parse(reply.stdout!);
-    expect(out.hookSpecificOutput.hookEventName).toBe("SessionStart");
-    expect(out.hookSpecificOutput.additionalContext).toBe("codex ctx");
-  });
-
-  it("formatReply: ask is unsupported on Codex → passthrough (no stdout decision)", () => {
-    const reply = codexAdapter.formatReply!("PreToolUse", {
-      decision: "ask",
-      reason: "confirm",
-    });
-    // Codex does not honor ask; it fails open (exit 0, no permission payload).
-    expect(reply.exitCode).toBe(0);
-    expect(reply.stdout).toBeUndefined();
   });
 });

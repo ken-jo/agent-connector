@@ -6,12 +6,11 @@
  *   • qwen-code   — TOML commands, NO skill surface (warn/skip), md+fm subagents
  *   • opencode    — md+fm commands, SKILL.md skills, md+fm subagents under the
  *                   SINGULAR agent/ dir
- *   • codex       — md+fm commands at ~/.codex/prompts (USER scope only; project
- *                   scope → warn), SKILL.md skills, TOML subagents
  *
  * (cursor's content-surface slice — body-only commands, SKILL.md skills, md+fm
- * subagents — was migrated to tests/adapters/cursor.test.ts per the
- * ONE-file-per-host convention; see tests/README.md.)
+ * subagents — was migrated to tests/adapters/cursor.test.ts, and codex's to
+ * tests/adapters/codex.test.ts, per the ONE-file-per-host convention; see
+ * tests/README.md.)
  *
  * Each platform is exercised end-to-end against REAL files on disk in an
  * isolated temp project dir:
@@ -20,12 +19,9 @@
  *   • idempotency (second install → "skip")
  *   • uninstall (files removed; re-read from disk confirms gone)
  *   • capability gating: qwen skills route through the BaseAdapter warn/skip path
- *   • codex command scope: user scope writes to ~/.codex/prompts (HOME temp);
- *     project scope yields a single "warn"
  *
- * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test. HOME,
- * AGENT_CONNECTOR_DATA_DIR, and CODEX_HOME point at temp and are restored in
- * afterEach so the codex user-scope path resolves under the temp HOME.
+ * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test. HOME and
+ * AGENT_CONNECTOR_DATA_DIR point at temp and are restored in afterEach.
  */
 
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
@@ -43,7 +39,6 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
 import qwenAdapter from "../../src/adapters/qwen-code/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
-import codexAdapter from "../../src/adapters/codex/index.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-surfaces";
@@ -111,18 +106,15 @@ function buildCtx(
 
 let savedHome: string | undefined;
 let savedDataDir: string | undefined;
-let savedCodexHome: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-  savedCodexHome = process.env.CODEX_HOME;
 });
 
 afterEach(() => {
   restore("HOME", savedHome);
   restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-  restore("CODEX_HOME", savedCodexHome);
 });
 
 function restore(key: string, value: string | undefined): void {
@@ -135,8 +127,6 @@ function freshProject(): string {
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
-  // Unset CODEX_HOME so codex user scope resolves under the temp HOME (~/.codex).
-  delete process.env.CODEX_HOME;
   return dir;
 }
 
@@ -408,96 +398,5 @@ describe("opencode adapter — content surfaces", () => {
     expect(existsSync(join(projectDir, ".opencode", "commands", "deploy.md"))).toBe(false);
     expect(existsSync(join(projectDir, ".opencode", "skills", "pdf-tools"))).toBe(false);
     expect(existsSync(join(projectDir, ".opencode", "agent", "reviewer.md"))).toBe(false);
-  });
-});
-
-// ── codex ─────────────────────────────────────────────────────────────────
-
-describe("codex adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("declares support for all three content surfaces", () => {
-    expect(codexAdapter.capabilities.supportsCommands).toBe(true);
-    expect(codexAdapter.capabilities.supportsSkills).toBe(true);
-    expect(codexAdapter.capabilities.supportsSubagents).toBe(true);
-  });
-
-  it("installSkills writes uniform SKILL.md + resource (project scope under .codex)", () => {
-    codexAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, ".codex", "skills", "pdf-tools", "SKILL.md");
-    expect(existsSync(skillMd)).toBe(true);
-    expect(existsSync(join(projectDir, ".codex", "skills", "pdf-tools", "scripts", "extract.sh"))).toBe(true);
-
-    const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
-    expect(frontmatter.name).toBe("pdf-tools");
-    expect(frontmatter.description).toBe(SKILL.description);
-  });
-
-  it("installSubagents writes a TOML agent (name, description, developer_instructions, model)", () => {
-    const changes = codexAdapter.installSubagents!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const agentPath = join(projectDir, ".codex", "agents", "reviewer.toml");
-    expect(changes[0]?.path).toBe(agentPath);
-    expect(existsSync(agentPath)).toBe(true);
-
-    const toml = parseToml(readFileSync(agentPath, "utf8")) as Record<string, unknown>;
-    expect(toml.name).toBe("reviewer");
-    expect(toml.description).toBe(SUBAGENT.description);
-    expect(toml.developer_instructions).toBe(SUBAGENT.prompt);
-    expect(toml.model).toBe("opus");
-  });
-
-  it("commands are USER-scope only: project scope yields a single warn (no file)", () => {
-    const changes = codexAdapter.installCommands!(ctx); // ctx scope === "project"
-    expect(changes).toHaveLength(1);
-    expect(changes[0]?.action).toBe("warn");
-    expect(existsSync(join(projectDir, ".codex", "prompts", "deploy.md"))).toBe(false);
-  });
-
-  it("installCommands at USER scope writes md+fm to ~/.codex/prompts (HOME temp)", () => {
-    const userCtx = buildCtx(projectDir, buildConnector(), "user");
-    const changes = codexAdapter.installCommands!(userCtx);
-    expect(changes[0]?.action).toBe("create");
-
-    // HOME redirected to projectDir; CODEX_HOME unset → ~/.codex === projectDir/.codex.
-    const cmdPath = join(projectDir, ".codex", "prompts", "deploy.md");
-    expect(changes[0]?.path).toBe(cmdPath);
-    expect(existsSync(cmdPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(cmdPath, "utf8"));
-    expect(frontmatter.description).toBe("Deploy the app to an environment.");
-    expect(frontmatter["argument-hint"]).toBe("[environment]");
-    expect(body.trim()).toBe(COMMAND.prompt);
-  });
-
-  it("is idempotent — second install yields skip (skills + subagents + user commands)", () => {
-    const userCtx = buildCtx(projectDir, buildConnector(), "user");
-    codexAdapter.installSkills!(ctx);
-    codexAdapter.installSubagents!(ctx);
-    codexAdapter.installCommands!(userCtx);
-    expect(codexAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(codexAdapter.installSubagents!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(codexAdapter.installCommands!(userCtx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes skills, subagents, and user-scope command files", () => {
-    const userCtx = buildCtx(projectDir, buildConnector(), "user");
-    codexAdapter.installSkills!(ctx);
-    codexAdapter.installSubagents!(ctx);
-    codexAdapter.installCommands!(userCtx);
-
-    codexAdapter.uninstallSkills!(ctx);
-    codexAdapter.uninstallSubagents!(ctx);
-    codexAdapter.uninstallCommands!(userCtx);
-
-    expect(existsSync(join(projectDir, ".codex", "skills", "pdf-tools"))).toBe(false);
-    expect(existsSync(join(projectDir, ".codex", "agents", "reviewer.toml"))).toBe(false);
-    expect(existsSync(join(projectDir, ".codex", "prompts", "deploy.md"))).toBe(false);
   });
 });
