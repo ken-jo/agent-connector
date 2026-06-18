@@ -40,7 +40,7 @@ import TOML from "@iarna/toml";
 import type { InstallScope, PlatformId } from "./types.js";
 import type { PackageFormat } from "./package.js";
 import { connectorDir, connectorsDir, dataRoot, ensureDir } from "./paths.js";
-import { xdgConfigHome } from "./host-paths.js";
+import { codexConfigHome, xdgConfigHome } from "./host-paths.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // State record: connectorDir(id)/marketplace-installs.json
@@ -260,16 +260,6 @@ export function claudeKnownMarketplacePath(name: string): string | null {
 // ─────────────────────────────────────────────────────────────────────────
 // Codex host-state readers ($CODEX_HOME || ~/.codex → config.toml)
 // ─────────────────────────────────────────────────────────────────────────
-
-/** Codex's config home, honoring the CODEX_HOME override (defaults to ~/.codex). */
-export function codexConfigHome(): string {
-  const env = process.env.CODEX_HOME;
-  if (env && env.trim() !== "") {
-    if (env.startsWith("~")) return join(homedir(), env.replace(/^~[/\\]?/, ""));
-    return resolve(env);
-  }
-  return join(homedir(), ".codex");
-}
 
 /** The config.toml key our marketplace install creates for `id` (== claude's). */
 export function codexPluginKey(connectorId: string): string {
@@ -774,11 +764,13 @@ export function marketplaceEvidence(
         ? `${connectorId} listed in ${platform}'s config plugin array`
         : null;
     case "codex": {
-      const codexHome =
-        process.env.CODEX_HOME && process.env.CODEX_HOME.trim() !== ""
-          ? resolve(process.env.CODEX_HOME)
-          : join(homedir(), ".codex");
-      const dir = join(codexHome, "plugins", "cache", MARKETPLACE_NAME, connectorId);
+      const dir = join(
+        codexConfigHome(),
+        "plugins",
+        "cache",
+        MARKETPLACE_NAME,
+        connectorId,
+      );
       return existsSync(dir) ? `codex plugin cache ${dir} exists` : null;
     }
     default:

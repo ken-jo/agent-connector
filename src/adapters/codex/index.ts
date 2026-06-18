@@ -55,6 +55,7 @@ import type {
   SubagentDef,
 } from "../../core/types.js";
 import { ensureDir } from "../../core/paths.js";
+import { codexConfigHome } from "../../core/host-paths.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   removeFromObjectMap,
@@ -283,16 +284,11 @@ export class CodexAdapter extends BaseAdapter {
     ];
   }
 
-  /** `$CODEX_HOME` || `~/.codex` for user scope. */
+  /** `$CODEX_HOME` (tilde-expanded, then resolved) || `~/.codex` for user
+   *  scope. Shared with marketplace detection via `codexConfigHome` so the
+   *  config writer and the install probe never target different dirs. */
   private userConfigDir(): string {
-    const env = process.env.CODEX_HOME;
-    if (env && env.trim() !== "") {
-      if (env.startsWith("~")) {
-        return join(homedir(), env.replace(/^~[/\\]?/, ""));
-      }
-      return env;
-    }
-    return join(homedir(), ".codex");
+    return codexConfigHome();
   }
 
   // ── TOML config IO (override JSON helpers — config.toml is TOML) ─────────
