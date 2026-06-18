@@ -1,19 +1,11 @@
 /**
  * adapters/phase3 — render + ts-plugin bridge tests for the Phase-3 adapters.
  *
- * Covers the genuinely hard `ts-plugin` paradigm (OpenCode + the Kilo CLI fork),
- * end-to-end against REAL files on disk in an isolated temp dir. (The Kilo Code
- * VS Code extension slice migrated to its per-host file tests/adapters/kilo.test.ts
- * per the ONE-file-per-host convention — see tests/README.md.)
- *
- *   KILO CLI (ts-plugin — an OpenCode fork loading @kilocode/plugin modules):
- *     • installServer writes kilo.jsonc under the top-level "mcp" key, with a
- *       { type:"local", command:[...] } entry whose command array starts with the
- *       home binary and carries serve --connector <id>.
- *     • idempotency (second installServer → "skip"); uninstallServer removes it.
- *     • installHooks synthesizes a self-contained plugin .js module into the
- *       .kilo/plugin/ dir AND registers its path in kilo.jsonc's "plugin" array
- *       (the fork does NOT auto-discover by dir). uninstallHooks reverses both.
+ * Covers the genuinely hard `ts-plugin` paradigm (OpenCode), end-to-end against
+ * REAL files on disk in an isolated temp dir. (The Kilo Code VS Code extension
+ * slice migrated to its per-host file tests/adapters/kilo.test.ts, and the Kilo
+ * CLI fork slice migrated to tests/adapters/kilo-cli.test.ts — both per the
+ * ONE-file-per-host convention, see tests/README.md.)
  *
  *   OPENCODE (ts-plugin — the important one):
  *     • installServer writes the opencode.json "mcp" entry (type local, command
@@ -50,7 +42,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { HookResponse, ResolvedConnector } from "../../src/core/types.js";
 
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
-import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // node:child_process mock — hoisted above every import by vitest.
@@ -187,161 +178,6 @@ const wrappedTail = (host: string): string[] => [
   "-y",
   "@x/y",
 ];
-
-// ─────────────────────────────────────────────────────────────────────────
-// Kilo CLI (ts-plugin) — the SQLite-backed OpenCode FORK loading @kilocode/plugin
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("kilo-cli adapter (ts-plugin) render", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-p3-kilo-cli-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("has the CLI identity (id kilo-cli / name Kilo CLI / ts-plugin)", () => {
-    expect(kiloCliAdapter.id).toBe("kilo-cli");
-    expect(kiloCliAdapter.name).toBe("Kilo CLI");
-    expect(kiloCliAdapter.paradigm).toBe("ts-plugin");
-  });
-
-  it("installServer writes the entry under top-level 'mcp' with type 'local' and a command ARRAY starting at the home bin", () => {
-    const changes = kiloCliAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".kilo", "kilo.jsonc");
-    expect(serverPath).toBe(kiloCliAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    // New-gen root key is "mcp", NOT the extension's "mcpServers".
-    expect(cfg).toHaveProperty("mcp");
-    expect(cfg).not.toHaveProperty("mcpServers");
-
-    const entry = cfg.mcp[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    expect(entry.type).toBe("local");
-
-    // The CLI keys the whole invocation as a single ARRAY (exe + args together).
-    expect(Array.isArray(entry.command)).toBe(true);
-    expect(entry.command[0]).toBe(HOME_BIN);
-    // The telemetry serve-wrapper tail is flattened into the same array.
-    expect(entry.command).toEqual([HOME_BIN, ...wrappedTail("kilo-cli")]);
-    expect(entry.command).toContain("serve");
-    expect(entry.command).toContain("--connector");
-    expect(entry.command).toContain(CONNECTOR_ID);
-
-    // No native interpolation token → env resolves to a LITERAL value.
-    expect(entry.environment[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.environment[ENV_VAR]).not.toContain("${");
-  });
-
-  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
-    kiloCliAdapter.installServer(ctx);
-    const second = kiloCliAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".kilo", "kilo.jsonc"));
-    expect(Object.keys(cfg.mcp)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("uninstallServer removes the entry (re-read confirms gone)", () => {
-    kiloCliAdapter.installServer(ctx);
-    kiloCliAdapter.uninstallServer(ctx);
-
-    const cfg = readJson(join(projectDir, ".kilo", "kilo.jsonc"));
-    expect(cfg.mcp?.[CONNECTOR_ID]).toBeUndefined();
-  });
-
-  it("installHooks writes the plugin .js module into .kilo/plugin/ AND registers its path in kilo.jsonc's 'plugin' array", () => {
-    const changes = kiloCliAdapter.installHooks(ctx);
-
-    // The hook config path is the generated module FILE (ts-plugin), under the
-    // dedicated plugin dir — NOT the server config path.
-    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
-    expect(pluginPath).toBe(join(projectDir, ".kilo", "plugin", `${CONNECTOR_ID}.js`));
-    expect(pluginPath).not.toBe(kiloCliAdapter.getServerConfigPath(ctx));
-    expect(existsSync(pluginPath)).toBe(true);
-
-    // The module is self-contained: it imports NOTHING from agent-connector (the
-    // only allowed import is node:child_process). The string "agent-connector"
-    // may appear in the AUTO-GENERATED header comment — what must be absent is an
-    // actual import/require of the package. It shells out to the home bin's
-    // universal `hook kilo-cli` entrypoint.
-    const src = readFileSync(pluginPath, "utf8");
-    expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
-    expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
-    expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
-    expect(src).toContain('"hook", "kilo-cli"');
-    expect(src).toContain(HOME_BIN);
-    // @kilocode/plugin PluginModule shape: default export with a server factory.
-    expect(src).toContain("server: async (input)");
-    expect(src).toContain('"tool.execute.before"');
-
-    // The module path is registered in kilo.jsonc's top-level "plugin" array.
-    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
-    expect(Array.isArray(cfg.plugin)).toBe(true);
-    expect(cfg.plugin).toContain(pluginPath);
-
-    // A create for the module + a create for the array registration.
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-  });
-
-  it("installHooks is idempotent — second call does not duplicate the plugin-array entry", () => {
-    kiloCliAdapter.installHooks(ctx);
-    kiloCliAdapter.installHooks(ctx);
-    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
-    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
-    expect(cfg.plugin.filter((p: string) => p === pluginPath)).toHaveLength(1);
-  });
-
-  it("uninstallHooks removes the module AND deregisters it from the 'plugin' array", () => {
-    kiloCliAdapter.installHooks(ctx);
-    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
-    expect(existsSync(pluginPath)).toBe(true);
-
-    kiloCliAdapter.uninstallHooks(ctx);
-    expect(existsSync(pluginPath)).toBe(false);
-
-    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
-    expect(Array.isArray(cfg.plugin) ? cfg.plugin : []).not.toContain(pluginPath);
-  });
-
-  it("THE BRIDGE WORKS — the synthesized @kilocode/plugin server() blocks on a deny and rewrites args on a modify", async () => {
-    kiloCliAdapter.installHooks(ctx);
-    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
-
-    // Import the freshly-written module (cache-busted) with child_process mocked.
-    const mod = await import(`${pathToFileURL(pluginPath).href}?t=${Date.now()}`);
-    const plugin = mod.default;
-    expect(typeof plugin.server).toBe("function");
-
-    const hooks = await plugin.server({ directory: projectDir });
-    const before = hooks["tool.execute.before"];
-    expect(typeof before).toBe("function");
-
-    // deny → the handler throws (blocks the tool call).
-    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "nope" } satisfies HookResponse);
-    await expect(
-      before({ tool: "acme_write", sessionID: "s1" }, { args: { a: 1 } }),
-    ).rejects.toThrow("nope");
-
-    // modify → updatedInput is merged into output.args in place.
-    execFileSyncImpl = () =>
-      JSON.stringify({ decision: "modify", updatedInput: { a: 2, b: 3 } } satisfies HookResponse);
-    const output = { args: { a: 1 } as Record<string, unknown> };
-    await before({ tool: "acme_write", sessionID: "s1" }, output);
-    expect(output.args).toEqual({ a: 2, b: 3 });
-
-    // The bridge shelled out to the kilo-cli universal entrypoint.
-    expect(execFileSyncMock).toHaveBeenCalled();
-    const call = execFileSyncMock.mock.calls.at(-1);
-    expect(call?.[0]).toBe(HOME_BIN);
-    expect(call?.[1]).toEqual(["hook", "kilo-cli", "PreToolUse", "--connector", CONNECTOR_ID]);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // OpenCode (ts-plugin) — render + the live bridge
