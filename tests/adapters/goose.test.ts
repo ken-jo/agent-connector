@@ -18,8 +18,7 @@
  * adapter-suite) per tests/README.md — ONE file per host.
  */
 
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { parse as parseYaml } from "yaml";
@@ -36,7 +35,7 @@ import type {
 } from "../../src/core/types.js";
 
 import gooseAdapter from "../../src/adapters/goose/index.js";
-import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN, tempDir } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 
 // ── shared fixtures ──────────────────────────────────────────────────────────
@@ -569,7 +568,7 @@ describe("goose adapter — skills surface", () => {
   it("user-scope skill does NOT write into the project .agents tree", () => {
     // Write user-scope into one dir, project-scope into another — no overlap.
     const userDir = freshProject("ac-goose-skills-");
-    const projDir = mkdtempSync(join(tmpdir(), "ac-goose-skills-proj-"));
+    const projDir = tempDir("ac-goose-skills-proj-");
     const userCtx = buildCtx(projDir, buildSkillsConnector(), "user");
     gooseAdapter.installSkills!(userCtx);
 

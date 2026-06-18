@@ -3,9 +3,9 @@
  * not strip the other connector's hooks (the HIGH-severity collision bug).
  */
 import { readFileSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { tempDir } from "../support/env.js";
 
 import { describe, expect, it } from "vitest";
 
@@ -32,7 +32,7 @@ function ctxFor(id: string, projectDir: string): InstallContext {
 
 describe("claude-code hook uninstall — shared-prefix connector ids", () => {
   it("uninstalling 'acme' leaves 'acme-db' hooks intact", () => {
-    const dir = mkdtempSync(join(tmpdir(), "ac-collide-"));
+    const dir = tempDir("ac-collide-");
     const acme = ctxFor("acme", dir);
     const acmedb = ctxFor("acme-db", dir);
 
