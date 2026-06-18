@@ -811,6 +811,19 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /**
+   * True when a PRESENT rootKey value is not a plain object map (the user
+   * hand-edited it to an array / string / number / boolean). Assigning a server
+   * entry into such a value would corrupt the file silently (a named property on
+   * an Array is dropped by JSON.stringify) or throw under strict mode (a property
+   * write / `in` operator against a primitive), so callers warn-and-skip. A
+   * `null`/`undefined` value is NOT malformed — it is the well-formed "absent"
+   * case the helpers create fresh.
+   */
+  protected isMalformedRootValue(value: unknown): boolean {
+    return value != null && (typeof value !== "object" || Array.isArray(value));
+  }
+
+  /**
    * Upsert `entry` at `config[rootKey][serverId]` in a JSON file, creating the
    * file/object as needed. Returns a ChangeRecord describing create/update/skip.
    * Idempotent: an identical entry yields "skip".
@@ -834,6 +847,18 @@ export abstract class BaseAdapter implements Adapter {
       };
     }
     const cfg = this.readJson<Record<string, Record<string, unknown>>>(configPath) ?? {};
+    // ROOT-KEY GUARD: a present-but-malformed rootKey (hand-edited to an array /
+    // primitive) cannot hold a named server entry — assigning into it would
+    // silently drop the entry (array) or throw (primitive). Warn and skip so the
+    // user's malformed data is preserved untouched.
+    if (this.isMalformedRootValue(cfg[rootKey])) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path: configPath,
+        detail: `existing "${rootKey}" in ${configPath} is not an object map; left untouched (fix it, then re-run)`,
+      };
+    }
     const bucket = (cfg[rootKey] ??= {});
     const before = JSON.stringify(bucket[serverId]);
     const after = JSON.stringify(entry);
@@ -866,6 +891,19 @@ export abstract class BaseAdapter implements Adapter {
       };
     }
     const cfg = this.readJson<Record<string, Record<string, unknown>>>(configPath);
+    // ROOT-KEY GUARD (see upsertServerInJson): a present-but-malformed rootKey
+    // would make the `in` operator below throw against a primitive (and we must
+    // never rewrite the user's hand-edited array/primitive), so warn and skip
+    // BEFORE touching the bucket. The well-formed absent case (cfg == null or
+    // rootKey missing) keeps its existing skip below.
+    if (cfg && this.isMalformedRootValue(cfg[rootKey])) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path: configPath,
+        detail: `existing "${rootKey}" in ${configPath} is not an object map; left untouched (fix it, then re-run)`,
+      };
+    }
     const bucket = cfg?.[rootKey];
     if (!cfg || !bucket || !(serverId in bucket)) {
       return { platform: this.id, action: "skip", path: configPath, detail: `${rootKey}.${serverId} absent` };
