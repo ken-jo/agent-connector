@@ -1,7 +1,7 @@
 /**
- * adapters/render — render + round-trip tests for the three Phase-1 adapters.
+ * adapters/render — render + round-trip tests for the Phase-1 adapters.
  *
- * For each of claude-code, codex, cursor this exercises the full json-stdio path
+ * For each of claude-code, codex this exercises the full json-stdio path
  * end-to-end against REAL files on disk in an isolated temp project dir:
  *   • installServer  → native MCP registration (root key / TOML table / fields)
  *   • installHooks   → native hook registration (per-dialect shape)
@@ -12,10 +12,13 @@
  *   • parseEvent + formatReply round-trip for PreToolUse deny/ask and a
  *     SessionStart context response → platform-native reply shape.
  *
+ * (cursor's render/round-trip slice was migrated to tests/adapters/cursor.test.ts
+ * per the ONE-file-per-host convention — see tests/README.md.)
+ *
  * Filesystem isolation: every test gets a fresh os.tmpdir mkdtemp project dir, so
- * config files land under <tempDir>/.claude, /.codex, /.cursor — never the real
- * home or the repo tree. HOME + AGENT_CONNECTOR_DATA_DIR are pointed at temp and
- * restored in afterEach.
+ * config files land under <tempDir>/.claude, /.codex — never the real home or the
+ * repo tree. HOME + AGENT_CONNECTOR_DATA_DIR are pointed at temp and restored in
+ * afterEach.
  */
 
 import { existsSync, readFileSync, mkdtempSync } from "node:fs";
@@ -35,7 +38,6 @@ import type {
 
 import claudeAdapter from "../../src/adapters/claude-code/index.js";
 import codexAdapter from "../../src/adapters/codex/index.js";
-import cursorAdapter from "../../src/adapters/cursor/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -480,159 +482,5 @@ describe("codex adapter render/round-trip", () => {
     // Codex does not honor ask; it fails open (exit 0, no permission payload).
     expect(reply.exitCode).toBe(0);
     expect(reply.stdout).toBeUndefined();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Cursor
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("cursor adapter render/round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("installServer writes mcpServers.<id> into project .cursor/mcp.json, wrapped, env keeps native ${env:VAR} token", () => {
-    const changes = cursorAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const mcpPath = join(projectDir, ".cursor", "mcp.json");
-    expect(mcpPath).toBe(cursorAdapter.getServerConfigPath(ctx));
-    expect(existsSync(mcpPath)).toBe(true);
-
-    const cfg = readJson(mcpPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-
-    // Serve-wrapper: command = home binary; real command in serve args.
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual([
-      "serve",
-      "--connector",
-      CONNECTOR_ID,
-      "--scope",
-      "project",
-      "--host",
-      "cursor",
-      "--",
-      "npx",
-      "-y",
-      "@x/y",
-    ]);
-
-    // Cursor keeps its native ${env:VAR} interpolation token (passthrough).
-    expect(entry.env[ENV_VAR]).toBe(`\${env:${ENV_VAR}}`);
-    expect(entry.env[ENV_VAR]).not.toBe(ENV_LITERAL);
-  });
-
-  it("installHooks writes flat command entries under cursor-native event keys + version 1", () => {
-    const changes = cursorAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const hooksPath = join(projectDir, ".cursor", "hooks.json");
-    expect(hooksPath).toBe(cursorAdapter.getHookConfigPath(ctx));
-
-    const cfg = readJson(hooksPath);
-    expect(cfg.version).toBe(1);
-
-    // Cursor uses lower-camel native event keys and FLAT command objects.
-    const pre = cfg.hooks.preToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    expect(pre[0].command).toContain(HOME_BIN);
-    expect(pre[0].command).toContain("hook cursor PreToolUse");
-    expect(pre[0].command).toContain(`--connector ${CONNECTOR_ID}`);
-    expect(pre[0].matcher).toBe("acme_query|acme_write");
-
-    // SessionStart maps to the native sessionStart key.
-    expect(cfg.hooks.sessionStart[0].command).toContain(
-      "hook cursor SessionStart",
-    );
-  });
-
-  it("installServer is idempotent — second call yields skip, no duplicate", () => {
-    cursorAdapter.installServer(ctx);
-    const second = cursorAdapter.installServer(ctx);
-    expect(second[0]?.action).toBe("skip");
-
-    const cfg = readJson(join(projectDir, ".cursor", "mcp.json"));
-    expect(Object.keys(cfg.mcpServers)).toEqual([CONNECTOR_ID]);
-  });
-
-  it("installHooks is idempotent — second call yields skip and does not duplicate entries", () => {
-    cursorAdapter.installHooks(ctx);
-    const second = cursorAdapter.installHooks(ctx);
-    expect(second.every((c) => c.action === "skip")).toBe(true);
-
-    const cfg = readJson(join(projectDir, ".cursor", "hooks.json"));
-    expect(cfg.hooks.preToolUse).toHaveLength(1);
-    expect(cfg.hooks.sessionStart).toHaveLength(1);
-  });
-
-  it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
-    cursorAdapter.installServer(ctx);
-    cursorAdapter.installHooks(ctx);
-
-    cursorAdapter.uninstallServer(ctx);
-    const mcp = readJson(join(projectDir, ".cursor", "mcp.json"));
-    expect(mcp.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-
-    cursorAdapter.uninstallHooks(ctx);
-    const hooks = readJson(join(projectDir, ".cursor", "hooks.json"));
-    expect(JSON.stringify(hooks.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-
-  it("parseEvent + formatReply round-trip: PreToolUse deny → permission/user_message", () => {
-    const evt = cursorAdapter.parseEvent!("PreToolUse", {
-      tool_name: "acme_write",
-      tool_input: { sql: "TRUNCATE" },
-      cwd: projectDir,
-      conversation_id: "cur-1",
-    });
-    expect(evt).toMatchObject({
-      hostPlatform: "cursor",
-      toolName: "acme_write",
-      toolInput: { sql: "TRUNCATE" },
-      sessionId: "cur-1",
-    });
-
-    const reply = cursorAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "nope",
-    });
-    expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout!);
-    expect(out.permission).toBe("deny");
-    expect(out.user_message).toBe("nope");
-  });
-
-  it("formatReply: PreToolUse ask → permission ask + user_message", () => {
-    const reply = cursorAdapter.formatReply!("PreToolUse", {
-      decision: "ask",
-      reason: "confirm",
-    });
-    const out = JSON.parse(reply.stdout!);
-    expect(out.permission).toBe("ask");
-    expect(out.user_message).toBe("confirm");
-  });
-
-  it("parseEvent + formatReply round-trip: SessionStart context → additional_context", () => {
-    const evt = cursorAdapter.parseEvent!("SessionStart", {
-      source: "startup",
-      cwd: projectDir,
-      conversation_id: "cur-2",
-    });
-    expect(evt).toMatchObject({ hostPlatform: "cursor", source: "startup" });
-
-    const reply = cursorAdapter.formatReply!("SessionStart", {
-      decision: "context",
-      additionalContext: "cursor ctx",
-    });
-    const out = JSON.parse(reply.stdout!);
-    expect(out.additional_context).toBe("cursor ctx");
   });
 });

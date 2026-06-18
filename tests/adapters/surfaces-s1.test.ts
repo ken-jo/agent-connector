@@ -4,17 +4,19 @@
  *
  *   • gemini-cli  — TOML commands, uniform SKILL.md skills, md+fm subagents
  *   • qwen-code   — TOML commands, NO skill surface (warn/skip), md+fm subagents
- *   • cursor      — body-only commands (no frontmatter), SKILL.md skills, md+fm subagents
  *   • opencode    — md+fm commands, SKILL.md skills, md+fm subagents under the
  *                   SINGULAR agent/ dir
  *   • codex       — md+fm commands at ~/.codex/prompts (USER scope only; project
  *                   scope → warn), SKILL.md skills, TOML subagents
  *
+ * (cursor's content-surface slice — body-only commands, SKILL.md skills, md+fm
+ * subagents — was migrated to tests/adapters/cursor.test.ts per the
+ * ONE-file-per-host convention; see tests/README.md.)
+ *
  * Each platform is exercised end-to-end against REAL files on disk in an
  * isolated temp project dir:
  *   • install* writes the native file at the right path in the right format
- *     (TOML parsed with @iarna/toml; md+fm split + parsed with `yaml`; cursor
- *     command asserted as raw body with no frontmatter delimiter)
+ *     (TOML parsed with @iarna/toml; md+fm split + parsed with `yaml`)
  *   • idempotency (second install → "skip")
  *   • uninstall (files removed; re-read from disk confirms gone)
  *   • capability gating: qwen skills route through the BaseAdapter warn/skip path
@@ -40,7 +42,6 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 
 import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
 import qwenAdapter from "../../src/adapters/qwen-code/index.js";
-import cursorAdapter from "../../src/adapters/cursor/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
 import codexAdapter from "../../src/adapters/codex/index.js";
 
@@ -327,86 +328,6 @@ describe("qwen-code adapter — content surfaces", () => {
     qwenAdapter.uninstallSubagents!(ctx);
     expect(existsSync(join(projectDir, ".qwen", "commands", "deploy.toml"))).toBe(false);
     expect(existsSync(join(projectDir, ".qwen", "agents", "reviewer.md"))).toBe(false);
-  });
-});
-
-// ── cursor ────────────────────────────────────────────────────────────────
-
-describe("cursor adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("declares support for all three content surfaces", () => {
-    expect(cursorAdapter.capabilities.supportsCommands).toBe(true);
-    expect(cursorAdapter.capabilities.supportsSkills).toBe(true);
-    expect(cursorAdapter.capabilities.supportsSubagents).toBe(true);
-  });
-
-  it("installCommands writes a BODY-ONLY .md command with NO frontmatter delimiter", () => {
-    const changes = cursorAdapter.installCommands!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const cmdPath = join(projectDir, ".cursor", "commands", "deploy.md");
-    expect(changes[0]?.path).toBe(cmdPath);
-    expect(existsSync(cmdPath)).toBe(true);
-
-    const text = readFileSync(cmdPath, "utf8");
-    // No YAML frontmatter block: the file must not open with the `---` delimiter.
-    expect(text.startsWith("---\n")).toBe(false);
-    // The prompt body is present verbatim.
-    expect(text).toContain(COMMAND.prompt);
-  });
-
-  it("installSkills writes uniform SKILL.md + resource", () => {
-    cursorAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, ".cursor", "skills", "pdf-tools", "SKILL.md");
-    const resource = join(projectDir, ".cursor", "skills", "pdf-tools", "scripts", "extract.sh");
-    expect(existsSync(skillMd)).toBe(true);
-    expect(existsSync(resource)).toBe(true);
-
-    const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
-    expect(frontmatter.name).toBe("pdf-tools");
-    expect(frontmatter.description).toBe(SKILL.description);
-  });
-
-  it("installSubagents writes md+fm agents/<name>.md (name, description, model, readonly)", () => {
-    cursorAdapter.installSubagents!(ctx);
-    const agentPath = join(projectDir, ".cursor", "agents", "reviewer.md");
-    expect(existsSync(agentPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(agentPath, "utf8"));
-    expect(frontmatter.name).toBe("reviewer");
-    expect(frontmatter.description).toBe(SUBAGENT.description);
-    expect(frontmatter.model).toBe("opus");
-    expect(frontmatter.readonly).toBe(true);
-    expect(body.trim()).toBe(SUBAGENT.prompt);
-  });
-
-  it("is idempotent — second install yields skip across all surfaces", () => {
-    cursorAdapter.installCommands!(ctx);
-    cursorAdapter.installSkills!(ctx);
-    cursorAdapter.installSubagents!(ctx);
-    expect(cursorAdapter.installCommands!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(cursorAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(cursorAdapter.installSubagents!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes all written files", () => {
-    cursorAdapter.installCommands!(ctx);
-    cursorAdapter.installSkills!(ctx);
-    cursorAdapter.installSubagents!(ctx);
-
-    cursorAdapter.uninstallCommands!(ctx);
-    cursorAdapter.uninstallSkills!(ctx);
-    cursorAdapter.uninstallSubagents!(ctx);
-
-    expect(existsSync(join(projectDir, ".cursor", "commands", "deploy.md"))).toBe(false);
-    expect(existsSync(join(projectDir, ".cursor", "skills", "pdf-tools"))).toBe(false);
-    expect(existsSync(join(projectDir, ".cursor", "agents", "reviewer.md"))).toBe(false);
   });
 });
 
