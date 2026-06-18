@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.4.7 — 2026-06-18
+
+A correctness fix plus a large internal consolidation. The one user-facing
+behavior change is the malformed-root config guard (below); the engine
+extractions are **byte-identical** refactors — every migrated host's existing
+tests pass unchanged — and the rest is test-suite infrastructure.
+**35 platforms**, **2701 tests**. No new host features, so the patch stays a
+single increment (0.4.6 → 0.4.7).
+
+### Fixes
+
+- **Malformed config root keys no longer cause silent data loss or crashes.**
+  When a user had hand-edited an MCP **server** config so the root key
+  (`mcpServers` / `servers` / `mcp` / `context_servers` / …) was the wrong type —
+  an array or a primitive — installing a server bolted a named property onto it
+  that `JSON.stringify` silently dropped (reported as a false `create`), or threw
+  under strict mode on a primitive. The same bug class lived on the **hook**
+  config root and its per-event buckets. Both are now guarded across the whole
+  fleet: JSON object-map hosts **warn-and-skip** (your file is left untouched with
+  an actionable message); TOML/YAML hosts (codex, goose) coerce a malformed root
+  to a fresh container — never throw, never silently drop. Well-formed configs are
+  byte-for-byte unchanged. (#122, #123)
+
+### Internal — shared engines (behavior-preserving)
+
+The per-host config-write logic that had been hand-rolled across adapters is now
+consolidated into shared, audited engines. Every migration is **byte-identical**,
+verified by the host's own unedited test suite plus independent review:
+
+- **`core/object-map.ts`** — a format-agnostic upsert/remove engine that owns the
+  create/skip/update decision plus the overwrite- and malformed-root guards. The
+  26 JSON server hosts bind it (on-disk output unchanged); **codex** (TOML) and
+  **goose/hermes** (YAML) bind it through a codec, deleting their hand-rolled
+  loops. (#124, #126)
+- **`core/hook-array.ts` + a `HookMergeDescriptor` orchestration** — the
+  hook-config merge (create/skip/update + inner-strip uninstall) for six hosts —
+  **claude-code, droid, cursor, qwen-code, codex, goose** — now flows through one
+  engine; each host supplies only a descriptor of its observable strings and
+  ownership predicates. Hosts with genuinely divergent shapes (gemini-cli,
+  antigravity(+cli), jetbrains-copilot, kimi) stay hand-rolled by design. (#127–#133)
+
+### Tests
+
+- **One file per host.** Every adapter now has a single
+  `tests/adapters/<host>.test.ts` on a shared harness (`tests/support`), and the
+  cross-cutting batch files were dissolved into **registry-driven contracts**
+  (`tests/contracts/*.contract.test.ts`, `describe.each(ADAPTER_REGISTRY)`) so
+  adding or removing an adapter auto-applies the same coverage. (#81–#121)
+- New correctness contracts (`root-key-malformed`, `hook-root-malformed`) and
+  per-host detail-string pins lock the fixes above against regression.
+- Marketplace tests consolidated with install-verification; a headless CLI
+  install smoke suite (`tests/integration/cli-install-smoke.test.ts`).
+
 ## 0.4.6 — 2026-06-17
 
 The Tier 1–3 surface-gap supplementation — bundled into one PR (#78) but covering
