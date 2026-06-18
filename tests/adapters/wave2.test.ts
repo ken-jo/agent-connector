@@ -1,20 +1,18 @@
 /**
  * adapters/wave2 — render + parse/format round-trip tests for the Wave-2
- * json-stdio adapters: kiro, jetbrains-copilot.
+ * json-stdio adapters: jetbrains-copilot.
  *
  * (qwen-code's render/round-trip slice was migrated to
- * tests/adapters/qwen-code.test.ts, kimi's to tests/adapters/kimi.test.ts, and
- * crush's to tests/adapters/crush.test.ts, per the ONE-file-per-host convention —
+ * tests/adapters/qwen-code.test.ts, kimi's to tests/adapters/kimi.test.ts,
+ * crush's to tests/adapters/crush.test.ts, and kiro's to
+ * tests/adapters/kiro.test.ts, per the ONE-file-per-host convention —
  * see tests/README.md.)
  *
  * Each adapter is exercised end-to-end against REAL files on disk, mirroring the
  * established phase2/wave1 pattern, plus a runtime parse/format round-trip:
  *   • installServer  → native MCP registration under the CORRECT root key
- *                      (mcpServers for kiro;
- *                      jetbrains-copilot writes NOTHING and returns a WARN).
+ *                      (jetbrains-copilot writes NOTHING and returns a WARN).
  *   • installHooks   → native hook registration in the right FILE + SHAPE:
- *       kiro        → "hooks" in the agent file kiro_default.json (SessionStart
- *                     → native "agentSpawn").
  *       jetbrains   → .github/hooks/<id>.json with version:1 + FLAT {type,command}.
  *     Every hook command references the home-bin + connector id.
  *   • idempotency    → second installHooks/installServer → skip, no duplicates.
@@ -40,7 +38,6 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js";
 
-import kiroAdapter from "../../src/adapters/kiro/index.js";
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -54,16 +51,10 @@ const ENV_LITERAL = "postgres://acme/db";
 const SERVER_CWD = "/srv/acme";
 const PRE_MATCHER = "acme_query|acme_write";
 
-// The serve-wrapper args also bake the install TARGET platform as `--host <id>`
-// (before `--`) so the proxy stamps hostPlatform under a headless spawn.
-// User-scoped adapters (kiro) stamp `--scope user` instead.
-const wrappedArgsUser = (host: string): string[] =>
-  ["serve", "--connector", CONNECTOR_ID, "--scope", "user", "--host", host, "--", "npx", "-y", "@x/y"];
-
 /**
  * A connector with a stdio server (env-ref + cwd) + PreToolUse and SessionStart
  * hooks. The PreToolUse + SessionStart pair lets a host that supports SessionStart
- * (kiro, jetbrains) register both.
+ * (jetbrains) register both.
  */
 function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
   return defineConnector({
@@ -171,96 +162,6 @@ function assertPreToolUse(
   expect(ev.toolName).toBe("acme_query");
   expect(ev.toolInput).toEqual({ sql: "SELECT 1" });
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// kiro  (mcpServers in .kiro/settings/mcp.json; hooks in the agent file)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("kiro adapter render + round-trip", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-wave2-kiro-");
-    ctx = buildCtx(projectDir, buildConnector(), "user");
-  });
-
-  it("installServer writes mcpServers.<id> into ~/.kiro/settings/mcp.json, wrapped, env LITERAL", () => {
-    const changes = kiroAdapter.installServer(ctx);
-    expect(changes[0]?.action).toBe("create");
-
-    const serverPath = join(projectDir, ".kiro", "settings", "mcp.json");
-    expect(serverPath).toBe(kiroAdapter.getServerConfigPath(ctx));
-    expect(existsSync(serverPath)).toBe(true);
-
-    const cfg = readJson(serverPath);
-    expect(cfg).toHaveProperty("mcpServers");
-    const entry = cfg.mcpServers[CONNECTOR_ID];
-    expect(entry).toBeTruthy();
-    // Kiro stdio entry is { command, args, env, cwd } — no `type` discriminator.
-    expect(entry).not.toHaveProperty("type");
-    expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgsUser("kiro"));
-    expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
-    expect(entry.cwd).toBe(SERVER_CWD);
-  });
-
-  it("installHooks writes hooks into the agent file kiro_default.json; SessionStart → native 'agentSpawn'", () => {
-    const changes = kiroAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "create")).toBe(true);
-
-    const agentPath = join(projectDir, ".kiro", "agents", "kiro_default.json");
-    expect(agentPath).toBe(kiroAdapter.getHookConfigPath(ctx));
-    expect(existsSync(agentPath)).toBe(true);
-
-    const agent = readJson(agentPath);
-    // PreToolUse → native "preToolUse".
-    const pre = agent.hooks.preToolUse;
-    expect(Array.isArray(pre)).toBe(true);
-    expect(pre[0].matcher).toBe(PRE_MATCHER);
-    expect(pre[0].hooks[0].command).toContain("hook kiro PreToolUse");
-    expect(pre[0].hooks[0].command).toContain(`--connector ${CONNECTOR_ID}`);
-
-    // SessionStart maps to Kiro's native session-start event "agentSpawn".
-    expect(agent.hooks.agentSpawn[0].hooks[0].command).toContain(
-      "hook kiro SessionStart",
-    );
-    // The canonical name must NOT leak through as a Kiro hook key.
-    expect(agent.hooks.SessionStart).toBeUndefined();
-  });
-
-  it("installServer + installHooks idempotent (skip on a second run); uninstall removes both", () => {
-    kiroAdapter.installServer(ctx);
-    kiroAdapter.installHooks(ctx);
-
-    expect(kiroAdapter.installServer(ctx)[0]?.action).toBe("skip");
-    expect(
-      kiroAdapter.installHooks(ctx).every((c) => c.action === "skip"),
-    ).toBe(true);
-
-    kiroAdapter.uninstallServer(ctx);
-    const mcp = readJson(join(projectDir, ".kiro", "settings", "mcp.json"));
-    expect(mcp.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
-
-    kiroAdapter.uninstallHooks(ctx);
-    const agent = readJson(join(projectDir, ".kiro", "agents", "kiro_default.json"));
-    expect(JSON.stringify(agent.hooks ?? {})).not.toContain(HOME_BIN);
-  });
-
-  it("parseEvent yields a normalized PreToolUse; formatReply(deny) → exit 2 + reason on stderr", () => {
-    const ev = kiroAdapter.parseEvent!("PreToolUse", preToolUsePayload()) as PreToolUseEvent;
-    assertPreToolUse(ev, "kiro");
-    expect(ev.sessionId).toBe("sess-123");
-
-    // Kiro is exit-code based: deny → exit 2 with the reason on stderr.
-    const reply = kiroAdapter.formatReply!("PreToolUse", {
-      decision: "deny",
-      reason: "blocked by policy",
-    });
-    expect(reply.exitCode).toBe(2);
-    expect(reply.stderr).toBe("blocked by policy");
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // jetbrains-copilot  (installServer WARN + writes nothing; hooks .github/hooks)
