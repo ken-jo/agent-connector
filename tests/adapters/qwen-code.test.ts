@@ -417,6 +417,63 @@ describe("qwen-code adapter render + round-trip", () => {
     expect(acmeHealthy.status).toBe("FAIL");
   });
 
+  // ── PINNED detail strings (hook-engine migration safety net) ──────────────
+  // qwen-code hook install/uninstall emit DIVERGENT detail strings: normalized
+  // events use the "already registered" skip form (unlike codex/goose) and
+  // uninstall uses the `(<n>)` count form; these exact-match assertions
+  // characterize the CURRENT behavior so a future hook-engine migration must
+  // reproduce them byte-identically.
+  it("installHooks normalized create detail is the bare `hooks.<event>` form", () => {
+    const changes = qwenAdapter.installHooks(ctx);
+    const pre = changes.find((c) => c.detail === "hooks.PreToolUse");
+    expect(pre?.action).toBe("create");
+    expect(pre?.detail).toBe("hooks.PreToolUse");
+    const sess = changes.find((c) => c.detail === "hooks.SessionStart");
+    expect(sess?.detail).toBe("hooks.SessionStart");
+  });
+
+  it("installHooks normalized idempotent skip detail USES `hooks.<event> already registered`", () => {
+    qwenAdapter.installHooks(ctx);
+    const second = qwenAdapter.installHooks(ctx);
+    const pre = second.find((c) => c.detail?.includes("PreToolUse"));
+    expect(pre?.action).toBe("skip");
+    // qwen DOES use the "already registered" form — pin the exact string.
+    expect(pre?.detail).toBe("hooks.PreToolUse already registered");
+  });
+
+  it("uninstallHooks with no hooks section present → skip detail `no hooks section present`", () => {
+    const changes = qwenAdapter.uninstallHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("no hooks section present");
+  });
+
+  it("uninstallHooks remove detail INCLUDES the `(<n>)` count: `hooks.<event> (1)` for a single removal", () => {
+    qwenAdapter.installHooks(ctx);
+    const changes = qwenAdapter.uninstallHooks(ctx);
+    const pre = changes.find((c) => c.detail?.startsWith("hooks.PreToolUse"));
+    expect(pre?.action).toBe("remove");
+    expect(pre?.detail).toBe("hooks.PreToolUse (1)");
+  });
+
+  it("uninstallHooks when settings has none of our hooks → skip detail `no matching hook entries`", () => {
+    const settingsPath = qwenAdapter.getHookConfigPath(ctx);
+    mkdirSync(join(projectDir, ".qwen"), { recursive: true });
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: "/usr/bin/other run" }] }],
+        },
+      }),
+      "utf8",
+    );
+    const changes = qwenAdapter.uninstallHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("no matching hook entries");
+  });
+
   it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout hookSpecificOutput deny, exit 0", () => {
     const ev = qwenAdapter.parseEvent!("PreToolUse", {
       session_id: "sess-123",
@@ -507,6 +564,25 @@ describe("qwen-code adapter — nativeHooks passthrough", () => {
     const hooks = readHooks(ctx);
     expect(hooks.StopFailure[0].hooks[0].command).toContain("hook qwen-code StopFailure");
     expect(hooks.PreToolUse).toBeUndefined();
+  });
+
+  // ── PINNED native-detail strings (hook-engine migration safety net) ───────
+  // Native passthrough events carry a `(native)` marker in their detail and use
+  // a distinct "(native) already registered" idempotent-skip form; pin both so a
+  // future migration must reproduce the native dispatch byte-identically.
+  it("native create detail is `hooks.<nativeEvent> (native)`; native idempotent skip is `hooks.<nativeEvent> (native) already registered`", () => {
+    const projectDir = freshProject("ac-qwen-native-");
+    const ctx = buildCtx(projectDir, nativeConnector(), "user");
+
+    const first = qwenAdapter.installHooks(ctx);
+    const created = first.find((c) => c.detail?.includes("TodoCreated"));
+    expect(created?.action).toBe("create");
+    expect(created?.detail).toBe("hooks.TodoCreated (native)");
+
+    const second = qwenAdapter.installHooks(ctx);
+    const skipped = second.find((c) => c.detail?.includes("TodoCreated"));
+    expect(skipped?.action).toBe("skip");
+    expect(skipped?.detail).toBe("hooks.TodoCreated (native) already registered");
   });
 
   it("idempotent + uninstall strips the native key, leaving a foreign hook intact", () => {

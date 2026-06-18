@@ -373,6 +373,77 @@ describe("codex adapter render/round-trip", () => {
     expect(cfg.hooks.SessionStart).toHaveLength(1);
   });
 
+  // ── PINNED detail strings (hook-engine migration safety net) ──────────────
+  // codex hook install/uninstall emit DIVERGENT detail strings vs other hosts;
+  // these exact-match assertions characterize the CURRENT behavior so a future
+  // hook-engine migration must reproduce them byte-identically.
+  it("installHooks: create detail is the bare `hooks.<event>` form", () => {
+    const changes = codexAdapter.installHooks(ctx);
+    const pre = changes.find((c) => c.detail?.startsWith("hooks.PreToolUse"));
+    expect(pre?.action).toBe("create");
+    // Bare event form — NOT "hooks.PreToolUse created" or similar.
+    expect(pre?.detail).toBe("hooks.PreToolUse");
+    const sess = changes.find((c) => c.detail?.startsWith("hooks.SessionStart"));
+    expect(sess?.detail).toBe("hooks.SessionStart");
+  });
+
+  it("installHooks idempotent skip detail is the BARE `hooks.<event>` (no 'already registered')", () => {
+    codexAdapter.installHooks(ctx);
+    const second = codexAdapter.installHooks(ctx);
+    const pre = second.find((c) => c.detail?.includes("PreToolUse"));
+    expect(pre?.action).toBe("skip");
+    // Codex does NOT append "already registered" — bare event form is the pin.
+    expect(pre?.detail).toBe("hooks.PreToolUse");
+    expect(pre?.detail).not.toContain("already registered");
+  });
+
+  it("installHooks with NO hooks declared → single skip detail `no hooks declared`", () => {
+    const noHooks = defineConnector({
+      id: CONNECTOR_ID,
+      server: { transport: "stdio", command: "npx", args: ["-y", "@x/y"], tools: { include: ["*"] } },
+    });
+    const changes = codexAdapter.installHooks(buildCtx(projectDir, noHooks));
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    // Exact wording — NOT "connector declares no hooks".
+    expect(changes[0]?.detail).toBe("no hooks declared");
+  });
+
+  it("uninstallHooks with no hooks.json present → skip detail `no hooks.json`", () => {
+    const changes = codexAdapter.uninstallHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("no hooks.json");
+  });
+
+  it("uninstallHooks removing our entries → remove detail is the BARE `hooks.<event>` (no count)", () => {
+    codexAdapter.installHooks(ctx);
+    const changes = codexAdapter.uninstallHooks(ctx);
+    const pre = changes.find((c) => c.detail?.includes("PreToolUse"));
+    expect(pre?.action).toBe("remove");
+    // Codex does NOT include a `(<n>)` count — bare event form is the pin.
+    expect(pre?.detail).toBe("hooks.PreToolUse");
+    expect(pre?.detail).not.toMatch(/\(\d+\)/);
+  });
+
+  it("uninstallHooks when hooks.json has none of ours → skip detail `no agent-connector hooks present`", () => {
+    // Seed a hooks.json with only a foreign hook (no AC home-bin command).
+    mkdirSync(join(projectDir, ".codex"), { recursive: true });
+    writeFileSync(
+      join(projectDir, ".codex", "hooks.json"),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [{ matcher: "", hooks: [{ type: "command", command: "/usr/bin/other run" }] }],
+        },
+      }),
+      "utf8",
+    );
+    const changes = codexAdapter.uninstallHooks(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toBe("no agent-connector hooks present");
+  });
+
   it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
     codexAdapter.installServer(ctx);
     codexAdapter.installHooks(ctx);
@@ -564,6 +635,24 @@ describe("codex E1 events", () => {
     expect(changes).toHaveLength(1);
     expect(changes[0]?.action).toBe("warn");
     expect(existsSync(join(projectDir, ".codex", "hooks.json"))).toBe(false);
+  });
+
+  // ── PINNED detail strings (hook-engine migration safety net) ──────────────
+  it("unsupported-event warn detail is the EXACT `<event> has no Codex hook equivalent — skipped`", () => {
+    const only = buildCtx(projectDir, buildSingleEventConnector("acme-fail2", "PostToolUseFailure"));
+    const changes = codexAdapter.installHooks(only);
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.detail).toBe("PostToolUseFailure has no Codex hook equivalent — skipped");
+  });
+
+  it("write-gate: a pure warn/skip run writes NOTHING to disk", () => {
+    // First install creates the file (PermissionRequest/Subagent* + 1 warn).
+    codexAdapter.installHooks(ctx);
+    const before = readFileSync(join(projectDir, ".codex", "hooks.json"), "utf8");
+    // A second run is all-skip (+ the same warn) → no create/update → no rewrite.
+    const second = codexAdapter.installHooks(ctx);
+    expect(second.every((c) => c.action === "skip" || c.action === "warn")).toBe(true);
+    expect(readFileSync(join(projectDir, ".codex", "hooks.json"), "utf8")).toBe(before);
   });
 
   it("uninstallHooks removes the new-event entries too", () => {
