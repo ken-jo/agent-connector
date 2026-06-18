@@ -518,7 +518,11 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
 
   private readHooksFile(path: string): GooseHooksFile {
     const existing = this.readJson<GooseHooksFile>(path);
-    if (existing && existing.hooks && typeof existing.hooks === "object") {
+    // An ARRAY passes `typeof === "object"`; without the array guard a hand-edited
+    // `hooks: []` would survive and corrupt (named-property writes dropped by
+    // JSON.stringify). Coerce a malformed root to a fresh object (matches Goose's
+    // coerce policy), like a primitive.
+    if (existing && existing.hooks && typeof existing.hooks === "object" && !Array.isArray(existing.hooks)) {
       return { hooks: existing.hooks };
     }
     return { hooks: {} };

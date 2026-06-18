@@ -365,6 +365,8 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     }
 
     const cfg = this.readJson<CrushConfigFile>(path) ?? {};
+    const __skip = this.malformedHookRootSkip(path, (cfg as Record<string, unknown>).hooks);
+    if (__skip) return [__skip];
     const hooks = (cfg.hooks ??= {});
 
     const changes: ChangeRecord[] = [];

@@ -26,8 +26,8 @@
  * readJson.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import TOML from "@iarna/toml";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -889,4 +889,45 @@ describe("kimi adapter — skills surface", () => {
     const skillMd = join(customBase, "skills", "pdf-tools", "SKILL.md");
     expect(existsSync(skillMd)).toBe(true);
   });
+});
+
+// ── malformed `hooks` guard (inverse: array-of-tables expected) ──────────────
+// kimi's `hooks` is a TOML array-of-tables, so it carries a LOCAL inverse guard
+// (not BaseAdapter.malformedHookRootSkip, which is for object-map roots). The
+// registry contract (tests/contracts/hook-root-malformed) auto-skips kimi
+// because its config is TOML, not JSON — so this is the ONLY place kimi's guard
+// is exercised: a present-but-non-array `hooks` (hand-edited to an object /
+// primitive) must warn-skip and leave the user's value byte-for-byte untouched,
+// never reaching the `.push`/`.findIndex` that would throw on a non-array.
+describe("kimi malformed `hooks` guard (non-array → warn-skip, file untouched)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+  beforeEach(() => {
+    projectDir = freshProject("ac-kimi-malformed-hooks-");
+    ctx = buildCtx(projectDir, buildRenderConnector(), "user");
+  });
+
+  for (const [label, seed] of [
+    ["inline-table object", 'hooks = { event = "PreToolUse" }\n'],
+    ["primitive string", 'hooks = "oops"\n'],
+  ] as const) {
+    it(`warn-skips a present-but-non-array hooks (${label}); file left untouched`, () => {
+      const hookPath = kimiAdapter.getHookConfigPath(ctx);
+      mkdirSync(dirname(hookPath), { recursive: true });
+      writeFileSync(hookPath, seed, "utf8");
+      const before = readFileSync(hookPath, "utf8");
+
+      let changes!: ReturnType<typeof kimiAdapter.installHooks>;
+      expect(() => {
+        changes = kimiAdapter.installHooks(ctx);
+      }).not.toThrow();
+
+      const warns = changes.filter((c) => c.action === "warn" && c.path === hookPath);
+      expect(warns).toHaveLength(1);
+      expect(warns[0]?.detail).toContain("is not an array");
+      // Nothing wired, and the user's malformed file is byte-for-byte preserved.
+      expect(changes.some((c) => c.action === "create" || c.action === "update")).toBe(false);
+      expect(readFileSync(hookPath, "utf8")).toBe(before);
+    });
+  }
 });

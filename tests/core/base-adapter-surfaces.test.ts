@@ -162,6 +162,9 @@ class RootKeyProbe extends BaseAdapter {
   remove(path: string, rootKey: string, id: string): ChangeRecord {
     return this.removeServerFromJson(path, rootKey, id);
   }
+  hookSkip(path: string, hooksRoot: unknown): ChangeRecord | null {
+    return this.malformedHookRootSkip(path, hooksRoot);
+  }
 }
 
 describe("BaseAdapter — malformed JSON root-key guard (warn-skip, file preserved, no throw)", () => {
@@ -219,5 +222,52 @@ describe("BaseAdapter — malformed JSON root-key guard (warn-skip, file preserv
     expect(change.action).toBe("create");
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
     expect(parsed[ROOT_KEY]["acme-db"]).toEqual({ command: "node" });
+  });
+});
+
+/**
+ * BaseAdapter — malformed JSON `hooks` ROOT guard (malformedHookRootSkip). The
+ * shared warn-skip every JSON object-map HOOK host routes through must surface a
+ * `warn` (and NOT proceed) for a present-but-malformed hooks config, while
+ * returning null for the well-formed and absent cases so installs proceed
+ * normally. `??=` only substitutes on null/undefined, so a present array/primitive
+ * root or a non-array event bucket would otherwise silently drop the entry (array
+ * → JSON.stringify drops a named property) or throw (`.push` against a non-array).
+ * This is the focused proof; the registry contract (tests/contracts/
+ * hook-root-malformed) is the auto-coverage half across every real host.
+ */
+describe("BaseAdapter — malformed JSON hooks-root guard (warn-skip predicate)", () => {
+  const probe = new RootKeyProbe();
+  const PATH = "/tmp/ac-probe/hooks.json";
+
+  it("returns null for the absent case (null / undefined → installer creates fresh)", () => {
+    expect(probe.hookSkip(PATH, null)).toBeNull();
+    expect(probe.hookSkip(PATH, undefined)).toBeNull();
+  });
+
+  it("returns null for a well-formed object map (guard does not over-trigger)", () => {
+    expect(probe.hookSkip(PATH, {})).toBeNull();
+    expect(probe.hookSkip(PATH, { PreToolUse: [], PostToolUse: [{ matcher: "" }] })).toBeNull();
+  });
+
+  it("warns for an ARRAY root (named-property write dropped by JSON.stringify)", () => {
+    const change = probe.hookSkip(PATH, []);
+    expect(change?.action).toBe("warn");
+    expect(change?.path).toBe(PATH);
+    expect(change?.detail).toContain("not an object map");
+  });
+
+  it("warns for a PRIMITIVE root (property write throws under strict mode)", () => {
+    for (const primitive of ["x" as unknown, 7 as unknown, true as unknown]) {
+      const change = probe.hookSkip(PATH, primitive);
+      expect(change?.action).toBe("warn");
+      expect(change?.detail).toContain("not an object map");
+    }
+  });
+
+  it("warns for a NON-ARRAY event bucket inside an otherwise-valid root", () => {
+    const change = probe.hookSkip(PATH, { PreToolUse: "oops" });
+    expect(change?.action).toBe("warn");
+    expect(change?.detail).toContain("non-array event bucket");
   });
 });

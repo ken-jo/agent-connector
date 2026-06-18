@@ -417,6 +417,11 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
 
     const settingsPath = this.getHookConfigPath(ctx);
     const settings = this.readJson<GeminiSettingsFile>(settingsPath) ?? {};
+    const __skip = this.malformedHookRootSkip(
+      settingsPath,
+      (settings as Record<string, unknown>).hooks,
+    );
+    if (__skip) return [__skip];
     const hooks = (settings.hooks ??= {});
 
     const changes: ChangeRecord[] = [];

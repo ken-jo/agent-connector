@@ -515,6 +515,20 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     }
 
     const cfg = this.readToml(path);
+    // Kimi's `hooks` is an ARRAY-of-tables ([[hooks]]); the BaseAdapter object-map
+    // guard would mis-flag it. Inverse guard: a present-but-non-array `hooks`
+    // (hand-edited to an object/primitive) cannot take `.push`/`.findIndex` — warn
+    // and skip so the user's malformed value is preserved untouched.
+    if (cfg.hooks !== undefined && !Array.isArray(cfg.hooks)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path,
+          detail: `existing "hooks" in ${path} is not an array; left untouched (fix it, then re-run)`,
+        },
+      ];
+    }
     const hooks = (cfg.hooks ??= []);
     const changes: ChangeRecord[] = [];
     let mutated = false;

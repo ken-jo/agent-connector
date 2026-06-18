@@ -489,6 +489,11 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     // MERGE into any existing settings (JSONC written as strict JSON) so the
     // user's own mcpServers / theme / other keys are preserved.
     const settings = this.readJson<QwenSettingsFile>(settingsPath) ?? {};
+    const __skip = this.malformedHookRootSkip(
+      settingsPath,
+      (settings as Record<string, unknown>).hooks,
+    );
+    if (__skip) return [__skip];
     const hooks = (settings.hooks ??= {});
 
     const changes: ChangeRecord[] = [];
