@@ -2,7 +2,7 @@
  * tests/adapters/extended-events-degrade — E1 extension-event DEGRADATION on
  * the batch of hook-capable hosts with NO native analog for the four new
  * canonical events (PermissionRequest, PostToolUseFailure, SubagentStart,
- * SubagentStop): jetbrains-copilot and kiro.
+ * SubagentStop): jetbrains-copilot.
  * (omp, the other former ts-plugin host here, now lives in its own per-host file
  * adapters/omp.test.ts; the antigravity IDE + CLI pair moved to their own per-host
  * files adapters/antigravity.test.ts + adapters/antigravity-cli.test.ts; the
@@ -10,23 +10,22 @@
  * wires PermissionRequest -> permission.ask but leaves the other three E1 events
  * unsupported — moved to adapters/opencode.test.ts; gemini-cli's E1-degrade slice
  * moved to adapters/gemini-cli.test.ts; crush's E1-degrade slice moved to
- * adapters/crush.test.ts.)
+ * adapters/crush.test.ts; kiro's E1-degrade slice moved to adapters/kiro.test.ts.)
  *
  * Per host this pins three things:
  *   • capabilities — all four E1 flags stay unset (read as false), so the
  *     single-API layer treats the events as unsupported everywhere here.
  *   • installHooks — a connector declaring the four events is never silently
- *     dropped: these json-stdio hosts surface the standard per-event warn-skip
+ *     dropped: this json-stdio host surfaces the standard per-event warn-skip
  *     ("<Event> has no <Host> hook equivalent — skipped"). The native hook file
- *     must NOT reference any of the four events (canonical or host-native analog
- *     names).
+ *     wires PreToolUse only.
  *   • parseEvent — jetbrains-copilot's exhaustive switch now routes the four
  *     events to an explicit unsupported-throw (the compile-forced degrade
  *     case), so a runtime mis-dispatch stays loud rather than mis-parsing.
  *
  * Filesystem isolation mirrors wave2: fresh mkdtemp project dir with HOME +
- * AGENT_CONNECTOR_DATA_DIR redirected into it (kiro's user-scope agent file
- * resolves under the HOME sandbox); mutated env is restored in afterEach.
+ * AGENT_CONNECTOR_DATA_DIR redirected into it; mutated env is restored in
+ * afterEach.
  */
 
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -40,7 +39,6 @@ import type { Adapter, InstallContext } from "../../src/adapters/spi.js";
 import type { HookEventName, ResolvedConnector } from "../../src/core/types.js";
 
 import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.js";
-import kiroAdapter from "../../src/adapters/kiro/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -55,20 +53,6 @@ const E1_EVENTS = [
   "SubagentStart",
   "SubagentStop",
 ] as const;
-
-/** Substrings that must never leak into a native hook file / generated bridge. */
-const FORBIDDEN_NATIVE_TOKENS = [
-  ...E1_EVENTS,
-  // host-native analog spellings (camelCase / snake_case families)
-  "permissionRequest",
-  "postToolUseFailure",
-  "subagentStart",
-  "subagentStop",
-  "permission.ask",
-  "subagent_spawned",
-  "subagent_ended",
-  "subagent_stop",
-];
 
 /** PreToolUse (universally wired here) + ALL FOUR E1 extension events. */
 function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
@@ -182,12 +166,8 @@ function expectE1WarnSkips(
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("E1 capability flags stay unset on hosts without a native analog", () => {
-  const hosts: ReadonlyArray<[string, Adapter]> = [
-    ["jetbrains-copilot", jetbrainsCopilotAdapter],
-    ["kiro", kiroAdapter],
-  ];
-
-  it.each(hosts)("%s leaves permissionRequest/postToolUseFailure/subagentStart/subagentStop falsy", (_id, adapter) => {
+  it("jetbrains-copilot leaves permissionRequest/postToolUseFailure/subagentStart/subagentStop falsy", () => {
+    const adapter = jetbrainsCopilotAdapter;
     expect(adapter.capabilities.permissionRequest ?? false).toBe(false);
     expect(adapter.capabilities.postToolUseFailure ?? false).toBe(false);
     expect(adapter.capabilities.subagentStart ?? false).toBe(false);
@@ -221,26 +201,6 @@ describe("jetbrains-copilot E1 degradation", () => {
           connector: CONNECTOR_ID,
         }),
       ).toThrow(`unsupported jetbrains-copilot hook event: ${event}`);
-    }
-  });
-});
-
-describe("kiro E1 degradation", () => {
-  it("installHooks warn-skips all four; agent file gains no E1 keys", () => {
-    const projectDir = freshProject("ac-e1-kiro-");
-    const ctx = buildCtx(projectDir, buildConnector(), "user");
-
-    const changes = kiroAdapter.installHooks!(ctx);
-    expectE1WarnSkips(changes, "kiro", "Kiro");
-
-    // User-scope agent file resolves under the HOME sandbox.
-    const agentPath = kiroAdapter.getHookConfigPath!(ctx);
-    expect(agentPath.startsWith(projectDir)).toBe(true);
-    const agent = readJson(agentPath);
-    expect(Object.keys(agent.hooks)).toEqual(["preToolUse"]);
-    const text = readFileSync(agentPath, "utf8");
-    for (const token of FORBIDDEN_NATIVE_TOKENS) {
-      expect(text).not.toContain(token);
     }
   });
 });
