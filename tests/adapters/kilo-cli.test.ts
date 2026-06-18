@@ -1,8 +1,40 @@
 /**
- * tests/adapters/kilo-cli — content-surface tests for the kilo-cli adapter.
+ * tests/adapters/kilo-cli.test.ts — the ONE per-host file for the Kilo CLI.
  *
- * Verifies that commands, skills, and subagents write to the correct kilo-cli
- * native dirs and that uninstall removes the files.
+ * The Kilo CLI (the `kilo` binary) is a **live-confirmed OpenCode fork** that
+ * loads @kilocode/plugin modules. Paradigm: **ts-plugin** (a generated
+ * @kilocode/plugin bridge module that imports nothing from agent-connector and
+ * shells out to the ONE stable home binary's universal entrypoint
+ *     <homeBin> hook kilo-cli <event> --connector <id>
+ * over child_process, fail-open). It is DISTINCT from the Kilo Code VS Code
+ * extension (adapter id "kilo") — the two products carry different platformIds so
+ * their config never merges. This file consolidates EVERY kilo-cli surface (the
+ * per-host convention in tests/README.md — one file per host):
+ *
+ *   • content surfaces → md+fm commands (.kilo/command/<n>.md), uniform
+ *     SKILL.md skills (.kilo/skills/<n>/SKILL.md + resources), md+fm subagents
+ *     (.kilo/agent/<n>.md, mode:subagent); user scope under ~/.config/kilo;
+ *     idempotency + uninstall + full round-trip; per-surface false opt-outs.
+ *   • MCP server (render slice, former phase3) → <projectDir>/.kilo/kilo.jsonc,
+ *     root key "mcp", a stdio entry { type:"local", command:[...] } whose command
+ *     array starts with the home bin and carries the serve-wrapper tail (the
+ *     OpenCode-fork command-array dialect). idempotency + uninstall.
+ *   • hooks (ts-plugin, former phase3) → .kilo/plugin/<id>.js plugin module +
+ *     kilo.jsonc plugin[] registration; idempotency + uninstall; THE BRIDGE WORKS
+ *     (dynamic import of the generated module: deny → throw, modify → args
+ *     rewrite, bridges to "kilo-cli").
+ *   • new canonical events → UserPromptSubmit (chat.message), PermissionRequest
+ *     (permission.ask), Stop (session.idle via the generic `event` hook);
+ *     capabilities + wiring + parseEvent + live handler exercise.
+ *   • E1 degrade (former extended-events-degrade) → PermissionRequest is wired
+ *     (permission.ask); the other three E1 events (PostToolUseFailure /
+ *     SubagentStart / SubagentStop) have no kilo analog → "unsupported here"
+ *     detail and never leak into the bridge.
+ *
+ * Migrated to the shared harness (tests/support/env + adapter-suite): the
+ * content-surface + new-event blocks were the base kilo-cli file; the MCP/hooks/
+ * bridge render slice came from the former phase3 suite; the E1-degrade slice
+ * came from the former extended-events-degrade batch suite.
  *
  * Dirs (live-confirmed kilo v7.3.16):
  *   commands  → .kilo/command/<name>.md          (project)
@@ -13,24 +45,34 @@
  *               ~/.config/kilo/agent/<name>.md    (user)
  */
 
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-
 import { pathToFileURL } from "node:url";
 
-import { parse as parseYaml } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
-import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
+import type {
+  ConnectorConfig,
+  HookResponse,
+  ResolvedConnector,
+} from "../../src/core/types.js";
 
 import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { readJson, splitFrontmatter } from "../support/fs.js";
+import { createAdapterSuite } from "../support/adapter-suite.js";
 
 // ─────────────────────────────────────────────────────────────────────────
-// node:child_process mock — hoisted above every import by vitest. Only the
-// hook describe block exercises it; the content-surface tests never spawn.
+// node:child_process mock — hoisted above every import by vitest. The kilo-cli
+// generated-plugin bridge imports `execFileSync` (POSIX) / `execSync` (Windows)
+// at top-level; the new-event + render BRIDGE slices dynamically import the
+// freshly-written module and fire its handlers, so the mock must be in place
+// before that module resolves node:child_process. Each test reprograms what the
+// mock returns via execFileSyncImpl. (The content-surface / E1-degrade slices
+// only inspect the written bytes / install detail and never spawn — but they
+// share this file's one mock.)
 // ─────────────────────────────────────────────────────────────────────────
 
 let execFileSyncImpl: (...args: any[]) => string = () => "";
@@ -41,8 +83,10 @@ vi.mock("node:child_process", () => ({
   execSync: execFileSyncMock,
 }));
 
-// Pin process.platform to POSIX so the generated bridge takes the execFileSync
-// path (not the Windows execSync path).
+// Pin process.platform to a POSIX value for the whole file so the generated
+// bridge takes its execFileSync(HOME_BIN, [args]) path (on Windows it would use
+// execSync(one quoted string) — correct in production, proven separately, but it
+// would not match these bridges' execFileSync(bin, argv) call-shape assertions).
 const REAL_PLATFORM = process.platform;
 beforeEach(() => {
   Object.defineProperty(process, "platform", { value: "linux", configurable: true });
@@ -53,7 +97,10 @@ afterEach(() => {
   Object.defineProperty(process, "platform", { value: REAL_PLATFORM, configurable: true });
 });
 
-const HOME_BIN = "/fake/home/.agent-connector/bin/agent-connector";
+// ─────────────────────────────────────────────────────────────────────────
+// Shared fixtures — content surfaces + new events (base kilo-cli)
+// ─────────────────────────────────────────────────────────────────────────
+
 const CONNECTOR_ID = "acme-kilo";
 
 const COMMAND = {
@@ -114,64 +161,108 @@ function buildConnector(surfaces: {
   return defineConnector(cfg);
 }
 
-function buildCtx(
-  projectDir: string,
-  connector: ResolvedConnector,
-  scope: "project" | "user" = "project",
-): InstallContext {
-  return {
-    connector,
-    scope,
-    projectDir,
-    homeBinPath: HOME_BIN,
-    dataRoot: projectDir,
-    dryRun: false,
-  };
+// ── render slice fixtures (former phase3) ──────────────────────────────────
+// The phase3 render/bridge slice declared a SECOND connector id (acme-db) with
+// its own env-ref var and asserted the full serve-wrapper command array. Kept
+// distinct from the base acme-kilo fixtures above.
+const RENDER_CONNECTOR_ID = "acme-db";
+const RENDER_ENV_VAR = "ACME_DB_DSN";
+const RENDER_ENV_LITERAL = "postgres://acme/db";
+
+/** A connector with a stdio server (env-ref) + a PreToolUse hook (render slice). */
+function buildRenderConnector(): ResolvedConnector {
+  return defineConnector({
+    id: RENDER_CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    server: {
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@x/y"],
+      env: { [RENDER_ENV_VAR]: `\${env:${RENDER_ENV_VAR}}` },
+      tools: { include: ["*"] },
+    },
+    hooks: {
+      PreToolUse: {
+        matcher: "acme_query|acme_write",
+        handler() {
+          return { decision: "allow" };
+        },
+      },
+    },
+  });
 }
 
-/** Split a md+frontmatter document into { frontmatter, body }. */
-function splitFrontmatter(text: string): {
-  frontmatter: Record<string, unknown>;
-  body: string;
-} {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/);
-  if (!m) throw new Error(`not a frontmatter doc:\n${text}`);
-  return {
-    frontmatter: parseYaml(m[1]!) as Record<string, unknown>,
-    body: m[2]!,
-  };
-}
-
-let savedHome: string | undefined;
-let savedDataDir: string | undefined;
-
-beforeEach(() => {
-  savedHome = process.env.HOME;
-  savedDataDir = process.env.AGENT_CONNECTOR_DATA_DIR;
-});
-
-afterEach(() => {
-  restore("HOME", savedHome);
-  restore("USERPROFILE", savedHome);
-  restore("AGENT_CONNECTOR_DATA_DIR", savedDataDir);
-});
-
-function restore(key: string, value: string | undefined): void {
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
-}
-
-function freshProject(): string {
-  // realpathSync.native expands the Windows 8.3 short name (e.g. RUNNER~1) to its
-  // long form. Without it, the temp path keeps the "~", which pathToFileURL
-  // percent-encodes to %7E and the dynamic import()'s resolver fails to decode
-  // ("Does the file exist?"). Mirrors the opencode / mimo-code / kilo tests.
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "ac-kilo-cli-")));
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
+/** Fresh project dir + the render-slice env var. */
+function freshRenderProject(prefix: string): string {
+  const dir = freshProject(prefix);
+  process.env[RENDER_ENV_VAR] = RENDER_ENV_LITERAL;
   return dir;
 }
+
+// The serve-wrapper tail also bakes the install TARGET platform as `--host <id>`
+// (before `--`) so the proxy stamps hostPlatform under a headless spawn.
+const wrappedTail = (host: string): string[] => [
+  "serve",
+  "--connector",
+  RENDER_CONNECTOR_ID,
+  "--scope",
+  "project",
+  "--host",
+  host,
+  "--",
+  "npx",
+  "-y",
+  "@x/y",
+];
+
+// ── E1-degrade fixtures (former extended-events-degrade) ───────────────────
+// A connector declaring PreToolUse + ALL FOUR E1 extension events. kilo-cli
+// wires PreToolUse + PermissionRequest (permission.ask) and reports the other
+// three as "unsupported here".
+function buildE1Connector(): ResolvedConnector {
+  return defineConnector({
+    id: RENDER_CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    hooks: {
+      PreToolUse: {
+        matcher: "acme_query",
+        handler() {
+          return { decision: "allow" };
+        },
+      },
+      PermissionRequest: {
+        matcher: "acme_query",
+        handler() {
+          return { decision: "ask" };
+        },
+      },
+      PostToolUseFailure: {
+        handler() {
+          return { decision: "context", additionalContext: "retry hint" };
+        },
+      },
+      SubagentStart: {
+        matcher: "code-reviewer",
+        handler() {
+          return { decision: "context", additionalContext: "subagent ctx" };
+        },
+      },
+      SubagentStop: {
+        matcher: "code-reviewer",
+        handler() {
+          return { decision: "deny", reason: "keep going" };
+        },
+      },
+    },
+  });
+}
+
+// Shared env isolation (default keys + the env-ref var the render slice mutates)
+// + the same-rules-for-every-host baseline contract.
+isolateEnv([RENDER_ENV_VAR]);
+createAdapterSuite({ adapter: kiloCliAdapter, paradigm: "ts-plugin" });
 
 // ── Capabilities ──────────────────────────────────────────────────────────────
 
@@ -190,7 +281,7 @@ describe("kilo-cli adapter — commands", () => {
   let ctx: InstallContext;
 
   beforeEach(() => {
-    projectDir = freshProject();
+    projectDir = freshProject("ac-kilo-cli-");
     ctx = buildCtx(projectDir, buildConnector({ commands: true }));
   });
 
@@ -252,7 +343,7 @@ describe("kilo-cli adapter — skills", () => {
   let ctx: InstallContext;
 
   beforeEach(() => {
-    projectDir = freshProject();
+    projectDir = freshProject("ac-kilo-cli-");
     ctx = buildCtx(projectDir, buildConnector({ skills: true }));
   });
 
@@ -323,7 +414,7 @@ describe("kilo-cli adapter — subagents", () => {
   let ctx: InstallContext;
 
   beforeEach(() => {
-    projectDir = freshProject();
+    projectDir = freshProject("ac-kilo-cli-");
     ctx = buildCtx(projectDir, buildConnector({ subagents: true }));
   });
 
@@ -385,7 +476,7 @@ describe("kilo-cli adapter — full round-trip (project scope)", () => {
   let ctx: InstallContext;
 
   beforeEach(() => {
-    projectDir = freshProject();
+    projectDir = freshProject("ac-kilo-cli-");
     ctx = buildCtx(
       projectDir,
       buildConnector({ commands: true, skills: true, subagents: true }),
@@ -405,6 +496,162 @@ describe("kilo-cli adapter — full round-trip (project scope)", () => {
     expect(existsSync(join(projectDir, ".kilo", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
     expect(existsSync(join(projectDir, ".kilo", "skills", "pdf-tools"))).toBe(false);
     expect(existsSync(join(projectDir, ".kilo", "agent", "reviewer.md"))).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// MCP server + hooks render slice (former phase3) — the SQLite-backed OpenCode
+// FORK loading @kilocode/plugin modules.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("kilo-cli adapter (ts-plugin) render", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshRenderProject("ac-p3-kilo-cli-");
+    ctx = buildCtx(projectDir, buildRenderConnector());
+  });
+
+  it("has the CLI identity (id kilo-cli / name Kilo CLI / ts-plugin)", () => {
+    expect(kiloCliAdapter.id).toBe("kilo-cli");
+    expect(kiloCliAdapter.name).toBe("Kilo CLI");
+    expect(kiloCliAdapter.paradigm).toBe("ts-plugin");
+  });
+
+  it("installServer writes the entry under top-level 'mcp' with type 'local' and a command ARRAY starting at the home bin", () => {
+    const changes = kiloCliAdapter.installServer(ctx);
+    expect(changes[0]?.action).toBe("create");
+
+    const serverPath = join(projectDir, ".kilo", "kilo.jsonc");
+    expect(serverPath).toBe(kiloCliAdapter.getServerConfigPath(ctx));
+    expect(existsSync(serverPath)).toBe(true);
+
+    const cfg = readJson(serverPath);
+    // New-gen root key is "mcp", NOT the extension's "mcpServers".
+    expect(cfg).toHaveProperty("mcp");
+    expect(cfg).not.toHaveProperty("mcpServers");
+
+    const entry = cfg.mcp[RENDER_CONNECTOR_ID];
+    expect(entry).toBeTruthy();
+    expect(entry.type).toBe("local");
+
+    // The CLI keys the whole invocation as a single ARRAY (exe + args together).
+    expect(Array.isArray(entry.command)).toBe(true);
+    expect(entry.command[0]).toBe(HOME_BIN);
+    // The telemetry serve-wrapper tail is flattened into the same array.
+    expect(entry.command).toEqual([HOME_BIN, ...wrappedTail("kilo-cli")]);
+    expect(entry.command).toContain("serve");
+    expect(entry.command).toContain("--connector");
+    expect(entry.command).toContain(RENDER_CONNECTOR_ID);
+
+    // No native interpolation token → env resolves to a LITERAL value.
+    expect(entry.environment[RENDER_ENV_VAR]).toBe(RENDER_ENV_LITERAL);
+    expect(entry.environment[RENDER_ENV_VAR]).not.toContain("${");
+  });
+
+  it("installServer is idempotent — second call yields skip and does not duplicate", () => {
+    kiloCliAdapter.installServer(ctx);
+    const second = kiloCliAdapter.installServer(ctx);
+    expect(second[0]?.action).toBe("skip");
+
+    const cfg = readJson(join(projectDir, ".kilo", "kilo.jsonc"));
+    expect(Object.keys(cfg.mcp)).toEqual([RENDER_CONNECTOR_ID]);
+  });
+
+  it("uninstallServer removes the entry (re-read confirms gone)", () => {
+    kiloCliAdapter.installServer(ctx);
+    kiloCliAdapter.uninstallServer(ctx);
+
+    const cfg = readJson(join(projectDir, ".kilo", "kilo.jsonc"));
+    expect(cfg.mcp?.[RENDER_CONNECTOR_ID]).toBeUndefined();
+  });
+
+  it("installHooks writes the plugin .js module into .kilo/plugin/ AND registers its path in kilo.jsonc's 'plugin' array", () => {
+    const changes = kiloCliAdapter.installHooks(ctx);
+
+    // The hook config path is the generated module FILE (ts-plugin), under the
+    // dedicated plugin dir — NOT the server config path.
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+    expect(pluginPath).toBe(join(projectDir, ".kilo", "plugin", `${RENDER_CONNECTOR_ID}.js`));
+    expect(pluginPath).not.toBe(kiloCliAdapter.getServerConfigPath(ctx));
+    expect(existsSync(pluginPath)).toBe(true);
+
+    // The module is self-contained: it imports NOTHING from agent-connector (the
+    // only allowed import is node:child_process). The string "agent-connector"
+    // may appear in the AUTO-GENERATED header comment — what must be absent is an
+    // actual import/require of the package. It shells out to the home bin's
+    // universal `hook kilo-cli` entrypoint.
+    const src = readFileSync(pluginPath, "utf8");
+    expect(src).not.toMatch(/from\s+["'][^"']*agent-connector/);
+    expect(src).not.toMatch(/require\(\s*["'][^"']*agent-connector/);
+    expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
+    expect(src).toContain('"hook", "kilo-cli"');
+    expect(src).toContain(HOME_BIN);
+    // @kilocode/plugin PluginModule shape: default export with a server factory.
+    expect(src).toContain("server: async (input)");
+    expect(src).toContain('"tool.execute.before"');
+
+    // The module path is registered in kilo.jsonc's top-level "plugin" array.
+    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
+    expect(Array.isArray(cfg.plugin)).toBe(true);
+    expect(cfg.plugin).toContain(pluginPath);
+
+    // A create for the module + a create for the array registration.
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+  });
+
+  it("installHooks is idempotent — second call does not duplicate the plugin-array entry", () => {
+    kiloCliAdapter.installHooks(ctx);
+    kiloCliAdapter.installHooks(ctx);
+    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+    expect(cfg.plugin.filter((p: string) => p === pluginPath)).toHaveLength(1);
+  });
+
+  it("uninstallHooks removes the module AND deregisters it from the 'plugin' array", () => {
+    kiloCliAdapter.installHooks(ctx);
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+    expect(existsSync(pluginPath)).toBe(true);
+
+    kiloCliAdapter.uninstallHooks(ctx);
+    expect(existsSync(pluginPath)).toBe(false);
+
+    const cfg = readJson(kiloCliAdapter.getServerConfigPath(ctx));
+    expect(Array.isArray(cfg.plugin) ? cfg.plugin : []).not.toContain(pluginPath);
+  });
+
+  it("THE BRIDGE WORKS — the synthesized @kilocode/plugin server() blocks on a deny and rewrites args on a modify", async () => {
+    kiloCliAdapter.installHooks(ctx);
+    const pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
+
+    // Import the freshly-written module (cache-busted) with child_process mocked.
+    const mod = await import(`${pathToFileURL(pluginPath).href}?t=${Date.now()}`);
+    const plugin = mod.default;
+    expect(typeof plugin.server).toBe("function");
+
+    const hooks = await plugin.server({ directory: projectDir });
+    const before = hooks["tool.execute.before"];
+    expect(typeof before).toBe("function");
+
+    // deny → the handler throws (blocks the tool call).
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "nope" } satisfies HookResponse);
+    await expect(
+      before({ tool: "acme_write", sessionID: "s1" }, { args: { a: 1 } }),
+    ).rejects.toThrow("nope");
+
+    // modify → updatedInput is merged into output.args in place.
+    execFileSyncImpl = () =>
+      JSON.stringify({ decision: "modify", updatedInput: { a: 2, b: 3 } } satisfies HookResponse);
+    const output = { args: { a: 1 } as Record<string, unknown> };
+    await before({ tool: "acme_write", sessionID: "s1" }, output);
+    expect(output.args).toEqual({ a: 2, b: 3 });
+
+    // The bridge shelled out to the kilo-cli universal entrypoint.
+    expect(execFileSyncMock).toHaveBeenCalled();
+    const call = execFileSyncMock.mock.calls.at(-1);
+    expect(call?.[0]).toBe(HOME_BIN);
+    expect(call?.[1]).toEqual(["hook", "kilo-cli", "PreToolUse", "--connector", RENDER_CONNECTOR_ID]);
   });
 });
 
@@ -432,7 +679,7 @@ describe("kilo-cli adapter — new canonical events (capabilities + wiring)", ()
   });
 
   it("generated plugin registers chat.message, permission.ask, and an event-hook session.idle branch", () => {
-    const projectDir = freshProject();
+    const projectDir = freshProject("ac-kilo-cli-");
     const ctx = buildCtx(projectDir, buildNewEventsConnector());
     kiloCliAdapter.installHooks(ctx);
     const src = readFileSync(kiloCliAdapter.getHookConfigPath(ctx), "utf8");
@@ -476,7 +723,7 @@ describe("kilo-cli generated plugin — new event handlers (live, child_process 
   let pluginPath: string;
 
   beforeEach(() => {
-    projectDir = freshProject();
+    projectDir = freshProject("ac-kilo-cli-");
     const ctx = buildCtx(projectDir, buildNewEventsConnector());
     kiloCliAdapter.installHooks(ctx);
     pluginPath = kiloCliAdapter.getHookConfigPath(ctx);
@@ -529,5 +776,52 @@ describe("kilo-cli generated plugin — new event handlers (live, child_process 
 
     const [, argv] = execFileSyncMock.mock.calls[0]!;
     expect(argv).toEqual(["hook", "kilo-cli", "UserPromptSubmit", "--connector", CONNECTOR_ID]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// E1 extension-event degradation (former extended-events-degrade) — kilo-cli
+// wires PermissionRequest -> permission.ask but leaves the other three E1
+// events unsupported, never leaking them into the generated bridge.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("kilo-cli adapter — E1 extension-event degradation", () => {
+  // kilo-cli (OpenCode fork) wires PermissionRequest -> permission.ask (its
+  // native decision-capable gate), so it supports permissionRequest but leaves
+  // the other three E1 flags falsy (no Stop/subagent/tool-failure analog).
+  it("supports permissionRequest but leaves the other three E1 flags falsy", () => {
+    expect(kiloCliAdapter.capabilities.permissionRequest ?? false).toBe(true);
+    expect(kiloCliAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
+    expect(kiloCliAdapter.capabilities.subagentStart ?? false).toBe(false);
+    expect(kiloCliAdapter.capabilities.subagentStop ?? false).toBe(false);
+  });
+
+  it("PreToolUse + PermissionRequest wired (permission.ask); the other three E1 events unsupported", () => {
+    const projectDir = freshProject("ac-e1-kilo-");
+    const ctx = buildCtx(projectDir, buildE1Connector());
+
+    const changes = kiloCliAdapter.installHooks!(ctx);
+    const moduleChange = changes.find((c) => c.detail?.startsWith("kilo plugin module"));
+    expect(moduleChange?.detail).toBe(
+      "kilo plugin module (PreToolUse,PermissionRequest; unsupported here: PostToolUseFailure,SubagentStart,SubagentStop)",
+    );
+
+    const source = readFileSync(kiloCliAdapter.getHookConfigPath!(ctx), "utf8");
+    expect(source).toContain("tool.execute.before");
+    expect(source).toContain("permission.ask"); // PermissionRequest IS wired now
+    // The three E1 events with NO kilo analog must still never leak into the bridge.
+    for (const token of [
+      "PostToolUseFailure",
+      "postToolUseFailure",
+      "SubagentStart",
+      "subagentStart",
+      "SubagentStop",
+      "subagentStop",
+      "subagent_spawned",
+      "subagent_ended",
+      "subagent_stop",
+    ]) {
+      expect(source).not.toContain(token);
+    }
   });
 });

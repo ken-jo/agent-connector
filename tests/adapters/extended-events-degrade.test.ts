@@ -2,12 +2,13 @@
  * tests/adapters/extended-events-degrade — E1 extension-event DEGRADATION on
  * the batch of hook-capable hosts with NO native analog for the four new
  * canonical events (PermissionRequest, PostToolUseFailure, SubagentStart,
- * SubagentStop): gemini-cli, jetbrains-copilot, kiro, and crush. opencode and
- * kilo-cli are the exceptions — both wire PermissionRequest -> permission.ask
- * (their native decision gate) but leave the other three E1 events unsupported.
+ * SubagentStop): gemini-cli, jetbrains-copilot, kiro, and crush. opencode is the
+ * exception — it wires PermissionRequest -> permission.ask (its native decision
+ * gate) but leaves the other three E1 events unsupported.
  * (omp, the other former ts-plugin host here, now lives in its own per-host file
  * adapters/omp.test.ts; the antigravity IDE + CLI pair moved to their own per-host
- * files adapters/antigravity.test.ts + adapters/antigravity-cli.test.ts.)
+ * files adapters/antigravity.test.ts + adapters/antigravity-cli.test.ts; the
+ * kilo-cli OpenCode fork moved to adapters/kilo-cli.test.ts.)
  *
  * Per host this pins three things:
  *   • capabilities — all four E1 flags stay unset (read as false), so the
@@ -47,7 +48,6 @@ import jetbrainsCopilotAdapter from "../../src/adapters/jetbrains-copilot/index.
 import kiroAdapter from "../../src/adapters/kiro/index.js";
 import crushAdapter from "../../src/adapters/crush/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
-import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -225,15 +225,6 @@ describe("E1 capability flags stay unset on hosts without a native analog", () =
     expect(opencodeAdapter.capabilities.subagentStart ?? false).toBe(false);
     expect(opencodeAdapter.capabilities.subagentStop ?? false).toBe(false);
   });
-
-  // kilo-cli (OpenCode fork) likewise wires PermissionRequest -> permission.ask,
-  // so it supports permissionRequest but leaves the other three E1 flags falsy.
-  it("kilo-cli supports permissionRequest but leaves the other three E1 flags falsy", () => {
-    expect(kiloCliAdapter.capabilities.permissionRequest ?? false).toBe(true);
-    expect(kiloCliAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
-    expect(kiloCliAdapter.capabilities.subagentStart ?? false).toBe(false);
-    expect(kiloCliAdapter.capabilities.subagentStop ?? false).toBe(false);
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -351,7 +342,7 @@ describe("crush E1 degradation", () => {
 // ts-plugin hosts — generated bridge must NOT reference the new events
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("ts-plugin bridges never reference E1 events (kilo-cli)", () => {
+describe("ts-plugin bridges never reference E1 events (opencode)", () => {
   // opencode wires PermissionRequest -> permission.ask, so it is NOT in the
   // "never reference E1" group: its bridge legitimately carries permission.ask.
   // Only the OTHER three E1 events stay unsupported here. The forbidden-token
@@ -384,35 +375,6 @@ describe("ts-plugin bridges never reference E1 events (kilo-cli)", () => {
       "subagent_stop",
     ];
     for (const token of stillForbidden) {
-      expect(source).not.toContain(token);
-    }
-  });
-
-  it("kilo-cli: PreToolUse + PermissionRequest wired (permission.ask); the other three E1 events unsupported", () => {
-    const projectDir = freshProject("ac-e1-kilo-");
-    const ctx = buildCtx(projectDir, buildConnector());
-
-    const changes = kiloCliAdapter.installHooks!(ctx);
-    const moduleChange = changes.find((c) => c.detail?.startsWith("kilo plugin module"));
-    expect(moduleChange?.detail).toBe(
-      "kilo plugin module (PreToolUse,PermissionRequest; unsupported here: PostToolUseFailure,SubagentStart,SubagentStop)",
-    );
-
-    const source = readFileSync(kiloCliAdapter.getHookConfigPath!(ctx), "utf8");
-    expect(source).toContain("tool.execute.before");
-    expect(source).toContain("permission.ask"); // PermissionRequest IS wired now
-    // The three E1 events with NO kilo analog must still never leak into the bridge.
-    for (const token of [
-      "PostToolUseFailure",
-      "postToolUseFailure",
-      "SubagentStart",
-      "subagentStart",
-      "SubagentStop",
-      "subagentStop",
-      "subagent_spawned",
-      "subagent_ended",
-      "subagent_stop",
-    ]) {
       expect(source).not.toContain(token);
     }
   });
