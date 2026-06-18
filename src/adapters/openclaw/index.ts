@@ -122,7 +122,6 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
-  SkillDef,
   SubagentStartEvent,
   SubagentStopEvent,
   UserPromptSubmitEvent,
@@ -133,6 +132,7 @@ import {
   buildServeWrapperCommand,
   shouldWrapForTelemetry,
 } from "../../core/spawn.js";
+import { renderSkillMd } from "../claude-code/render.js";
 
 const HOST: PlatformId = "openclaw";
 
@@ -999,7 +999,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     for (const skill of connector.skills) {
       const dir = this.skillDir(ctx, skill.name);
       changes.push(
-        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+        this.writeContentFile(join(dir, "SKILL.md"), renderSkillMd(skill), ctx.dryRun),
       );
       // Bundle any resource files beside SKILL.md (relative path → contents).
       // Defense-in-depth: skip+warn on any key that escapes the skill dir
@@ -1041,27 +1041,6 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
     }
     return changes;
-  }
-
-  /**
-   * Render a skill's SKILL.md: frontmatter (name, description + optional model,
-   * allowed-tools, disable-model-invocation) + body. UNIFORM with codex /
-   * claude-code — only the parent dir differs (single-line frontmatter keys;
-   * OpenClaw follows the AgentSkills spec).
-   */
-  private renderSkill(skill: SkillDef): string {
-    const frontmatter: Record<string, unknown> = {
-      name: skill.name,
-      description: skill.description,
-    };
-    if (skill.model !== undefined) frontmatter.model = skill.model;
-    const allow = skill.tools?.allow;
-    if (allow && allow.length > 0) frontmatter["allowed-tools"] = allow.join(", ");
-    if (skill.disableModelInvocation !== undefined) {
-      frontmatter["disable-model-invocation"] = skill.disableModelInvocation;
-    }
-    if (skill.extra) Object.assign(frontmatter, skill.extra);
-    return this.renderFrontmatterMd(frontmatter, skill.body);
   }
 
   // ── ts-plugin synthesis ────────────────────────────────────────────────
