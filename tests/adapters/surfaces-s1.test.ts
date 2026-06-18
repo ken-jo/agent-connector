@@ -3,14 +3,13 @@
  * round-trip tests for the second wave of supporting adapters:
  *
  *   • gemini-cli  — TOML commands, uniform SKILL.md skills, md+fm subagents
- *   • qwen-code   — TOML commands, NO skill surface (warn/skip), md+fm subagents
  *   • opencode    — md+fm commands, SKILL.md skills, md+fm subagents under the
  *                   SINGULAR agent/ dir
  *
  * (cursor's content-surface slice — body-only commands, SKILL.md skills, md+fm
- * subagents — was migrated to tests/adapters/cursor.test.ts, and codex's to
- * tests/adapters/codex.test.ts, per the ONE-file-per-host convention; see
- * tests/README.md.)
+ * subagents — was migrated to tests/adapters/cursor.test.ts, codex's to
+ * tests/adapters/codex.test.ts, and qwen-code's to tests/adapters/qwen-code.test.ts,
+ * per the ONE-file-per-host convention; see tests/README.md.)
  *
  * Each platform is exercised end-to-end against REAL files on disk in an
  * isolated temp project dir:
@@ -18,7 +17,6 @@
  *     (TOML parsed with @iarna/toml; md+fm split + parsed with `yaml`)
  *   • idempotency (second install → "skip")
  *   • uninstall (files removed; re-read from disk confirms gone)
- *   • capability gating: qwen skills route through the BaseAdapter warn/skip path
  *
  * Filesystem isolation: a fresh os.tmpdir mkdtemp project dir per test. HOME and
  * AGENT_CONNECTOR_DATA_DIR point at temp and are restored in afterEach.
@@ -37,7 +35,6 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 
 import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
-import qwenAdapter from "../../src/adapters/qwen-code/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
@@ -236,88 +233,6 @@ describe("gemini-cli adapter — content surfaces", () => {
     const c2 = buildCtx(projectDir, disabled);
     expect(geminiAdapter.installCommands!(c2)[0]?.action).toBe("skip");
     expect(existsSync(join(projectDir, ".gemini", "commands", "deploy.toml"))).toBe(false);
-  });
-});
-
-// ── qwen-code ─────────────────────────────────────────────────────────────
-
-describe("qwen-code adapter — content surfaces", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject();
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("declares commands + skills + subagents", () => {
-    expect(qwenAdapter.capabilities.supportsCommands).toBe(true);
-    expect(qwenAdapter.capabilities.supportsSkills).toBe(true);
-    expect(qwenAdapter.capabilities.supportsSubagents).toBe(true);
-  });
-
-  it("installCommands writes a TOML command (description + prompt)", () => {
-    const changes = qwenAdapter.installCommands!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const cmdPath = join(projectDir, ".qwen", "commands", "deploy.toml");
-    expect(changes[0]?.path).toBe(cmdPath);
-    expect(existsSync(cmdPath)).toBe(true);
-
-    const toml = parseToml(readFileSync(cmdPath, "utf8")) as Record<string, unknown>;
-    expect(toml.description).toBe("Deploy the app to an environment.");
-    expect(toml.prompt).toBe(COMMAND.prompt);
-  });
-
-  it("installSubagents writes md+fm agents/<name>.md", () => {
-    qwenAdapter.installSubagents!(ctx);
-    const agentPath = join(projectDir, ".qwen", "agents", "reviewer.md");
-    expect(existsSync(agentPath)).toBe(true);
-
-    const { frontmatter, body } = splitFrontmatter(readFileSync(agentPath, "utf8"));
-    expect(frontmatter.name).toBe("reviewer");
-    expect(frontmatter.tools).toBe("Read, Grep");
-    expect(frontmatter.model).toBe("opus");
-    expect(body.trim()).toBe(SUBAGENT.prompt);
-  });
-
-  it("installSkills writes SKILL.md under .qwen/skills/<name>/SKILL.md", () => {
-    const changes = qwenAdapter.installSkills!(ctx);
-    expect(changes[0]?.action).toBe("create");
-    const skillMd = join(projectDir, ".qwen", "skills", "pdf-tools", "SKILL.md");
-    expect(existsSync(skillMd)).toBe(true);
-    const { frontmatter, body } = splitFrontmatter(readFileSync(skillMd, "utf8"));
-    expect(frontmatter.name).toBe("pdf-tools");
-    expect(frontmatter.description).toBe(SKILL.description);
-    expect(frontmatter.model).toBe("haiku");
-    expect(frontmatter["allowed-tools"]).toBe("Bash");
-    expect(body).toContain("# PDF Tools");
-  });
-
-  it("installSkills is idempotent — second install yields skip", () => {
-    qwenAdapter.installSkills!(ctx);
-    expect(qwenAdapter.installSkills!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstallSkills removes SKILL.md", () => {
-    qwenAdapter.installSkills!(ctx);
-    qwenAdapter.uninstallSkills!(ctx);
-    expect(existsSync(join(projectDir, ".qwen", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
-  });
-
-  it("is idempotent — second install yields skip (commands + subagents)", () => {
-    qwenAdapter.installCommands!(ctx);
-    qwenAdapter.installSubagents!(ctx);
-    expect(qwenAdapter.installCommands!(ctx).every((c) => c.action === "skip")).toBe(true);
-    expect(qwenAdapter.installSubagents!(ctx).every((c) => c.action === "skip")).toBe(true);
-  });
-
-  it("uninstall removes command + subagent files", () => {
-    qwenAdapter.installCommands!(ctx);
-    qwenAdapter.installSubagents!(ctx);
-    qwenAdapter.uninstallCommands!(ctx);
-    qwenAdapter.uninstallSubagents!(ctx);
-    expect(existsSync(join(projectDir, ".qwen", "commands", "deploy.toml"))).toBe(false);
-    expect(existsSync(join(projectDir, ".qwen", "agents", "reviewer.md"))).toBe(false);
   });
 });
 

@@ -1,16 +1,13 @@
 /**
  * tests/adapters/extended-events-hosts — E1 extension-event wiring
  * (PermissionRequest, PostToolUseFailure, SubagentStart, SubagentStop) on the
- * qwen-code / kimi adapters.
+ * kimi adapter.
  *
- * (codex's E1 + PostCompact slices were migrated to tests/adapters/codex.test.ts
- * per the ONE-file-per-host convention — see tests/README.md.)
+ * (codex's E1 + PostCompact slices were migrated to tests/adapters/codex.test.ts,
+ * and qwen-code's E1 slice to tests/adapters/qwen-code.test.ts, per the
+ * ONE-file-per-host convention — see tests/README.md.)
  *
  * Per-host native truth this pins (verified against the live host docs):
- *   • qwen-code — all four are native and Claude-identical: nested permission
- *                 decision (updatedInput honored), additionalContext feedback
- *                 on PostToolUseFailure/SubagentStart, top-level block on
- *                 SubagentStop. Write-all install registers every declared event.
  *   • kimi      — Kimi-specific wire: agent_name (NOT agent_id/agent_type) +
  *                 response; context rides PLAIN stdout on exit 0; SubagentStop
  *                 deny blocks via EXIT 2 + stderr. NO permission hook →
@@ -31,14 +28,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
-  PermissionRequestEvent,
   PostToolUseFailureEvent,
   ResolvedConnector,
   SubagentStartEvent,
   SubagentStopEvent,
 } from "../../src/core/types.js";
 
-import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
 import kimiAdapter from "../../src/adapters/kimi/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -150,10 +145,6 @@ function freshProject(prefix: string): string {
   return dir;
 }
 
-function readJson(path: string): Record<string, any> {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
 function readToml(path: string): Record<string, any> {
   return TOML.parse(readFileSync(path, "utf8")) as Record<string, any>;
 }
@@ -161,187 +152,6 @@ function readToml(path: string): Record<string, any> {
 function parsed(reply: { stdout?: string }): Record<string, any> {
   return JSON.parse(reply.stdout ?? "{}");
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// qwen-code
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("qwen-code E1 events", () => {
-  let projectDir: string;
-  let ctx: InstallContext;
-
-  beforeEach(() => {
-    projectDir = freshProject("ac-ext-qwen-");
-    ctx = buildCtx(projectDir, buildConnector());
-  });
-
-  it("capabilities: all four E1 events native", () => {
-    expect(qwenCodeAdapter.capabilities.permissionRequest).toBe(true);
-    expect(qwenCodeAdapter.capabilities.postToolUseFailure).toBe(true);
-    expect(qwenCodeAdapter.capabilities.subagentStart).toBe(true);
-    expect(qwenCodeAdapter.capabilities.subagentStop).toBe(true);
-  });
-
-  it("installHooks registers all four natively, rendering connector matchers", () => {
-    const changes = qwenCodeAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "warn")).toBe(false);
-
-    const settings = readJson(join(projectDir, ".qwen", "settings.json"));
-    for (const event of [
-      "PermissionRequest",
-      "PostToolUseFailure",
-      "SubagentStart",
-      "SubagentStop",
-    ]) {
-      expect(settings.hooks[event]).toHaveLength(1);
-      expect(settings.hooks[event][0].hooks[0].command).toContain(
-        `hook qwen-code ${event}`,
-      );
-    }
-    // Tool-name matcher (PermissionRequest) and agent-type matcher (SubagentStop)
-    // pass through to the native registration.
-    expect(settings.hooks.PermissionRequest[0].matcher).toBe("Bash");
-    expect(settings.hooks.SubagentStop[0].matcher).toBe("code-reviewer");
-  });
-
-  it("parseEvent maps the Claude-identical wire fields (incl. quirks)", () => {
-    const perm = qwenCodeAdapter.parseEvent!("PermissionRequest", {
-      session_id: "qw-1",
-      tool_name: "WriteFile",
-      tool_input: { file_path: "/tmp/a" },
-      permission_suggestions: [{ behavior: "allow" }],
-    }) as PermissionRequestEvent;
-    expect(perm.toolName).toBe("WriteFile");
-    expect(perm.permissionSuggestions).toEqual([{ behavior: "allow" }]);
-
-    const fail = qwenCodeAdapter.parseEvent!("PostToolUseFailure", {
-      session_id: "qw-1",
-      tool_name: "Bash",
-      tool_input: { command: "make" },
-      tool_use_id: "tu-1",
-      error: "exit status 2",
-      is_interrupt: false,
-    }) as PostToolUseFailureEvent;
-    expect(fail.error).toBe("exit status 2");
-    expect(fail.toolUseId).toBe("tu-1");
-    expect(fail.isInterrupt).toBe(false);
-    // Qwen's failure payload has no duration_ms.
-    expect(fail.durationMs).toBeUndefined();
-
-    const start = qwenCodeAdapter.parseEvent!("SubagentStart", {
-      session_id: "qw-1",
-      agent_id: "agent-1",
-      agent_type: "Explorer",
-    }) as SubagentStartEvent;
-    expect(start.agentId).toBe("agent-1");
-    expect(start.agentType).toBe("Explorer");
-
-    // SubagentStop tolerates the missing-agent_type quirk.
-    const stop = qwenCodeAdapter.parseEvent!("SubagentStop", {
-      session_id: "qw-1",
-      agent_transcript_path: "/tmp/sub.jsonl",
-      last_assistant_message: "done",
-      stop_hook_active: false,
-    }) as SubagentStopEvent;
-    expect(stop.agentType).toBeUndefined();
-    expect(stop.agentTranscriptPath).toBe("/tmp/sub.jsonl");
-    expect(stop.lastAssistantMessage).toBe("done");
-    expect(stop.stopHookActive).toBe(false);
-  });
-
-  it("formatReply PermissionRequest: nested decision envelope; updatedInput honored", () => {
-    const deny = parsed(
-      qwenCodeAdapter.formatReply!("PermissionRequest", {
-        decision: "deny",
-        reason: "blocked",
-      }),
-    );
-    expect(deny.hookSpecificOutput.decision).toEqual({
-      behavior: "deny",
-      message: "blocked",
-    });
-    expect(deny.decision).toBeUndefined();
-
-    const allow = parsed(
-      qwenCodeAdapter.formatReply!("PermissionRequest", {
-        decision: "allow",
-        updatedInput: { command: "ls -la" },
-      }),
-    );
-    expect(allow.hookSpecificOutput.decision).toEqual({
-      behavior: "allow",
-      updatedInput: { command: "ls -la" },
-    });
-
-    const modify = parsed(
-      qwenCodeAdapter.formatReply!("PermissionRequest", {
-        decision: "modify",
-        updatedInput: { command: "git status" },
-      }),
-    );
-    expect(modify.hookSpecificOutput.decision.behavior).toBe("allow");
-    expect(modify.hookSpecificOutput.decision.updatedInput).toEqual({
-      command: "git status",
-    });
-
-    // ask / void-normalized {} fall through to the native dialog.
-    expect(qwenCodeAdapter.formatReply!("PermissionRequest", { decision: "ask" }).stdout).toBeUndefined();
-    expect(qwenCodeAdapter.formatReply!("PermissionRequest", {}).stdout).toBeUndefined();
-  });
-
-  it("formatReply PostToolUseFailure/SubagentStart are feedback-only (deny degrades)", () => {
-    const failCtx = parsed(
-      qwenCodeAdapter.formatReply!("PostToolUseFailure", {
-        decision: "context",
-        additionalContext: "retry with --force",
-      }),
-    );
-    expect(failCtx.hookSpecificOutput.hookEventName).toBe("PostToolUseFailure");
-    expect(failCtx.hookSpecificOutput.additionalContext).toBe("retry with --force");
-
-    const failDeny = parsed(
-      qwenCodeAdapter.formatReply!("PostToolUseFailure", {
-        decision: "deny",
-        reason: "not blockable — degrade",
-      }),
-    );
-    expect(failDeny.decision).toBeUndefined();
-    expect(failDeny.hookSpecificOutput.additionalContext).toBe("not blockable — degrade");
-
-    const startCtx = parsed(
-      qwenCodeAdapter.formatReply!("SubagentStart", {
-        decision: "context",
-        additionalContext: "conventions in CONTRIBUTING.md",
-      }),
-    );
-    expect(startCtx.hookSpecificOutput.hookEventName).toBe("SubagentStart");
-    expect(startCtx.hookSpecificOutput.additionalContext).toBe(
-      "conventions in CONTRIBUTING.md",
-    );
-  });
-
-  it("formatReply SubagentStop deny → TOP-LEVEL block (Stop semantics)", () => {
-    const out = parsed(
-      qwenCodeAdapter.formatReply!("SubagentStop", {
-        decision: "deny",
-        reason: "verify before stopping",
-      }),
-    );
-    expect(out.decision).toBe("block");
-    expect(out.reason).toBe("verify before stopping");
-    expect(out.hookSpecificOutput).toBeUndefined();
-  });
-
-  it("formatReply legacy deny shape is unchanged for the original events", () => {
-    // Regression guard: the SubagentStop top-level block must not leak into the
-    // pre-E1 deny path (PreToolUse keeps permissionDecision).
-    const out = parsed(
-      qwenCodeAdapter.formatReply!("PreToolUse", { decision: "deny", reason: "no" }),
-    );
-    expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
-    expect(out.decision).toBeUndefined();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // kimi
