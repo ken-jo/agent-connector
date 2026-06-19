@@ -3,11 +3,14 @@
  *
  * Kimi CLI is a json-stdio host: the runner pipes a JSON payload to a command on
  * stdin and reads an exit code (and optional reason) back. Two native config
- * files live under the Kimi base dir (`$KIMI_CODE_HOME` || `~/.kimi-code`, per the
- * official docs — moonshotai.github.io/kimi-code/en/configuration/config-files.html):
+ * files back the install. Their scope-resolution DIFFERS (verified against the
+ * kimi-code source, MIT/public — see the Native paths section):
  *   - mcp.json     → `mcpServers.<id>` MCP registration (JSON, stdio shape:
- *     {command,args,env}). Handled via BaseAdapter's JSON helpers.
- *   - config.toml  → `[[hooks]]` array-of-tables (TOML), each table
+ *     {command,args,env}). Project-local at `<projectDir>/.kimi-code/mcp.json`
+ *     under project scope, else the user base dir (`$KIMI_CODE_HOME` ||
+ *     `~/.kimi-code`). Handled via BaseAdapter's JSON helpers.
+ *   - config.toml  → `[[hooks]]` array-of-tables (TOML), each table — ALWAYS the
+ *     user base dir (Kimi reads no project-local config.toml).
  *     { event, matcher, command }. Parsed/serialized with @iarna/toml: every
  *     config VALUE (unrelated sections, sibling hooks, scalars) is preserved,
  *     but a parse→stringify round-trip does NOT preserve user COMMENTS or the
@@ -243,8 +246,10 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     // customization/mcp.html: "supports three MCP server connection methods").
     transports: ["stdio", "http", "sse"],
     // Skills surface: Kimi reads SKILL.md from ~/.kimi-code/skills/<name>/SKILL.md
-    // (user scope) and .kimi-code/skills/<name>/SKILL.md (project scope).
-    // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
+    // (user scope) and <projectDir>/.kimi-code/skills/<name>/SKILL.md (project
+    // scope). Both are documented scan dirs (docs/en/customization/skills.md;
+    // "Project > User" priority). Project-local mcp.json is likewise read
+    // (docs/en/customization/mcp.md); config.toml/hooks are user-only.
     supportsSkills: true,
     // Native passthrough hooks: Kimi's observation-only single-host events —
     // StopFailure, PermissionResult, Interrupt — have NO normalized HookEventName
@@ -282,19 +287,47 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
   }
 
   // ── Native paths ───────────────────────────────────────────────────────
+  //
+  // Kimi's config surfaces are NOT uniformly project-aware — each one resolves
+  // from a different root, verified against the kimi-code source (MIT, public):
+  //   - mcp.json (MCP)    → project-local SUPPORTED. config-loader.ts loads
+  //     three sources and `project: join(cwd, '.kimi-code', 'mcp.json')` wins
+  //     over user (`~/.kimi-code/mcp.json`). Doc: docs/en/customization/mcp.md
+  //     ("Project level: .kimi-code/mcp.json").
+  //   - skills            → project-local SUPPORTED (.kimi-code/skills/, scanned
+  //     above the user dir). Doc: docs/en/customization/skills.md.
+  //   - config.toml (hooks) → USER-ONLY. config/path.ts resolveConfigPath()
+  //     resolves it solely from resolveKimiHome (KIMI_CODE_HOME ?? ~/.kimi-code);
+  //     config/toml.ts loadRuntimeConfigSafe reads that SINGLE file with no
+  //     cwd/project merge. There is no project-local config.toml — so a
+  //     project-scope install must still write hooks to the user base dir or
+  //     Kimi never loads them.
+  // Hence getConfigDir() (the project-aware root) drives MCP + skills, while
+  // getHookConfigPath() stays pinned to baseDir() regardless of scope.
 
-  getConfigDir(_ctx: InstallContext): string {
+  /**
+   * Project-aware config dir: `<projectDir>/.kimi-code` for project scope, else
+   * the user base dir. Mirrors codex's getConfigDir. Drives the surfaces Kimi
+   * reads project-locally (mcp.json + skills) — NOT config.toml (see below).
+   */
+  getConfigDir(ctx: InstallContext): string {
+    if (ctx.scope === "project") return join(ctx.projectDir, ".kimi-code");
     return this.baseDir();
   }
 
-  /** MCP registration file (JSON). */
+  /** MCP registration file (JSON) — project-local under project scope. */
   getServerConfigPath(ctx: InstallContext): string {
     return join(this.getConfigDir(ctx), "mcp.json");
   }
 
-  /** Hook registration file (TOML) — distinct from the MCP file. */
-  getHookConfigPath(ctx: InstallContext): string {
-    return join(this.getConfigDir(ctx), "config.toml");
+  /**
+   * Hook registration file (TOML) — ALWAYS the user base dir. Kimi resolves
+   * config.toml only from KIMI_CODE_HOME ?? ~/.kimi-code (no project-local
+   * variant), so this intentionally ignores ctx.scope: a project-scope install
+   * writes hooks here so Kimi actually fires them.
+   */
+  getHookConfigPath(_ctx: InstallContext): string {
+    return join(this.baseDir(), "config.toml");
   }
 
   /**
@@ -422,15 +455,15 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
   }
 
   // ── Skills surface ────────────────────────────────────────────────────────
-  // Kimi reads SKILL.md from <baseDir>/skills/<name>/SKILL.md.
+  // Kimi reads SKILL.md from <skills dir>/<name>/SKILL.md, scanning project then
+  // user (docs/en/customization/skills.md, "Project > User"):
   //   user scope:    ~/.kimi-code/skills/<name>/SKILL.md
   //   project scope: <projectDir>/.kimi-code/skills/<name>/SKILL.md
-  // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
+  // Derived from getConfigDir(ctx) so skills + mcp.json share ONE scope-resolved
+  // root (config.toml/hooks deliberately do not — see getHookConfigPath).
 
   private skillsDir(ctx: InstallContext): string {
-    return ctx.scope === "project"
-      ? join(ctx.projectDir, ".kimi-code", "skills")
-      : join(this.baseDir(), "skills");
+    return join(this.getConfigDir(ctx), "skills");
   }
 
   private skillDir(ctx: InstallContext, name: string): string {
