@@ -20,7 +20,11 @@
  *                   ~/.kiro/skills/<name>/SKILL.md (user). Paths are hard-coded —
  *                   no mcp.json/agent entry is written.
  *   • Reply       → Kiro is exit-code based: deny → exit 2 + reason on stderr;
- *                   agentSpawn context → exit 0 + stdout hookSpecificOutput JSON;
+ *                   context → exit 0 + the guidance as PLAIN STDOUT, but ONLY on
+ *                   the agentSpawn / userPromptSubmit events (the two that add a
+ *                   hook's STDOUT to the agent's context per kiro.dev/docs/cli/
+ *                   hooks); a context decision on preToolUse / postToolUse / stop
+ *                   degrades to a plain exit-0 pass-through (no context channel);
  *                   allow/modify → exit 0 (Kiro cannot rewrite args/output).
  *
  * This file consolidates what used to be split across kiro-skills.test.ts (the
@@ -429,6 +433,69 @@ describe("kiro adapter render + round-trip", () => {
     });
     expect(reply.exitCode).toBe(2);
     expect(reply.stderr).toBe("blocked by policy");
+  });
+});
+
+// ── formatReply context channel (plain STDOUT, gated to context-supporting events) ─
+// Kiro adds a hook's STDOUT to the agent's context ONLY for agentSpawn
+// (≈ SessionStart) and userPromptSubmit; preToolUse / postToolUse / stop have no
+// context channel (STDOUT is "captured but not shown"). So a context decision
+// emits the raw guidance as plain stdout on the two context events and degrades
+// to a bare exit-0 pass-through everywhere else — never a mislabeled payload.
+// Ref: https://kiro.dev/docs/cli/hooks
+describe("kiro formatReply — context decision", () => {
+  const CTX = "remember: run the migration first";
+
+  it("SessionStart context → exit 0 + the guidance as PLAIN STDOUT (no JSON envelope)", () => {
+    const reply = kiroAdapter.formatReply!("SessionStart", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBe(CTX);
+    // The fabricated Claude-shaped envelope must NOT be emitted.
+    expect(reply.stdout).not.toContain("hookSpecificOutput");
+    expect(reply.stdout).not.toContain("hookEventName");
+    expect(reply.stdout).not.toContain("agentSpawn");
+  });
+
+  it("UserPromptSubmit context → exit 0 + the guidance as PLAIN STDOUT", () => {
+    const reply = kiroAdapter.formatReply!("UserPromptSubmit", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBe(CTX);
+    expect(reply.stdout).not.toContain("hookSpecificOutput");
+  });
+
+  it("PreToolUse context → exit 0 pass-through (Kiro has no context channel there)", () => {
+    const reply = kiroAdapter.formatReply!("PreToolUse", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    // No mislabeled agentSpawn payload, and the guidance is not (silently) emitted
+    // where Kiro would never surface it.
+    expect(reply.stdout).toBeUndefined();
+  });
+
+  it("PostToolUse context → exit 0 pass-through (STDOUT captured but not shown)", () => {
+    const reply = kiroAdapter.formatReply!("PostToolUse", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBeUndefined();
+  });
+
+  it("Stop context → exit 0 pass-through (Stop branch precedes context; no context channel)", () => {
+    const reply = kiroAdapter.formatReply!("Stop", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBeUndefined();
   });
 });
 
