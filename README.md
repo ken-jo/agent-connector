@@ -76,11 +76,11 @@ The full single-API contract is **install-verified across the platform set**. A
 sample connector declaring **all four launch surfaces** — MCP server **+**
 lifecycle hooks **+** slash commands **+** tools (skills + subagents) — was
 installed into an isolated environment for every adapter and inspected on disk
-(the 29-platform full sweep below; the two newest adapters — MiMoCode and
-NemoClaw — were added with a focused isolated-HOME install check landing the MCP
-server in the right file + root key):
+(the full 35-platform sweep below — now locked by a committed registry-driven
+install-roundtrip harness that, for every adapter, drives the real install →
+uninstall into an isolated HOME and asserts on-disk placement + zero residue):
 
-- **29 / 29 platforms — zero missing, zero failed surfaces.** Each surface is
+- **35 / 35 platforms — zero missing, zero failed surfaces.** Each surface is
   written where the host supports it and gracefully *skip-warned* (never silently
   dropped) where it does not, across all three hook paradigms — JSON/TOML/YAML
   hook entries (`json-stdio`), synthesized + registered plugin modules
@@ -98,13 +98,21 @@ server in the right file + root key):
   logged-in sessions (Codex/Gemini recorded actual tool-call rows). Each row now
   carries the correct `hostPlatform` (the install target is baked into the
   wrapper as `--host`). Kimi also spawned the server (its probe tears the pipe
-  down before the row flushes). Login-gated CLIs not configured here (amp, goose,
-  codebuff, omp), TUI-only Crush, the GUI-only Coder Mux, and the IDE/editor
-  hosts are verified at the config-write layer and need the app itself for full
-  runtime activation.
+  down before the row flushes).
+- **Committed live host-CLI driver — 20 real CLIs.** A reusable
+  `scripts/verify-host.mjs` installs each host's actual binary into an isolated
+  HOME and verifies install → placement → clean-uninstall: **12 confirm offline
+  config-acceptance** (Codex · Gemini CLI · Copilot CLI · Antigravity CLI · Amp ·
+  qwen-code · Droid · Cursor · Kimi + OpenCode · Kilo CLI · MiMoCode) and **3 of
+  those fire a live hook** (OpenCode · Kilo CLI · MiMoCode → handler ran to our
+  event log); the other 8 (Claude Code · Codebuff · Crush · Continue · OpenClaw ·
+  Goose · Amazon Q · OMP) reach install-placement + clean-uninstall. So amp,
+  goose, codebuff & omp — previously config-write-only — are now exercised
+  against their real CLIs. The remaining 15 hosts (IDE extensions / GUI editors,
+  no headless CLI) stay covered by the install-roundtrip harness above.
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
-  connectors remain (29 / 29).
+  connectors remain (35 / 35).
 - **Full `npm test` suite passing** · `tsc` clean · build green.
 
 The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
