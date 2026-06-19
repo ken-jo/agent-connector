@@ -73,11 +73,20 @@ function SurfaceLegend() {
         <span className={chipStates["host-na"].className}>Abc</span>
         <span className="ml-1.5 font-sans">not offered by this agent</span>
       </p>
-      <p className="mt-1 text-center font-sans text-[11px] text-muted-foreground">
-        <span className="font-mono uppercase tracking-wide text-foreground">Statusline</span>
-        {" "}and{" "}
-        <span className="font-mono uppercase tracking-wide text-foreground">Actions</span>
-        {" "}are runtime-dispatched handler surfaces shown only where agent-connector wires them — absence is not a claim the host lacks them.
+      <p className="mt-1 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center font-sans text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1 rounded-full border border-foreground/25 bg-foreground/[0.05] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-foreground">
+          <span aria-hidden="true" className="text-[7px] leading-none opacity-70">✦</span>
+          Statusline
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-foreground/25 bg-foreground/[0.05] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-foreground">
+          <span aria-hidden="true" className="text-[7px] leading-none opacity-70">✦</span>
+          Actions
+        </span>
+        <span>
+          — special runtime-dispatched surfaces, set off on their own row and shown
+          only where agent-connector wires them (absence isn&apos;t a claim the host
+          lacks them).
+        </span>
       </p>
     </div>
   );
@@ -128,17 +137,23 @@ function AgentEntry({ platform }: { platform: Platform }) {
         })}
       </div>
       {handlerChips.some((c) => platform.surfaces[c.key]) && (
-        <div className="mt-1.5 flex items-center gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-border/50 pt-2">
           {handlerChips
             .filter((c) => platform.surfaces[c.key])
             .map((c) => (
               <span
                 key={c.key}
-                title={`${c.full}: agent-connector installs it`}
-                className="font-mono text-[9px] uppercase tracking-wide text-foreground"
+                title={`${c.full}: special runtime handler surface, wired by agent-connector`}
+                className="inline-flex items-center gap-1 rounded-full border border-foreground/25 bg-foreground/[0.05] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-foreground"
               >
+                <span aria-hidden="true" className="text-[7px] leading-none opacity-70">
+                  ✦
+                </span>
                 {c.abbr}
-                <span className="sr-only">: agent-connector installs it</span>
+                <span className="sr-only">
+                  {" "}
+                  — special runtime handler surface, wired by agent-connector
+                </span>
               </span>
             ))}
         </div>
