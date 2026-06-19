@@ -416,6 +416,13 @@ describe("openclaw adapter (ts-plugin) render + dual registration", () => {
     const manifest = readJson(manifestPath);
     expect(manifest.id).toBe(CONNECTOR_ID);
     expect(manifest.main).toBe("index.mjs");
+    // configSchema is REQUIRED — `openclaw config validate` rejects a manifest
+    // without it ("plugin manifest requires configSchema"). Our plugin takes no
+    // user config → the empty closed object schema (openclaw's minimal example).
+    expect(manifest.configSchema).toEqual({
+      type: "object",
+      additionalProperties: false,
+    });
 
     // The generated module is the self-contained bridge: it imports NOTHING from
     // agent-connector (the only allowed import is node:child_process). The string

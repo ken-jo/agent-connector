@@ -72,10 +72,15 @@
  * Plugin module location (project | user):
  *   user    → <stateDir>/extensions/<id>/index.mjs    (stateDir = dir of openclaw.json)
  *   project → <projectDir>/.openclaw/extensions/<id>/index.mjs
- *   Beside index.mjs we also emit an openclaw.plugin.json manifest. The plugin's
- *   DIRECTORY (not the file) is added to plugins.load.paths so the gateway scans
- *   it and loads the module; the plugins.entries.<id> = { enabled: true } half
- *   then activates it. (There is no per-entry "module" field — validate rejects it.)
+ *   Beside index.mjs we also emit an openclaw.plugin.json manifest
+ *   { id, name, main, enabled, configSchema }. `configSchema` is REQUIRED —
+ *   `openclaw config validate` rejects a manifest without it ("plugin manifest
+ *   requires configSchema"); our plugin takes no user config, so it is the empty
+ *   closed object schema { type: "object", additionalProperties: false }. The
+ *   plugin's DIRECTORY (not the file) is added to plugins.load.paths so the
+ *   gateway scans it and loads the module; the plugins.entries.<id> =
+ *   { enabled: true } half then activates it. (There is no per-entry "module"
+ *   field — validate rejects it.)
  *
  * The gateway hot-reloads its config on SIGUSR1 — no action needed here; the
  * next reload (or restart) picks up our entries/servers/module.
@@ -1062,6 +1067,12 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
    * Build the openclaw.plugin.json manifest the gateway reads inside a
    * plugins.load.paths directory. It names the plugin and points at the ESM
    * module entry (index.mjs) so the loader knows what to import.
+   *
+   * `configSchema` is REQUIRED: `openclaw config validate` (and `openclaw mcp
+   * list`) REJECT a manifest without it ("plugin manifest requires
+   * configSchema"). Our plugin takes no user config, so we emit the empty
+   * closed object schema from openclaw's own minimal manifest example
+   * ({ type: "object", additionalProperties: false }).
    */
   private buildPluginManifest(ctx: InstallContext): string {
     const manifest = {
@@ -1069,6 +1080,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       name: ctx.connector.displayName || ctx.connector.id,
       main: this.pluginFileName(),
       enabled: true,
+      configSchema: { type: "object", additionalProperties: false },
     };
     return `${JSON.stringify(manifest, null, 2)}\n`;
   }

@@ -209,15 +209,16 @@ const HOST_LANES = {
   openclaw: {
     bin: "openclaw",
     // Resolves ~/.openclaw off homedir → HOME isolation suffices.
-    // CORRECTED via live `openclaw mcp list` / `openclaw config validate`:
-    // BOTH report "OpenClaw config is invalid … plugins: plugin: plugin manifest
-    // requires configSchema" (exit 0, so an exit-0 "ok" lane would FALSELY pass).
-    // Our adapter writes ~/.openclaw/extensions/<id>/openclaw.plugin.json
-    // (wrapper-bridge manifest) WITHOUT the required `configSchema` field, so
-    // openclaw's validator REJECTS the plugin entry. Placement + uninstall-clean
-    // PASS, but the host will NOT load the plugin as written. Placement-only.
+    // The configSchema gap is FIXED: buildPluginManifest now emits
+    // configSchema: { type: "object", additionalProperties: false } (openclaw's
+    // minimal-manifest shape), so `openclaw config validate` NO LONGER reports
+    // "plugin manifest requires configSchema" — the written plugin now validates.
+    // Still placement-only here: openclaw exposes no offline accept verb that
+    // echoes our id (mcp list does not list by id), and `config validate` is a
+    // global config check, not an id-scoped accept, so the harness reports
+    // placement + uninstall-clean honestly rather than driving a misleading verb.
     placementOnly: true,
-    note: "KNOWN ADAPTER GAP: `openclaw config validate` rejects our plugin entry — \"plugin manifest requires configSchema\" (our openclaw.plugin.json omits configSchema). Placement+uninstall-clean only; potential adapter fix (out of scope here).",
+    note: "placement+uninstall-clean only — openclaw has no id-echoing offline accept verb (`mcp list` doesn't list by id; `config validate` is a global check). configSchema gap FIXED: `openclaw config validate` no longer rejects our plugin manifest (live-verified).",
   },
   goose: {
     bin: "goose",
