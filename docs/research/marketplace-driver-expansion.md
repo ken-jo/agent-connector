@@ -50,7 +50,10 @@ the absent ones). Goal: expand `install --method marketplace` driving beyond
 - **BATCH 1 — gemini.ts** (direct, live-verifiable). New state: `geminiStagingRoot`, `geminiConfigDir`, `geminiExtensionInstalled`.
 - **BATCH 2 — npm-local.ts** (`makeNpmLocalDriver` + opencode/kilo/kilo-cli). Add the `cwd` option to `runHostCommand`/`spawnChild` FIRST (regression-test existing drivers unchanged — they pass no cwd). New state: `npmStagingRoot`, `opencodeConfigDir`/`kiloConfigDir` (XDG-aware), `npmPluginInstalled(platform,id)`, `npmPluginArrayEntry`, `npmConfigFilePath`, `stripFileScheme`.
 - **BATCH 3 — qwen.ts (clone gemini) + droid.ts (clone codex)**, DOCS-only with mock-CLI unit tests + conditional integration tests that auto-run when `command -v qwen`/`droid` exists.
-- **Cross-cutting per batch (same change-set):** `registry.ts` getMarketplaceDriver cases (+memoized npm-local map like the agy map), `marketplace.ts` DRIVABLE_MARKETPLACE_PLATFORMS, and `marketplaceEvidence` cases — never ahead of the driver (out-of-sync set → silent manual-hint fallthrough).
+- **Cross-cutting per batch (same change-set):** `registry.ts` driver resolver entries
+  (`DRIVABLE_MARKETPLACE_PLATFORMS` is derived there), plus `marketplaceEvidence`
+  cases. Do not add evidence ahead of a working driver unless the platform is
+  intentionally manual-only.
 
 ## Not worth driving (leave manual-hint, honest)
 cursor (GUI reload only), pi (registry-only npm + no hook layer to load it), vscode-copilot/openclaw/omp (no plugin CLI; the claude-plugin format-map entry is emit-only and arguably misleading — consider making those emit direct-only), kimi (no confirmed uninstall/list verb — promote to a direct driver once a binary verifies reversal).
