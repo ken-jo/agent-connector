@@ -269,9 +269,10 @@ const HOST_LANES = {
   kimi: {
     bin: "kimi",
     // @moonshot-ai/kimi-code (json-stdio). The adapter writes mcp.json + the
-    // [[hooks]] config.toml under $KIMI_HOME || $KIMI_CODE_HOME || ~/.kimi.
-    // CRITICAL (live finding): the v0.18.0 CLI's `doctor` reads ~/.kimi-code by
-    // default and KIMI_HOME does NOT redirect it, but KIMI_CODE_HOME redirects
+    // [[hooks]] config.toml under $KIMI_CODE_HOME || ~/.kimi-code (primary-doc-
+    // verified; there is NO $KIMI_HOME). CRITICAL (live finding): the v0.18.0 CLI's
+    // `doctor` reads ~/.kimi-code by default and KIMI_HOME does NOT redirect it (the
+    // adapter now matches — it ignores KIMI_HOME), while KIMI_CODE_HOME redirects
     // BOTH the adapter writer AND the CLI reader — so setting KIMI_CODE_HOME into
     // WORK unifies them (the CODEX_HOME pattern).
     env: { KIMI_CODE_HOME: [".kimi-cfg"] },
@@ -324,7 +325,7 @@ const HOST_INSTALL = {
   crush: { kind: "npm", pkg: "@charmland/crush", bin: "crush", identity: "github.com/charmbracelet/crush" },
   openclaw: { kind: "npm", pkg: "openclaw", bin: "openclaw", identity: "github.com/openclaw/openclaw" },
   // @moonshot-ai/kimi-code is the OFFICIAL Moonshot Kimi Code CLI (bin `kimi`),
-  // matching the kimi adapter's $KIMI_HOME/$KIMI_CODE_HOME layout. Pinned to
+  // matching the kimi adapter's $KIMI_CODE_HOME || ~/.kimi-code layout. Pinned to
   // 0.18.0; engines node>=22.19 (this box has node 24). NOT the old "kimi-cli" stub.
   kimi: { kind: "npm", pkg: "@moonshot-ai/kimi-code@0.18.0", bin: "kimi", identity: "github.com/MoonshotAI/kimi-code" },
   // ── pinned vendor binary downloads (arch-aware; NO remote-script execution) ──

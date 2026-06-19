@@ -36,7 +36,8 @@ import type { ResolvedConnector } from "../../src/core/types.js";
 
 /**
  * Env vars that can redirect an adapter's user-scope config resolution outside
- * the sandboxed HOME (CODEX_HOME for codex, KIMI_HOME/KIMI_CODE_HOME for kimi,
+ * the sandboxed HOME (CODEX_HOME for codex, KIMI_CODE_HOME for kimi — KIMI_HOME
+ * is isolated defensively though the adapter no longer honors it,
  * XDG_CONFIG_HOME for kilo, PI_CODING_AGENT_DIR for omp; APPDATA/LOCALAPPDATA
  * on Windows). All are saved + sandboxed/cleared per test so nothing reads or
  * pollutes the real user config.

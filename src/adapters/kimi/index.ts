@@ -3,7 +3,8 @@
  *
  * Kimi CLI is a json-stdio host: the runner pipes a JSON payload to a command on
  * stdin and reads an exit code (and optional reason) back. Two native config
- * files live under the Kimi base dir (`$KIMI_HOME` || `$KIMI_CODE_HOME` || `~/.kimi`):
+ * files live under the Kimi base dir (`$KIMI_CODE_HOME` || `~/.kimi-code`, per the
+ * official docs — moonshotai.github.io/kimi-code/en/configuration/config-files.html):
  *   - mcp.json     → `mcpServers.<id>` MCP registration (JSON, stdio shape:
  *     {command,args,env}). Handled via BaseAdapter's JSON helpers.
  *   - config.toml  → `[[hooks]]` array-of-tables (TOML), each table
@@ -42,10 +43,15 @@
  *     (PreToolUse, Stop, UserPromptSubmit) have return values that affect the
  *     main flow. All other events are observation-only."
  *
- * Path confidence: the `~/.kimi` base + mcp.json (`mcpServers`) layout is
- * LIVE-CONFIRMED against the real Moonshot Kimi CLI (v1.46.0, `pip install
- * kimi-cli`) via a `kimi mcp` probe. We still install + doctor-report presence
- * so a future path move surfaces as a FAIL rather than silently misbehaving.
+ * Path confidence: the `~/.kimi-code` base + mcp.json (`mcpServers`) layout is
+ * PRIMARY-DOC-CONFIRMED against the official Kimi Code CLI docs (config dir
+ * `~/.kimi-code/`, override `$KIMI_CODE_HOME` — there is NO `$KIMI_HOME`;
+ * moonshotai.github.io/kimi-code/en/configuration/config-files.html +
+ * .../customization/mcp.html) and corroborated by a live `kimi doctor config`
+ * probe of `@moonshot-ai/kimi-code` v0.18.0 (reads `~/.kimi-code`, honors
+ * `$KIMI_CODE_HOME`, ignores `KIMI_HOME`). We still install + doctor-report
+ * presence so a future path move surfaces as a FAIL rather than silently
+ * misbehaving.
  *
  * NOT YET COVERED: three observation-only Kimi-only events — StopFailure,
  * PermissionResult, Interrupt — are documented but NOT promoted to the core
@@ -57,7 +63,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import TOML from "@iarna/toml";
 
@@ -236,8 +242,8 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
     // url entry with transport:"sse" (kimi.com/code/docs/en/kimi-code-cli/
     // customization/mcp.html: "supports three MCP server connection methods").
     transports: ["stdio", "http", "sse"],
-    // Skills surface: Kimi reads SKILL.md from ~/.kimi/skills/<name>/SKILL.md
-    // (user scope) and .kimi/skills/<name>/SKILL.md (project scope).
+    // Skills surface: Kimi reads SKILL.md from ~/.kimi-code/skills/<name>/SKILL.md
+    // (user scope) and .kimi-code/skills/<name>/SKILL.md (project scope).
     // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
     supportsSkills: true,
     // Native passthrough hooks: Kimi's observation-only single-host events —
@@ -267,9 +273,11 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       reason: installed
         ? `found Kimi CLI config under ${baseDir}`
         : `no Kimi CLI config at ${baseDir}`,
-      // Path confidence is medium even when present: the ~/.kimi-code layout is the
-      // documented shape but less battle-tested than Claude/Codex.
-      confidence: "medium",
+      // Path confidence is high: the ~/.kimi-code base (override $KIMI_CODE_HOME) is
+      // the primary-doc-verified shape (moonshotai.github.io/kimi-code/en/
+      // configuration/config-files.html) and live-confirmed via `kimi doctor config`
+      // on @moonshot-ai/kimi-code v0.18.0.
+      confidence: "high",
     };
   }
 
@@ -290,21 +298,26 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * `$KIMI_HOME` || `$KIMI_CODE_HOME` (with `~` expansion) || `~/.kimi`.
-   * The real Moonshot Kimi CLI (v1.46.0) keeps its config under `~/.kimi`
-   * (mcp.json · mcpServers) — verified by a live `kimi mcp` probe; the legacy
-   * `~/.kimi-code` guess was wrong. `$KIMI_CODE_HOME` is still honored as an
-   * override for back-compat alongside the newer `$KIMI_HOME`.
+   * `$KIMI_CODE_HOME` (with `~` expansion, then resolved) when set & non-empty,
+   * else `~/.kimi-code`. This mirrors `codexConfigHome()` in core/host-paths.ts
+   * (tilde-expand-then-default) so the writer and any probe agree on the dir.
+   *
+   * Per the official Kimi Code CLI docs the config dir is `~/.kimi-code/`,
+   * overridable ONLY by `$KIMI_CODE_HOME` — there is NO `$KIMI_HOME` env var, so
+   * the old `$KIMI_HOME`-first resolution was the bug (with `$KIMI_HOME` set the
+   * adapter wrote where Kimi never reads). Doc:
+   * moonshotai.github.io/kimi-code/en/configuration/config-files.html;
+   * live-confirmed by `kimi doctor config` on @moonshot-ai/kimi-code v0.18.0.
    */
   private baseDir(): string {
-    const env = process.env.KIMI_HOME ?? process.env.KIMI_CODE_HOME;
+    const env = process.env.KIMI_CODE_HOME;
     if (env && env.trim() !== "") {
       if (env.startsWith("~")) {
         return join(homedir(), env.replace(/^~[/\\]?/, ""));
       }
-      return env;
+      return resolve(env);
     }
-    return join(homedir(), ".kimi");
+    return join(homedir(), ".kimi-code");
   }
 
   // ── MCP server install / uninstall (mcp.json → mcpServers.<id>) ──────────
@@ -410,13 +423,13 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
 
   // ── Skills surface ────────────────────────────────────────────────────────
   // Kimi reads SKILL.md from <baseDir>/skills/<name>/SKILL.md.
-  //   user scope:    ~/.kimi/skills/<name>/SKILL.md
-  //   project scope: <projectDir>/.kimi/skills/<name>/SKILL.md
+  //   user scope:    ~/.kimi-code/skills/<name>/SKILL.md
+  //   project scope: <projectDir>/.kimi-code/skills/<name>/SKILL.md
   // Confirmed: kilo-pi-ground-truth.md § "Already-known skills gaps".
 
   private skillsDir(ctx: InstallContext): string {
     return ctx.scope === "project"
-      ? join(ctx.projectDir, ".kimi", "skills")
+      ? join(ctx.projectDir, ".kimi-code", "skills")
       : join(this.baseDir(), "skills");
   }
 

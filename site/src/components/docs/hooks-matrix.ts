@@ -384,7 +384,7 @@ export const platforms: PlatformHookEntry[] = [
     paradigm: "json-stdio",
     hasHooks: true,
     configPath:
-      "$KIMI_HOME|$KIMI_CODE_HOME|~/.kimi/config.toml ([[hooks]] array-of-tables)",
+      "$KIMI_CODE_HOME|~/.kimi-code/config.toml ([[hooks]] array-of-tables)",
     capabilities: {
       canModifyArgs: false,
       canModifyOutput: false,
@@ -406,7 +406,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: "PostCompact",
     },
     notes:
-      "Full coverage: KIMI_HOOK_EVENTS now spans every canonical event (PascalCase 1:1) — Kimi documents a native hook for all of them. Hooks in config.toml as [[hooks]] tables { event, matcher, command }; MCP in ~/.kimi/mcp.json (mcpServers). BLOCKABLE events (per the kimi-code docs) are only PreToolUse, Stop and UserPromptSubmit; the rest fire observation-only. PreToolUse DENY: exit 0 + stdout hookSpecificOutput{ permissionDecision:'deny' + reason } (Claude/Codex shape). Stop / UserPromptSubmit / SubagentStop DENY use Kimi's generic block protocol: EXIT 2 + reason on stderr (Stop/SubagentStop continue with the reason; UserPromptSubmit blocks the turn). PostToolUseFailure & SubagentStart are observe/context-only: 'context' emits the text PLAIN on exit-0 stdout (Kimi adds non-empty stdout to context; deny degrades to the same carrying the reason). Three Kimi-only observation events (StopFailure, PermissionResult, Interrupt) are documented but not promoted to the core model (below the >=3-host bar); use nativeHooks for them. canModify* and canInjectSessionContext all false.",
+      "Full coverage: KIMI_HOOK_EVENTS now spans every canonical event (PascalCase 1:1) — Kimi documents a native hook for all of them. Hooks in config.toml as [[hooks]] tables { event, matcher, command }; MCP in ~/.kimi-code/mcp.json (mcpServers). BLOCKABLE events (per the kimi-code docs) are only PreToolUse, Stop and UserPromptSubmit; the rest fire observation-only. PreToolUse DENY: exit 0 + stdout hookSpecificOutput{ permissionDecision:'deny' + reason } (Claude/Codex shape). Stop / UserPromptSubmit / SubagentStop DENY use Kimi's generic block protocol: EXIT 2 + reason on stderr (Stop/SubagentStop continue with the reason; UserPromptSubmit blocks the turn). PostToolUseFailure & SubagentStart are observe/context-only: 'context' emits the text PLAIN on exit-0 stdout (Kimi adds non-empty stdout to context; deny degrades to the same carrying the reason). Three Kimi-only observation events (StopFailure, PermissionResult, Interrupt) are documented but not promoted to the core model (below the >=3-host bar); use nativeHooks for them. canModify* and canInjectSessionContext all false.",
   },
   {
     platform: "crush",

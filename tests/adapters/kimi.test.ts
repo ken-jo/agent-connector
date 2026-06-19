@@ -10,12 +10,12 @@
  *                   table { event, matcher, command }; every canonical event wired
  *                   1:1 (PascalCase); nativeHooks event-name entries written VERBATIM.
  *   • Skills      → <baseDir>/skills/<name>/SKILL.md + resources (user scope) and
- *                   <projectDir>/.kimi/skills/<name>/SKILL.md (project scope).
+ *                   <projectDir>/.kimi-code/skills/<name>/SKILL.md (project scope).
  *   • Reply       → PreToolUse deny → EXIT 0 + hookSpecificOutput permissionDecision
  *                   (Claude/Codex shape); Stop/UserPromptSubmit/SubagentStop deny →
  *                   EXIT 2 + stderr; PostToolUseFailure/SubagentStart context rides
  *                   PLAIN stdout (exit 0); observation-only events degrade to allow.
- *   • base dir    → $KIMI_HOME || $KIMI_CODE_HOME || ~/.kimi (NOT ~/.kimi-code).
+ *   • base dir    → $KIMI_CODE_HOME || ~/.kimi-code (NO $KIMI_HOME; primary-doc-verified).
  *
  * This file consolidates what used to be split across kimi-native-hooks.test.ts
  * (nativeHooks passthrough), extended-events-hosts.test.ts (E1 + lifecycle/prompt
@@ -244,7 +244,7 @@ function readToml(path: string): Record<string, any> {
 }
 
 function configPath(projectDir: string): string {
-  return join(projectDir, ".kimi", "config.toml");
+  return join(projectDir, ".kimi-code", "config.toml");
 }
 
 /** A representative native PreToolUse hook stdin payload (Claude-style fields). */
@@ -260,16 +260,20 @@ function preToolUsePayload(): Record<string, unknown> {
 }
 
 // Shared env isolation + the same-rules-for-every-host baseline contract.
-// extraKeys: the kimi base dir is resolved from KIMI_HOME / KIMI_CODE_HOME, and the
-// render/round-trip slice mutates ACME_DB_DSN (the ${env:VAR} → mcp.json literal).
-// HOME/USERPROFILE/AGENT_CONNECTOR_DATA_DIR are isolateEnv defaults.
+// extraKeys: the kimi base dir is resolved from KIMI_CODE_HOME (KIMI_HOME is NOT a
+// real Kimi Code env var, but we still isolate it so a stray real-env value can
+// never leak in), and the render/round-trip slice mutates ACME_DB_DSN (the
+// ${env:VAR} → mcp.json literal). HOME/USERPROFILE/AGENT_CONNECTOR_DATA_DIR are
+// isolateEnv defaults.
 isolateEnv(["KIMI_HOME", "KIMI_CODE_HOME", ENV_VAR]);
 createAdapterSuite({ adapter: kimiAdapter, paradigm: "json-stdio" });
 
 /**
- * Drop the kimi base-dir env overrides so baseDir() resolves to ~/.kimi (i.e.
- * <HOME>/.kimi under the freshProject temp HOME). Each describe's beforeEach calls
- * this after freshProject(), reproducing the per-source freshProject behaviour.
+ * Drop the kimi base-dir env override so baseDir() resolves to ~/.kimi-code (i.e.
+ * <HOME>/.kimi-code under the freshProject temp HOME). KIMI_HOME is cleared too in
+ * case a stray value lingers, though the adapter no longer honors it. Each
+ * describe's beforeEach calls this after freshProject(), reproducing the
+ * per-source freshProject behaviour.
  */
 function unsetKimiBase(): void {
   delete process.env.KIMI_HOME;
@@ -284,18 +288,18 @@ describe("kimi adapter render + round-trip", () => {
 
   beforeEach(() => {
     projectDir = freshProject("ac-wave2-kimi-");
-    // user scope → <baseDir>/mcp.json resolves into the HOME sandbox (~/.kimi).
+    // user scope → <baseDir>/mcp.json resolves into the HOME sandbox (~/.kimi-code).
     unsetKimiBase();
     // Set the env-ref var so kimi literal-resolution produces a known value.
     process.env[ENV_VAR] = ENV_LITERAL;
     ctx = buildCtx(projectDir, buildRenderConnector(), "user");
   });
 
-  it("installServer writes mcpServers.<id> into ~/.kimi/mcp.json, wrapped, env LITERAL", () => {
+  it("installServer writes mcpServers.<id> into ~/.kimi-code/mcp.json, wrapped, env LITERAL", () => {
     const changes = kimiAdapter.installServer(ctx);
     expect(changes[0]?.action).toBe("create");
 
-    const serverPath = join(projectDir, ".kimi", "mcp.json");
+    const serverPath = join(projectDir, ".kimi-code", "mcp.json");
     expect(serverPath).toBe(kimiAdapter.getServerConfigPath(ctx));
     expect(existsSync(serverPath)).toBe(true);
 
@@ -313,7 +317,7 @@ describe("kimi adapter render + round-trip", () => {
     const changes = kimiAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
 
-    const hookPath = join(projectDir, ".kimi", "config.toml");
+    const hookPath = join(projectDir, ".kimi-code", "config.toml");
     expect(hookPath).toBe(kimiAdapter.getHookConfigPath(ctx));
     expect(existsSync(hookPath)).toBe(true);
 
@@ -335,7 +339,7 @@ describe("kimi adapter render + round-trip", () => {
     const second = kimiAdapter.installHooks(ctx);
     expect(second.every((c) => c.action === "skip")).toBe(true);
 
-    const hookPath = join(projectDir, ".kimi", "config.toml");
+    const hookPath = join(projectDir, ".kimi-code", "config.toml");
     expect(readToml(hookPath).hooks).toHaveLength(2);
 
     kimiAdapter.uninstallHooks(ctx);
@@ -349,7 +353,7 @@ describe("kimi adapter render + round-trip", () => {
     expect(kimiAdapter.installServer(ctx)[0]?.action).toBe("skip");
 
     kimiAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".kimi", "mcp.json"));
+    const cfg = readJson(join(projectDir, ".kimi-code", "mcp.json"));
     expect(cfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
   });
 
@@ -390,7 +394,7 @@ describe("kimi adapter — MCP transports", () => {
 
   function readServerEntry(): Record<string, unknown> {
     const cfg = JSON.parse(
-      readFileSync(join(projectDir, ".kimi", "mcp.json"), "utf8"),
+      readFileSync(join(projectDir, ".kimi-code", "mcp.json"), "utf8"),
     ) as { mcpServers: Record<string, Record<string, unknown>> };
     return cfg.mcpServers[CONNECTOR_ID]!;
   }
@@ -432,7 +436,8 @@ describe("kimi adapter — MCP transports", () => {
 
 // ── deny protocol + base dir ──────────────────────────────────────────────────
 // Kimi deny uses the Claude/Codex hookSpecificOutput shape (exit 0); the base dir
-// defaults to ~/.kimi (live-confirmed), honoring $KIMI_HOME / $KIMI_CODE_HOME.
+// defaults to ~/.kimi-code (primary-doc-verified), overridable ONLY by
+// $KIMI_CODE_HOME (there is NO $KIMI_HOME).
 
 describe("kimi deny protocol + base dir", () => {
   it("formatReply(deny) yields exit 0 + hookSpecificOutput permissionDecision 'deny'", () => {
@@ -453,14 +458,15 @@ describe("kimi deny protocol + base dir", () => {
     expect(reply.stdout).toBeUndefined();
   });
 
-  it("baseDir defaults to ~/.kimi (live-confirmed real Kimi CLI path, NOT ~/.kimi-code) when no env override is set", () => {
+  it("baseDir defaults to ~/.kimi-code (primary-doc-verified Kimi Code config dir) when no env override is set", () => {
     const projectDir = freshProject("ac-rf-kimi-");
     unsetKimiBase();
     const ctx = buildCtx(projectDir, buildBaseDirConnector(), "user");
     // HOME is redirected to projectDir, so the base dir resolves into the sandbox.
     const serverPath = kimiAdapter.getServerConfigPath(ctx);
-    expect(serverPath).toBe(join(projectDir, ".kimi", "mcp.json"));
-    expect(serverPath).not.toContain(".kimi-code");
+    expect(serverPath).toBe(join(projectDir, ".kimi-code", "mcp.json"));
+    // The legacy ~/.kimi base (and the non-existent $KIMI_HOME) are gone.
+    expect(serverPath).toContain(".kimi-code");
   });
 
   it("baseDir honors $KIMI_CODE_HOME when set", () => {
@@ -470,6 +476,18 @@ describe("kimi deny protocol + base dir", () => {
     process.env.KIMI_CODE_HOME = custom;
     const ctx = buildCtx(projectDir, buildBaseDirConnector(), "user");
     expect(kimiAdapter.getServerConfigPath(ctx)).toBe(join(custom, "mcp.json"));
+  });
+
+  it("baseDir IGNORES $KIMI_HOME (not a real Kimi Code env var) → still defaults to ~/.kimi-code", () => {
+    const projectDir = freshProject("ac-rf-kimi3-");
+    unsetKimiBase();
+    // $KIMI_HOME is NOT a Kimi Code env var; setting it must NOT redirect the
+    // adapter (the original bug honored it first, writing where Kimi never reads).
+    process.env.KIMI_HOME = join(projectDir, "stray-kimi-home");
+    const ctx = buildCtx(projectDir, buildBaseDirConnector(), "user");
+    const serverPath = kimiAdapter.getServerConfigPath(ctx);
+    expect(serverPath).toBe(join(projectDir, ".kimi-code", "mcp.json"));
+    expect(serverPath).not.toContain("stray-kimi-home");
   });
 });
 
@@ -559,7 +577,7 @@ describe("kimi E1 events", () => {
 
   beforeEach(() => {
     projectDir = freshProject("ac-ext-kimi-");
-    // Kimi is user-scoped; baseDir resolves to ~/.kimi under the temp HOME.
+    // Kimi is user-scoped; baseDir resolves to ~/.kimi-code under the temp HOME.
     unsetKimiBase();
     ctx = buildCtx(projectDir, buildE1Connector(), "user");
   });
@@ -587,7 +605,7 @@ describe("kimi E1 events", () => {
     // PermissionRequest is now a supported (observation-only) event → no warn-skip.
     expect(changes.filter((c) => c.action === "warn")).toHaveLength(0);
 
-    const cfg = readToml(join(projectDir, ".kimi", "config.toml"));
+    const cfg = readToml(join(projectDir, ".kimi-code", "config.toml"));
     // The connector declares 5 events (PreToolUse, PermissionRequest,
     // PostToolUseFailure, SubagentStart, SubagentStop) — all wired now.
     expect(cfg.hooks).toHaveLength(5);
@@ -614,10 +632,10 @@ describe("kimi E1 events", () => {
     kimiAdapter.installHooks(ctx);
     const second = kimiAdapter.installHooks(ctx);
     expect(second.every((c) => c.action === "skip")).toBe(true);
-    expect(readToml(join(projectDir, ".kimi", "config.toml")).hooks).toHaveLength(5);
+    expect(readToml(join(projectDir, ".kimi-code", "config.toml")).hooks).toHaveLength(5);
 
     kimiAdapter.uninstallHooks(ctx);
-    expect(readToml(join(projectDir, ".kimi", "config.toml")).hooks).toBeUndefined();
+    expect(readToml(join(projectDir, ".kimi-code", "config.toml")).hooks).toBeUndefined();
   });
 
   it("a PermissionRequest-only connector now installs a hook + creates config.toml (gap closed)", () => {
@@ -629,7 +647,7 @@ describe("kimi E1 events", () => {
     const changes = kimiAdapter.installHooks(only);
     expect(changes.filter((c) => c.action === "warn")).toHaveLength(0);
     expect(changes.some((c) => c.action === "create")).toBe(true);
-    const cfg = readToml(join(projectDir, ".kimi", "config.toml"));
+    const cfg = readToml(join(projectDir, ".kimi-code", "config.toml"));
     expect(cfg.hooks).toHaveLength(1);
     expect(cfg.hooks[0].event).toBe("PermissionRequest");
   });
@@ -760,8 +778,8 @@ describe("kimi E1 events", () => {
 });
 
 // ── skills surface ─────────────────────────────────────────────────────────────
-// Verified dirs: ~/.kimi/skills/<name>/SKILL.md (user scope);
-// <projectDir>/.kimi/skills/<name>/SKILL.md (project scope) —
+// Verified dirs: ~/.kimi-code/skills/<name>/SKILL.md (user scope);
+// <projectDir>/.kimi-code/skills/<name>/SKILL.md (project scope) —
 // kilo-pi-ground-truth.md § "Already-known skills gaps".
 
 describe("kimi adapter — skills surface", () => {
@@ -769,8 +787,8 @@ describe("kimi adapter — skills surface", () => {
 
   beforeEach(() => {
     projectDir = freshProject("ac-kimi-skills-");
-    // Unset both KIMI_HOME and KIMI_CODE_HOME so baseDir() resolves to ~/.kimi
-    // (i.e. <dir>/.kimi under the temp HOME).
+    // Unset the kimi base-dir env override so baseDir() resolves to ~/.kimi-code
+    // (i.e. <dir>/.kimi-code under the temp HOME).
     unsetKimiBase();
   });
 
@@ -778,13 +796,13 @@ describe("kimi adapter — skills surface", () => {
     expect(kimiAdapter.capabilities.supportsSkills).toBe(true);
   });
 
-  it("installSkills (user scope) writes SKILL.md at ~/.kimi/skills/<name>/SKILL.md", () => {
+  it("installSkills (user scope) writes SKILL.md at ~/.kimi-code/skills/<name>/SKILL.md", () => {
     const ctx = buildCtx(projectDir, buildSkillsConnector(), "user");
     const changes = kimiAdapter.installSkills!(ctx);
     expect(changes[0]?.action).toBe("create");
 
-    // user scope baseDir() → ~/.kimi (temp HOME/.kimi)
-    const skillMd = join(projectDir, ".kimi", "skills", "pdf-tools", "SKILL.md");
+    // user scope baseDir() → ~/.kimi-code (temp HOME/.kimi-code)
+    const skillMd = join(projectDir, ".kimi-code", "skills", "pdf-tools", "SKILL.md");
     expect(changes[0]?.path).toBe(skillMd);
     expect(existsSync(skillMd)).toBe(true);
 
@@ -803,7 +821,7 @@ describe("kimi adapter — skills surface", () => {
 
     const resource = join(
       projectDir,
-      ".kimi",
+      ".kimi-code",
       "skills",
       "pdf-tools",
       "scripts",
@@ -813,12 +831,12 @@ describe("kimi adapter — skills surface", () => {
     expect(readFileSync(resource, "utf8")).toBe(SKILL.resources["scripts/extract.sh"]);
   });
 
-  it("installSkills (project scope) writes SKILL.md at <projectDir>/.kimi/skills/<name>/SKILL.md", () => {
+  it("installSkills (project scope) writes SKILL.md at <projectDir>/.kimi-code/skills/<name>/SKILL.md", () => {
     const ctx = buildCtx(projectDir, buildSkillsConnector(), "project");
     const changes = kimiAdapter.installSkills!(ctx);
     expect(changes[0]?.action).toBe("create");
 
-    const skillMd = join(projectDir, ".kimi", "skills", "pdf-tools", "SKILL.md");
+    const skillMd = join(projectDir, ".kimi-code", "skills", "pdf-tools", "SKILL.md");
     expect(changes[0]?.path).toBe(skillMd);
     expect(existsSync(skillMd)).toBe(true);
   });
@@ -834,10 +852,10 @@ describe("kimi adapter — skills surface", () => {
     const ctx = buildCtx(projectDir, buildSkillsConnector(), "user");
     kimiAdapter.installSkills!(ctx);
 
-    const skillMd = join(projectDir, ".kimi", "skills", "pdf-tools", "SKILL.md");
+    const skillMd = join(projectDir, ".kimi-code", "skills", "pdf-tools", "SKILL.md");
     const resource = join(
       projectDir,
-      ".kimi",
+      ".kimi-code",
       "skills",
       "pdf-tools",
       "scripts",
@@ -879,9 +897,9 @@ describe("kimi adapter — skills surface", () => {
     expect(changes[0]?.action).toBe("skip");
   });
 
-  it("KIMI_HOME env var overrides the base dir for skill path", () => {
+  it("KIMI_CODE_HOME env var overrides the base dir for skill path", () => {
     const customBase = join(projectDir, "custom-kimi");
-    process.env.KIMI_HOME = customBase;
+    process.env.KIMI_CODE_HOME = customBase;
     const ctx = buildCtx(projectDir, buildSkillsConnector(), "user");
     const changes = kimiAdapter.installSkills!(ctx);
     expect(changes[0]?.action).toBe("create");
