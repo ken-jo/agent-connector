@@ -64,7 +64,11 @@ import {
   type MarketplaceInstallRecord,
 } from "./marketplace-state.js";
 import { claudeBinary } from "./marketplace-drivers/claude.js";
-import { getMarketplaceDriver } from "./marketplace-drivers/registry.js";
+import {
+  DRIVABLE_MARKETPLACE_PLATFORMS,
+  getMarketplaceDriver,
+  hasMarketplaceDriver,
+} from "./marketplace-drivers/registry.js";
 import { log } from "./logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -119,20 +123,6 @@ export const MARKETPLACE_FORMAT_BY_PLATFORM: Partial<
   openclaw: "claude-plugin",
   omp: "claude-plugin",
 };
-
-/** The platforms a driver can actually DRIVE end-to-end. */
-export const DRIVABLE_MARKETPLACE_PLATFORMS: ReadonlySet<PlatformId> = new Set([
-  "claude-code",
-  "codex",
-  "antigravity",
-  "antigravity-cli",
-  "gemini-cli",
-  "qwen-code",
-  "droid",
-  "opencode",
-  "kilo",
-  "kilo-cli",
-]);
 
 // ─────────────────────────────────────────────────────────────────────────
 // Small shared helpers
@@ -287,7 +277,7 @@ export async function installViaMarketplace(
       });
       continue;
     }
-    if (!DRIVABLE_MARKETPLACE_PLATFORMS.has(id)) {
+    if (!hasMarketplaceDriver(id)) {
       result.changes.push({
         platform: id,
         action: explicit ? "warn" : "skip",
@@ -299,8 +289,8 @@ export async function installViaMarketplace(
     // ── drivable host (dispatch through the driver) ────────────────────────
     const driver = getMarketplaceDriver(id);
     if (!driver) {
-      // DRIVABLE_MARKETPLACE_PLATFORMS and the registry are kept in sync; this
-      // is a never-silent guard for an out-of-sync set rather than a real path.
+      // hasMarketplaceDriver() and getMarketplaceDriver() share the same
+      // registry source; this is a never-silent guard for an impossible path.
       result.changes.push({
         platform: id,
         action: explicit ? "warn" : "skip",

@@ -52,11 +52,16 @@ import { loadAdapter } from "../../src/adapters/registry.js";
 import { defineConnector } from "../../src/core/define-connector.js";
 import { installConnector, uninstallConnector } from "../../src/core/installer.js";
 import {
+  MARKETPLACE_FORMAT_BY_PLATFORM,
   installViaMarketplace,
   marketplaceDoctorChecks,
   uninstallViaMarketplace,
   upgradeViaMarketplace,
 } from "../../src/core/marketplace.js";
+import {
+  DRIVABLE_MARKETPLACE_PLATFORMS,
+  getMarketplaceDriver,
+} from "../../src/core/marketplace-drivers/registry.js";
 import {
   runHostCommand,
   samePath,
@@ -84,6 +89,19 @@ import { tempDir } from "../support/env.js";
 const DIST_INDEX = join(__dirname, "..", "..", "dist", "index.js");
 const CONNECTOR_ID = "acme-db";
 const PLUGIN_KEY = `${CONNECTOR_ID}@agent-connector`;
+
+describe("marketplace driver registry", () => {
+  it("is the drivable-platform source of truth and matches the format map", () => {
+    const unique = new Set(DRIVABLE_MARKETPLACE_PLATFORMS);
+    expect(unique.size).toBe(DRIVABLE_MARKETPLACE_PLATFORMS.length);
+
+    for (const platform of DRIVABLE_MARKETPLACE_PLATFORMS) {
+      const driver = getMarketplaceDriver(platform);
+      expect(driver, `${platform} should have a marketplace driver`).toBeTruthy();
+      expect(MARKETPLACE_FORMAT_BY_PLATFORM[platform]).toBe(driver!.format);
+    }
+  });
+});
 
 const SAVED = {
   HOME: process.env.HOME,

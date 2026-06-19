@@ -18,6 +18,11 @@ import { makeNpmLocalDriver } from "./npm-local.js";
 import { qwenDriver } from "./qwen.js";
 import type { MarketplaceDriver } from "./types.js";
 
+type DriverResolver = {
+  platforms: readonly PlatformId[];
+  resolve(platform: PlatformId): MarketplaceDriver;
+};
+
 // Memoize the per-id agy drivers (stable identity; one instance per platform).
 const agyDrivers = new Map<PlatformId, MarketplaceDriver>();
 function agyDriver(platform: PlatformId): MarketplaceDriver {
@@ -49,27 +54,35 @@ function npmLocalDriver(platform: PlatformId): MarketplaceDriver {
   return driver;
 }
 
+const DRIVER_RESOLVERS: readonly DriverResolver[] = [
+  { platforms: ["claude-code"], resolve: () => claudeDriver },
+  { platforms: ["codex"], resolve: () => codexDriver },
+  {
+    platforms: ["antigravity", "antigravity-cli"],
+    resolve: (platform) => agyDriver(platform),
+  },
+  { platforms: ["gemini-cli"], resolve: () => geminiDriver },
+  { platforms: ["qwen-code"], resolve: () => qwenDriver },
+  { platforms: ["droid"], resolve: () => droidDriver },
+  {
+    platforms: ["opencode", "kilo", "kilo-cli"],
+    resolve: (platform) => npmLocalDriver(platform),
+  },
+];
+
+/** The platforms with an end-to-end marketplace driver, in stable UX order. */
+export const DRIVABLE_MARKETPLACE_PLATFORMS: readonly PlatformId[] =
+  DRIVER_RESOLVERS.flatMap((entry) => [...entry.platforms]);
+
+/** True when `platform` has an end-to-end marketplace driver. */
+export function hasMarketplaceDriver(platform: PlatformId): boolean {
+  return DRIVABLE_MARKETPLACE_PLATFORMS.includes(platform);
+}
+
 /** The driver that can DRIVE `platform`'s marketplace flow, or null when none. */
 export function getMarketplaceDriver(platform: PlatformId): MarketplaceDriver | null {
-  switch (platform) {
-    case "claude-code":
-      return claudeDriver;
-    case "codex":
-      return codexDriver;
-    case "antigravity":
-    case "antigravity-cli":
-      return agyDriver(platform);
-    case "gemini-cli":
-      return geminiDriver;
-    case "qwen-code":
-      return qwenDriver;
-    case "droid":
-      return droidDriver;
-    case "opencode":
-    case "kilo":
-    case "kilo-cli":
-      return npmLocalDriver(platform);
-    default:
-      return null;
-  }
+  const entry = DRIVER_RESOLVERS.find((resolver) =>
+    resolver.platforms.includes(platform),
+  );
+  return entry?.resolve(platform) ?? null;
 }
