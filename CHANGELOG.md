@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.4.43 — 2026-06-19
+
+A per-host adapter correctness wave: a 35-host audit (dynamic workflow, every
+finding adversarially verified against the host's PRIMARY source) surfaced real
+bugs in 12 adapters, each fixed as its own PR with a regression test and an
+independent review. The recurring lesson — verify, don't assume: roo-code, kiro,
+kimi, goose, and codex all turned out DIFFERENT from the audit's surface guess.
+**35 platforms**, **2839 tests**. Patch bump sized to the merged-PR count since
+0.4.26 (26 + 17 PRs = 43).
+
+### Adapter fixes — config that the host wouldn't load / silently no-op'd
+
+- **cursor** — the package (marketplace/plugin-bundle) emitter wrote `hooks.json`
+  in the Claude shape (PascalCase keys, nested entries, no `version`); now emits
+  Cursor's flat shape, single-sourced from the install adapter so the two can't
+  drift. (#173)
+- **qwen-code** — `deny` on Stop / UserPromptSubmit / PostToolUse emitted
+  `permissionDecision` (which the host ignores for those events) → silent no-op;
+  now uses the top-level `{decision:"block"}` shape, verified against qwen's
+  hooks.md. (#175)
+- **roo-code** — remote MCP entry lacked the required `type`; Roo Code's schema
+  uses the **hyphenated `"streamable-http"`** (not cline's camelCase) and rejects
+  any untyped url config, so every remote server was rejected. (#180)
+- **kiro** + **amazon-q** — the context reply emitted a fabricated
+  `hookSpecificOutput` JSON envelope; both hosts actually read hook context as
+  **plain stdout** (verified against kiro.dev and AWS docs), gated to
+  agentSpawn/userPromptSubmit. (#181, #186)
+- **goose** — advertised `sse`/`http` but always wrote a stdio entry (empty `cmd`
+  for remote); now renders remote as Goose's live `streamable_http` (`uri`), drops
+  the dead `sse` transport. (#184)
+- **kimi** — install scope was incoherent; verified per-surface against the kimi
+  source (mcp.json + skills are project-aware, config.toml is user-only) and made
+  `getConfigDir`/`getHookConfigPath` consistent. (#182)
+
+### Adapter fixes — paths, capabilities, residue
+
+- **kilo-cli** + **crush** — honor `$XDG_CONFIG_HOME` for the user config dir
+  (default case byte-identical); plus a test-harness fix so `freshProject` sandboxes
+  `$XDG_CONFIG_HOME` (CI runners leak it). (#179, #183)
+- **vscode-copilot** — uninstall deletes the empty connector hooks file + dir
+  instead of leaving an orphan `{version,hooks:{}}` shell. (#177)
+- **copilot-cli** — warn-skip capability-unsupported hook events (PostCompact)
+  instead of writing a dead entry. (#178)
+- **hermes** — clamp the per-hook timeout to the documented `[1, 300]`s range. (#185)
+- **codex** — `canModifyArgs` enabled (PreToolUse `updatedInput` rewrite, release-
+  verified stable since codex rust-v0.131.0, emitted as the required
+  `permissionDecision:"allow"`+`updatedInput` pair) + `additionalContext` broadened
+  to PreToolUse; `canModifyOutput` confirmed correctly false. (#187)
+
+### Site + docs
+
+- Landing "Coverage" wall grouped by **form factor** (CLI / IDE extension / app),
+  with a registry-derived drift guard. (#168)
+- Mobile horizontal-scroll fixed (`min-w-0` on three command boxes); the runtime
+  Statusline/Actions surfaces set apart on the wall. (#169, #170)
+- Dev-docs consistency sweep — 32 fixes + registry-derived drift guards so the
+  counts/lists can't rot again. (#171)
+
 ## 0.4.26 — 2026-06-19
 
 Post-0.4.8 wave: new host capabilities, correctness fixes surfaced by a fresh
