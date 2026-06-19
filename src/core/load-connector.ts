@@ -147,7 +147,8 @@ export async function loadConnectorFromPath(
   }
 
   // .mjs / .js — dynamic ESM import. pathToFileURL keeps Windows paths valid.
-  const mod = (await import(pathToFileURL(modulePath).href)) as {
+  const moduleUrl = pathToFileURL(modulePath).href;
+  const mod = (await import(/* @vite-ignore */ moduleUrl)) as {
     default?: unknown;
   };
   const exported = mod.default;
