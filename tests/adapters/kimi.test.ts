@@ -43,7 +43,13 @@ import type {
 } from "../../src/core/types.js";
 
 import kimiAdapter from "../../src/adapters/kimi/index.js";
-import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import {
+  buildCtx,
+  freshHomeProject,
+  freshProject,
+  isolateEnv,
+  HOME_BIN,
+} from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { readJson, splitFrontmatter } from "../support/fs.js";
 
@@ -948,4 +954,85 @@ describe("kimi malformed `hooks` guard (non-array → warn-skip, file untouched)
       expect(readFileSync(hookPath, "utf8")).toBe(before);
     });
   }
+});
+
+// ── scope coherence (per-surface scope resolution) ──────────────────────────
+// Regression for the install-path scope incoherence: skillsDir branched on scope
+// but getConfigDir ignored it, so a PROJECT-scope install wrote skills into the
+// project yet MCP/hooks into the user home. Verified against the kimi-code source:
+//   - mcp.json → project-local SUPPORTED (config-loader.ts: project mcp.json wins)
+//   - skills   → project-local SUPPORTED (docs/en/customization/skills.md)
+//   - config.toml/hooks → USER-ONLY (config/path.ts resolveConfigPath →
+//     resolveKimiHome; loadRuntimeConfigSafe reads a single file, no project merge)
+// These tests use freshHomeProject (HOME ≠ projectDir) so the project-local root
+// is DISTINCT from the user base — the existing freshProject suite (HOME ==
+// projectDir) collapses both to one path and so could not catch the bug.
+describe("kimi scope coherence", () => {
+  let home: string;
+  let projectDir: string;
+
+  beforeEach(() => {
+    ({ home, projectDir } = freshHomeProject("ac-kimi-scope-"));
+    unsetKimiBase();
+  });
+
+  it("user scope: server + hook + skills all resolve under the user base dir (~/.kimi-code)", () => {
+    const ctx = buildCtx(projectDir, buildSkillsConnector(), "user");
+    const userBase = join(home, ".kimi-code");
+    expect(kimiAdapter.getServerConfigPath(ctx)).toBe(join(userBase, "mcp.json"));
+    expect(kimiAdapter.getHookConfigPath(ctx)).toBe(join(userBase, "config.toml"));
+    // skillsDir is private; assert via the install change path.
+    const change = kimiAdapter.installSkills!(ctx)[0];
+    expect(change?.path).toBe(join(userBase, "skills", "pdf-tools", "SKILL.md"));
+  });
+
+  it("project scope: server + skills go to <projectDir>/.kimi-code, but hooks STAY in the user base (Kimi reads no project config.toml)", () => {
+    const ctx = buildCtx(projectDir, buildSkillsConnector(), "project");
+    const projBase = join(projectDir, ".kimi-code");
+    const userBase = join(home, ".kimi-code");
+    // Distinct roots — the whole point of this regression.
+    expect(projBase).not.toBe(userBase);
+
+    // MCP + skills become project-local (Kimi reads them there).
+    expect(kimiAdapter.getServerConfigPath(ctx)).toBe(join(projBase, "mcp.json"));
+    const skillChange = kimiAdapter.installSkills!(ctx)[0];
+    expect(skillChange?.path).toBe(join(projBase, "skills", "pdf-tools", "SKILL.md"));
+
+    // Hooks stay user-only: config.toml has no project-local variant, so a
+    // project-scope install must write here or Kimi never fires the hooks.
+    expect(kimiAdapter.getHookConfigPath(ctx)).toBe(join(userBase, "config.toml"));
+    expect(kimiAdapter.getHookConfigPath(ctx)).not.toContain(projectDir);
+  });
+
+  it("project scope: an actual installServer/installHooks run lands MCP project-local and hooks in the user base", () => {
+    const ctx = buildCtx(projectDir, buildBaseDirConnector(), "project");
+    kimiAdapter.installServer(ctx);
+    kimiAdapter.installHooks(ctx);
+
+    const projMcp = join(projectDir, ".kimi-code", "mcp.json");
+    const userToml = join(home, ".kimi-code", "config.toml");
+    expect(existsSync(projMcp)).toBe(true);
+    expect(existsSync(userToml)).toBe(true);
+    // The incoherent pre-fix behavior would have written mcp.json to the user
+    // base; assert it did NOT land there.
+    expect(existsSync(join(home, ".kimi-code", "mcp.json"))).toBe(false);
+    // ...and hooks did NOT leak into the project dir.
+    expect(existsSync(join(projectDir, ".kimi-code", "config.toml"))).toBe(false);
+
+    const mcp = readJson(projMcp);
+    expect(mcp.mcpServers?.[CONNECTOR_ID]).toBeTruthy();
+    const toml = readToml(userToml);
+    expect(Array.isArray(toml.hooks)).toBe(true);
+  });
+
+  it("KIMI_CODE_HOME redirects the user base for hooks even under project scope", () => {
+    const custom = join(home, "custom-kimi");
+    process.env.KIMI_CODE_HOME = custom;
+    const ctx = buildCtx(projectDir, buildBaseDirConnector(), "project");
+    // Hooks follow the override (user base), MCP stays project-local.
+    expect(kimiAdapter.getHookConfigPath(ctx)).toBe(join(custom, "config.toml"));
+    expect(kimiAdapter.getServerConfigPath(ctx)).toBe(
+      join(projectDir, ".kimi-code", "mcp.json"),
+    );
+  });
 });
