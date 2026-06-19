@@ -84,6 +84,7 @@ import type {
   PreToolUseEvent,
   ServerDef,
   SessionStartEvent,
+  StopEvent,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -116,6 +117,13 @@ const EVENT_TO_MIMOCODE: Partial<Record<HookEventName, string>> = {
   // chat.message fires on the user's prompt submission; the handler mutates
   // output (pushes a text part) to inject context. No documented block/abort.
   UserPromptSubmit: "chat.message",
+  // session.idle ("session finished responding") → canonical Stop. NOT a direct
+  // hook key — dispatched through the generic `event` hook (event.type switch).
+  // session.idle is the OpenCode-family session-completion event (mirrors kilo /
+  // kilo-cli); if it never fires on a given MiMoCode build, Stop is a silent
+  // no-op (an acceptable degrade — it never mis-fires), so coverage may be
+  // optimistic.
+  Stop: "session.idle",
 };
 
 /** Raw payload the generated plugin posts to the universal hook entrypoint. */
@@ -157,7 +165,9 @@ export class MiMoCodeAdapter extends BaseAdapter implements Adapter {
     sessionStart: true,
     sessionEnd: false,
     userPromptSubmit: true,
-    stop: false,
+    // session.idle (via the generic `event` hook) backs Stop (mirrors kilo /
+    // kilo-cli — same OpenCode-family ts-plugin layer).
+    stop: true,
     notification: false,
     // tool.execute.before mutates output.args → input rewrite supported.
     canModifyArgs: true,
@@ -749,6 +759,25 @@ ${renderBridgePrelude({
     },`);
     }
 
+    if (has("Stop")) {
+      handlers.push(`    // Stop → session.idle ("session finished responding"). session.idle is NOT a
+    // direct hook key — it is dispatched through the generic \`event\` hook
+    // switching on event.type (the OpenCode plugin shape, per opencode.ai/docs/
+    // plugins). A block decision throws to halt (MiMoCode has no Stop-gate return
+    // value). If session.idle never fires on a given build, Stop is a silent
+    // no-op (an acceptable degrade — it never mis-fires).
+    event: async ({ event }) => {
+      if (!event || event.type !== "session.idle") return;
+      const res = bridge("Stop", {
+        sessionId: (event.properties && event.properties.sessionID) || "",
+        projectDir: PROJECT_DIR,
+      });
+      if (res && res.decision === "deny") {
+        throw new Error(res.reason || "Stop blocked by ${ctx.connector.id}");
+      }
+    },`);
+    }
+
     const factory = `
 export default async function (ctx) {
   // ctx.directory is the MiMoCode project root; fall back to cwd.
@@ -816,6 +845,10 @@ ${handlers.join("\n")}
           ...base,
           prompt: typeof input.prompt === "string" ? input.prompt : "",
         };
+        return ev;
+      }
+      case "Stop": {
+        const ev: StopEvent = { ...base };
         return ev;
       }
       default:
