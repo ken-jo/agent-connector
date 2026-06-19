@@ -137,7 +137,7 @@ const s = (
  *     gemini-cli, opencode, antigravity(+cli), pi, jetbrains-copilot, PLUS the
  *     un-wired hosts kiro (kiro.dev/docs/skills), zed (.agents/skills, zed
  *     repo docs), qwen-code (.qwen/skills, official docs), kimi
- *     (~/.kimi/skills — flagged in our own adapter header), goose (press +
+ *     (~/.kimi-code/skills — flagged in our own adapter header), goose (press +
  *     skills.sh listing; dirs unverified → medium), warp
  *     (docs.warp.dev skills.mdx: .agents/.warp/.claude/… dirs), roo-code
  *     (docs.roocode.com/features/skills), kilo + kilo-cli
@@ -460,7 +460,7 @@ export const platforms: Platform[] = [
     name: "Kimi CLI",
     paradigm: "json-stdio",
     surfaces: s(true, true, false, true, false, true, false, false),
-    // skills now wired (.kimi/skills project, ~/.kimi/skills user).
+    // skills now wired (.kimi-code/skills project, ~/.kimi-code/skills user).
     hostNative: s(true, true, false, true, false, true, false, false),
   },
   {
