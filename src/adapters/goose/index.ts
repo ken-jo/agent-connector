@@ -4,11 +4,20 @@
  * Goose is a json-stdio host, but its two config surfaces use DIFFERENT formats:
  *
  *   - MCP servers (Goose calls them "extensions") live in a YAML config under the
- *     root key `extensions`. The native stdio entry shape is Goose-specific:
- *       { type: "stdio", cmd: <exe>, args: [...], envs: {...}, timeout, enabled }
- *     NOTE the field is `cmd` (NOT `command`) and the env map is `envs` (NOT
- *     `env`). Because the file is YAML, the BaseAdapter JSON helpers do not apply
- *     — we merge via core/yaml's readYaml/writeYaml, preserving any other config.
+ *     root key `extensions`. Goose's `ExtensionConfig` is a `#[serde(tag="type")]`
+ *     enum (crates/goose/src/agents/extension.rs); we render two of its variants:
+ *       stdio → { type: "stdio", cmd: <exe>, args: [...], envs: {...}, timeout, enabled }
+ *         NOTE the field is `cmd` (NOT `command`) and the env map is `envs` (NOT
+ *         `env`).
+ *       http  → { type: "streamable_http", uri, headers?, envs?, timeout, enabled }
+ *         Goose's CURRENT remote transport is Streamable HTTP — the field is `uri`
+ *         (NOT `url`). The legacy `type: "sse"` variant still deserializes for old
+ *         config-file compatibility but Goose REJECTS it at connect time
+ *         ("SSE is unsupported, migrate to streamable_http" —
+ *         crates/goose/src/agents/extension_manager.rs), so we do NOT emit it and
+ *         do NOT advertise `sse` in capabilities; an `sse`/`ws` server warn-skips.
+ *     Because the file is YAML, the BaseAdapter JSON helpers do not apply — we
+ *     merge via core/yaml's readYaml/writeYaml, preserving any other config.
  *
  *   - Hooks use Goose's Open Plugins system, which stores hook registrations in
  *     JSON at <root>/.agents/plugins/<plugin-name>/hooks/hooks.json (project root
@@ -52,17 +61,14 @@ import type {
   SessionStartEvent,
   ServerDef,
   StopEvent,
+  Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { removeFromObjectMap, upsertInObjectMap } from "../../core/object-map.js";
 import { roamingAppData } from "../../core/host-paths.js";
 import { readYaml, yamlObjectMapCodec } from "../../core/yaml.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
-import {
-  buildHomeBinHookCommand,
-  buildWrappedStdio,
-  isHomeBinHookCommand,
-} from "../../core/spawn.js";
+import { buildWrappedStdio, isHomeBinHookCommand } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
 import { normalizeSessionSource } from "../claude-code/wire.js";
 
@@ -112,6 +118,23 @@ interface GooseStdioExtension {
   timeout: number;
   enabled: boolean;
 }
+
+/**
+ * Goose remote extension (MCP Streamable HTTP server) — Goose's CURRENT remote
+ * transport. Note the Goose-specific field name `uri` (NOT `url`); `headers` and
+ * `envs` are the StreamableHttp variant's optional maps (see the `ExtensionConfig`
+ * enum in crates/goose/src/agents/extension.rs).
+ */
+interface GooseStreamableHttpExtension {
+  type: "streamable_http";
+  uri: string;
+  headers?: Record<string, string>;
+  envs?: Record<string, string>;
+  timeout: number;
+  enabled: boolean;
+}
+
+type GooseExtension = GooseStdioExtension | GooseStreamableHttpExtension;
 
 /** One inner command entry inside a hook rule. */
 interface GooseHookCommand {
@@ -195,7 +218,13 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: true,
-    transports: ["stdio", "sse", "http"],
+    // Goose registers two MCP extension transports: local `stdio` and remote
+    // `http` (rendered as Goose's `type: "streamable_http"`). The legacy
+    // `type: "sse"` variant still parses for old-config compatibility but Goose
+    // refuses to connect over it ("SSE is unsupported, migrate to
+    // streamable_http" — crates/goose/src/agents/extension_manager.rs), so it is
+    // NOT advertised — an `sse`/`ws` server warn-skips at install.
+    transports: ["stdio", "http"],
     // Content surfaces: goose reads SKILL.md from the cross-agent .agents dir
     //   skill → <projectDir>/.agents/skills/<name>/SKILL.md (project)
     //   skill → ~/.agents/skills/<name>/SKILL.md (user)
@@ -297,6 +326,25 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
+    // Goose registers stdio extensions ({ type:"stdio", cmd, args }) AND remote
+    // Streamable-HTTP extensions ({ type:"streamable_http", uri }). It has no
+    // live SSE transport (the `sse` variant parses but Goose refuses to connect —
+    // crates/goose/src/agents/extension_manager.rs), so anything else is
+    // reported, never silently written as a broken empty-cmd stdio entry.
+    const transport: Transport = server.transport;
+    const isStdio = transport === "stdio" && !!server.command;
+    const isHttp = transport === "http" && !!server.url;
+    if (!isStdio && !isHttp) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path,
+          detail: `transport "${transport}" not registrable in ${MCP_ROOT_KEY} (stdio + http/streamable_http only)`,
+        },
+      ];
+    }
+
     const entry = this.renderExtension(ctx, server);
 
     // Merge into existing YAML, preserving every other config key + extension.
@@ -333,9 +381,45 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
   /**
    * Render a normalized ServerDef into Goose's native extension entry. Goose has
    * no native env interpolation, so `${env:VAR}` refs are resolved to literals at
-   * install time. Honors the telemetry serve-wrapper (cmd=homeBin, args=[serve…]).
+   * install time.
+   *
+   *   stdio → { type:"stdio", cmd, args, envs?, timeout, enabled } — honors the
+   *           telemetry serve-wrapper (cmd=homeBin, args=[serve…]).
+   *   http  → { type:"streamable_http", uri, headers?, envs?, timeout, enabled } —
+   *           a remote URL has no local command to route through the serve proxy,
+   *           so it is never telemetry-wrapped; env-refs in uri/headers/env resolve
+   *           to literals. The Goose field is `uri` (NOT `url`).
    */
-  private renderExtension(ctx: InstallContext, server: ServerDef): GooseStdioExtension {
+  private renderExtension(ctx: InstallContext, server: ServerDef): GooseExtension {
+    const timeoutMs = server.timeoutMs;
+    const timeout =
+      typeof timeoutMs === "number" && timeoutMs > 0 ? Math.round(timeoutMs / 1000) : 300;
+
+    // Remote (Streamable HTTP) — never serve-wrapped; `uri` is the Goose field.
+    if (server.transport === "http") {
+      const entry: GooseStreamableHttpExtension = {
+        type: "streamable_http",
+        uri: resolveEnvRefsDeep(server.url ?? ""),
+        timeout,
+        enabled: server.enabled !== false,
+      };
+      if (server.headers && Object.keys(server.headers).length > 0) {
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(resolveEnvRefsDeep(server.headers))) {
+          headers[k] = String(v);
+        }
+        entry.headers = headers;
+      }
+      if (server.env && Object.keys(server.env).length > 0) {
+        const envs: Record<string, string> = {};
+        for (const [k, v] of Object.entries(resolveEnvRefsDeep(server.env))) {
+          envs[k] = String(v);
+        }
+        entry.envs = envs;
+      }
+      return entry;
+    }
+
     let cmd = server.command ?? "";
     let args = [...(server.args ?? [])];
 
@@ -343,10 +427,6 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
 
     cmd = resolveEnvRefsDeep(cmd);
     args = resolveEnvRefsDeep(args);
-
-    const timeoutMs = server.timeoutMs;
-    const timeout =
-      typeof timeoutMs === "number" && timeoutMs > 0 ? Math.round(timeoutMs / 1000) : 300;
 
     const entry: GooseStdioExtension = {
       type: "stdio",
