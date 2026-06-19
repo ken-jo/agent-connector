@@ -28,7 +28,10 @@ import {
   readRegisteredMeta,
 } from "../core/load-connector.js";
 import { loadAdapter } from "../adapters/registry.js";
-import { buildTelemetryAccessor } from "./telemetry-accessor.js";
+import {
+  attachLazyTelemetryUsage,
+  buildTelemetryAccessor,
+} from "./telemetry-accessor.js";
 
 /** Flags + stdin the CLI hands to {@link runStatusline}. */
 export interface RunStatuslineOptions {
@@ -107,15 +110,10 @@ export async function runStatusline(
     // per-connector telemetry usage accessor (lazy, fail-safe to zeros).
     ctx.scope = readRegisteredMeta(connectorId)?.scope;
     ctx.telemetry = buildTelemetryAccessor(connectorId);
-    // Pre-compute the connector's own all-time usage so render() can read it
-    // synchronously off `ctx.usage`. The accessor never throws (it swallows read
-    // errors + the kill switch to a zeros summary), so this resolves to a real
-    // summary, never undefined, and the outer try/catch is the fail-safe backstop.
-    // The read is synchronous and cheap for a normal store; the host's own
-    // statusline-subprocess timeout (a process boundary) is the real wedge guard,
-    // and bounding a pathologically large store is a tracked follow-up — see the
-    // accessor's hot-path note in runtime/telemetry-accessor.ts.
-    ctx.usage = await ctx.telemetry();
+    // Keep `ctx.usage` synchronous for render functions, but compute it only if
+    // the render actually reads the property. Status lines refresh frequently,
+    // and the NDJSON backend has to scan the store for an all-time summary.
+    attachLazyTelemetryUsage(ctx, connectorId);
 
     // Per-host render override: when rendering for host X, `hosts[X].render`
     // wins over the top-level render; a host not listed (or a per-host entry

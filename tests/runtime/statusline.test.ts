@@ -37,6 +37,7 @@ const FALLBACK_ID = "sl-render-fallback";
 const CAPS_ID = "sl-render-caps";
 const SCOPE_ID = "sl-render-scope";
 const PERHOST_THROW_ID = "sl-render-perhost-throw";
+const LAZY_USAGE_ID = "sl-render-lazy-usage";
 
 const SAVED = {
   HOME: process.env.HOME,
@@ -199,8 +200,22 @@ beforeEach(async () => {
   const perHostThrowConn = (await loadConnectorFromPath(perHostThrowPath)).connector;
   registerConnector(perHostThrowConn, perHostThrowPath);
 
+  // A connector that inspects the `usage` property descriptor without reading
+  // the property. This proves the runtime installs a lazy getter rather than a
+  // pre-computed data property on every status refresh.
+  const lazyUsagePath = writeFixtureModule(
+    tmpData,
+    LAZY_USAGE_ID,
+    `(ctx) => {
+      const desc = Object.getOwnPropertyDescriptor(ctx, "usage");
+      return String(typeof desc?.get === "function");
+    }`,
+  );
+  const lazyUsageConn = (await loadConnectorFromPath(lazyUsagePath)).connector;
+  registerConnector(lazyUsageConn, lazyUsagePath);
+
   // A connector whose render returns ctx.usage as a JSON string — used by the
-  // telemetry HUD tests to inspect what the runtime pre-computed on ctx.
+  // telemetry HUD tests to inspect what the runtime exposes on ctx.
   const usagePath = writeFixtureModule(
     tmpData,
     USAGE_ID,
@@ -340,7 +355,17 @@ describe("runStatusline", () => {
     expect(res.stdout).toBeUndefined();
   });
 
-  // ── B1 telemetry HUD: ctx.usage pre-compute ────────────────────────────────
+  // ── B1 telemetry HUD: ctx.usage lazy summary ───────────────────────────────
+
+  it("ctx.usage is installed as a lazy getter when render does not read it", async () => {
+    const res = await runStatusline({
+      platformId: "claude-code",
+      connectorId: LAZY_USAGE_ID,
+      stdin: JSON.stringify({ cwd: "/x" }),
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe("true");
+  });
 
   it("ctx.usage: populated store → render receives summed totalTokens and call count", async () => {
     // Seed two rows for USAGE_ID (10+3=13 tokens, 20+7=27 tokens → total 40)
@@ -362,9 +387,9 @@ describe("runStatusline", () => {
     expect(usage.calls).toBe(2);
   });
 
-  it("ctx.usage: empty store → zeros summary, not undefined (the field is always pre-computed to a real summary)", async () => {
+  it("ctx.usage: empty store → zeros summary, not undefined (the field resolves to a real summary)", async () => {
     // No rows seeded; the accessor resolves to a zeros summary, NOT undefined —
-    // proving the runtime always stamps a real summary (never leaves it unset).
+    // proving the runtime getter resolves a real summary (never leaves it unset).
     const res = await runStatusline({
       platformId: "claude-code",
       connectorId: USAGE_ID,

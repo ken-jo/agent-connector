@@ -17,7 +17,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildTelemetryAccessor } from "../../src/runtime/telemetry-accessor.js";
+import {
+  attachLazyTelemetryUsage,
+  buildTelemetryAccessor,
+} from "../../src/runtime/telemetry-accessor.js";
+import type { TelemetryUsageSummary } from "../../src/core/types.js";
 import { newRecordId, openStore } from "../../src/telemetry/store.js";
 import type { ToolEventRecord } from "../../src/telemetry/types.js";
 
@@ -156,5 +160,35 @@ describe("buildTelemetryAccessor", () => {
       totalTokens: 0,
       calls: 0,
     });
+  });
+});
+
+describe("attachLazyTelemetryUsage", () => {
+  it("does not read usage until ctx.usage is accessed, then caches the summary", () => {
+    let reads = 0;
+    const ctx: { usage?: TelemetryUsageSummary } = {};
+
+    attachLazyTelemetryUsage(ctx, CONN_ID, (connectorId) => {
+      reads += 1;
+      expect(connectorId).toBe(CONN_ID);
+      return {
+        inputTokens: 1,
+        outputTokens: 2,
+        totalTokens: 3,
+        calls: 4,
+      };
+    });
+
+    expect(reads).toBe(0);
+    expect(Object.getOwnPropertyDescriptor(ctx, "usage")?.get).toBeTypeOf("function");
+    expect(reads).toBe(0);
+    expect(ctx.usage).toEqual({
+      inputTokens: 1,
+      outputTokens: 2,
+      totalTokens: 3,
+      calls: 4,
+    });
+    expect(ctx.usage?.totalTokens).toBe(3);
+    expect(reads).toBe(1);
   });
 });
