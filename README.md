@@ -392,13 +392,16 @@ export default defineConnector({
 });
 ```
 
-> **Native hooks escape hatch.** The normalized `hooks` API covers the 12
+> **Native hooks escape hatch.** The normalized `hooks` API covers the 13
 > cross-platform events. For host-only events — Claude Code alone ships 30
 > (`TaskCompleted`, `TeammateIdle`, `WorktreeCreate`, …) — declare
 > `platforms: { "claude-code": { nativeHooks: { TaskCompleted: { handler } } } }`:
 > the handler receives the host's **raw** payload and whatever it returns is the
 > **verbatim** JSON reply (exit 0 only — exit-2 blocking isn't modeled). Claude
-> Code only for now; other hosts skip-warn, never silently.
+> Code is not the only nativeHooks host: `amp`, `claude-code`, `continue`,
+> `copilot-cli`, `cursor`, `gemini-cli`, `hermes`, `jetbrains-copilot`, `kimi`,
+> `nemoclaw`, `omp`, `openclaw`, `opencode`, and `qwen-code` currently support
+> host-native passthrough. Other hosts skip-warn, never silently.
 
 > **Host-config key patches.** For host-exclusive *settings keys* no other
 > surface reaches (e.g. an experimental `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`
@@ -497,11 +500,12 @@ does not provide are `undefined`.
 > always produces `0%`. Use `ctx.cost?.totalUsd` and `ctx.model?.displayName`
 > (both populated by claude-code) instead.
 
-**v1: claude-code only.** Install registers `settings.json.statusLine` via the
-same configPatch ownership ledger — **set-if-absent, never clobbers a
-`statusLine` agent-connector doesn't own** (skip-warns and prints the manual
-edit instead), refcounted, reversible. Every other host adapter skip-warns at
-install time, never silently. The runtime is **fail-safe**: any error — a
+**v1: claude-code and qwen-code.** Install registers Claude Code's
+`settings.json.statusLine` or Qwen Code's nested `settings.json.ui.statusLine`
+via the same ownership ledger — **set-if-absent, never clobbers a status line
+agent-connector doesn't own** (skip-warns and prints the manual edit instead),
+refcounted, reversible. Every other host adapter skip-warns at install time,
+never silently. The runtime is **fail-safe**: any error — a
 throwing `render`, unknown connector, malformed stdin — exits 0 with empty
 stdout so a HUD never wedges the host. `doctor` includes a dedicated
 `statusline wired` check.
@@ -551,11 +555,11 @@ fail-safe/silent on error).
 `@ken-jo/agent-connector` and `@ken-jo/agent-connector/sdk`.
 `ActionDef = { id, description?, run, hosts? }` and `ActionResult = { message? }`.
 
-**v1: dispatch backbone only.** `install` skip-warns on every host — there
-is no host affordance emitter yet (binding a slash-command or keybinding to
-the verb requires generated IDE extensions, a later phase). The `action`
-verb is fully functional today; host-side registration is deferred.
-`explain()` emits action rows (skip-warn everywhere in v1); `simulate()`
+**v1: universal dispatch plus selected host affordances.** The `action` verb is
+fully functional everywhere a connector can be loaded. `install` emits host-side
+affordances on `droid`, `hermes`, `nemoclaw`, `omp`, `openclaw`, and `warp`; every
+other host skip-warns rather than silently dropping declared actions. `explain()`
+reports those emitter hosts as native and the rest as skip-warn. `simulate()`
 does not cover actions (actions take no host payload and have no host-honor
 verdict — intentional).
 

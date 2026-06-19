@@ -217,20 +217,22 @@ Distilled from the union of platform behaviors (report §3).
   the host doesn't provide are undefined; `raw` is the host's verbatim payload.
   SDK helper `defineStatusline({ render })` (typed identity) plus types
   `StatuslineDef` / `StatuslineContext` are exported from the package root.
-  **Deployment (v1 = claude-code only):** `PlatformCapabilities.supportsStatusline`
-  gates it (read as `?? false`); every other adapter emits the standard
-  skip-warn, never a silent drop. On claude-code, install registers
+  **Deployment (v1 = claude-code + qwen-code):**
+  `PlatformCapabilities.supportsStatusline` gates it (read as `?? false`); every
+  other adapter emits the standard skip-warn, never a silent drop. On
+  claude-code, install registers
   `settings.json.statusLine = { type: "command", command: "<homeBin> statusline
-  claude-code --connector <id>" }` — **reusing the configPatch ownership
-  ledger**: set-if-absent, never clobbers a `statusLine` agent-connector doesn't
-  own (skip-warn + manual-edit hint), refcounted, reversible (uninstall removes
-  only when last-owner ∧ value-unchanged ∧ prior-absent). `statusLine` is
-  therefore a **reserved key** — raw `configPatch` targeting it throws
-  `ConnectorConfigError` pointing at the statusline surface (same namespace-guard
-  treatment as `hooks*` / `mcpServers*`). Runtime is **fail-safe**: any error
-  (throwing render, unknown connector, malformed stdin) → exit 0 / empty stdout;
-  a HUD must never wedge the host. Doctor adds a dedicated `statusline wired`
-  check (`ok / present-but-not-ours / missing`). CLI verb:
+  claude-code --connector <id>" }`; on qwen-code it registers the nested
+  `settings.json.ui.statusLine` equivalent. Both use the refcounted ownership
+  ledger: set-if-absent, never clobber a status-line setting agent-connector
+  doesn't own (skip-warn + manual-edit hint), and uninstall removes only when
+  last-owner ∧ value-unchanged ∧ prior-absent. `statusLine` remains a **reserved
+  key** for the modeled statusline surface — raw `configPatch` targeting it
+  throws `ConnectorConfigError` pointing at `statusline` where configPatch is
+  available. Runtime is **fail-safe**: any error (throwing render, unknown
+  connector, malformed stdin) → exit 0 / empty stdout; a HUD must never wedge
+  the host. Doctor adds a dedicated `statusline wired` check (`ok /
+  present-but-not-ours / missing`). CLI verb:
   `agent-connector statusline <platform> --connector <id>` (internal, like
   `hook`/`serve`).
 - **`actions` (dispatch backbone)** — a connector declares `actions?:
@@ -240,12 +242,12 @@ Distilled from the union of platform behaviors (report §3).
   --connector <id>` loads the connector and invokes `run(ctx)`. Error semantics
   are USER-TRIGGERED (not fail-safe-silent like hooks/statusline): unknown action
   id or a throw → exit 1 + stderr. `defineAction({ id, run })` is the typed
-  authoring helper (exported from root and `/sdk`). **v1 = dispatch backbone
-  only**: install honestly skip-warns on every host — no host affordance emitter
-  yet (binding a slash-command or keybinding to the verb requires generated IDE
-  extensions, a later phase). `actions` is a real member of the `SurfaceName`
-  introspection vocabulary; `explain()` emits action rows (skip-warn everywhere
-  in v1); `simulate()` does not cover actions (an action takes no host payload
+  authoring helper (exported from root and `/sdk`). **v1 = universal dispatch
+  plus selected host affordance emitters**: install emits host-side affordances on
+  `droid`, `hermes`, `nemoclaw`, `omp`, `openclaw`, and `warp`; every other host
+  skip-warns. `actions` is a real member of the `SurfaceName` introspection
+  vocabulary; `explain()` reports those emitter hosts as native and the rest as
+  skip-warn; `simulate()` does not cover actions (an action takes no host payload
   and has no host-honor verdict — intentional).
 - **`configPatch`** — the third (and smallest) escape hatch beside `extra` and
   `nativeHooks`: a declarative, ownership-tracked patch of ONE host-exclusive
