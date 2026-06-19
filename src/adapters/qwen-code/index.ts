@@ -12,8 +12,10 @@
  *       all Qwen-native (verified against the upstream
  *       docs/users/features/hooks.md: PermissionRequest takes the nested
  *       hookSpecificOutput.decision{behavior} envelope, PostToolUseFailure /
- *       SubagentStart are additionalContext feedback, SubagentStop blocks via
- *       the TOP-LEVEL {"decision":"block","reason"} Stop shape).
+ *       SubagentStart are additionalContext feedback, and the Stop-class events
+ *       Stop / SubagentStop / UserPromptSubmit / PostToolUse block via the
+ *       TOP-LEVEL {"decision":"block","reason"} shape — only PreToolUse uses
+ *       hookSpecificOutput.permissionDecision for deny).
  *     (NOT Gemini's BeforeTool/AfterTool/PreCompress vocabulary.)
  *   - Hook stdin JSON carries snake_case fields: session_id, transcript_path,
  *     cwd, tool_name, tool_input, tool_response, source, reason, prompt,
@@ -1391,18 +1393,29 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
       return { exitCode: 0 };
     }
 
-    // SubagentStop deny = Stop semantics: Qwen documents the TOP-LEVEL
-    // {"decision":"block","reason"} shape (keeps the subagent running with
-    // `reason` as its next instruction).
-    if (decision === "deny" && event === "SubagentStop") {
-      return this.stdout({
-        decision: "block",
-        reason: response.reason ?? "Blocked by hook",
-      });
-    }
-
     // deny → block the action with a reason (exit 0; JSON carries the decision).
+    // Qwen's deny shape is EVENT-SPECIFIC (claude-wire-compatible): PreToolUse
+    // uses hookSpecificOutput.permissionDecision, but Stop / SubagentStop /
+    // UserPromptSubmit / PostToolUse honor only the TOP-LEVEL
+    // {"decision":"block","reason"} — those events do NOT take permissionDecision
+    // (QwenLM/qwen-code docs/users/features/hooks.md: Stop/SubagentStop block via
+    // {"decision":"block","reason"}; UserPromptSubmit/PostToolUse output options
+    // list top-level `decision`+`reason`, not permissionDecision — only
+    // PreToolUse documents permissionDecision as its official interface). A
+    // SubagentStop / Stop block keeps the agent running with `reason` as its next
+    // instruction (Stop semantics).
     if (decision === "deny") {
+      if (
+        event === "Stop" ||
+        event === "SubagentStop" ||
+        event === "UserPromptSubmit" ||
+        event === "PostToolUse"
+      ) {
+        return this.stdout({
+          decision: "block",
+          reason: response.reason ?? "Blocked by hook",
+        });
+      }
       return this.stdout({
         hookSpecificOutput: {
           hookEventName,

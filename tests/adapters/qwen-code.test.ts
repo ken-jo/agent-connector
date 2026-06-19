@@ -20,8 +20,9 @@
  *   • Reply       → JSON on stdout (exit 0): PreToolUse deny → permissionDecision;
  *                   PermissionRequest uses the nested decision{behavior} envelope
  *                   (updatedInput honored); PostToolUseFailure/SubagentStart →
- *                   additionalContext (deny degrades); SubagentStop deny →
- *                   TOP-LEVEL { decision:"block" }.
+ *                   additionalContext (deny degrades); the Stop-class events
+ *                   Stop/SubagentStop/UserPromptSubmit/PostToolUse deny →
+ *                   TOP-LEVEL { decision:"block" } (NOT permissionDecision).
  *
  * This file consolidates what used to be split across qwen-code-native-hooks.test.ts
  * (nativeHooks passthrough), qwen-code-statusline.test.ts (statusline surface),
@@ -759,25 +760,44 @@ describe("qwen-code E1 events", () => {
     );
   });
 
-  it("formatReply SubagentStop deny → TOP-LEVEL block (Stop semantics)", () => {
-    const out = parsed(
-      qwenAdapter.formatReply!("SubagentStop", {
-        decision: "deny",
-        reason: "verify before stopping",
-      }),
-    );
+  // The Stop-class events block via the TOP-LEVEL {decision:"block",reason}
+  // shape — qwen (like Claude) silently ignores permissionDecision on these
+  // (QwenLM/qwen-code docs/users/features/hooks.md: Stop/SubagentStop block via
+  // {"decision":"block","reason"}; UserPromptSubmit/PostToolUse list top-level
+  // `decision`+`reason` in their output options, NOT permissionDecision).
+  it.each([
+    ["Stop", "verify before stopping"],
+    ["SubagentStop", "subagent must continue"],
+    ["UserPromptSubmit", "prompt rejected by policy"],
+    ["PostToolUse", "tool output violates policy"],
+  ] as const)(
+    "formatReply %s deny → TOP-LEVEL block, no permissionDecision",
+    (event, reason) => {
+      const out = parsed(
+        qwenAdapter.formatReply!(event, { decision: "deny", reason }),
+      );
+      expect(out.decision).toBe("block");
+      expect(out.reason).toBe(reason);
+      // The generic permissionDecision branch must NOT fire for Stop-class events.
+      expect(out.hookSpecificOutput).toBeUndefined();
+    },
+  );
+
+  it("formatReply Stop-class deny falls back to the default reason when none given", () => {
+    const out = parsed(qwenAdapter.formatReply!("Stop", { decision: "deny" }));
     expect(out.decision).toBe("block");
-    expect(out.reason).toBe("verify before stopping");
-    expect(out.hookSpecificOutput).toBeUndefined();
+    expect(out.reason).toBe("Blocked by hook");
   });
 
-  it("formatReply legacy deny shape is unchanged for the original events", () => {
-    // Regression guard: the SubagentStop top-level block must not leak into the
-    // pre-E1 deny path (PreToolUse keeps permissionDecision).
+  it("formatReply PreToolUse-class deny keeps the permissionDecision shape", () => {
+    // Regression guard: the Stop-class top-level block must NOT leak into the
+    // PreToolUse deny path — PreToolUse is the one event that uses
+    // hookSpecificOutput.permissionDecision (qwen's official deny interface).
     const out = parsed(
       qwenAdapter.formatReply!("PreToolUse", { decision: "deny", reason: "no" }),
     );
     expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
+    expect(out.hookSpecificOutput.permissionDecisionReason).toBe("no");
     expect(out.decision).toBeUndefined();
   });
 });
