@@ -1,6 +1,8 @@
 import { Section, SectionHeading } from "@/components/sections/Section";
 import { cn } from "@/lib/utils";
 import {
+  formFactorOf,
+  formFactors,
   handlerChips,
   installMethods,
   paradigms,
@@ -164,10 +166,34 @@ export function Platforms() {
         <SurfaceLegend />
       </div>
 
-      <div className="mt-10 flex flex-wrap justify-center gap-2.5">
-        {platforms.map((pl) => (
-          <AgentEntry key={pl.id} platform={pl} />
-        ))}
+      <p className="mt-6 text-center text-xs text-muted-foreground">
+        Grouped by <span className="text-foreground">form factor</span> — how you
+        run the agent; the colored dot is its orthogonal{" "}
+        <span className="text-foreground">hook paradigm</span>.
+      </p>
+
+      <div className="mt-8 flex flex-col gap-8">
+        {formFactors.map((ff) => {
+          const band = platforms.filter((pl) => formFactorOf(pl.id) === ff.id);
+          if (band.length === 0) return null;
+          return (
+            <div key={ff.id}>
+              <div className="mb-3 flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5">
+                <h3 className="font-mono text-sm font-semibold uppercase tracking-wide text-foreground">
+                  {ff.label}
+                </h3>
+                <span className="text-xs text-muted-foreground">
+                  · {band.length} · {ff.short}
+                </span>
+              </div>
+              <div className="flex flex-wrap justify-center gap-2.5">
+                {band.map((pl) => (
+                  <AgentEntry key={pl.id} platform={pl} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <p className="mt-8 text-center text-xs text-muted-foreground">

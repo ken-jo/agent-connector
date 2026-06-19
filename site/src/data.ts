@@ -64,6 +64,29 @@ export { platforms, platformCount, surfaceChips, surfaceState, handlerChips } fr
 export type { Platform, PlatformSurfaces, SurfaceChip, SurfaceState } from "./platform-data";
 
 /* ------------------------------------------------------------------ */
+/* Form factor — how you run the agent (CLI / IDE extension / app),    */
+/* orthogonal to the hook paradigm. The wall groups by this; paradigm  */
+/* stays the dot color. Single-sourced + drift-tested in platform-data.*/
+/* ------------------------------------------------------------------ */
+
+export { formFactorIds, formFactorOf } from "./platform-data";
+export type { FormFactorId } from "./platform-data";
+
+import type { FormFactorId } from "./platform-data";
+
+export interface FormFactor {
+  id: FormFactorId;
+  label: string;
+  short: string;
+}
+
+export const formFactors: FormFactor[] = [
+  { id: "cli", label: "CLI", short: "terminal agent CLIs" },
+  { id: "extension", label: "IDE extension", short: "runs inside an editor" },
+  { id: "app", label: "App / editor", short: "standalone GUI app" },
+];
+
+/* ------------------------------------------------------------------ */
 /* Two pillars                                                         */
 /* ------------------------------------------------------------------ */
 
