@@ -20,9 +20,13 @@
  *
  * Hook protocol is EXIT-CODE based (unlike Claude's JSON-decision wrapper):
  *   - exit 0  → allow the action.
- *   - exit 2  → block the action; the reason is written to stderr.
- *   - agentSpawn (≈ SessionStart) context injection → exit 0 + stdout JSON
- *     `{ hookSpecificOutput: { additionalContext } }`.
+ *   - exit 2  → block the action; the reason is written to stderr (PreToolUse).
+ *   - context injection → exit 0 with the guidance text written as PLAIN STDOUT
+ *     (NOT a JSON envelope). Kiro adds a hook's STDOUT to the agent's context
+ *     ONLY for agentSpawn and userPromptSubmit; for preToolUse / postToolUse /
+ *     stop the docs say STDOUT is "captured but not shown" — there is no
+ *     context channel, so a `context` decision on those degrades to exit 0.
+ *     Ref: https://kiro.dev/docs/cli/hooks (Hook output / Hook types).
  * Kiro CANNOT rewrite tool arguments or output (exit codes only), so
  * canModifyArgs / canModifyOutput are false; `modify` degrades to allow.
  *
@@ -106,6 +110,18 @@ const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   Stop: KIRO_EVENT.stop,
 };
 
+/**
+ * Kiro events whose hook STDOUT is added to the agent's context: agentSpawn
+ * (≈ SessionStart) and userPromptSubmit. For preToolUse / postToolUse / stop the
+ * docs say STDOUT is "captured but not shown to user" — no context channel — so a
+ * `context` decision on those degrades to a plain exit-0 pass-through.
+ * Ref: https://kiro.dev/docs/cli/hooks
+ */
+const CONTEXT_EVENTS: ReadonlySet<string> = new Set([
+  KIRO_EVENT.agentSpawn,
+  KIRO_EVENT.userPromptSubmit,
+]);
+
 /** A single Kiro native hook registration entry (Claude-shaped, nested). */
 interface KiroHookEntry {
   matcher: string;
@@ -179,7 +195,7 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
     // or inject agentSpawn context, but it CANNOT rewrite tool args or output.
     canModifyArgs: false,
     canModifyOutput: false,
-    // agentSpawn returns additionalContext via JSON stdout.
+    // agentSpawn (and userPromptSubmit) add the hook's plain STDOUT to context.
     canInjectSessionContext: true,
     transports: ["stdio", "http"],
     // Skills: Kiro reads SKILL.md from .kiro/skills/<name>/SKILL.md (project)
@@ -711,23 +727,27 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
 
     // Stop → exit-code only (deny already handled above as exit 2). There is no
     // context/additionalContext channel on a Stop hook, so anything non-deny
-    // passes through with exit 0 (do not fall into the agentSpawn branch).
+    // passes through with exit 0 (do not fall into the context branch).
     if (event === "Stop") {
       return { exitCode: 0 };
     }
 
-    // context → inject soft guidance. Kiro reads agentSpawn additionalContext
-    // from stdout JSON (mirrors the Claude SessionStart shape). exit 0 = allow.
-    if (decision === "context" && response.additionalContext) {
-      return {
-        exitCode: 0,
-        stdout: JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: KIRO_EVENT.agentSpawn,
-            additionalContext: response.additionalContext,
-          },
-        }),
-      };
+    // context → inject soft guidance. Kiro adds a hook's PLAIN STDOUT to the
+    // agent's context (no JSON envelope), but ONLY for the agentSpawn and
+    // userPromptSubmit events; preToolUse / postToolUse have no context channel
+    // (their STDOUT is "captured but not shown"). So emit the raw text on stdout
+    // only when the FIRING event maps to a context-supporting Kiro event;
+    // otherwise the context decision degrades to a plain exit-0 pass-through
+    // rather than a mislabeled/ineffective payload. exit 0 = allow.
+    // Ref: https://kiro.dev/docs/cli/hooks
+    const kiroEvent = EVENT_MAP[event];
+    if (
+      decision === "context" &&
+      response.additionalContext &&
+      kiroEvent !== undefined &&
+      CONTEXT_EVENTS.has(kiroEvent)
+    ) {
+      return { exitCode: 0, stdout: response.additionalContext };
     }
 
     // modify is unsupported on Kiro (exit-code protocol — cannot rewrite
