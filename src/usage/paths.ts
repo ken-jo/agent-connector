@@ -191,6 +191,13 @@ export function hostRoots(platformId: string): string[] {
       out.push(join(homedir(), ".pi", "agent", "sessions"));
       break;
     case "kimi":
+      // TWO Moonshot products share the "kimi" id with DIFFERENT session trees:
+      //   - Kimi Code (newer, @moonshot-ai/kimi-code): ~/.kimi-code/sessions/...
+      //     (deeper tree, see readers/kimi.ts) — the product our adapter targets.
+      //   - Kimi CLI (older): ~/.kimi/sessions/<GROUP>/<UUID>/wire.jsonl
+      // Both are scanned (Kimi Code preferred first). $KIMI_CODE_HOME relocates
+      // the Kimi Code home and is honored ahead of these in readers/kimi.ts.
+      out.push(join(homedir(), ".kimi-code", "sessions"));
       out.push(join(homedir(), ".kimi", "sessions"));
       break;
     case "copilot-cli":
