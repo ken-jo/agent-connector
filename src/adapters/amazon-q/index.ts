@@ -118,6 +118,7 @@ import type {
   ServerDef,
   SessionStartEvent,
   StopEvent,
+  SubagentDef,
   Transport,
   UserPromptSubmitEvent,
 } from "../../core/types.js";
@@ -142,6 +143,14 @@ const MCP_ROOT_KEY = "mcpServers";
  * `knowledge_bases/q_cli_default/`).
  */
 const DEFAULT_AGENT_FILE = "q_cli_default.json";
+
+/**
+ * The agent NAME (filename stem) AC reserves for the hooks / built-in default
+ * agent (`cli-agents/q_cli_default.json`). A connector subagent declared with
+ * this exact name would resolve to the SAME file and clobber the hooks agent, so
+ * installSubagents REFUSES it (skip-warn) and uninstallSubagents never touches it.
+ */
+const RESERVED_AGENT_NAME = "q_cli_default";
 
 /**
  * Amazon Q native hook trigger names (the keys under an agent file's `hooks`
@@ -258,12 +267,29 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // Amazon Q registers stdio + Streamable HTTP MCP servers (primary-verified).
     transports: ["stdio", "http"],
-    // Content surfaces: Amazon Q DOES have user-authored surfaces — agents
-    // (per-agent JSON in ~/.aws/amazonq/cli-agents/*.json or project
-    // .amazonq/cli-agents/*.json: name/description/prompt/tools/hooks/resources;
-    // agent-format.md) and a prompt library (~/.aws/amazonq/prompts/*.md). AC does
-    // not render either yet, so the supports* flags stay UNSET (base skip-warns) —
-    // a deferred wiring opportunity, NOT an absent surface.
+    // Content surfaces:
+    //   subagents: WIRED. Amazon Q's "agents" are per-agent JSON files where the
+    //   FILENAME (minus .json) IS the agent name (primary-verified via the CLI
+    //   repo docs/agent-file-locations.md + docs/agent-format.md). AC maps each
+    //   connector SubagentDef → cli-agents/<name>.json = { name, description,
+    //   prompt } (+ model when non-"inherit"; + tools/allowedTools when the
+    //   SubagentDef carries a tool policy — see renderSubagent). Both scopes:
+    //     user    → ~/.aws/amazonq/cli-agents/<name>.json
+    //     project → <projectDir>/.amazonq/cli-agents/<name>.json
+    //   A subagent named `q_cli_default` would resolve to the hooks/default-agent
+    //   file — the SDK already rejects it (non-kebab name), and installSubagents
+    //   refuses it as defense-in-depth so a subagent write can never clobber it.
+    supportsSubagents: true,
+    //   commands (prompt library): DEFERRED — format unverified. The only primary
+    //   doc for the ~/.aws/amazonq/prompts/*.md prompt library is the IDE prompt-
+    //   library page (q-in-IDE-chat → ide-chat-context: prompts saved in
+    //   ~/.aws/amazonq/prompts, invoked via @<name> inside the IDE chat). The Q
+    //   CLI repo (aws/amazon-q-developer-cli/docs) ships NO prompts/saved-prompts
+    //   doc, so whether the `q`/`qchat` CLI reads that folder — and whether a
+    //   project-scoped prompts dir exists — is NOT primary-verified for the CLI
+    //   host this adapter targets. supportsCommands stays UNSET (base skip-warns)
+    //   rather than render an unverified surface (the continue per-server-YAML /
+    //   other deferred-unverified precedent).
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -543,6 +569,118 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
     return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
+  // ── Content surface: subagents → cli-agents/<name>.json ───────────────────
+  // CONTENT-ONLY: a pure native-file writer — no runtime dispatch, no home-bin
+  // pointer, no telemetry wrap. Amazon Q "agents" are per-agent JSON files where
+  // the FILENAME (minus .json) IS the agent name (agent-file-locations.md). Each
+  // file is a STANDALONE agent definition: we write only { name, description,
+  // prompt } (+ model / tools / allowedTools when the SubagentDef carries them)
+  // and NEVER inject hooks (those live in q_cli_default.json) or mcpServers (those
+  // live in mcp.json). The whole file is AC-owned, so idempotency + reversibility
+  // come from writeContentFile/removeContentFile (byte-identical → skip; uninstall
+  // removes the file → NO_RESIDUE).
+  //   user    → ~/.aws/amazonq/cli-agents/<name>.json
+  //   project → <projectDir>/.amazonq/cli-agents/<name>.json
+
+  /** Native subagent file path: <configDir>/cli-agents/<name>.json. */
+  private subagentPath(ctx: InstallContext, name: string): string {
+    return join(this.getConfigDir(ctx), "cli-agents", `${name}.json`);
+  }
+
+  override installSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.subagents === false) {
+      return [{ platform: this.id, action: "skip", detail: "subagents disabled for amazon-q" }];
+    }
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) => {
+      // COLLISION GUARD: a subagent named `q_cli_default` resolves to the SAME
+      // file as the hooks/built-in default agent — refuse it so a subagent write
+      // can never clobber the hooks agent.
+      if (agent.name === RESERVED_AGENT_NAME) {
+        return {
+          platform: this.id,
+          action: "warn",
+          detail:
+            `subagent "${agent.name}" collides with the built-in default agent file ` +
+            `(cli-agents/${DEFAULT_AGENT_FILE}); skipped — rename the subagent`,
+        };
+      }
+      return this.writeContentFile(
+        this.subagentPath(ctx, agent.name),
+        this.renderSubagent(agent),
+        ctx.dryRun,
+      );
+    });
+  }
+
+  override uninstallSubagents(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.subagents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no subagents" }];
+    }
+    return connector.subagents.map((agent) => {
+      // Never remove the hooks/default-agent file under the collision name.
+      if (agent.name === RESERVED_AGENT_NAME) {
+        return {
+          platform: this.id,
+          action: "warn",
+          detail:
+            `subagent "${agent.name}" was never installed (collides with ` +
+            `cli-agents/${DEFAULT_AGENT_FILE}); left untouched`,
+        };
+      }
+      return this.removeContentFile(this.subagentPath(ctx, agent.name), ctx.dryRun);
+    });
+  }
+
+  /**
+   * Render a connector subagent into an Amazon Q agent JSON file
+   * (agent-format.md):
+   *   { name, description, prompt }  — prompt is the INLINE system-prompt string
+   *   (Amazon Q's `prompt` field is "high-level context … similar to a system
+   *   prompt"; we use the inline-text form, NOT a file:// ref).
+   * Plus, when the SubagentDef carries them:
+   *   - model:        only when set and not the platform-agnostic "inherit"
+   *     sentinel (Amazon Q has no "inherit" — omitting it applies the default).
+   *   - tools:        SurfaceToolPolicy.allow → the `tools` array (the tools the
+   *     agent can use). Amazon Q's `tools` accepts plain tool-name strings and
+   *     `*`, the same vocabulary the portable allow-list carries.
+   *   - allowedTools: SurfaceToolPolicy.allow → the `allowedTools` array (tools
+   *     usable WITHOUT a permission prompt) — BUT only when the allow-list holds
+   *     no `*` (Amazon Q's allowedTools does NOT accept the `"*"` wildcard;
+   *     agent-format.md "AllowedTools Field"). When allow is exactly ["*"] we set
+   *     `tools` but omit `allowedTools` (every tool available, none auto-allowed).
+   *   `deny` has no clean Amazon Q analog (there is no disallowedTools field —
+   *   access is an allow-list), so a deny-only policy maps to no tool keys.
+   *   `readonly` is likewise dropped — Amazon Q has no read-only-agent field; the
+   *   permission model IS the allowedTools allow-list (no separate analog).
+   *   `extra` is shallow-merged last (per-platform escape hatch).
+   */
+  private renderSubagent(agent: SubagentDef): string {
+    const obj: Record<string, unknown> = {
+      name: agent.name,
+      description: agent.description,
+      prompt: agent.prompt,
+    };
+    if (agent.model !== undefined && agent.model !== "inherit") obj.model = agent.model;
+
+    const allow = agent.tools?.allow;
+    if (allow && allow.length > 0) {
+      obj.tools = [...allow];
+      // allowedTools rejects the "*" wildcard — only emit it for concrete patterns.
+      const allowed = allow.filter((t) => t !== "*");
+      if (allowed.length > 0) obj.allowedTools = allowed;
+    }
+    if (agent.extra) Object.assign(obj, agent.extra);
+
+    // Match writeJson's serialization (2-space indent + trailing newline) so the
+    // bytes are stable for writeContentFile's idempotent skip.
+    return `${JSON.stringify(obj, null, 2)}\n`;
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
@@ -551,7 +689,7 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
     const connectorId = ctx.connector.id;
     const homeBin = ctx.homeBinPath;
     const hookEvents = ctx.connector.hookEvents;
-    return [
+    const checks: HealthCheck[] = [
       {
         name: `${this.name}: mcp.json present`,
         check: () =>
@@ -596,6 +734,19 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
         },
       },
     ];
+
+    // Content-surface checks: assert each declared subagent's JSON file exists.
+    // Skip the reserved collision name (never written by installSubagents).
+    for (const agent of ctx.connector.subagents) {
+      if (agent.name === RESERVED_AGENT_NAME) continue;
+      const p = this.subagentPath(ctx, agent.name);
+      checks.push({
+        name: `${this.name}: subagent ${agent.name} present`,
+        check: () =>
+          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+    return checks;
   }
 
   // ── Runtime: parse Amazon Q stdin JSON → normalized event ─────────────────

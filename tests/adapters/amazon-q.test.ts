@@ -111,10 +111,11 @@ describe("amazon-q adapter — identity + capabilities", () => {
     expect(amazonQAdapter.capabilities.canModifyArgs).toBe(false);
     expect(amazonQAdapter.capabilities.canModifyOutput).toBe(false);
     expect(amazonQAdapter.capabilities.canInjectSessionContext).toBe(true);
-    // No unverified content surfaces
+    // Content surfaces: subagents WIRED (cli-agents/<name>.json); commands
+    // (prompt library) DEFERRED (CLI format unverified); skills unset (no dir).
+    expect(amazonQAdapter.capabilities.supportsSubagents).toBe(true);
     expect(amazonQAdapter.capabilities.supportsCommands ?? false).toBe(false);
     expect(amazonQAdapter.capabilities.supportsSkills ?? false).toBe(false);
-    expect(amazonQAdapter.capabilities.supportsSubagents ?? false).toBe(false);
     // Transports: stdio + http
     expect(amazonQAdapter.capabilities.transports).toContain("stdio");
     expect(amazonQAdapter.capabilities.transports).toContain("http");
@@ -806,5 +807,181 @@ describe("amazon-q adapter — env interpolation (resolve to literal)", () => {
     };
     // Must be resolved to literal, NOT left as ${env:MY_MCP_SECRET}
     expect(cfg.mcpServers[CONNECTOR_ID]!.env?.MY_VAR).toBe("actual-secret-value");
+  });
+});
+
+// ── content surface: subagents → cli-agents/<name>.json ───────────────────────
+// Amazon Q "agents" are per-agent JSON files where the FILENAME (minus .json) IS
+// the agent name (agent-file-locations.md + agent-format.md). AC writes a
+// standalone agent def { name, description, prompt } (+ model/tools/allowedTools
+// when declared). The hooks file is cli-agents/q_cli_default.json, so a subagent
+// named `q_cli_default` is refused (collision guard).
+
+const REVIEWER = {
+  name: "reviewer",
+  description: "Reviews diffs for correctness and style.",
+  prompt: "You are a meticulous code reviewer. Focus on correctness.",
+} as const;
+
+/** A connector declaring a subagent (plus model + tool policy variants). */
+function buildSubagentConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme Amazon Q",
+    version: "1.0.0",
+    subagents: [{ ...REVIEWER }],
+    ...cfg,
+  });
+}
+
+describe("amazon-q adapter — subagents (cli-agents/<name>.json)", () => {
+  let home: string;
+  let projectDir: string;
+
+  beforeEach(() => {
+    ({ home, projectDir } = freshHomeProject());
+  });
+
+  it("user scope writes ~/.aws/amazonq/cli-agents/<name>.json with {name,description,prompt}", () => {
+    const ctx = buildCtx(projectDir, buildSubagentConnector(), "user");
+    const changes = amazonQAdapter.installSubagents(ctx);
+    expect(changes[0]?.action).toBe("create");
+
+    const p = join(home, ".aws", "amazonq", "cli-agents", "reviewer.json");
+    expect(changes[0]?.path).toBe(p);
+    expect(existsSync(p)).toBe(true);
+
+    const agent = readJson(p) as Record<string, unknown>;
+    expect(agent.name).toBe("reviewer");
+    expect(agent.description).toBe(REVIEWER.description);
+    expect(agent.prompt).toBe(REVIEWER.prompt);
+    // Standalone agent def — NEVER inject hooks or mcpServers.
+    expect(agent.hooks).toBeUndefined();
+    expect(agent.mcpServers).toBeUndefined();
+  });
+
+  it("project scope writes <projectDir>/.amazonq/cli-agents/<name>.json", () => {
+    const ctx = buildCtx(projectDir, buildSubagentConnector(), "project");
+    const changes = amazonQAdapter.installSubagents(ctx);
+    expect(changes[0]?.action).toBe("create");
+
+    const p = join(projectDir, ".amazonq", "cli-agents", "reviewer.json");
+    expect(changes[0]?.path).toBe(p);
+    expect(existsSync(p)).toBe(true);
+    // Must NOT have written into the user-global tree at project scope.
+    expect(existsSync(join(home, ".aws", "amazonq", "cli-agents", "reviewer.json"))).toBe(false);
+  });
+
+  it("renders model (non-inherit) + tools/allowedTools from the tool policy", () => {
+    const connector = buildSubagentConnector({
+      subagents: [
+        {
+          ...REVIEWER,
+          model: "claude-sonnet-4",
+          tools: { allow: ["fs_read", "execute_bash"] },
+        },
+      ],
+    });
+    const ctx = buildCtx(projectDir, connector, "user");
+    amazonQAdapter.installSubagents(ctx);
+
+    const agent = readJson(
+      join(home, ".aws", "amazonq", "cli-agents", "reviewer.json"),
+    ) as Record<string, unknown>;
+    expect(agent.model).toBe("claude-sonnet-4");
+    expect(agent.tools).toEqual(["fs_read", "execute_bash"]);
+    // No "*" in the allow-list → allowedTools mirrors it.
+    expect(agent.allowedTools).toEqual(["fs_read", "execute_bash"]);
+  });
+
+  it('omits model when "inherit" and omits allowedTools when the policy holds "*"', () => {
+    const connector = buildSubagentConnector({
+      subagents: [{ ...REVIEWER, model: "inherit", tools: { allow: ["*"] } }],
+    });
+    const ctx = buildCtx(projectDir, connector, "user");
+    amazonQAdapter.installSubagents(ctx);
+
+    const agent = readJson(
+      join(home, ".aws", "amazonq", "cli-agents", "reviewer.json"),
+    ) as Record<string, unknown>;
+    expect(agent.model).toBeUndefined();
+    // tools accepts "*" (all tools); allowedTools does NOT → omitted.
+    expect(agent.tools).toEqual(["*"]);
+    expect(agent.allowedTools).toBeUndefined();
+  });
+
+  it("is idempotent — a second install yields skip", () => {
+    const ctx = buildCtx(projectDir, buildSubagentConnector(), "user");
+    amazonQAdapter.installSubagents(ctx);
+    const second = amazonQAdapter.installSubagents(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+  });
+
+  it("uninstall removes only AC's subagent file (NO_RESIDUE)", () => {
+    const ctx = buildCtx(projectDir, buildSubagentConnector(), "user");
+    amazonQAdapter.installSubagents(ctx);
+    const p = join(home, ".aws", "amazonq", "cli-agents", "reviewer.json");
+    expect(existsSync(p)).toBe(true);
+
+    amazonQAdapter.uninstallSubagents(ctx);
+    expect(existsSync(p)).toBe(false);
+  });
+
+  it("respects platforms['amazon-q'].subagents === false (skip, no write)", () => {
+    const connector = buildSubagentConnector({
+      platforms: { "amazon-q": { subagents: false } },
+    });
+    const ctx = buildCtx(projectDir, connector, "user");
+    const changes = amazonQAdapter.installSubagents(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(existsSync(join(home, ".aws", "amazonq", "cli-agents", "reviewer.json"))).toBe(false);
+  });
+
+  // COLLISION GUARD — TWO layers:
+  //  (1) the SDK config layer: subagent names must be kebab-case
+  //      (/^[a-z0-9][a-z0-9-]*$/), so `q_cli_default` (underscores) is REJECTED at
+  //      defineConnector — the collision is structurally impossible through the
+  //      public authoring API.
+  //  (2) the adapter's runtime guard: defense-in-depth for a hand-built connector
+  //      that bypasses validation — installSubagents/uninstallSubagents refuse the
+  //      reserved name and never touch the hooks/default-agent file.
+
+  it("the SDK rejects a subagent literally named q_cli_default (non-kebab — collision impossible)", () => {
+    expect(() =>
+      defineConnector({
+        id: CONNECTOR_ID,
+        displayName: "Acme Amazon Q",
+        version: "1.0.0",
+        subagents: [{ name: "q_cli_default", description: "x", prompt: "y" }],
+      }),
+    ).toThrow(/kebab-case/);
+  });
+
+  it("adapter runtime guard refuses the reserved name and never clobbers the hooks file", () => {
+    // Build a VALID connector, then inject the reserved name past validation to
+    // exercise the adapter's defense-in-depth guard directly.
+    const connector = buildSubagentConnector();
+    (connector.subagents as { name: string; description: string; prompt: string }[]) = [
+      { name: "q_cli_default", description: "x", prompt: "y" },
+    ];
+    const ctx = buildCtx(projectDir, connector, "user");
+
+    // Pre-seed the hooks/default-agent file so we can prove it is left untouched.
+    const hookPath = join(home, ".aws", "amazonq", "cli-agents", "q_cli_default.json");
+    mkdirSync(join(home, ".aws", "amazonq", "cli-agents"), { recursive: true });
+    const sentinel = JSON.stringify({ hooks: { agentSpawn: [{ command: "keep-me" }] } });
+    writeFileSync(hookPath, sentinel, "utf8");
+
+    const changes = amazonQAdapter.installSubagents(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    // The hooks file is byte-identical — the collision write never happened.
+    expect(readFileSync(hookPath, "utf8")).toBe(sentinel);
+
+    // Uninstall must likewise leave the hooks file alone.
+    const removed = amazonQAdapter.uninstallSubagents(ctx);
+    expect(removed[0]?.action).toBe("warn");
+    expect(readFileSync(hookPath, "utf8")).toBe(sentinel);
   });
 });
