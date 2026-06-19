@@ -39,6 +39,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -46,6 +47,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -139,8 +141,11 @@ const HOST_LANES = {
   "amazon-q": {
     bin: "q",
     // Resolves ~/.aws/amazonq off homedir → HOME isolation suffices.
+    // Live-verified: `q mcp list` is AUTH-GATED — it errors "You are not logged
+    // in, please log in with q login" before listing, so it degrades to
+    // accept-auth-gated (placement OK), NOT a fail (looksAuthGated catches it).
     accept: { argv: ["mcp", "list"], kind: "list-id" },
-    note: "`q mcp list` lists configured servers offline; turn is auth-gated.",
+    note: "`q mcp list` is auth-gated ('not logged in') → accept-auth-gated; placement+uninstall verified.",
   },
 
   // ── Hosts whose CLI is NOT pre-installed but CAN be installed locally and
@@ -223,14 +228,19 @@ const HOST_LANES = {
   goose: {
     bin: "goose",
     // Resolves ~/.config/goose off homedir → HOME isolation suffices.
-    accept: { argv: ["mcp", "list"], kind: "ok" },
-    note: "Block goose; `goose mcp`/`goose info` reads config; turn is auth-gated.",
+    // CORRECTED via live `goose mcp --help` + run: `goose mcp <SERVER>` takes a
+    // server NAME and BUNDLES it — `goose mcp list` errors "Invalid command:
+    // list". goose has NO offline list-MCP verb. Placement-only.
+    placementOnly: true,
+    note: "no offline accept verb — placement+uninstall-clean only (goose mcp takes a server arg; `goose mcp list` errors 'Invalid command: list').",
   },
   droid: {
     bin: "droid",
     // Factory CLI; resolves ~/.factory off homedir → HOME isolation suffices.
-    accept: { argv: ["mcp", "list"], kind: "ok" },
-    note: "Factory droid; `droid mcp list` reads config; turn is auth-gated.",
+    // CORRECTED via live `droid mcp list`: it lists configured MCP servers
+    // OFFLINE and echoes our id (live-verified: "ac-verify  stdio … [user]").
+    accept: { argv: ["mcp", "list"], kind: "list-id" },
+    note: "`droid mcp list` lists our MCP server offline (live-verified); turn is auth-gated.",
   },
 };
 
@@ -247,16 +257,19 @@ const HOST_LANES = {
 //     wrong/squatter package is worse than skipping, so only npm-VERIFIED names
 //     are listed here (probed with `npm view <pkg> homepage repository.url`).
 //
-//   { kind: "script", url, bin, note }
-//     installed via an official installer script. Best-effort: only run when the
-//     installer is reachable AND installs to a controllable dir; otherwise the
-//     host is reported install-failed honestly (never a forced pass).
+//   { kind: "download", bin, url(arch), extract, identity }
+//     a PINNED, versioned vendor binary fetched directly (NOT `curl|sh` — the
+//     sandbox blocks remote-script execution and so do we; a pinned URL is a
+//     reproducible, auditable artifact). `url(arch)` builds the asset URL from
+//     the normalized arch ("arm64"|"x64"); `extract` is how to turn the download
+//     into the bin under .verify-tools/bin: "tarbz2" | "zip" | "raw". `identity`
+//     records the vendor host the URL belongs to.
 //
 // NETWORK INSTALL IS OPT-IN (`--install`), NOT the default — a deliberate safety
 // decision: auto-downloading and EXECUTING third-party CLIs is untrusted-code
 // integration that must be a conscious, authorized act, not a side effect of the
 // default run. Without --install, a missing binary stays skip-not-fail and the
-// host is covered headlessly by install-roundtrip.test.ts. (See INSTALL_NOTES.)
+// host is covered headlessly by install-roundtrip.test.ts.
 // ─────────────────────────────────────────────────────────────────────────
 const HOST_INSTALL = {
   // ── npm packages, identity npm-PROBED to match the real host (2026-06-19) ──
@@ -267,9 +280,43 @@ const HOST_INSTALL = {
   "mimo-code": { kind: "npm", pkg: "@mimo-ai/cli", bin: "mimo", identity: "github.com/XiaomiMiMo/MiMo-Code" },
   crush: { kind: "npm", pkg: "@charmland/crush", bin: "crush", identity: "github.com/charmbracelet/crush" },
   openclaw: { kind: "npm", pkg: "openclaw", bin: "openclaw", identity: "github.com/openclaw/openclaw" },
-  // ── official installer scripts (best-effort; install-failed reported honestly) ──
-  goose: { kind: "script", bin: "goose", note: "Block goose official install script (github.com/block/goose)" },
-  droid: { kind: "script", bin: "droid", note: "Factory CLI official installer (app.factory.ai/cli)" },
+  // ── pinned vendor binary downloads (arch-aware; NO remote-script execution) ──
+  // Versions are PINNED and live-verified on aarch64; bump the pin to upgrade.
+  goose: {
+    kind: "download",
+    bin: "goose",
+    identity: "github.com/block/goose v1.38.0",
+    extract: "tarbz2",
+    // GitHub release tarball; Rust target triple per arch. arm64→aarch64, x64→x86_64.
+    url: (arch) =>
+      `https://github.com/block/goose/releases/download/v1.38.0/goose-${
+        arch === "arm64" ? "aarch64" : "x86_64"
+      }-unknown-linux-gnu.tar.bz2`,
+  },
+  "amazon-q": {
+    kind: "download",
+    bin: "q",
+    identity: "Amazon Q Developer CLI (desktop-release.q.us-east-1.amazonaws.com)",
+    extract: "zip",
+    // AWS "latest" zip; binary is at q/bin/q inside (do NOT run q/install.sh).
+    zipBinPath: ["q", "bin", "q"],
+    url: (arch) =>
+      `https://desktop-release.q.us-east-1.amazonaws.com/latest/q-${
+        arch === "arm64" ? "aarch64" : "x86_64"
+      }-linux.zip`,
+  },
+  droid: {
+    kind: "download",
+    bin: "droid",
+    identity: "downloads.factory.ai/factory-cli v0.152.0",
+    extract: "raw",
+    // Plain per-arch binary. NOTE: do NOT append the installer's "-baseline"
+    // suffix — that asset is x86-AVX2-only; arm64 uses the plain `droid` asset.
+    url: (arch) =>
+      `https://downloads.factory.ai/factory-cli/releases/0.152.0/linux/${
+        arch === "arm64" ? "arm64" : "x64"
+      }/droid`,
+  },
 };
 
 // Hosts genuinely NOT live-verifiable on a headless Linux box, with the SPECIFIC
@@ -308,23 +355,30 @@ const IDENTITY_UNVERIFIED = {
 
 /** The gitignored local toolchain prefix install missing host CLIs go into. */
 const TOOLS_PREFIX = join(REPO_ROOT, ".verify-tools");
+// npm-installed host bins symlink under node_modules/.bin; binary-download hosts
+// (goose/q/droid) land directly under .verify-tools/bin. which() checks both.
 const TOOLS_BIN_DIR = join(TOOLS_PREFIX, "node_modules", ".bin");
+const TOOLS_DOWNLOAD_BIN_DIR = join(TOOLS_PREFIX, "bin");
 
 /**
  * Resolve a binary: prefer the local toolchain prefix (a host we installed for
- * verification), then fall back to PATH. Returns the absolute path or null. No
- * shell (avoids DEP0190); Windows PATHEXT aware.
+ * verification — both the npm .bin dir and the binary-download bin dir), then
+ * fall back to PATH. Returns the absolute path or null. No shell (avoids
+ * DEP0190); Windows PATHEXT aware.
  */
 function which(bin) {
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
   // 1. Local toolchain prefix first (so a verification-only install is used
-  //    even if a different/global build of the same bin is on PATH).
-  for (const ext of exts) {
-    const local = join(TOOLS_BIN_DIR, bin + ext);
-    try {
-      if (existsSync(local)) return local;
-    } catch {
-      /* ignore */
+  //    even if a different/global build of the same bin is on PATH). Check the
+  //    npm .bin dir AND the binary-download bin dir.
+  for (const dir of [TOOLS_BIN_DIR, TOOLS_DOWNLOAD_BIN_DIR]) {
+    for (const ext of exts) {
+      const local = join(dir, bin + ext);
+      try {
+        if (existsSync(local)) return local;
+      } catch {
+        /* ignore */
+      }
     }
   }
   // 2. PATH.
@@ -342,17 +396,37 @@ function which(bin) {
   return null;
 }
 
+/** Normalize process.arch to the two arches our download URLs support. */
+function normalizedArch() {
+  return process.arch === "arm64" || process.arch === "aarch64" ? "arm64" : "x64";
+}
+
+/** Fetch a URL into a local file (node global fetch). Returns { ok, reason }. */
+async function downloadTo(url, destFile) {
+  let res;
+  try {
+    res = await fetch(url, { redirect: "follow" });
+  } catch (err) {
+    return { ok: false, reason: `fetch failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (!res.ok) return { ok: false, reason: `HTTP ${res.status} for ${url}` };
+  const buf = Buffer.from(await res.arrayBuffer());
+  writeFileSync(destFile, buf);
+  return { ok: true, reason: `downloaded ${buf.length} bytes` };
+}
+
 /**
  * Install a missing host CLI into the LOCAL prefix (never global) so it can be
- * live-verified. Returns { ok, bin?, reason }. npm hosts use
- * `npm install --prefix .verify-tools <pkg>`; script hosts are best-effort and
- * report install-failed honestly when the installer is unreachable / refuses.
+ * live-verified. Returns { ok, bin?, reason }. Three methods:
+ *   • npm      — `npm install --prefix .verify-tools <pkg>` (bin in node_modules/.bin)
+ *   • download — fetch a PINNED vendor binary/archive and place the bin under
+ *                .verify-tools/bin (NO remote-script execution; reproducible URL)
  *
  * SECURITY: this DOWNLOADS AND WILL EXECUTE third-party code. It runs ONLY under
- * the explicit --install opt-in; the package identity for every npm host in
- * HOST_INSTALL was npm-probed to match the real host before being listed.
+ * the explicit --install opt-in; every npm pkg identity was npm-probed and every
+ * download URL is pinned to a versioned vendor asset.
  */
-function installHost(hostId) {
+async function installHost(hostId) {
   const spec = HOST_INSTALL[hostId];
   if (!spec) return { ok: false, reason: "no install method defined" };
 
@@ -373,12 +447,55 @@ function installHost(hostId) {
     return { ok: true, bin, reason: `installed ${spec.pkg}` };
   }
 
-  // script-based installers are best-effort and only attempted under --install.
-  // Without a controllable, reachable installer we DO NOT guess — report honestly.
-  return {
-    ok: false,
-    reason: `script install not automated here (${spec.note}); install manually then re-run`,
-  };
+  if (spec.kind === "download") {
+    const arch = normalizedArch();
+    const url = spec.url(arch);
+    mkdirSync(TOOLS_DOWNLOAD_BIN_DIR, { recursive: true });
+    const destBin = join(TOOLS_DOWNLOAD_BIN_DIR, spec.bin);
+    const tmp = tempDir(`ac-dl-${hostId}-`);
+    process.stderr.write(`[${hostId}] downloading ${spec.identity} (${arch}) from ${url}\n`);
+    try {
+      if (spec.extract === "raw") {
+        const dl = await downloadTo(url, destBin);
+        if (!dl.ok) return { ok: false, reason: dl.reason };
+        chmodSync(destBin, 0o755);
+      } else if (spec.extract === "tarbz2") {
+        const archive = join(tmp, "dl.tar.bz2");
+        const dl = await downloadTo(url, archive);
+        if (!dl.ok) return { ok: false, reason: dl.reason };
+        const x = run("tar", ["-xjf", archive, "-C", tmp], process.env, 120_000);
+        if (x.status !== 0) return { ok: false, reason: `tar extract failed: ${(x.stderr || x.stdout).trim().slice(0, 200)}` };
+        const found = join(tmp, spec.bin);
+        if (!existsSync(found)) return { ok: false, reason: `archive did not contain "${spec.bin}"` };
+        writeFileSync(destBin, readFileSync(found));
+        chmodSync(destBin, 0o755);
+      } else if (spec.extract === "zip") {
+        const archive = join(tmp, "dl.zip");
+        const dl = await downloadTo(url, archive);
+        if (!dl.ok) return { ok: false, reason: dl.reason };
+        const x = run("unzip", ["-q", "-o", archive, "-d", tmp], process.env, 120_000);
+        if (x.status !== 0) return { ok: false, reason: `unzip failed: ${(x.stderr || x.stdout).trim().slice(0, 200)}` };
+        // The real binary is nested (e.g. q/bin/q); do NOT run the bundled installer.
+        const found = join(tmp, ...(spec.zipBinPath ?? [spec.bin]));
+        if (!existsSync(found)) return { ok: false, reason: `zip did not contain ${(spec.zipBinPath ?? [spec.bin]).join("/")}` };
+        writeFileSync(destBin, readFileSync(found));
+        chmodSync(destBin, 0o755);
+      } else {
+        return { ok: false, reason: `unknown extract method "${spec.extract}"` };
+      }
+    } finally {
+      try {
+        rmSync(tmp, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+    const bin = which(spec.bin);
+    if (!bin) return { ok: false, reason: `placed ${spec.bin} but which() did not resolve it` };
+    return { ok: true, bin, reason: `downloaded ${spec.identity} (${arch})` };
+  }
+
+  return { ok: false, reason: `unknown install kind "${spec.kind}"` };
 }
 
 /** Windows-safe temp dir: expand the 8.3 short name so `~` never survives. */
@@ -528,7 +645,7 @@ async function verifyHost(hostId, { scope, keep, install }) {
   if (!binPath) {
     const spec = HOST_INSTALL[hostId];
     if (install && spec) {
-      const res = installHost(hostId);
+      const res = await installHost(hostId);
       if (res.ok) {
         binPath = res.bin;
         process.stderr.write(`[${hostId}] ${res.reason} → bin ${binPath}\n`);
@@ -537,10 +654,11 @@ async function verifyHost(hostId, { scope, keep, install }) {
         return skip("skipped-install-failed", `install failed: ${res.reason} — covered headlessly by install-roundtrip.test.ts`);
       }
     } else {
+      const source = spec ? (spec.kind === "npm" ? spec.pkg : spec.identity) : null;
       const hint = spec
         ? install
           ? "install method known but produced no binary"
-          : `binary "${lane.bin}" absent; pass --install to install ${spec.kind === "npm" ? spec.pkg : "via " + spec.note} into the local prefix`
+          : `binary "${lane.bin}" absent; pass --install to install ${source} into the local prefix`
         : `binary "${lane.bin}" absent and no install method defined`;
       process.stderr.write(`SKIP ${hostId}: ${hint} (skip-not-fail).\n`);
       return skip("skipped-no-binary", `${hint} — install-roundtrip covered headlessly by the test harness`);
