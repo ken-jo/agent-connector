@@ -830,10 +830,15 @@ describe("kimi reader", () => {
 
   // ── Kimi Code (newer product, ~/.kimi-code) — DEEPER session tree ──────────
   // ~/.kimi-code/sessions/<SESSION>/agents/<AGENT>/wire.jsonl (extra agents/ level).
-  // We use the SAME StatusUpdate frame format as the Kimi CLI fixtures above —
-  // that is the verifiable assumption (Kimi Code's wire.jsonl frame schema is
-  // auth-gated and not live-verified). These tests prove the dual-root discovery
-  // + DEPTH-ROBUST home/config resolution + fail-open on the deeper tree.
+  // SOURCE-VERIFIED schema (MoonshotAI/kimi-code): the usage record is
+  //   { type:"usage.record", time?, model, usage:TokenUsage, usageScope? }
+  // where TokenUsage = { inputOther, output, inputCacheRead, inputCacheCreation }
+  // (camelCase, no reasoning). Each usage.record is a per-LLM-call DELTA; the
+  // session total is the SUM of all deltas (any scope) — no dedup, no scope
+  // filter. The per-line router sends usage.record files to parseKimiCodeFile and
+  // StatusUpdate files to the unchanged Kimi CLI path, regardless of which tree
+  // they live in. These tests prove the dual-root discovery + the verified
+  // delta-sum parse + the per-line routing.
 
   /** Write a Kimi Code deep-tree session: <root>/sessions/<session>/agents/<agent>/wire.jsonl. */
   function writeKimiCodeSession(
@@ -849,12 +854,136 @@ describe("kimi reader", () => {
     writeFileSync(join(root, "config.json"), JSON.stringify({ model }), "utf8");
   }
 
-  it("Kimi Code: discovers the DEEPER tree under ~/.kimi-code and resolves the model via the depth-robust walk", async () => {
+  /** A SOURCE-VERIFIED Kimi Code `usage.record` line (per-call DELTA usage). */
+  const usageRecord = (
+    timeMs: number,
+    usage: Record<string, number>,
+    model = "kimi-k2",
+    usageScope: "session" | "turn" = "turn",
+  ): unknown => ({ type: "usage.record", time: timeMs, model, usage, usageScope });
+
+  it("Kimi Code: parses a usage.record DELTA, mapping TokenUsage → TokenBreakdown", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    writeKimiCodeSession(codeRoot, "sess-deep", "agent-main", [
+      { type: "turn_begin", time: 1771000000000 },
+      usageRecord(
+        1771000000500,
+        { inputOther: 700, output: 80, inputCacheRead: 12, inputCacheCreation: 3 },
+        "kimi-k2-code",
+      ),
+    ]);
+
+    const records = await kimiReader.read({});
+    expect(records).toHaveLength(1);
+    const r = records[0]!;
+    // (a) inputOther→input, output→output, inputCacheRead→cacheRead,
+    //     inputCacheCreation→cacheWrite, reasoning always 0.
+    expect(r.tokens.input).toBe(700);
+    expect(r.tokens.output).toBe(80);
+    expect(r.tokens.cacheRead).toBe(12);
+    expect(r.tokens.cacheWrite).toBe(3);
+    expect(r.tokens.reasoning).toBe(0);
+    // (c) per-record model is used, NOT the config.json fallback.
+    expect(r.modelId).toBe("kimi-k2-code");
+    expect(r.providerId).toBe("moonshot");
+    // Immediate parent of wire.jsonl is the <AGENT> dir for the deeper tree.
+    expect(r.sessionId).toBe("agent-main");
+    expect(r.ts).toBe(1771000000500); // time already in ms → passthrough
+    // Deltas carry no dedupKey so aggregation never merges them.
+    expect(r.dedupKey).toBeUndefined();
+    // (f) the non-usage.record line (turn_begin) was skipped.
+  });
+
+  it("Kimi Code: MULTIPLE usage.record deltas SUM (distinct rows, not dedup/max)", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    // Verified by kimi-code's usage.test.ts: record(inputOther:1)+record(10) ⇒ 11.
+    writeKimiCodeSession(codeRoot, "sess-sum", "agent-sum", [
+      usageRecord(1771000000000, { inputOther: 1, output: 2 }),
+      usageRecord(1771000001000, { inputOther: 10, output: 3 }),
+    ]);
+
+    const records = await kimiReader.read({});
+    // Two DISTINCT rows (NOT one max-deduped row).
+    expect(records).toHaveLength(2);
+    const totalInput = records.reduce((s, r) => s + r.tokens.input, 0);
+    const totalOutput = records.reduce((s, r) => s + r.tokens.output, 0);
+    expect(totalInput).toBe(11); // 1 + 10 (sum, not max=10)
+    expect(totalOutput).toBe(5); // 2 + 3
+  });
+
+  it("Kimi Code: a MIX of 'session' and 'turn' scoped records all count (no scope filter, no double-count)", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    writeKimiCodeSession(codeRoot, "sess-scope", "agent-scope", [
+      usageRecord(1771000000000, { inputOther: 5 }, "kimi-k2", "turn"),
+      usageRecord(1771000001000, { inputOther: 7 }, "kimi-k2", "session"),
+    ]);
+
+    const records = await kimiReader.read({});
+    // Both scopes counted as their own delta — one usage.record written per call.
+    expect(records).toHaveLength(2);
+    expect(records.reduce((s, r) => s + r.tokens.input, 0)).toBe(12);
+  });
+
+  it("Kimi Code: drops zero-token usage.records", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    writeKimiCodeSession(codeRoot, "sess-zero", "agent-zero", [
+      usageRecord(1771000000000, { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 }),
+      usageRecord(1771000001000, { inputOther: 9 }),
+    ]);
+
+    const records = await kimiReader.read({});
+    expect(records).toHaveLength(1); // only the non-zero record survives
+    expect(records[0]!.tokens.input).toBe(9);
+  });
+
+  it("Kimi Code: per-record model falls back to DEFAULT_MODEL when absent", async () => {
     const codeRoot = join(tmpHome, ".kimi-code");
     writeKimiCodeSession(
       codeRoot,
-      "sess-deep",
-      "agent-main",
+      "sess-nomodel",
+      "agent-nomodel",
+      [{ type: "usage.record", time: 1771000000000, usage: { inputOther: 4 }, usageScope: "turn" }],
+      "kimi-from-config", // config.json model is NOT used for Kimi Code
+    );
+
+    const records = await kimiReader.read({});
+    expect(records).toHaveLength(1);
+    expect(records[0]!.modelId).toBe("kimi-for-coding"); // DEFAULT_MODEL, not config.json
+  });
+
+  it("Kimi Code: normalizes a seconds-precision time to ms", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    writeKimiCodeSession(codeRoot, "sess-secs", "agent-secs", [
+      usageRecord(1771000000, { inputOther: 6 }), // seconds (< 1e12) → × 1000
+    ]);
+
+    const records = await kimiReader.read({});
+    expect(records).toHaveLength(1);
+    expect(records[0]!.ts).toBe(1771000000000);
+  });
+
+  it("Kimi Code FAIL-OPEN: a garbage line is skipped without throwing", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    const agentDir = join(codeRoot, "sessions", "sess-bad", "agents", "agent-bad");
+    mkdirSync(codeRoot, { recursive: true });
+    writeFileSync(join(codeRoot, "config.json"), JSON.stringify({ model: "x" }), "utf8");
+    const good = JSON.stringify(usageRecord(1771000000000, { inputOther: 3 }));
+    writeRaw(agentDir, "wire.jsonl", `{ not json\n${good}\n`);
+
+    const records = await kimiReader.read({});
+    expect(records).toHaveLength(1);
+    expect(records[0]!.tokens.input).toBe(3);
+  });
+
+  it("Kimi CLI format still routes to the CLI path even inside a kimi-code tree", async () => {
+    // The #152 deep-tree fixture: a StatusUpdate frame (CLI format) placed in the
+    // deeper kimi-code tree. The per-line router must still send it to the
+    // unchanged Kimi CLI parser (StatusUpdate dedup + config.json model walk).
+    const codeRoot = join(tmpHome, ".kimi-code");
+    writeKimiCodeSession(
+      codeRoot,
+      "sess-cli-in-code",
+      "agent-cli",
       [
         { type: "metadata", protocol_version: "1.3" },
         statusUpdate(
@@ -869,32 +998,12 @@ describe("kimi reader", () => {
     const records = await kimiReader.read({});
     expect(records).toHaveLength(1);
     const r = records[0]!;
-    // (b) model came from <root>/config.json via the depth-robust walk, NOT the
-    //     DEFAULT_MODEL fallback (a fixed 4-hop lookup would have missed it).
-    expect(r.modelId).toBe("kimi-k2-code");
-    // (c) token records parse correctly through the unchanged frame parser.
     expect(r.tokens.input).toBe(700);
-    expect(r.tokens.output).toBe(80);
-    expect(r.tokens.cacheRead).toBe(12);
     expect(r.tokens.cacheWrite).toBe(3);
-    expect(r.providerId).toBe("moonshot");
-    // Immediate parent of wire.jsonl is the <AGENT> dir for the deeper tree.
-    expect(r.sessionId).toBe("agent-main");
-    expect(r.dedupKey).toBe("msg-deep");
-  });
-
-  it("Kimi Code FAIL-OPEN: an UNRECOGNIZED frame type in the deep tree yields 0 records, no throw", async () => {
-    const codeRoot = join(tmpHome, ".kimi-code");
-    // Frames that are NOT StatusUpdate/token_usage — simulates a diverging Kimi
-    // Code wire schema. The safety net: 0 records, never wrong counts.
-    writeKimiCodeSession(codeRoot, "sess-x", "agent-x", [
-      { type: "metadata", protocol_version: "9.9" },
-      { timestamp: 1771000100.0, message: { type: "TurnBegin", payload: {} } },
-      { timestamp: 1771000101.0, message: { type: "SomeFutureFrame", payload: { tokens: 999 } } },
-    ]);
-
-    const records = await kimiReader.read({});
-    expect(records).toEqual([]);
+    // CLI path → model from config.json via the depth-robust walk.
+    expect(r.modelId).toBe("kimi-k2-code");
+    expect(r.sessionId).toBe("agent-cli");
+    expect(r.dedupKey).toBe("msg-deep"); // StatusUpdate dedupKey is its message_id
   });
 });
 
