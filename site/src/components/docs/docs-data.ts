@@ -1288,6 +1288,12 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     target:
       "~/.continue/config.yaml → mcpServers (YAML ARRAY; hooks in separate settings.json, honors CONTINUE_GLOBAL_DIR)",
   },
+  {
+    name: "Amazon Q Developer CLI",
+    id: "amazon-q",
+    target:
+      "~/.aws/amazonq/mcp.json (user) / .amazonq/mcp.json (project) → mcpServers (hooks in cli-agents/q_cli_default.json)",
+  },
 ];
 
 export const mcpOnlyPlatforms: PlatformEntry[] = [
@@ -1311,11 +1317,6 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     name: "Pi",
     id: "pi",
     target: "telemetry/skills surface; no writable MCP hook config",
-  },
-  {
-    name: "Amazon Q Developer CLI",
-    id: "amazon-q",
-    target: "~/.aws/amazonq/mcp.json (user) / .amazonq/mcp.json (project) → mcpServers",
   },
   {
     name: "Windsurf",

@@ -1281,7 +1281,7 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
-### `json-stdio` — full hook dispatch (17)
+### `json-stdio` — full hook dispatch (18)
 One universal hook entrypoint binary handles all of them.
 
 | Platform | id | MCP native target (root key / file) |
@@ -1303,8 +1303,9 @@ One universal hook entrypoint binary handles all of them.
 | Antigravity (IDE) | `antigravity` | `~/.gemini/antigravity/mcp_config.json` → `mcpServers` (hooks.json) |
 | Antigravity CLI (`agy`) | `antigravity-cli` | shares `~/.gemini/antigravity/` |
 | Continue | `continue` | `~/.continue/config.yaml` → `mcpServers` (YAML ARRAY, keyed by `name`); hooks in a separate `settings.json` (honors `CONTINUE_GLOBAL_DIR`) |
+| Amazon Q Developer CLI | `amazon-q` | `~/.aws/amazonq/mcp.json` (user) / `.amazonq/mcp.json` (project) → `mcpServers` (hooks in the built-in default agent file `cli-agents/q_cli_default.json` — a bare `default.json` would be an inactive custom agent: trigger-keyed `hooks` object, entries `{ command, matcher? }`) |
 
-### `mcp-only` — MCP registration only, no hook layer (10)
+### `mcp-only` — MCP registration only, no hook layer (9)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
@@ -1317,7 +1318,6 @@ Detection surfaces "hooks unavailable here."
 | Codebuff | `codebuff` | `mcp.json` → `mcpServers` |
 | Mux | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
-| Amazon Q Developer CLI | `amazon-q` | `~/.aws/amazonq/mcp.json` (user) / `.amazonq/mcp.json` (project) → `mcpServers` |
 | Windsurf | `windsurf` | `~/.codeium/windsurf/mcp_config.json` (user/global ONLY) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ serverUrl, headers? }` — `serverUrl` not `url`) |
 
 ### `ts-plugin` — framework-generated bridge module (8)
