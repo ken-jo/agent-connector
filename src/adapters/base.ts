@@ -30,7 +30,7 @@ import type {
   PlatformId,
   PlatformMemoryOverride,
 } from "../core/types.js";
-import { backupsDir, ensureDir } from "../core/paths.js";
+import { backupsDir, ensureDir, firstSymlinkInPath } from "../core/paths.js";
 import { parseJsonc } from "../core/jsonc.js";
 import {
   isMalformedRootValue as isMalformedRootValueFn,
@@ -706,6 +706,16 @@ export abstract class BaseAdapter implements Adapter {
    * Honors dryRun (computes the action but writes nothing).
    */
   protected writeContentFile(path: string, contents: string, dryRun: boolean): ChangeRecord {
+    const symlink = firstSymlinkInPath(path);
+    if (symlink !== null) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path,
+        detail: `${basename(path)} skipped: symbolic link in path (${symlink})`,
+      };
+    }
+
     let action: ChangeRecord["action"];
     if (!existsSync(path)) {
       action = "create";
@@ -731,6 +741,16 @@ export abstract class BaseAdapter implements Adapter {
    * (e.g. a skill folder removed by the supporting adapter).
    */
   protected removeContentFile(path: string, dryRun: boolean): ChangeRecord {
+    const symlink = firstSymlinkInPath(path);
+    if (symlink !== null) {
+      return {
+        platform: this.id,
+        action: "warn",
+        path,
+        detail: `${basename(path)} skipped: symbolic link in path (${symlink})`,
+      };
+    }
+
     if (!existsSync(path)) {
       return { platform: this.id, action: "skip", path, detail: `${basename(path)} absent` };
     }

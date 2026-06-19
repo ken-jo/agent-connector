@@ -15,12 +15,13 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, parse, relative, resolve, sep } from "node:path";
 
 /** Framework data-root: AGENT_CONNECTOR_DATA_DIR || ~/.agent-connector. */
 export function dataRoot(): string {
@@ -55,6 +56,32 @@ export function homeBinPath(): string {
 
 export function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+}
+
+/**
+ * Return the first existing symbolic-link component in `path`, or null when the
+ * existing prefix is symlink-free. Stops at the first missing component so new
+ * directories/files can still be created normally.
+ */
+export function firstSymlinkInPath(path: string): string | null {
+  const abs = resolve(path);
+  const root = parse(abs).root;
+  const rest = relative(root, abs);
+  if (rest === "") return null;
+
+  let cur = root;
+  for (const part of rest.split(sep)) {
+    if (part === "") continue;
+    cur = join(cur, part);
+    try {
+      if (lstatSync(cur).isSymbolicLink()) return cur;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") return null;
+      throw err;
+    }
+  }
+  return null;
 }
 
 /**

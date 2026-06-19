@@ -23,7 +23,7 @@ import type {
   PlatformId,
   ResolvedConnector,
 } from "../types.js";
-import { ensureDir } from "../paths.js";
+import { ensureDir, firstSymlinkInPath } from "../paths.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
@@ -77,6 +77,10 @@ export function createEmitter(dryRun: boolean): Emitter {
     files,
     emit(path: string, contents: string): void {
       if (!dryRun) {
+        const symlink = firstSymlinkInPath(path);
+        if (symlink !== null) {
+          throw new Error(`refusing to emit through symbolic link: ${path} (${symlink})`);
+        }
         ensureDir(dirname(path));
         writeFileSync(path, contents, "utf8");
       }
