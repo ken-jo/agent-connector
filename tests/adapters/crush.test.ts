@@ -32,7 +32,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { Adapter, InstallContext } from "../../src/adapters/spi.js";
@@ -356,6 +356,73 @@ describe("crush adapter — skills surface", () => {
     const c2 = buildCtx(projectDir, noSkills);
     const changes = crushAdapter.installSkills!(c2);
     expect(changes[0]?.action).toBe("skip");
+  });
+});
+
+// ── User config dir XDG resolution ────────────────────────────────────────────
+// Crush resolves its user config dir via `home.Config()` =
+// `cmp.Or(XDG_CONFIG_HOME, ~/.config)` (charmbracelet/crush internal/home/home.go),
+// so the same logic applies on Linux AND macOS. Every user-scope surface (the
+// shared crush.json for servers + hooks, the skills dir, and the detection probe)
+// must flow through $XDG_CONFIG_HOME/crush when set — NOT a hardcoded ~/.config/crush
+// — or crush (which reads the XDG dir) never sees what agent-connector wrote.
+//
+// POSIX-only: this PR fixes the non-win32 branch. On Windows the adapter keeps its
+// documented `%LOCALAPPDATA%\crush` path (see userConfigDir win32 branch) and does
+// NOT consult $XDG_CONFIG_HOME, so these XDG assertions are skipped there. (Whether
+// crush's own home.Config() honors XDG on Windows too is a separately-flagged
+// follow-up, not this change.)
+describe.skipIf(process.platform === "win32")("crush adapter — user config dir XDG resolution", () => {
+  let projectDir: string;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-crush-xdg-");
+  });
+
+  function userCtx(): InstallContext {
+    return buildCtx(projectDir, buildSkillsConnector(), "user");
+  }
+
+  it("resolves user-scope paths under $XDG_CONFIG_HOME/crush when XDG is set", () => {
+    const xdg = join(projectDir, "xdg-root");
+    process.env.XDG_CONFIG_HOME = xdg; // restored by isolateEnv's afterEach
+    const ctx = userCtx();
+
+    const expectedDir = join(xdg, "crush");
+    // Server + hooks share ONE crush.json — both resolve under the XDG dir.
+    expect(crushAdapter.getServerConfigPath(ctx)).toBe(join(expectedDir, "crush.json"));
+    expect(crushAdapter.getHookConfigPath(ctx)).toBe(join(expectedDir, "crush.json"));
+    expect(crushAdapter.getConfigDir(ctx)).toBe(expectedDir);
+
+    // Skills surface (skillsDir is private — exercised via the install path).
+    const changes = crushAdapter.installSkills!(ctx);
+    expect(changes[0]?.path).toBe(join(expectedDir, "skills", "pdf-tools", "SKILL.md"));
+
+    // Detection probes the XDG dir (NOT ~/.config/crush). A config there is a
+    // recognized user install.
+    mkdirSync(expectedDir, { recursive: true });
+    writeFileSync(join(expectedDir, "crush.json"), "{}", "utf8");
+    const detected = crushAdapter.detectInstalled(projectDir);
+    expect(detected.installed).toBe(true);
+    expect(detected.scope).toBe("user");
+    expect(detected.configPath).toBe(join(expectedDir, "crush.json"));
+
+    // Nothing landed under the hardcoded ~/.config/crush fallback.
+    expect(existsSync(join(projectDir, ".config", "crush"))).toBe(false);
+  });
+
+  it("falls back to ~/.config/crush when XDG is unset (default-case parity)", () => {
+    delete process.env.XDG_CONFIG_HOME; // restored by isolateEnv's afterEach
+    const ctx = userCtx();
+
+    // HOME is redirected to projectDir, so ~/.config/crush → projectDir/.config/crush.
+    const expectedDir = join(projectDir, ".config", "crush");
+    expect(crushAdapter.getServerConfigPath(ctx)).toBe(join(expectedDir, "crush.json"));
+    expect(crushAdapter.getHookConfigPath(ctx)).toBe(join(expectedDir, "crush.json"));
+    expect(crushAdapter.getConfigDir(ctx)).toBe(expectedDir);
+
+    const changes = crushAdapter.installSkills!(ctx);
+    expect(changes[0]?.path).toBe(join(expectedDir, "skills", "pdf-tools", "SKILL.md"));
   });
 });
 

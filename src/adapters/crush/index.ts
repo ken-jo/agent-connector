@@ -26,7 +26,6 @@
  */
 
 import { existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
@@ -45,7 +44,7 @@ import type {
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
-import { localAppData } from "../../core/host-paths.js";
+import { localAppData, xdgConfigHome } from "../../core/host-paths.js";
 import {
   buildHomeBinHookCommand,
   buildWrappedStdio,
@@ -223,15 +222,18 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Crush's user config dir:
+   * Crush's user config dir, mirroring its own `home.Config()` resolution
+   * (charmbracelet/crush internal/home/home.go: `cmp.Or(XDG_CONFIG_HOME, ~/.config)`):
    *   - Windows: %LOCALAPPDATA%\crush  (Local; falls back to AppData/Local)
-   *   - macOS / Linux: ~/.config/crush
+   *   - macOS / Linux: $XDG_CONFIG_HOME/crush or ~/.config/crush
+   * (crush honors $XDG_CONFIG_HOME on Linux/macOS; the `xdgConfigHome()` helper
+   * is byte-identical to ~/.config when XDG is unset.)
    */
   private userConfigDir(): string {
     if (process.platform === "win32") {
       return join(localAppData(), "crush");
     }
-    return join(homedir(), ".config", "crush");
+    return join(xdgConfigHome(), "crush");
   }
 
   // ── MCP server install / uninstall (crush.json → mcp.<id>) ───────────────
