@@ -105,7 +105,7 @@ server in the right file + root key):
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
   connectors remain (29 / 29).
-- **1874 tests passing** · `tsc` clean · build green.
+- **Full `npm test` suite passing** · `tsc` clean · build green.
 
 The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
 `configPatch` — went through the same bar: dogfooded against real connector
