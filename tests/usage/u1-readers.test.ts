@@ -827,6 +827,75 @@ describe("kimi reader", () => {
     expect(records).toHaveLength(1);
     expect(records[0]!.tokens.input).toBe(14);
   });
+
+  // ── Kimi Code (newer product, ~/.kimi-code) — DEEPER session tree ──────────
+  // ~/.kimi-code/sessions/<SESSION>/agents/<AGENT>/wire.jsonl (extra agents/ level).
+  // We use the SAME StatusUpdate frame format as the Kimi CLI fixtures above —
+  // that is the verifiable assumption (Kimi Code's wire.jsonl frame schema is
+  // auth-gated and not live-verified). These tests prove the dual-root discovery
+  // + DEPTH-ROBUST home/config resolution + fail-open on the deeper tree.
+
+  /** Write a Kimi Code deep-tree session: <root>/sessions/<session>/agents/<agent>/wire.jsonl. */
+  function writeKimiCodeSession(
+    root: string,
+    session: string,
+    agent: string,
+    wireLines: unknown[],
+    model = "kimi-for-coding",
+  ): void {
+    const agentDir = join(root, "sessions", session, "agents", agent);
+    writeJsonl(agentDir, "wire.jsonl", wireLines);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "config.json"), JSON.stringify({ model }), "utf8");
+  }
+
+  it("Kimi Code: discovers the DEEPER tree under ~/.kimi-code and resolves the model via the depth-robust walk", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    writeKimiCodeSession(
+      codeRoot,
+      "sess-deep",
+      "agent-main",
+      [
+        { type: "metadata", protocol_version: "1.3" },
+        statusUpdate(
+          1771000000.5,
+          { input_other: 700, output: 80, input_cache_read: 12, input_cache_creation: 3 },
+          "msg-deep",
+        ),
+      ],
+      "kimi-k2-code",
+    );
+
+    const records = await kimiReader.read({});
+    expect(records).toHaveLength(1);
+    const r = records[0]!;
+    // (b) model came from <root>/config.json via the depth-robust walk, NOT the
+    //     DEFAULT_MODEL fallback (a fixed 4-hop lookup would have missed it).
+    expect(r.modelId).toBe("kimi-k2-code");
+    // (c) token records parse correctly through the unchanged frame parser.
+    expect(r.tokens.input).toBe(700);
+    expect(r.tokens.output).toBe(80);
+    expect(r.tokens.cacheRead).toBe(12);
+    expect(r.tokens.cacheWrite).toBe(3);
+    expect(r.providerId).toBe("moonshot");
+    // Immediate parent of wire.jsonl is the <AGENT> dir for the deeper tree.
+    expect(r.sessionId).toBe("agent-main");
+    expect(r.dedupKey).toBe("msg-deep");
+  });
+
+  it("Kimi Code FAIL-OPEN: an UNRECOGNIZED frame type in the deep tree yields 0 records, no throw", async () => {
+    const codeRoot = join(tmpHome, ".kimi-code");
+    // Frames that are NOT StatusUpdate/token_usage — simulates a diverging Kimi
+    // Code wire schema. The safety net: 0 records, never wrong counts.
+    writeKimiCodeSession(codeRoot, "sess-x", "agent-x", [
+      { type: "metadata", protocol_version: "9.9" },
+      { timestamp: 1771000100.0, message: { type: "TurnBegin", payload: {} } },
+      { timestamp: 1771000101.0, message: { type: "SomeFutureFrame", payload: { tokens: 999 } } },
+    ]);
+
+    const records = await kimiReader.read({});
+    expect(records).toEqual([]);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════
