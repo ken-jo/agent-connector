@@ -366,8 +366,13 @@ describe("crush adapter — skills surface", () => {
 // shared crush.json for servers + hooks, the skills dir, and the detection probe)
 // must flow through $XDG_CONFIG_HOME/crush when set — NOT a hardcoded ~/.config/crush
 // — or crush (which reads the XDG dir) never sees what agent-connector wrote.
-
-describe("crush adapter — user config dir XDG resolution", () => {
+//
+// POSIX-only: this PR fixes the non-win32 branch. On Windows the adapter keeps its
+// documented `%LOCALAPPDATA%\crush` path (see userConfigDir win32 branch) and does
+// NOT consult $XDG_CONFIG_HOME, so these XDG assertions are skipped there. (Whether
+// crush's own home.Config() honors XDG on Windows too is a separately-flagged
+// follow-up, not this change.)
+describe.skipIf(process.platform === "win32")("crush adapter — user config dir XDG resolution", () => {
   let projectDir: string;
 
   beforeEach(() => {
