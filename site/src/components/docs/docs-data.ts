@@ -1292,7 +1292,7 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     name: "Amazon Q Developer CLI",
     id: "amazon-q",
     target:
-      "~/.aws/amazonq/mcp.json (user) / .amazonq/mcp.json (project) → mcpServers (hooks in cli-agents/q_cli_default.json)",
+      "~/.aws/amazonq/mcp.json (user) / .amazonq/mcp.json (project) → mcpServers (hooks in cli-agents/q_cli_default.json; subagents as cli-agents/<name>.json)",
   },
 ];
 

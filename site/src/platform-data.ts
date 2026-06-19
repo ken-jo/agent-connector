@@ -526,21 +526,30 @@ export const platforms: Platform[] = [
     id: "amazon-q",
     name: "Amazon Q Developer CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, false, false, true, false, false),
-    // json-stdio: AC installs MCP + hooks + memory. MCP at ~/.aws/amazonq/mcp.json
-    // (user) and .amazonq/mcp.json (project), root key "mcpServers". hooks WIRED:
-    // the agent-format hooks layer (cli-agents/*.json) — an OBJECT keyed by
-    // trigger (agentSpawn/userPromptSubmit/preToolUse/postToolUse/stop), each entry
-    // { command, matcher? }, JSON-over-STDIN, exit-code 0/2. Hooks have no global
-    // file, so AC merges into the built-in `q_cli_default` agent file
-    // (cli-agents/q_cli_default.json) at the install scope — a bare default.json
-    // would be an inactive custom agent (mirrors kiro's default-agent selection).
+    surfaces: s(true, true, false, false, true, true, false, false),
+    // json-stdio: AC installs MCP + hooks + subagents + memory. MCP at
+    // ~/.aws/amazonq/mcp.json (user) and .amazonq/mcp.json (project), root key
+    // "mcpServers". hooks WIRED: the agent-format hooks layer (cli-agents/*.json)
+    // — an OBJECT keyed by trigger (agentSpawn/userPromptSubmit/preToolUse/
+    // postToolUse/stop), each entry { command, matcher? }, JSON-over-STDIN,
+    // exit-code 0/2. Hooks have no global file, so AC merges into the built-in
+    // `q_cli_default` agent file (cli-agents/q_cli_default.json) at the install
+    // scope — a bare default.json would be an inactive custom agent (mirrors
+    // kiro's default-agent selection).
+    // subagents WIRED: Amazon Q "agents" are per-agent JSON files where the
+    // filename (minus .json) is the agent name (cli-agents/<name>.json, both
+    // scopes — github.com/aws/amazon-q-developer-cli agent-file-locations.md +
+    // agent-format.md). AC writes { name, description, prompt } (+ model/tools/
+    // allowedTools when declared); a subagent named `q_cli_default` is refused
+    // (would clobber the hooks/default-agent file).
     // memory WIRED:
     // .amazonq/rules/agent-connector.md (project; plain Markdown auto-applied as
     // context — docs.aws.amazon.com context-project-rules).
-    // N/A wired: commands/skills/subagents (no documented user-authored dir
-    // verified for the mcp.json scope).
-    hostNative: s(true, true, false, false, false, true, false, false),
+    // commands DEFERRED: the prompt library (~/.aws/amazonq/prompts/*.md) is only
+    // documented for the IDE chat (q-in-IDE prompt-library page); the Q CLI repo
+    // docs ship no prompts surface, so the CLI format/project-scope is unverified
+    // → supportsCommands UNSET (no guessed surface). skills: no documented dir.
+    hostNative: s(true, true, false, false, true, true, false, false),
   },
   {
     id: "continue",
