@@ -83,7 +83,7 @@ export interface FormFactor {
 export const formFactors: FormFactor[] = [
   { id: "cli", label: "CLI", short: "terminal agent CLIs" },
   { id: "extension", label: "IDE extension", short: "runs inside an editor" },
-  { id: "app", label: "App / editor", short: "standalone GUI app" },
+  { id: "app", label: "App / IDE", short: "standalone GUI app" },
 ];
 
 /* ------------------------------------------------------------------ */

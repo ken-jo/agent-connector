@@ -57,7 +57,7 @@ export function Hero() {
           <div className="animate-fade-up mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center">
             <div className="flex h-11 w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card/70 pl-3.5 pr-1.5 font-mono text-sm shadow-sm backdrop-blur sm:w-auto">
               <Terminal className="size-4 shrink-0 text-muted-foreground" />
-              <span className="select-all truncate text-foreground">
+              <span className="min-w-0 select-all truncate text-foreground">
                 {INSTALL_CMD}
               </span>
               <CopyButton value={INSTALL_CMD} className="ml-auto size-8" />
