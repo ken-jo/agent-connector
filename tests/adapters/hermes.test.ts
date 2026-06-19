@@ -412,6 +412,62 @@ describe("hermes adapter render + round-trip", () => {
   });
 });
 
+// ── hook timeout clamp (Hermes documents default 60s, capped at 300s) ──────────
+// hooks.md (NousResearch/hermes-agent): `timeout: <seconds>` is "default 60,
+// capped at 300" and `timeout > 300` is clamped with a warning by Hermes. The
+// adapter clamps to [1, 300] so it never emits a value the host would reject.
+
+/** A stdio connector with a configurable server.timeoutMs and a PreToolUse hook. */
+function timeoutConnector(timeoutMs: number): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    server: {
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@x/y"],
+      timeoutMs,
+      tools: { include: ["*"] },
+    },
+    hooks: {
+      PreToolUse: { matcher: PRE_MATCHER, handler: () => ({ decision: "allow" }) },
+    },
+  });
+}
+
+/** Install hooks for a connector with `timeoutMs` and return the written pre_tool_call entry's timeout. */
+function installedTimeout(timeoutMs: number): number {
+  const projectDir = freshProject("ac-hermes-timeout-");
+  const ctx = buildCtx(projectDir, timeoutConnector(timeoutMs), "user");
+  hermesAdapter.installHooks(ctx);
+  const cfg = readYamlFile(join(projectDir, ".hermes", "config.yaml"));
+  return cfg.hooks.pre_tool_call[0].timeout as number;
+}
+
+describe("hermes adapter — hook timeout clamp", () => {
+  it("clamps a timeoutMs ABOVE the documented 300s max down to 300", () => {
+    // 600000ms = 600s → would emit 600, which Hermes rejects/caps; clamp to 300.
+    expect(installedTimeout(600_000)).toBe(300);
+  });
+
+  it("leaves an in-range timeoutMs UNCHANGED (byte-identical to pre-fix behavior)", () => {
+    // 30000ms = 30s is within [1, 300]; Math.round(30000/1000) = 30, unchanged.
+    expect(installedTimeout(30_000)).toBe(30);
+    // Exactly at the max boundary is preserved, not bumped.
+    expect(installedTimeout(300_000)).toBe(300);
+    // Exactly at the min boundary (1s) is preserved.
+    expect(installedTimeout(1_000)).toBe(1);
+  });
+
+  it("floors a sub-second timeoutMs (would round to 0) up to the 1s minimum", () => {
+    // 200ms → Math.round(0.2) = 0, an undocumented/ambiguous 0s timeout; floor to 1.
+    expect(installedTimeout(200)).toBe(1);
+    // 499ms → rounds to 0 → floored to 1.
+    expect(installedTimeout(499)).toBe(1);
+  });
+});
+
 // ── remote HTTP MCP (mcp_servers, { url, headers? }, no transport key) ─────────
 
 describe("hermes adapter — remote HTTP MCP", () => {

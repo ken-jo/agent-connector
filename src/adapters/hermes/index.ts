@@ -84,6 +84,14 @@ const HOOKS_KEY = "hooks";
 const QUICK_COMMANDS_KEY = "quick_commands";
 /** Default per-hook timeout (seconds) when the connector declares none. */
 const DEFAULT_HOOK_TIMEOUT = 60;
+/**
+ * Documented per-hook timeout bounds (seconds). Hermes' hooks.md states
+ * `timeout: <seconds>` is "default 60, capped at 300" and that `timeout > 300`
+ * is clamped with a warning by the host. There is no documented minimum; the
+ * 1s floor is defensive so a sub-second connector timeoutMs never rounds to 0.
+ */
+const HOOK_TIMEOUT_MAX = 300;
+const HOOK_TIMEOUT_MIN = 1;
 
 /** One Hermes quick-command entry (a `/<id>` slash command). */
 interface HermesQuickCommand {
@@ -686,7 +694,15 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
 
   private hookTimeout(server: ServerDef | undefined): number {
     const ms = server?.timeoutMs;
-    if (typeof ms === "number" && ms > 0) return Math.round(ms / 1000);
+    if (typeof ms === "number" && ms > 0) {
+      // Hermes documents `timeout: <seconds>` as "default 60, capped at 300";
+      // a value > 300 is clamped with a warning by Hermes itself (see hooks.md
+      // on NousResearch/hermes-agent). Clamp here so we never emit a value the
+      // host would reject/cap. No documented minimum, but a positive timeoutMs
+      // must not round down to 0 (an undocumented, ambiguous "no/instant"
+      // timeout), so floor at 1s. In-range values (1000–300000ms) are unchanged.
+      return Math.min(HOOK_TIMEOUT_MAX, Math.max(HOOK_TIMEOUT_MIN, Math.round(ms / 1000)));
+    }
     return DEFAULT_HOOK_TIMEOUT;
   }
 
