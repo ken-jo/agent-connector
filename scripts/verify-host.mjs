@@ -242,6 +242,49 @@ const HOST_LANES = {
     accept: { argv: ["mcp", "list"], kind: "list-id" },
     note: "`droid mcp list` lists our MCP server offline (live-verified); turn is auth-gated.",
   },
+  omp: {
+    bin: "omp",
+    // oh-my-pi (can1357) ts-plugin host; MCP at ~/.omp/agent/mcp.json (honors
+    // PI_CODING_AGENT_DIR → set into WORK so writer + CLI agree).
+    env: { PI_CODING_AGENT_DIR: [".omp", "agent"] },
+    // Determined empirically: omp has NO `mcp` subcommand (`omp mcp …` is parsed
+    // as a prompt → default launch help); `omp config list` reads SETTINGS, not
+    // the mcp.json server registry. And `omp -p` is auth-gated ("No models
+    // available. Use /login or set an API key") — no bundled offline model, so
+    // unlike opencode/mimo the ts-plugin hook does NOT fire offline. Placement-only.
+    placementOnly: true,
+    note: "no offline accept verb — placement+uninstall-clean only (omp has no `mcp` subcommand; `omp -p` is auth-gated, no offline model → no offline runtime).",
+  },
+  cursor: {
+    bin: "cursor-agent", // NOT `cursor` — Cursor's headless CLI is `cursor-agent`.
+    // The cursor adapter writes ~/.cursor/mcp.json off homedir → HOME isolation
+    // suffices. Determined empirically: `cursor-agent mcp list` reads
+    // ~/.cursor/mcp.json OFFLINE and echoes our id (live-verified output:
+    // "ac-verify: not loaded (needs approval)" — the id IS listed, no auth for
+    // the list verb). json-stdio host with hooks; placement+accept is the ceiling
+    // (no auth-free runtime — a turn needs CURSOR_API_KEY).
+    accept: { argv: ["mcp", "list"], kind: "list-id" },
+    note: "`cursor-agent mcp list` lists our ~/.cursor/mcp.json server offline (live-verified); turn needs CURSOR_API_KEY.",
+  },
+  kimi: {
+    bin: "kimi",
+    // @moonshot-ai/kimi-code (json-stdio). The adapter writes mcp.json + the
+    // [[hooks]] config.toml under $KIMI_HOME || $KIMI_CODE_HOME || ~/.kimi.
+    // CRITICAL (live finding): the v0.18.0 CLI's `doctor` reads ~/.kimi-code by
+    // default and KIMI_HOME does NOT redirect it, but KIMI_CODE_HOME redirects
+    // BOTH the adapter writer AND the CLI reader — so setting KIMI_CODE_HOME into
+    // WORK unifies them (the CODEX_HOME pattern).
+    env: { KIMI_CODE_HOME: [".kimi-cfg"] },
+    // No `mcp list` verb. `kimi doctor config` VALIDATES the exact config.toml we
+    // wrote (live-verified: "OK config.toml … All checked config files are
+    // valid"; negative control with corrupt TOML → "found 1 issue / ERROR"). It
+    // exits 0 even on errors, so an exit-0 "ok" would falsely pass — use ok-marker
+    // (require "valid", reject "issue"). It validates config.toml (hooks), NOT
+    // mcp.json, and does not echo the connector id, so this proves the CLI READS
+    // + ACCEPTS our written hook config, not id presence. Turn is auth-gated.
+    accept: { argv: ["doctor", "config"], kind: "ok-marker", okMarker: "valid", failMarker: "issue" },
+    note: "`kimi doctor config` validates our written config.toml offline (live-verified OK + negative control); validates config.toml not mcp.json; turn is auth-gated.",
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -280,6 +323,10 @@ const HOST_INSTALL = {
   "mimo-code": { kind: "npm", pkg: "@mimo-ai/cli", bin: "mimo", identity: "github.com/XiaomiMiMo/MiMo-Code" },
   crush: { kind: "npm", pkg: "@charmland/crush", bin: "crush", identity: "github.com/charmbracelet/crush" },
   openclaw: { kind: "npm", pkg: "openclaw", bin: "openclaw", identity: "github.com/openclaw/openclaw" },
+  // @moonshot-ai/kimi-code is the OFFICIAL Moonshot Kimi Code CLI (bin `kimi`),
+  // matching the kimi adapter's $KIMI_HOME/$KIMI_CODE_HOME layout. Pinned to
+  // 0.18.0; engines node>=22.19 (this box has node 24). NOT the old "kimi-cli" stub.
+  kimi: { kind: "npm", pkg: "@moonshot-ai/kimi-code@0.18.0", bin: "kimi", identity: "github.com/MoonshotAI/kimi-code" },
   // ── pinned vendor binary downloads (arch-aware; NO remote-script execution) ──
   // Versions are PINNED and live-verified on aarch64; bump the pin to upgrade.
   goose: {
@@ -317,13 +364,42 @@ const HOST_INSTALL = {
         arch === "arm64" ? "arm64" : "x64"
       }/droid`,
   },
+  omp: {
+    kind: "download",
+    bin: "omp",
+    identity: "github.com/can1357/oh-my-pi v16.0.10",
+    extract: "raw",
+    // Raw per-arch binary from the pinned GitHub release. omp-linux-arm64 / -x64.
+    url: (arch) =>
+      `https://github.com/can1357/oh-my-pi/releases/download/v16.0.10/omp-linux-${
+        arch === "arm64" ? "arm64" : "x64"
+      }`,
+  },
+  cursor: {
+    kind: "download",
+    bin: "cursor-agent",
+    identity: "downloads.cursor.com cursor-agent 2026.06.16-20-30-07-a07d3ac",
+    extract: "targz",
+    // Binary is nested at dist-package/cursor-agent inside the tarball.
+    archiveBinPath: ["dist-package", "cursor-agent"],
+    // WARNING: this is a TIMESTAMP-version-pinned LAB snapshot URL
+    // (2026.06.16-20-30-07-a07d3ac) and WILL rot — the lab path is ephemeral.
+    // It is the asset the official installer (cursor.com/install) used at pin
+    // time; a stable "latest" endpoint would be better but none is published.
+    // Bump the timestamp segment to refresh when the download 404s.
+    url: (arch) =>
+      `https://downloads.cursor.com/lab/2026.06.16-20-30-07-a07d3ac/linux/${
+        arch === "arm64" ? "arm64" : "x64"
+      }/agent-cli-package.tar.gz`,
+  },
 };
 
 // Hosts genuinely NOT live-verifiable on a headless Linux box, with the SPECIFIC
 // reason. These are already covered by the binary-free install-roundtrip.test.ts
 // (merged), so they are documented non-gaps, NOT unverified holes.
 const UNINSTALLABLE_HERE = {
-  cursor: "GUI editor",
+  // NOTE: cursor was here ("GUI editor") — WRONG. Cursor ships `cursor-agent`, a
+  // headless CLI with `agent mcp list`; it is now an installable live lane below.
   windsurf: "GUI editor",
   trae: "GUI editor",
   kiro: "GUI editor",
@@ -343,10 +419,14 @@ const UNINSTALLABLE_HERE = {
 const IDENTITY_UNVERIFIED = {
   hermes: 'npm "hermes-cli" is a Brazil travel-agency CLI — NOT the AI host',
   mux: 'npm "mux-cli" is a stub ("`npm run mux-cli`") — identity unverified',
-  kimi: 'npm "kimi-cli" 0.0.2 is a front-end-tools generator — NOT the AI host (real Kimi may be pip)',
+  // NOTE: kimi was here (the old npm "kimi-cli" 0.0.2 was a frontend-gen stub) —
+  // but the REAL host is @moonshot-ai/kimi-code (github.com/MoonshotAI/kimi-code,
+  // bin `kimi`); it is now an installable npm live lane below.
   pi: 'npm "pi-cli" 0.0.0 is an empty stub — identity unverified',
   nemoclaw: 'npm "nemoclaw" 0.1.0 has no bin — identity unverified (NVIDIA wraps openclaw)',
-  omp: 'no known npm package ("omp" 1.0.0 is an unrelated "new" stub) — identity unverified',
+  // NOTE: omp was here (npm "omp" is an unrelated stub) — but oh-my-pi (can1357)
+  // ships a pinned release BINARY (omp-linux-<arch>); it is now an installable
+  // live lane below (download, not npm).
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -459,14 +539,19 @@ async function installHost(hostId) {
         const dl = await downloadTo(url, destBin);
         if (!dl.ok) return { ok: false, reason: dl.reason };
         chmodSync(destBin, 0o755);
-      } else if (spec.extract === "tarbz2") {
-        const archive = join(tmp, "dl.tar.bz2");
+      } else if (spec.extract === "tarbz2" || spec.extract === "targz") {
+        // tarbz2 → -xjf (bzip2); targz → -xzf (gzip). The bin may be nested in
+        // the archive (e.g. cursor's dist-package/cursor-agent), so use the
+        // optional archiveBinPath, defaulting to a flat [spec.bin].
+        const archive = join(tmp, "dl.tar");
         const dl = await downloadTo(url, archive);
         if (!dl.ok) return { ok: false, reason: dl.reason };
-        const x = run("tar", ["-xjf", archive, "-C", tmp], process.env, 120_000);
+        const flag = spec.extract === "tarbz2" ? "-xjf" : "-xzf";
+        const x = run("tar", [flag, archive, "-C", tmp], process.env, 120_000);
         if (x.status !== 0) return { ok: false, reason: `tar extract failed: ${(x.stderr || x.stdout).trim().slice(0, 200)}` };
-        const found = join(tmp, spec.bin);
-        if (!existsSync(found)) return { ok: false, reason: `archive did not contain "${spec.bin}"` };
+        const rel = spec.archiveBinPath ?? [spec.bin];
+        const found = join(tmp, ...rel);
+        if (!existsSync(found)) return { ok: false, reason: `archive did not contain ${rel.join("/")}` };
         writeFileSync(destBin, readFileSync(found));
         chmodSync(destBin, 0o755);
       } else if (spec.extract === "zip") {
@@ -734,10 +819,21 @@ async function verifyHost(hostId, { scope, keep, install }) {
       verdict.accept = "no-offline-accept-verb";
     } else {
     const acc = run(binPath, lane.accept.argv, env, lane.accept.timeoutMs ?? 120_000);
+    const accBlob = `${acc.stdout}\n${acc.stderr}`;
     const acceptPass =
       lane.accept.kind === "list-id"
-        ? acc.status === 0 && `${acc.stdout}\n${acc.stderr}`.includes(CONNECTOR_ID)
-        : acc.status === 0;
+        ? // id echoed by a list verb (strongest signal).
+          acc.status === 0 && accBlob.includes(CONNECTOR_ID)
+        : lane.accept.kind === "ok-marker"
+          ? // a validate verb that returns exit 0 AND prints a success marker AND
+            // no failure marker. Needed for CLIs (e.g. kimi doctor) that exit 0
+            // even when they report problems — a bare exit-0 "ok" would falsely
+            // pass a malformed config, so the marker pair makes it meaningful.
+            acc.status === 0 &&
+            accBlob.includes(lane.accept.okMarker) &&
+            !(lane.accept.failMarker && accBlob.includes(lane.accept.failMarker))
+          : // exit 0 (verb ran; config read without crashing).
+            acc.status === 0;
     if (acceptPass) {
       verdict.accept = "accepted";
       verdict.tier = "live-accept";
