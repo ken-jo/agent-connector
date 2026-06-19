@@ -598,3 +598,39 @@ export const platforms: Platform[] = [
 ];
 
 export const platformCount = platforms.length;
+
+/**
+ * Host form-factor — how the user actually runs the agent. Orthogonal to the hook
+ * paradigm (a `cli` can be json-stdio or ts-plugin, etc.); the wall shows form
+ * factor as the grouping band and paradigm as the dot color. This is hand-curated
+ * HOST-NATURE metadata, NOT registry-derivable, so the platform-drift test pins
+ * these three lists to partition every platform id EXACTLY (a new or
+ * misclassified host fails the guard).
+ */
+export type FormFactorId = "cli" | "extension" | "app";
+
+export const formFactorIds: Record<FormFactorId, readonly string[]> = {
+  // Terminal-native agent CLIs.
+  cli: [
+    "claude-code", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
+    "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "opencode",
+    "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code", "kimi",
+    "pi", "antigravity-cli",
+  ],
+  // Editor extensions / plugins — run inside an IDE, no standalone CLI.
+  extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],
+  // Standalone GUI apps / editors (Cursor is the IDE; antigravity is the app,
+  // antigravity-cli is the CLI).
+  app: ["cursor", "windsurf", "trae", "kiro", "zed", "warp", "mux", "antigravity"],
+};
+
+const formFactorById: Record<string, FormFactorId> = Object.fromEntries(
+  (Object.entries(formFactorIds) as [FormFactorId, readonly string[]][]).flatMap(
+    ([ff, ids]) => ids.map((id) => [id, ff] as const),
+  ),
+);
+
+/** The form-factor of a platform id (undefined if unclassified). */
+export function formFactorOf(id: string): FormFactorId | undefined {
+  return formFactorById[id];
+}

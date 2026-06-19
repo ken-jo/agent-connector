@@ -26,7 +26,11 @@ import {
   mcpOnlyPlatforms,
   tsPluginPlatforms,
 } from "../../site/src/components/docs/docs-data.js";
-import { platforms as landingPlatforms } from "../../site/src/platform-data.js";
+import {
+  formFactorIds,
+  formFactorOf,
+  platforms as landingPlatforms,
+} from "../../site/src/platform-data.js";
 
 /** Registry-derived truth: paradigm → sorted adapter ids. */
 async function registryParadigms(): Promise<Record<string, string[]>> {
@@ -58,6 +62,26 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(landingPlatforms.map((p) => p.id)).toEqual(
       ADAPTER_REGISTRY.map((f) => f.id),
     );
+  });
+
+  it("form-factor lists PARTITION the registry ids exactly (every host classified, once)", () => {
+    // formFactor is hand-curated HOST-NATURE metadata, not registry-derivable, so
+    // a "frozen expected map" would just mirror the data (circular). The real
+    // drift risk is a NEW registry host left unclassified — guard that with an
+    // exact partition: the three bands together = every registry id, no overlap,
+    // no stray id, and formFactorOf resolves every landing platform.
+    const all = [
+      ...formFactorIds.cli,
+      ...formFactorIds.extension,
+      ...formFactorIds.app,
+    ];
+    expect(new Set(all).size, "a host appears in more than one form-factor band").toBe(
+      all.length,
+    );
+    expect([...all].sort()).toEqual(ADAPTER_REGISTRY.map((f) => f.id).sort());
+    for (const p of landingPlatforms) {
+      expect(formFactorOf(p.id), `"${p.id}" has no form-factor band`).toBeTruthy();
+    }
   });
 
   it("site landing surface flags EXACTLY match each loaded adapter's capabilities", async () => {
