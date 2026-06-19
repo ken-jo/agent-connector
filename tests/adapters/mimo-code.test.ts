@@ -390,3 +390,102 @@ describe("mimo-code adapter — UserPromptSubmit → chat.message", () => {
     });
   });
 });
+
+// ── Stop → session.idle (generic `event` hook; mirrors kilo / kilo-cli) ───────
+
+/** Connector declaring Stop so the session.idle `event` handler is emitted. */
+function buildStopConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    hooks: {
+      Stop: {
+        handler() {
+          return { decision: "allow" };
+        },
+      },
+    },
+  });
+}
+
+describe("mimo-code adapter — Stop → session.idle (generic event hook)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+  let pluginPath: string;
+
+  beforeEach(() => {
+    projectDir = freshMimoProject("ac-mimo-stop-");
+    ctx = mimoCtx(projectDir, buildStopConnector());
+    pluginPath = mimoAdapter.getHookConfigPath(ctx);
+  });
+
+  it("declares the stop capability", () => {
+    expect(mimoAdapter.capabilities.stop).toBe(true);
+  });
+
+  it("emits a generic event handler that bridges Stop only on session.idle", () => {
+    mimoAdapter.installHooks(ctx);
+    const src = readFileSync(pluginPath, "utf8");
+
+    // The distinctive substrings of the generated Stop handler.
+    expect(src).toContain("event: async ({ event }) =>");
+    expect(src).toContain('event.type !== "session.idle"');
+    expect(src).toContain('bridge("Stop"');
+    // A deny throws to halt (session.idle has no return-value gate).
+    expect(src).toMatch(/session\.idle[\s\S]*throw new Error/);
+
+    // The generated module is valid JS (real child_process, bypassing the mock).
+    const require = createRequire(import.meta.url);
+    const { execFileSync: realExecFileSync } = require("node:child_process");
+    expect(() =>
+      realExecFileSync(process.execPath, ["--check", pluginPath], { encoding: "utf8" }),
+    ).not.toThrow();
+  });
+
+  it("the Stop handler does NOT appear when Stop is not declared (byte oracle)", () => {
+    const noStopCtx = mimoCtx(projectDir, buildConnector());
+    mimoAdapter.installHooks(noStopCtx);
+    const src = readFileSync(mimoAdapter.getHookConfigPath(noStopCtx), "utf8");
+    // buildConnector() declares PreToolUse + SessionStart only — no event hook.
+    expect(src).not.toContain("event: async ({ event }) =>");
+    expect(src).not.toContain('bridge("Stop"');
+  });
+
+  it("THE BRIDGE WORKS — the event hook bridges Stop only for session.idle and throws on deny", async () => {
+    mimoAdapter.installHooks(ctx);
+    execFileSyncImpl = () => JSON.stringify({ decision: "deny", reason: "stay" });
+
+    const url = `${pathToFileURL(pluginPath).href}?t=${Date.now()}-${Math.random()}`;
+    const mod = await import(/* @vite-ignore */ url);
+    const hooks = await mod.default({ directory: projectDir });
+    expect(typeof hooks.event).toBe("function");
+
+    // A non-idle event is ignored — no bridge call, no throw.
+    await expect(
+      hooks.event({ event: { type: "session.updated", properties: {} } }),
+    ).resolves.toBeUndefined();
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+
+    // session.idle bridges Stop with the mimo-code id and throws on a deny.
+    await expect(
+      hooks.event({ event: { type: "session.idle", properties: { sessionID: "s2" } } }),
+    ).rejects.toThrow();
+    expect(execFileSyncMock).toHaveBeenCalledTimes(1);
+    const [bin, argv] = execFileSyncMock.mock.calls[0]!;
+    expect(bin).toBe(HOME_BIN);
+    expect(argv).toEqual(["hook", "mimo-code", "Stop", "--connector", CONNECTOR_ID]);
+  });
+
+  it("parseEvent maps a session.idle bridge payload → StopEvent (hostPlatform=mimo-code)", () => {
+    const evt = mimoAdapter.parseEvent!("Stop", {
+      sessionId: "mc-stop",
+      projectDir: "/some/proj",
+    });
+    expect(evt).toMatchObject({
+      hostPlatform: "mimo-code",
+      sessionId: "mc-stop",
+      projectDir: "/some/proj",
+    });
+  });
+});
