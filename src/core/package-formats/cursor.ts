@@ -10,9 +10,10 @@
  * marketplace.json { name, owner:{name,email?}, plugins:[{name,source,description}] }.
  *
  * Markdown reuses the shared claude-code renderers (Cursor reads the same md +
- * frontmatter command/agent/skill documents). Hooks + MCP use the shared
- * builders with --host cursor so the home-bin hook + serve-wrapper telemetry
- * carry through.
+ * frontmatter command/agent/skill documents). MCP uses the shared serve-wrap
+ * builder with --host cursor so serve-wrapper telemetry carries through. Hooks
+ * use Cursor's OWN flat hooks.json shape (NOT the Claude shape) via the cursor
+ * install adapter's shared event-map + version — see buildCursorHooksJson.
  *
  * (Cursor also supports `rules/*.mdc`, but a connector declares no rules surface,
  * so no rules/ dir is emitted and the manifest omits the `rules` pointer.)
@@ -21,14 +22,18 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import type { PlatformId, ResolvedConnector } from "../types.js";
+import type { HookEventName, PlatformId, ResolvedConnector } from "../types.js";
 import {
   renderCommandMd,
   renderSkillMd,
   renderSubagentMd,
 } from "../../adapters/claude-code/render.js";
 import {
-  buildClaudeHooksJson,
+  CURSOR_EVENT_MAP,
+  CURSOR_HOOKS_VERSION,
+} from "../../adapters/cursor/index.js";
+import { buildHomeBinHookCommand } from "../spawn.js";
+import {
   buildMcpEntry,
   createEmitter,
   json,
@@ -39,6 +44,49 @@ import {
 } from "./shared.js";
 
 const PLATFORM: PlatformId = "cursor";
+
+/** A single Cursor native hook entry — a FLAT command object (matcher optional). */
+interface CursorHookEntry {
+  command: string;
+  matcher?: string;
+}
+
+/**
+ * Build Cursor's native hooks.json body for the connector's declared events.
+ *
+ * Unlike the Claude shape (PascalCase keys, nested `{ matcher?, hooks:[{type,
+ * command}] }`, no version), Cursor reads `{ version, hooks: { <cursorEvent>:
+ * [ { command, matcher? } ] } }` — lower-camel native keys, FLAT command
+ * entries, and a top-level version stamp. The event-map + version are imported
+ * from the cursor INSTALL adapter (the repo authority on Cursor's schema) so a
+ * packaged bundle and a live install can never diverge: only the events Cursor
+ * actually maps are emitted, with the exact keys/version the adapter writes.
+ *
+ * The home-bin command STRING is the same single-string form the install
+ * adapter writes (buildHomeBinHookCommand); only the envelope shape differs.
+ *
+ * Scope: this operates on the connector-level declared `hookEvents` only. Per-
+ * platform override state (`platforms.cursor.hooks: false` / `nativeHooks`) is
+ * intentionally NOT applied — a portable package bundle is platform-agnostic,
+ * matching the Claude-family emitters. The consistency test covers the no-
+ * override case (bundle bytes === a vanilla install).
+ * Returns null when the connector declares no Cursor-mapped events.
+ */
+function buildCursorHooksJson(
+  connector: ResolvedConnector,
+  homeBin: string,
+): { version: number; hooks: Record<string, CursorHookEntry[]> } | null {
+  const hooks: Record<string, CursorHookEntry[]> = {};
+  for (const event of connector.hookEvents) {
+    const cursorEvent = CURSOR_EVENT_MAP[event as HookEventName];
+    if (cursorEvent === undefined) continue; // no Cursor equivalent — skipped
+    const command = buildHomeBinHookCommand(homeBin, PLATFORM, event, connector.id);
+    const matcher = connector.hooks[event]?.matcher ?? "";
+    hooks[cursorEvent] = [matcher ? { command, matcher } : { command }];
+  }
+  if (Object.keys(hooks).length === 0) return null;
+  return { version: CURSOR_HOOKS_VERSION, hooks };
+}
 
 /** Build .cursor-plugin/plugin.json with pointer surface fields for what exists. */
 function buildManifest(
@@ -85,7 +133,7 @@ export const emitCursorPlugin: FormatEmitter = (
   const { emit, files } = createEmitter(ctx.dryRun);
   const pluginDir = join(ctx.outDir, connector.id);
 
-  const hooksJson = buildClaudeHooksJson(connector, ctx.homeBinPath, PLATFORM);
+  const hooksJson = buildCursorHooksJson(connector, ctx.homeBinPath);
   const mcp = buildMcpEntry(connector, ctx.homeBinPath, PLATFORM);
 
   const has = {

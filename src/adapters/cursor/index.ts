@@ -61,8 +61,13 @@ import { normalizeSessionSource } from "../claude-code/wire.js";
 const HOST: PlatformId = "cursor";
 const MCP_ROOT_KEY = "mcpServers";
 
-/** Native hooks.json version Cursor expects. */
-const CURSOR_HOOKS_VERSION = 1;
+/**
+ * Native hooks.json version Cursor expects. Exported as the SINGLE source of
+ * truth for Cursor's hooks-file version, shared with the `cursor-plugin`
+ * package emitter so the live install + the packaged bundle can never stamp
+ * different versions (see core/package-formats/cursor.ts).
+ */
+export const CURSOR_HOOKS_VERSION = 1;
 
 /**
  * Cursor-native hook event names, in the lower-camel form Cursor reads from
@@ -97,8 +102,13 @@ const CURSOR_EVENT = {
  * "ask"` of the before* hooks (beforeShellExecution / beforeMCPExecution /
  * beforeReadFile / preToolUse), not an observable event. Install reports the
  * standard skip-warn for it.
+ *
+ * Exported as the SINGLE source of truth for canonical→Cursor-native event
+ * mapping, shared with the `cursor-plugin` package emitter (see
+ * core/package-formats/cursor.ts) so the packaged bundle's hooks.json keys can
+ * never silently diverge from the live install adapter's.
  */
-const EVENT_MAP: Partial<Record<HookEventName, string>> = {
+export const CURSOR_EVENT_MAP: Partial<Record<HookEventName, string>> = {
   PreToolUse: CURSOR_EVENT.PreToolUse,
   PostToolUse: CURSOR_EVENT.PostToolUse,
   SessionStart: CURSOR_EVENT.SessionStart,
@@ -403,8 +413,8 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
 
   /**
    * Cursor's hook-merge descriptor (FLAT shape `{ command, matcher? }`):
-   *  - mapEvent renames canonical → Cursor's lower-camel native key (EVENT_MAP);
-   *    an unmapped event warn-skips (no Cursor equivalent).
+   *  - mapEvent renames canonical → Cursor's lower-camel native key
+   *    (CURSOR_EVENT_MAP); an unmapped event warn-skips (no Cursor equivalent).
    *  - renderEntry omits the `matcher` key when the matcher is falsy — this
    *    `{command}` vs `{command,matcher}` distinction is load-bearing on-disk
    *    bytes (Cursor's flat entry shape), reproduced exactly here.
@@ -417,7 +427,7 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
    */
   private hookDescriptor(ctx: InstallContext): HookMergeDescriptor<CursorHookEntry> {
     return {
-      mapEvent: (e) => EVENT_MAP[e as HookEventName],
+      mapEvent: (e) => CURSOR_EVENT_MAP[e as HookEventName],
       unmappedWarnDetail: (e) => `${e} has no Cursor hook equivalent — skipped`,
       renderEntry: (_event, matcher, command) =>
         matcher ? { command, matcher } : { command },
