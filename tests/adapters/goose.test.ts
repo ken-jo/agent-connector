@@ -32,6 +32,7 @@ import type {
   PostToolUseFailureEvent,
   PreToolUseEvent,
   ResolvedConnector,
+  Transport,
 } from "../../src/core/types.js";
 
 import gooseAdapter from "../../src/adapters/goose/index.js";
@@ -491,6 +492,127 @@ describe("goose adapter render + round-trip", () => {
     // The on-disk file carries PreToolUse but NOT the unsupported UserPromptSubmit.
     expect(file.hooks.PreToolUse).toBeTruthy();
     expect(file.hooks.UserPromptSubmit).toBeUndefined();
+  });
+});
+
+// ── MCP transports (stdio / http=streamable_http; sse/ws warn-skip) ───────────
+//
+// Goose's ExtensionConfig is a tagged enum: `type:"stdio"` (local) and
+// `type:"streamable_http"` (remote, field `uri` NOT `url`). The legacy
+// `type:"sse"` variant still parses for old-config compatibility but Goose
+// REJECTS it at connect time ("SSE is unsupported, migrate to streamable_http"),
+// so the adapter advertises only ["stdio","http"] and warn-skips an sse/ws
+// server rather than writing a broken empty-cmd stdio entry.
+
+const REMOTE_URL = "https://mcp.acme.example/streamable";
+
+/** A server-only connector for the http/sse/ws transport tests. */
+function remoteConnector(transport: Transport): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    server: {
+      transport,
+      url: REMOTE_URL,
+      headers: { Authorization: "Bearer abc" },
+    },
+  });
+}
+
+describe("goose adapter — MCP transports", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-goose-transport-");
+    process.env.APPDATA = join(projectDir, "AppData", "Roaming");
+    process.env.LOCALAPPDATA = join(projectDir, "AppData", "Local");
+    ctx = buildCtx(projectDir, remoteConnector("http"), "user");
+  });
+
+  it('advertises exactly ["stdio","http"] — the legacy "sse" transport is NOT advertised', () => {
+    expect(gooseAdapter.capabilities.transports).toEqual(["stdio", "http"]);
+    expect(gooseAdapter.capabilities.transports).not.toContain("sse");
+  });
+
+  it('http server → { type:"streamable_http", uri, headers } (uri NOT url; NO empty cmd)', () => {
+    const changes = gooseAdapter.installServer(ctx);
+    expect(changes[0]?.action).toBe("create");
+
+    const serverPath = gooseAdapter.getServerConfigPath(ctx);
+    const cfg = readYamlFile(serverPath);
+    const entry = cfg.extensions[CONNECTOR_ID];
+    expect(entry).toBeTruthy();
+
+    // Goose's CURRENT remote transport is Streamable HTTP, keyed `uri` (NOT `url`).
+    expect(entry.type).toBe("streamable_http");
+    expect(entry.uri).toBe(REMOTE_URL);
+    expect(entry).not.toHaveProperty("url");
+
+    // A remote server must NOT degrade to a broken empty-cmd stdio entry.
+    expect(entry).not.toHaveProperty("cmd");
+    expect(entry.type).not.toBe("stdio");
+
+    // headers carry through (env-refs would resolve to literals); timeout/enabled set.
+    expect(entry.headers).toEqual({ Authorization: "Bearer abc" });
+    expect(entry.enabled).toBe(true);
+    expect(typeof entry.timeout).toBe("number");
+  });
+
+  it("http server resolves ${env:VAR} in uri + headers to LITERALS (goose has no native env support)", () => {
+    // Goose can't interpolate ${env:VAR} itself, so AC must resolve it at install
+    // time — an unresolved placeholder in a remote URL / auth header silently breaks
+    // the connection. Lock that the remote path resolves like the stdio path does.
+    const prevHost = process.env.AC_GOOSE_HOST;
+    const prevTok = process.env.AC_GOOSE_TOKEN;
+    process.env.AC_GOOSE_HOST = "mcp.live.example";
+    process.env.AC_GOOSE_TOKEN = "tok-live-123";
+    try {
+      const c = defineConnector({
+        id: CONNECTOR_ID,
+        displayName: "Acme DB Tools",
+        version: "1.2.3",
+        server: {
+          transport: "http",
+          url: "https://${env:AC_GOOSE_HOST}/mcp",
+          headers: { Authorization: "Bearer ${env:AC_GOOSE_TOKEN}" },
+        },
+      });
+      const envCtx = buildCtx(projectDir, c, "user");
+      gooseAdapter.installServer(envCtx);
+      const entry = readYamlFile(gooseAdapter.getServerConfigPath(envCtx)).extensions[CONNECTOR_ID];
+      expect(entry.uri).toBe("https://mcp.live.example/mcp");
+      expect(entry.uri).not.toContain("${env:");
+      expect(entry.headers.Authorization).toBe("Bearer tok-live-123");
+    } finally {
+      if (prevHost === undefined) delete process.env.AC_GOOSE_HOST;
+      else process.env.AC_GOOSE_HOST = prevHost;
+      if (prevTok === undefined) delete process.env.AC_GOOSE_TOKEN;
+      else process.env.AC_GOOSE_TOKEN = prevTok;
+    }
+  });
+
+  it('sse server → warn-skip (no broken empty-cmd stdio entry written), points at streamable_http', () => {
+    const sseCtx = buildCtx(projectDir, remoteConnector("sse"), "user");
+    const changes = gooseAdapter.installServer(sseCtx);
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toContain('transport "sse" not registrable');
+    expect(changes[0]?.detail).toContain("streamable_http");
+
+    // Nothing was written — no broken empty-cmd stdio entry on disk.
+    const serverPath = gooseAdapter.getServerConfigPath(sseCtx);
+    expect(existsSync(serverPath)).toBe(false);
+  });
+
+  it("ws server → warn-skip too (only stdio + http registrable)", () => {
+    const wsCtx = buildCtx(projectDir, remoteConnector("ws"), "user");
+    const changes = gooseAdapter.installServer(wsCtx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toContain('transport "ws" not registrable');
   });
 });
 
