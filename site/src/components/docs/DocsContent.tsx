@@ -4,6 +4,9 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
+// Single source of truth for the host count (= platforms.length, drift-guarded
+// against ADAPTER_REGISTRY) so doc prose can never rot from the registry again.
+import { platformCount } from "@/data";
 import {
   DocSection,
   H3,
@@ -117,10 +120,10 @@ export function Introduction() {
         It generalizes context-mode&apos;s proven adapter layer into a reusable
         framework: where context-mode hardcoded the served identity, here the
         identity is a parameter you supply via <C>defineConnector</C>. It ships{" "}
-        <strong>32 registered deploy adapters</strong> grouped into three hook
-        paradigms (install targets the hosts detected on your machine, or the
-        targets you name — never all 35 unconditionally), and is Windows-first
-        (no symlinks, no POSIX-only assumptions).
+        <strong>{platformCount} registered deploy adapters</strong> grouped into
+        three hook paradigms (install targets the hosts detected on your machine,
+        or the targets you name — never all {platformCount} unconditionally), and
+        is Windows-first (no symlinks, no POSIX-only assumptions).
       </P>
     </DocSection>
   );
@@ -212,7 +215,8 @@ export function QuickStart() {
         for the full field reference. Every command is idempotent, reversible,
         and <C>--dry-run</C>-able. <C>install</C> targets the hosts{" "}
         <strong>detected</strong> on your machine (or an explicit{" "}
-        <C>--targets</C> list), intersected with the 32-adapter registry.
+        <C>--targets</C> list), intersected with the {platformCount}-adapter
+        registry.
       </P>
       <CodeBlock
         code={S.defineConnectorSnippet}
@@ -602,7 +606,18 @@ export function HooksSection() {
                 <Code>{r.label}</Code>
               </Td>
               <Td>
-                <Badge variant="muted">{r.count}</Badge>
+                {/* Count derives from the registry-backed platform lists (drift-
+                    guarded in tests/docs/platform-drift.test.ts) so it can never
+                    rot independently of the adapters like the old 16/7/8 did. */}
+                <Badge variant="muted">
+                  {
+                    {
+                      "json-stdio": jsonStdioPlatforms.length,
+                      "ts-plugin": tsPluginPlatforms.length,
+                      "mcp-only": mcpOnlyPlatforms.length,
+                    }[r.id]
+                  }
+                </Badge>
               </Td>
               <Td className="text-muted-foreground">{r.description}</Td>
             </tr>
@@ -617,7 +632,7 @@ export function HooksSection() {
       <H3 id="native-hooks">Native hooks passthrough</H3>
       <P>
         The normalized union stays small on purpose — hosts ship far more events
-        than 12 (Claude Code alone has <strong>30</strong>). For host-only
+        than 13 (Claude Code alone has <strong>30</strong>). For host-only
         events, <C>platforms.&lt;id&gt;.nativeHooks</C> wires{" "}
         <strong>any</strong> native event by its verbatim name — including
         events a host adds in the future — with zero agent-connector releases:
@@ -635,8 +650,10 @@ export function HooksSection() {
         <strong>not modeled</strong> in v1 — JSON-on-exit-0 decision control
         covers Claude Code&apos;s events. Declaring one of the 13 normalized
         event names here is a <C>ConnectorConfigError</C> (use <C>hooks</C> for
-        those). Only claude-code sets <C>supportsNativeHooks</C> today; other
-        adapters skip-warn, never silently. An event is promoted into the
+        those). 13 adapters set <C>supportsNativeHooks</C> today (claude-code,
+        opencode, cursor, gemini-cli, qwen-code, amp, kimi, omp, hermes,
+        jetbrains-copilot, copilot-cli, continue, openclaw); adapters that leave
+        it unset skip-warn, never silently. An event is promoted into the
         normalized union once ≥3 hosts ship a native analog —{" "}
         <C>TaskCreated</C> / <C>TaskCompleted</C> are the first candidates.
       </Callout>
@@ -673,9 +690,13 @@ export function SurfacesSection() {
       <P>
         Plus two runtime-dispatched handler surfaces beyond the content writers —
         a singular <C>statusline</C> (a HUD <C>render(ctx)</C> handler; claude-code
-        in v1, other hosts skip-warn) and <C>actions</C> (user-invokable{" "}
-        <C>run(ctx)</C> handlers dispatched by <C>agent-connector action</C>; v1
-        ships the dispatch backbone, no host affordance emitter yet).
+        (top-level statusLine) and qwen-code (nested ui.statusLine in
+        settings.json) today, other hosts skip-warn) and <C>actions</C>{" "}
+        (user-invokable <C>run(ctx)</C> handlers dispatched by{" "}
+        <C>agent-connector action</C>; v1 ships the dispatch backbone, and host
+        affordance emitters now ship for droid, hermes, warp, omp, and openclaw
+        (plus the nemoclaw fork, which inherits openclaw&apos;s emitter); hosts
+        with no verifiable emission target skip-warn).
       </P>
 
       <H3 id="command-def">CommandDef</H3>
@@ -1084,9 +1105,10 @@ export function TelemetryOverview() {
         for OpenAI/Codex-family, and a documented approximation for
         Anthropic-family (no offline Claude tokenizer ships).
         Family is auto-selected from <C>initialize.clientInfo</C> or{" "}
-        <C>modelFamilyHint</C>. Fallback is a <C>chars/4</C> heuristic (with
-        content-type multipliers; never tokenizing base64) — explicitly labeled
-        so it&apos;s never mistaken for exact.
+        <C>modelFamilyHint</C>. Fallback is a plain <C>chars/4</C> heuristic —
+        explicitly labeled so it&apos;s never mistaken for exact. Separately,
+        binary content blocks (image/audio/resource) are never base64-tokenized —
+        each gets a flat per-modality token estimate (~85 each).
       </P>
 
       <H3 id="confidence-sources">Confidence sources</H3>
@@ -1298,9 +1320,13 @@ export function TelemetrySurfaces() {
           off-box.
         </LI>
         <LI>
-          <strong>Opt-out.</strong> <C>AGENT_CONNECTOR_TELEMETRY=0</C> (or{" "}
-          <C>telemetry: &#123; enabled: false &#125;</C>) is a global kill switch
-          honored by both the serve-proxy and the hook runtime.
+          <strong>Opt-out.</strong> <C>AGENT_CONNECTOR_TELEMETRY=0</C> is a
+          global kill switch honored by both the serve-proxy and the hook
+          runtime. <C>telemetry: &#123; enabled: false &#125;</C> suppresses the
+          serve-proxy telemetry wrap at install time (<C>shouldWrapForTelemetry</C>{" "}
+          gates on <C>enabled === true</C>), but is NOT currently consulted by the
+          hook runtime — an installed hook still records telemetry rows unless the
+          env var is set.
         </LI>
       </List>
 
@@ -1711,8 +1737,8 @@ export function PlatformsSection() {
     <DocSection id="platforms" eyebrow="Reference" title="Platforms">
       <Lead>
         <C>PlatformId</C> is a closed union with one adapter registry entry per
-        platform — <strong>32</strong> hosts, grouped by hook paradigm (the
-        deepest cross-platform divergence).
+        platform — <strong>{platformCount}</strong> hosts, grouped by hook
+        paradigm (the deepest cross-platform divergence).
       </Lead>
       {/* counts derive from the entry lists (which the drift-guard test pins
           to the adapter registry) so they can never rot independently again. */}
@@ -1763,16 +1789,18 @@ export function AddPlatform() {
           <strong>Adapter</strong> (<C>src/adapters/&lt;id&gt;/index.ts</C>): a
           class (typically extending <C>BaseAdapter</C>) declaring <C>id</C>,{" "}
           <C>name</C>, <C>readonly paradigm</C>, a <C>capabilities</C> literal,{" "}
-          <C>detect</C>, the MCP <C>installServer</C>/<C>uninstallServer</C>, hook
+          <C>detectInstalled</C>, the MCP <C>installServer</C>/<C>uninstallServer</C>, hook
           install per paradigm (or inherit the <C>mcp-only</C> skip), optional
           content-surface writers, and <C>doctor</C> health checks.
         </LI>
       </List>
       <CodeBlock code={S.addPlatformSnippet} language="ts" filename="adapter" />
       <P>
-        The escape hatch keeps the core thin: every adapter accepts{" "}
-        <C>platforms.&lt;id&gt;.extra</C> passthrough for platform-exclusive
-        features the core doesn&apos;t model — a thin universal core with a fat
+        The escape hatch keeps the core thin: platform-exclusive MCP-server
+        fields go through <C>platforms.&lt;id&gt;.server</C> (shallow-merged into
+        the <C>ServerDef</C>), and per-surface verbatim fields go through{" "}
+        <C>extra</C> on a <C>CommandDef</C> / <C>SkillDef</C> / <C>SubagentDef</C>{" "}
+        (merged into the rendered frontmatter) — a thin universal core with a fat
         per-adapter tail.
       </P>
     </DocSection>
@@ -1875,9 +1903,13 @@ export function Troubleshooting() {
 
       <H3 id="hooks-unavailable">&quot;hooks unavailable here&quot;</H3>
       <P>
-        The <strong>8 mcp-only hosts</strong> (Warp, Roo Code, Trae,
-        Zed, Amp, Codebuff, Mux, Pi) have no hook layer — only the MCP
-        server is installed. Detection and <C>doctor</C> surface{" "}
+        {/* Count + list derive from the drift-guarded mcpOnlyPlatforms export
+            (pinned to the registry mcp-only set in
+            tests/docs/platform-drift.test.ts) so this prose can't drift —
+            Amp is ts-plugin and is correctly absent. */}
+        The <strong>{mcpOnlyPlatforms.length} mcp-only hosts</strong> (
+        {mcpOnlyPlatforms.map((p) => p.name).join(", ")}) have no hook layer —
+        only the MCP server is installed. Detection and <C>doctor</C> surface{" "}
         <strong>&quot;hooks unavailable here&quot;</strong> for them; this is
         expected, not an error. Declared hooks are simply skipped (with a
         warning) on those targets. See{" "}

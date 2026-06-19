@@ -304,6 +304,7 @@ export const hooksConfigSnippet = `interface HooksConfig {
   PostToolUseFailure?: HookDefinition<"PostToolUseFailure">;
   SubagentStart?:      HookDefinition<"SubagentStart">;
   SubagentStop?:       HookDefinition<"SubagentStop">;
+  PostCompact?:        HookDefinition<"PostCompact">;
 }
 
 interface HookDefinition<E> {
@@ -494,13 +495,13 @@ skill     deep-research     980       0     980  static
 command   deploy            612       0     612  static
 subagent  reviewer          540       0     540  static
 ----------------------------------------------------------
-TOTAL                     7,462  11,160  18,622
+TOTAL                     7,462  10,520  17,982
 
 note: KIND=static rows are the tokenized FOOTPRINT a command/skill/subagent
 imposes on a host that loads it as context — not intercepted usage rows.`;
 
 export const addPlatformSnippet = `// 1. src/adapters/registry.ts — one lazily-loaded entry
-{ id: "myhost", load: () => import("./myhost/index.js") },
+{ id: "myhost", load: () => import("./myhost/index.js").then((m) => m.default) },
 
 // 2. src/adapters/myhost/index.ts — one adapter
 export class MyHostAdapter extends BaseAdapter {
@@ -508,7 +509,7 @@ export class MyHostAdapter extends BaseAdapter {
   name = "My Host";
   readonly paradigm = "json-stdio";   // or "ts-plugin" | "mcp-only"
   capabilities = { /* per-event booleans, transports, … */ };
-  detect() { /* config-dir + marker files */ }
+  detectInstalled(projectDir) { /* config-dir + marker files */ }
   installServer() { /* render ServerDef into the native dialect */ }
   // hook install per paradigm (or inherit the mcp-only skip),
   // optional content-surface writers, and doctor() health checks.

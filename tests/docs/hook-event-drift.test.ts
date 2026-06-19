@@ -36,6 +36,8 @@ import {
   canonicalEvents,
   platforms as matrixPlatforms,
 } from "../../site/src/components/docs/hooks-matrix.js";
+import { hookEventRows } from "../../site/src/components/docs/docs-data.js";
+import { hooksConfigSnippet } from "../../site/src/components/docs/snippets.js";
 
 /** Canonical event → its per-event capability flag on PlatformCapabilities. */
 const EVENT_FLAG: Record<HookEventName, keyof PlatformCapabilities> = {
@@ -129,6 +131,40 @@ describe("hook-event drift guard (core + adapter registry are the source of trut
 
     const docsData = readFileSync("site/src/components/docs/docs-data.ts", "utf8");
     expect(docsData).toContain(`${canonicalEvents.length} canonical events`);
+  });
+
+  it("docs-data hookEventRows carries EXACTLY the canonical HookEventName set", () => {
+    // The normalized-events reference table (docs-data.hookEventRows, rendered on
+    // the Hooks page) must list every canonical event and no stray one. A new or
+    // removed HookEventName (canonicalEvents round-trips through defineConnector =
+    // ALL_EVENTS) fails this until the table is updated. This guards the class of
+    // bug where PostCompact shipped in core but the table stayed at 12 rows.
+    const docEvents = hookEventRows.map((r) => r.event).sort();
+    expect(docEvents).toEqual([...canonicalEvents].sort());
+  });
+
+  it("snippets hooksConfigSnippet declares a key for EVERY canonical event", () => {
+    // The interface snippet on the Hooks page must show all 13 HooksConfig keys —
+    // one per canonical event — so a reader sees the complete shape. A missing key
+    // (PostCompact was the original gap) fails here. Per-event substring assertion
+    // mirrors the worklist's "substring per event key is fine".
+    for (const event of canonicalEvents) {
+      expect(
+        hooksConfigSnippet.includes(`${event}?:`),
+        `hooksConfigSnippet is missing the "${event}?:" HooksConfig key`,
+      ).toBe(true);
+    }
+    // No stale key beyond the canonical set inside the HooksConfig interface:
+    // every key there is `<Event>?: HookDefinition<"<Event>">;`, so count those
+    // declarations and require they all be canonical. (matcher?: on HookDefinition
+    // is excluded by the HookDefinition<"..."> shape requirement.)
+    const declaredKeys = [
+      ...hooksConfigSnippet.matchAll(/^\s*(\w+)\?:\s*HookDefinition</gm),
+    ].map((m) => m[1]);
+    expect(
+      [...declaredKeys].sort(),
+      "hooksConfigSnippet HooksConfig keys drifted from the canonical set",
+    ).toEqual([...canonicalEvents].sort());
   });
 
   // NOTE: the llms.txt / llms-full.txt canonical-event assertions moved to

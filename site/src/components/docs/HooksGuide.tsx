@@ -450,8 +450,9 @@ const compareEvents: {
   },
   {
     event: "UserPromptSubmit",
-    align: "claude-only",
-    note: "Claude has UserPromptSubmit 1:1; Kilo has no equivalent → skip-warn.",
+    align: "differ",
+    note:
+      "Both support it via different mechanics: Claude writes a UserPromptSubmit settings hook; Kilo maps it to the OpenCode-fork chat.message plugin handler, which pushes a {type:'text'} part onto output.parts to inject additionalContext. Kilo's chat.message has no block/abort, so a deny decision degrades to a no-op (context-injection only).",
   },
   {
     event: "PreToolUse",
@@ -472,8 +473,9 @@ const compareEvents: {
   },
   {
     event: "Stop",
-    align: "claude-only",
-    note: "Claude has Stop 1:1; Kilo has no equivalent → skip-warn.",
+    align: "differ",
+    note:
+      "Both wire it, differently. Claude → a Stop command in settings.json. Kilo → session.idle ('session finished responding'), dispatched through the generic event hook (event.type switch), where a deny throws to halt. session.idle is doc-listed for the Kilo CLI/VS Code extension but its runtime firing is not separately verified — if it never fires, Stop silently no-ops (an acceptable degrade, never a mis-fire).",
   },
   {
     event: "Notification",
@@ -482,9 +484,9 @@ const compareEvents: {
   },
   {
     event: "PermissionRequest",
-    align: "claude-only",
+    align: "differ",
     note:
-      "Claude has PermissionRequest 1:1 (explicit allow = active grant that suppresses the dialog; ask/void fall through to it); Kilo has no permission-dialog event → skip-warn.",
+      "Both gate permissions. Claude → a PreToolUse command returning hookSpecificOutput{ permissionDecision }. Kilo → a decision-capable permission.ask plugin handler that MUTATES output.status (deny→\"deny\", ask→\"ask\", allow/void leave the default) — it returns no value, mirroring tool.execute.before mutating output.args. Same decision, two native shapes.",
   },
   {
     event: "PostToolUseFailure",
@@ -786,8 +788,10 @@ export function HooksGuideSection() {
         <span className="h-px flex-1 bg-border" />
       </div>
       <Callout title="Degradation rule — graceful skip-warn">
-        If a host has no equivalent for a canonical event (e.g. Kilo CLI has no{" "}
-        <C>Stop</C>, Cursor has no <C>UserPromptSubmit</C>), that event is simply{" "}
+        If a host has no equivalent for a canonical event (e.g. Gemini CLI has
+        no <C>Stop</C>, Cursor has no <C>Notification</C> or{" "}
+        <C>PermissionRequest</C> — its permission gate is an output field of its{" "}
+        <C>before*</C> hooks, not an observable event), that event is simply{" "}
         <strong>never wired</strong> — the install/sync diff reports a{" "}
         <C>warn</C> and moves on. Likewise a host that can&apos;t honor a{" "}
         decision (no output-rewrite, no <C>ask</C> gate) degrades it (modify →
@@ -850,12 +854,15 @@ export function HooksGuideSection() {
           (<C>canModifyOutput: false</C>).
         </LI>
         <LI>
-          <strong>Differ — lifecycle coverage:</strong> Claude maps all 12
-          events 1:1; Kilo&apos;s plugin surface only exposes the two tool
-          events plus a SessionStart surrogate, so <C>SessionEnd</C>,{" "}
-          <C>UserPromptSubmit</C>, <C>PreCompact</C>, <C>Stop</C>,{" "}
-          <C>Notification</C> and the four newer events (
-          <C>PermissionRequest</C>, <C>PostToolUseFailure</C>,{" "}
+          <strong>Differ — lifecycle coverage:</strong> Claude maps 12 of the 13
+          canonical events 1:1 (only <C>PostCompact</C> has no Claude analog);
+          Kilo&apos;s plugin surface exposes the two tool events, a SessionStart
+          surrogate (<C>experimental.chat.system.transform</C>), plus{" "}
+          <C>UserPromptSubmit</C> (<C>chat.message</C>), <C>Stop</C> (
+          <C>session.idle</C>, via the generic <C>event</C> hook) and{" "}
+          <C>PermissionRequest</C> (<C>permission.ask</C>, the decision-capable
+          gate). Only <C>SessionEnd</C>, <C>PreCompact</C>, <C>Notification</C>{" "}
+          and the three remaining newer events (<C>PostToolUseFailure</C>,{" "}
           <C>SubagentStart</C>, <C>SubagentStop</C>) skip-warn on Kilo.
         </LI>
       </List>
