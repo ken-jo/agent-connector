@@ -148,7 +148,7 @@ export const platforms: PlatformHookEntry[] = [
     hasHooks: true,
     configPath: "$CODEX_HOME|~/.codex/hooks.json (Claude-shaped {matcher,hooks[]})",
     capabilities: {
-      canModifyArgs: false,
+      canModifyArgs: true,
       canModifyOutput: false,
       canInjectSessionContext: true,
     },
@@ -168,7 +168,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: "PostCompact",
     },
     notes:
-      "CODEX_HOOK_EVENTS = SessionStart, PreToolUse, PostToolUse, PreCompact, UserPromptSubmit, Stop, PermissionRequest, SubagentStart, SubagentStop, PostCompact (PascalCase, Claude-compatible names). PostCompact is the observe-only post-compaction sibling of PreCompact (Codex fires both) — normalizes `trigger` (manual|auto), passthrough reply. SessionEnd & Notification dropped (capabilities false; never written); PostToolUseFailure has NO Codex analog -> warn-skip at install. MCP in config.toml [mcp_servers]. Reply: PreToolUse deny -> stdout hookSpecificOutput{ permissionDecision:'deny' }; PermissionRequest deny/allow -> nested hookSpecificOutput.decision{ behavior, message? } (updatedInput/updatedPermissions/interrupt FAIL CLOSED on Codex, so never emitted); SubagentStart context -> additionalContext; SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (keeps the subagent going); additionalContext honored on SessionStart & PostToolUse; modify/ask unsupported -> exit 0 passthrough. PreToolUse matcher is a charset-clean regex string.",
+      "CODEX_HOOK_EVENTS = SessionStart, PreToolUse, PostToolUse, PreCompact, UserPromptSubmit, Stop, PermissionRequest, SubagentStart, SubagentStop, PostCompact (PascalCase, Claude-compatible names). PostCompact is the observe-only post-compaction sibling of PreCompact (Codex fires both) — normalizes `trigger` (manual|auto), passthrough reply. SessionEnd & Notification dropped (capabilities false; never written); PostToolUseFailure has NO Codex analog -> warn-skip at install. MCP in config.toml [mcp_servers]. Reply: PreToolUse deny -> stdout hookSpecificOutput{ permissionDecision:'deny' }; PermissionRequest deny/allow -> nested hookSpecificOutput.decision{ behavior, message? } (updatedInput/updatedPermissions/interrupt FAIL CLOSED on Codex, so never emitted); SubagentStart context -> additionalContext; SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (keeps the subagent going); additionalContext honored on SessionStart, PostToolUse & PreToolUse; modify -> PreToolUse rewrite as hookSpecificOutput{ permissionDecision:'allow', updatedInput } (Codex requires updatedInput paired with allow; stable since 0.131.0); ask unsupported -> exit 0 passthrough. PreToolUse matcher is a charset-clean regex string.",
   },
   {
     platform: "cursor",

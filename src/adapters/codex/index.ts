@@ -15,9 +15,21 @@
  * Grounded in context-mode's proven Codex adapter (configs/codex/{config.toml,
  * hooks.json}, src/adapters/codex/*) — exact TOML MCP shape + hook JSON schema.
  *
- * Known Codex limitations (upstream): PreToolUse deny works but updatedInput is
- * not yet honored (openai/codex#18491); PostToolUse updatedMCPToolOutput is
- * parsed-but-unsupported — hence canModifyArgs / canModifyOutput are false.
+ * Codex capabilities (upstream, verified against openai/codex source at the
+ * stable release tags noted):
+ *   - PreToolUse `updatedInput` rewrite IS honored (PR #20527, commit d08906a9,
+ *     stable since codex 0.131.0; applied in the shell/mcp/apply_patch tool
+ *     handlers, confirmed present through 0.141.0) — hence canModifyArgs is now
+ *     TRUE. Codex's output_parser.rs requires the rewrite to be paired with
+ *     `permissionDecision:"allow"` (an allow WITHOUT updatedInput, and an
+ *     updatedInput WITHOUT allow, are both rejected as invalid), so "modify"
+ *     emits the allow+updatedInput envelope together. The still-open tracking
+ *     issue openai/codex#18491 is now scoped to a NARROWER gap — read_file/grep
+ *     have no PreToolUse handler yet — not to updatedInput itself, which works
+ *     for every tool that fires PreToolUse (shell/Bash, apply_patch, MCP).
+ *   - PostToolUse `updatedMCPToolOutput` is still explicitly rejected as
+ *     "unsupported" by output_parser.rs (no output-rewrite field on
+ *     PostToolUseOutput at 0.141.0) — hence canModifyOutput stays FALSE.
  *
  * E1 extension events (verified against developers.openai.com/codex/hooks):
  *   - PermissionRequest — native, decision-capable via the nested
@@ -194,7 +206,9 @@ export class CodexAdapter extends BaseAdapter {
     // (developers.openai.com/codex/hooks). Observational only — the reply
     // contract mirrors PreCompact (cannot block/modify a completed compaction).
     postCompact: true,
-    canModifyArgs: false,
+    // PreToolUse updatedInput rewrite is honored upstream (paired with
+    // permissionDecision:"allow"); PostToolUse output rewrite is not (see header).
+    canModifyArgs: true,
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "http"],
@@ -902,9 +916,36 @@ export class CodexAdapter extends BaseAdapter {
       return { exitCode: 0 };
     }
 
-    // Context injection: honored on SessionStart and PostToolUse (additionalContext).
+    // modify → rewrite PreToolUse tool input. Codex applies `updatedInput`
+    // (PR #20527, stable since 0.131.0) but its output_parser.rs only accepts it
+    // when paired with permissionDecision:"allow" — emitting updatedInput alone
+    // (the Claude Code shape) is rejected as "updatedInput without
+    // permissionDecision:allow", and an allow alone is rejected too, so the pair
+    // is emitted together. Other events fail open (no updatedInput surface).
+    if (response.decision === "modify") {
+      if (event === "PreToolUse" && response.updatedInput) {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "allow",
+              updatedInput: response.updatedInput,
+            },
+          }),
+        };
+      }
+      return { exitCode: 0 };
+    }
+
+    // Context injection: honored on SessionStart, PostToolUse, and PreToolUse
+    // (additionalContext — PreToolUse support shipped via PR #20692, stable since
+    // codex 0.130.0; injected independent of any permission decision).
     // (SubagentStop accepts only the common output fields — no additionalContext.)
-    if (response.additionalContext && (event === "SessionStart" || event === "PostToolUse")) {
+    if (
+      response.additionalContext &&
+      (event === "SessionStart" || event === "PostToolUse" || event === "PreToolUse")
+    ) {
       return {
         exitCode: 0,
         stdout: JSON.stringify({
@@ -916,7 +957,7 @@ export class CodexAdapter extends BaseAdapter {
       };
     }
 
-    // "allow" / unsupported-on-Codex (modify, ask) → passthrough.
+    // "allow" / unsupported-on-Codex (ask) → passthrough.
     return { exitCode: 0 };
   }
 
