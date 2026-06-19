@@ -26,6 +26,13 @@
  *   feeding the event payload on stdin and JSON.parsing the normalized
  *   HookResponse back from stdout. Fail-open: any bridge error → no-op.
  *
+ * User config dir (XDG): the kilo backend honors `$XDG_CONFIG_HOME`, so the user
+ * scope resolves to `$XDG_CONFIG_HOME/kilo` when that env var is set & non-empty,
+ * else `~/.config/kilo` (the default). This is the SAME backend dir the kilo
+ * extension uses — every user-scope path below (writer, detection probe, plugin
+ * dir, content surfaces) flows through `kiloCliConfigDir()` so they cannot
+ * disagree with where the Kilo CLI actually reads.
+ *
  * Registration (hooks — array + auto-discovery both work):
  *   Since kilo v7.3.16 the fork auto-discovers every file in its plugin dir
  *   (.kilo/plugin/*.js, ~/.config/kilo/plugin/*.js), so writing the file is
@@ -34,11 +41,11 @@
  *   (idempotent); older versions relied on it exclusively.
  *
  * Plugin module location (project | user):
- *   user    → ~/.config/kilo/plugin/<id>.js
+ *   user    → ~/.config/kilo/plugin/<id>.js   (XDG: $XDG_CONFIG_HOME/kilo/plugin/<id>.js)
  *   project → <projectDir>/.kilo/plugin/<id>.js
  *
  * MCP config (the CLI's new-gen dialect — already correct, KEPT verbatim):
- *   - user scope    → ~/.config/kilo/kilo.jsonc
+ *   - user scope    → ~/.config/kilo/kilo.jsonc   (XDG: $XDG_CONFIG_HOME/kilo/kilo.jsonc)
  *   - project scope → <projectDir>/.kilo/kilo.jsonc   (project overrides global)
  *   Both are JSON/JSONC; we write plain JSON, which is valid JSONC. The root key
  *   is "mcp" (NOT the extension's "mcpServers").
@@ -52,7 +59,7 @@
  * The Kilo CLI documents no native `${env:VAR}` interpolation token, so env/url
  * refs are resolved to literals at install time (the no-native-token path).
  *
- * Content surfaces (live-confirmed, kilo v7.3.16):
+ * Content surfaces (live-confirmed, kilo v7.3.16; user dir is XDG-resolved):
  *   - commands  → .kilo/command/<name>.md  (user ~/.config/kilo/command/)
  *   - skills    → .kilo/skills/<name>/SKILL.md  (user ~/.config/kilo/skills/ or ~/.agents/skills)
  *   - subagents → .kilo/agent/<name>.md with frontmatter mode:subagent
@@ -103,6 +110,7 @@ import type {
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { renderBridgePrelude } from "../../core/ts-plugin-bridge.js";
+import { xdgConfigHome } from "../../core/host-paths.js";
 import {
   buildWrappedStdio,
 } from "../../core/spawn.js";
@@ -173,6 +181,17 @@ interface KiloRemoteServer {
   url: string;
 }
 
+/**
+ * Resolve the kilo backend user config dir: `$XDG_CONFIG_HOME/kilo` when set,
+ * else `~/.config/kilo`. This is the SAME backend dir the kilo extension uses
+ * (kilo's own `kiloConfigDir()`), so the CLI writer, detection probe, and
+ * content surfaces all agree with where the XDG-honoring Kilo CLI reads. When
+ * `$XDG_CONFIG_HOME` is unset this is byte-identical to `~/.config/kilo`.
+ */
+function kiloCliConfigDir(): string {
+  return join(xdgConfigHome(), "kilo");
+}
+
 export class KiloCliAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
   readonly name = "Kilo CLI";
@@ -221,7 +240,7 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
   // ── Detection ────────────────────────────────────────────────────────────
 
   detectInstalled(projectDir: string): DetectedPlatform {
-    const userDir = join(homedir(), ".config", "kilo");
+    const userDir = kiloCliConfigDir();
     const userConfig = join(userDir, CONFIG_FILE);
     const projectConfig = join(projectDir, ".kilo", CONFIG_FILE);
     // The SQLite session DB is a CLI-exclusive marker (the VS Code extension
@@ -277,7 +296,7 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
   getConfigDir(ctx: InstallContext): string {
     return ctx.scope === "project"
       ? join(ctx.projectDir, ".kilo")
-      : join(homedir(), ".config", "kilo");
+      : kiloCliConfigDir();
   }
 
   getServerConfigPath(ctx: InstallContext): string {
@@ -298,7 +317,7 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
   private pluginDir(ctx: InstallContext): string {
     return ctx.scope === "project"
       ? join(ctx.projectDir, ".kilo", "plugin")
-      : join(homedir(), ".config", "kilo", "plugin");
+      : join(kiloCliConfigDir(), "plugin");
   }
 
   /** Plugin module file name (one per connector, kebab-case id). */
@@ -582,9 +601,9 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
   //   skills    → <kiloDir>/skills/<name>/SKILL.md
   //   subagents → <kiloDir>/agent/<name>.md   (frontmatter mode:subagent)
   //
-  // <kiloDir>:
+  // <kiloDir> (via getConfigDir):
   //   project scope → <projectDir>/.kilo
-  //   user scope    → ~/.config/kilo
+  //   user scope    → ~/.config/kilo  (XDG: $XDG_CONFIG_HOME/kilo)
 
   private commandsDir(ctx: InstallContext): string {
     return join(this.getConfigDir(ctx), "command");

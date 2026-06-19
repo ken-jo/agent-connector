@@ -45,7 +45,7 @@
  *               ~/.config/kilo/agent/<name>.md    (user)
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -271,6 +271,63 @@ describe("kilo-cli adapter — capabilities", () => {
     expect(kiloCliAdapter.capabilities.supportsCommands).toBe(true);
     expect(kiloCliAdapter.capabilities.supportsSkills).toBe(true);
     expect(kiloCliAdapter.capabilities.supportsSubagents).toBe(true);
+  });
+});
+
+// ── User config dir XDG resolution ────────────────────────────────────────────
+// The kilo backend honors $XDG_CONFIG_HOME, and the shared backend dir is what
+// the same-backend "kilo" extension already resolves via kiloConfigDir(). Every
+// user-scope path (server config, plugin dir, content surfaces, detection probe)
+// must flow through $XDG_CONFIG_HOME/kilo when set — NOT a hardcoded ~/.config/kilo
+// — or the CLI (which reads the XDG dir) never sees what we wrote.
+
+describe("kilo-cli adapter — user config dir XDG resolution", () => {
+  let projectDir: string;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-kilo-cli-xdg-");
+  });
+
+  function userCtx(): InstallContext {
+    return buildCtx(projectDir, buildConnector({ commands: true }), "user");
+  }
+
+  it("resolves user-scope paths under $XDG_CONFIG_HOME/kilo when XDG is set", () => {
+    const xdg = join(projectDir, "xdg-root");
+    process.env.XDG_CONFIG_HOME = xdg; // restored by isolateEnv's afterEach
+    const ctx = userCtx();
+
+    const expectedDir = join(xdg, "kilo");
+    expect(kiloCliAdapter.getConfigDir(ctx)).toBe(expectedDir);
+    expect(kiloCliAdapter.getServerConfigPath(ctx)).toBe(join(expectedDir, "kilo.jsonc"));
+    // Plugin dir (the ts-plugin hook target) lives under the same XDG dir.
+    expect(kiloCliAdapter.getHookConfigPath(ctx)).toBe(
+      join(expectedDir, "plugin", `${CONNECTOR_ID}.js`),
+    );
+
+    // Detection probes the XDG dir (NOT ~/.config/kilo). A config file there is
+    // recognized as a user install.
+    mkdirSync(expectedDir, { recursive: true });
+    writeFileSync(join(expectedDir, "kilo.jsonc"), "{}", "utf8");
+    const detected = kiloCliAdapter.detectInstalled(projectDir);
+    expect(detected.installed).toBe(true);
+    expect(detected.configPath).toBe(join(expectedDir, "kilo.jsonc"));
+
+    // Nothing landed under the hardcoded ~/.config/kilo fallback.
+    expect(existsSync(join(projectDir, ".config", "kilo"))).toBe(false);
+  });
+
+  it("falls back to ~/.config/kilo when XDG is unset (default-case parity)", () => {
+    delete process.env.XDG_CONFIG_HOME; // restored by isolateEnv's afterEach
+    const ctx = userCtx();
+
+    // HOME is redirected to projectDir, so ~/.config/kilo → projectDir/.config/kilo.
+    const expectedDir = join(projectDir, ".config", "kilo");
+    expect(kiloCliAdapter.getConfigDir(ctx)).toBe(expectedDir);
+    expect(kiloCliAdapter.getServerConfigPath(ctx)).toBe(join(expectedDir, "kilo.jsonc"));
+    expect(kiloCliAdapter.getHookConfigPath(ctx)).toBe(
+      join(expectedDir, "plugin", `${CONNECTOR_ID}.js`),
+    );
   });
 });
 

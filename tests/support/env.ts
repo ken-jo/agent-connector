@@ -44,6 +44,13 @@ export function freshProject(prefix = "ac-test-"): string {
   const dir = tempDir(prefix);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
+  // Sandbox $XDG_CONFIG_HOME to the temp HOME. Equivalent to the unset-fallback
+  // (xdgConfigHome() → join(homedir(), ".config")) on a clean box, but explicit so
+  // an XDG-honoring adapter (kilo / kilo-cli / crush …) resolves user-scope paths
+  // deterministically — CI runners set XDG_CONFIG_HOME=/home/runner/.config, which
+  // would otherwise leak in and (a) break user-scope path assertions and (b) write
+  // into the runner's real ~/.config. Matches freshHomeProject's sandboxing.
+  process.env.XDG_CONFIG_HOME = join(dir, ".config");
   process.env.AGENT_CONNECTOR_DATA_DIR = join(dir, ".agent-connector");
   return dir;
 }
