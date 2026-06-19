@@ -103,6 +103,34 @@ const COPILOT_HOOKS_VERSION = 1;
  */
 type CopilotHookEvent = HookEventName;
 
+/**
+ * CAPABILITY FILTER for installHooks — maps each canonical HookEventName to the
+ * `capabilities` flag that gates it. The adapter's `capabilities` literal is the
+ * single source of truth for what Copilot CLI's runtime actually fires; declared
+ * events (connector.hookEvents is the connector-level set, NOT pre-filtered by
+ * host) are screened through this map so an unsupported event — Copilot CLI has
+ * NO post-compaction hook, so `postCompact` stays unset — is reported as a
+ * graceful warn/skip instead of being written as a dead `hooks.PostCompact` the
+ * host would never fire. Same shape as the goose adapter's EVENT_CAPABILITY.
+ */
+const EVENT_CAPABILITY: Record<HookEventName, keyof PlatformCapabilities> = {
+  SessionStart: "sessionStart",
+  SessionEnd: "sessionEnd",
+  UserPromptSubmit: "userPromptSubmit",
+  PreToolUse: "preToolUse",
+  PostToolUse: "postToolUse",
+  PreCompact: "preCompact",
+  Stop: "stop",
+  Notification: "notification",
+  PermissionRequest: "permissionRequest",
+  PostToolUseFailure: "postToolUseFailure",
+  SubagentStart: "subagentStart",
+  SubagentStop: "subagentStop",
+  // Copilot CLI has no post-compaction hook — postCompact stays unset on
+  // `capabilities`, so a declared PostCompact warn-skips at install.
+  PostCompact: "postCompact",
+};
+
 /** A single Copilot CLI hook registration entry (Claude-shaped). */
 interface CopilotHookEntry {
   matcher: string;
@@ -415,6 +443,18 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     let mutated = false;
 
     for (const event of normalizedEvents) {
+      // CAPABILITY FILTER: an event Copilot CLI's runtime does not deliver (e.g.
+      // PostCompact — postCompact unset on `capabilities`) must NOT be written as
+      // a dead hook the host never fires; report a graceful warn/skip instead.
+      if (this.capabilities[EVENT_CAPABILITY[event]] !== true) {
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: hooksPath,
+          detail: `${event} unsupported on copilot-cli — skipped`,
+        });
+        continue;
+      }
       // PascalCase events map 1:1 to Copilot CLI's native event names.
       const copilotEvent: CopilotHookEvent = event;
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);

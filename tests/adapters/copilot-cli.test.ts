@@ -482,6 +482,68 @@ describe("copilot-cli — extended-event install", () => {
   });
 });
 
+// ── capability gate: unsupported events warn-skip, never written to hooks.json ──
+// Copilot CLI delivers every canonical event EXCEPT PostCompact (no post-
+// compaction hook → postCompact unset on `capabilities`). installHooks must
+// filter declared events against capabilities BEFORE writing — a connector that
+// declares PostCompact must get only a graceful warn ChangeRecord, never a dead
+// hooks.PostCompact the host never fires. Mirrors goose's equivalent gate test.
+
+describe("copilot-cli — capability gate (unsupported PostCompact warn-skips)", () => {
+  function gateConnector(): ResolvedConnector {
+    return defineConnector({
+      id: CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      hooks: {
+        PreToolUse: {
+          matcher: "acme_query",
+          handler() {
+            return { decision: "allow" };
+          },
+        },
+        PostCompact: {
+          handler() {
+            return { decision: "allow" };
+          },
+        },
+      },
+    });
+  }
+
+  it("SKIPS PostCompact with a warn but still writes PreToolUse", () => {
+    const projectDir = freshProject("ac-copilot-gate-");
+    const ctx = buildCtx(projectDir, gateConnector(), "user");
+
+    const changes = copilotCliAdapter.installHooks(ctx);
+
+    // PostCompact is unsupported on copilot-cli → a warn ChangeRecord, never written.
+    const warn = changes.find(
+      (c) => c.action === "warn" && c.detail?.includes("PostCompact"),
+    );
+    expect(warn).toBeTruthy();
+    expect(warn?.detail).toBe("PostCompact unsupported on copilot-cli — skipped");
+
+    // PreToolUse IS supported → created.
+    expect(
+      changes.some((c) => c.action === "create" && c.detail === "hooks.PreToolUse"),
+    ).toBe(true);
+
+    // No NON-warn change record wrote hooks.PostCompact.
+    expect(
+      changes.some((c) => c.action !== "warn" && c.detail === "hooks.PostCompact"),
+    ).toBe(false);
+
+    // The on-disk file carries PreToolUse but NOT the unsupported PostCompact.
+    const cfg = readJson(hooksFile(projectDir));
+    expect(cfg.hooks.PreToolUse).toBeTruthy();
+    expect(cfg.hooks.PreToolUse[0].hooks[0].command).toContain(
+      "hook copilot-cli PreToolUse",
+    );
+    expect(cfg.hooks.PostCompact).toBeUndefined();
+  });
+});
+
 describe("copilot-cli — extended-event parse", () => {
   const COMMON = {
     session_id: "sess-1",
