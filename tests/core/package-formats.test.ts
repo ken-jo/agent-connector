@@ -18,7 +18,15 @@
  * HOME + AGENT_CONNECTOR_DATA_DIR redirected to temp and restored in afterEach.
  */
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -170,6 +178,21 @@ describe("packageConnector — codex-plugin", () => {
     expect(existsSync(join(res.pluginDir, "commands", "deploy.md"))).toBe(true);
     expect(existsSync(join(res.pluginDir, "agents", "reviewer.md"))).toBe(true);
     expect(existsSync(join(res.pluginDir, "skills", "pdf-tools", "SKILL.md"))).toBe(true);
+  });
+
+  it("refuses to emit through a symlinked package path", () => {
+    const pluginDir = join(outDir, CONNECTOR_ID);
+    const outside = join(outDir, "outside-manifest");
+    const victim = join(outside, "plugin.json");
+    mkdirSync(pluginDir, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(victim, "original", "utf8");
+    symlinkSync(outside, join(pluginDir, ".codex-plugin"));
+
+    expect(() =>
+      packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN }),
+    ).toThrow(/symbolic link/i);
+    expect(readFileSync(victim, "utf8")).toBe("original");
   });
 
   it("emits an .agents/plugins/marketplace.json catalog, hooks (--host codex), and serve-wrapped .mcp.json", () => {

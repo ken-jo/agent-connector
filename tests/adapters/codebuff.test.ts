@@ -37,7 +37,7 @@
  * (Memory surface lives in tests/core/memory-surface.test.ts.)
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -127,6 +127,21 @@ describe("codebuff adapter — skills surface", () => {
     const resource = join(projectDir, ".agents", "skills", "pdf-tools", "scripts", "extract.sh");
     expect(existsSync(resource)).toBe(true);
     expect(readFileSync(resource, "utf8")).toBe(SKILL.resources["scripts/extract.sh"]);
+  });
+
+  it("installSkills refuses to write a resource through a symlinked parent directory", () => {
+    const skillDir = join(projectDir, ".agents", "skills", "pdf-tools");
+    const outside = join(projectDir, "outside-scripts");
+    mkdirSync(skillDir, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(skillDir, "scripts"));
+
+    const changes = codebuffAdapter.installSkills!(ctx);
+    const resource = join(skillDir, "scripts", "extract.sh");
+    const resourceChange = changes.find((c) => c.path === resource);
+    expect(resourceChange?.action).toBe("warn");
+    expect(resourceChange?.detail).toMatch(/symbolic link/i);
+    expect(existsSync(join(outside, "extract.sh"))).toBe(false);
   });
 
   it("installSkills (user scope) writes ~/.agents/skills/<n>/SKILL.md", () => {
@@ -344,6 +359,35 @@ describe("codebuff adapter — subagents surface", () => {
     expect(changes.every((c) => c.platform === "codebuff")).toBe(true);
     expect(existsSync(full)).toBe(false);
     expect(existsSync(minimal)).toBe(false);
+  });
+
+  it("installSubagents refuses to overwrite a symlinked module path", () => {
+    const victim = join(projectDir, "victim.ts");
+    const link = agentPath(projectDir, "doc-writer");
+    mkdirSync(join(projectDir, ".agents"), { recursive: true });
+    writeFileSync(victim, "original", "utf8");
+    symlinkSync(victim, link);
+
+    const changes = codebuffAdapter.installSubagents!(ctx);
+    const linkChange = changes.find((c) => c.path === link);
+    expect(linkChange?.action).toBe("warn");
+    expect(linkChange?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(victim, "utf8")).toBe("original");
+  });
+
+  it("uninstallSubagents refuses to remove a symlinked module path", () => {
+    const victim = join(projectDir, "victim.ts");
+    const link = agentPath(projectDir, "doc-writer");
+    mkdirSync(join(projectDir, ".agents"), { recursive: true });
+    writeFileSync(victim, "original", "utf8");
+    symlinkSync(victim, link);
+
+    const changes = codebuffAdapter.uninstallSubagents!(ctx);
+    const linkChange = changes.find((c) => c.path === link);
+    expect(linkChange?.action).toBe("warn");
+    expect(linkChange?.detail).toMatch(/symbolic link/i);
+    expect(existsSync(link)).toBe(true);
+    expect(readFileSync(victim, "utf8")).toBe("original");
   });
 
   it("honors platforms['codebuff'].subagents === false", () => {
