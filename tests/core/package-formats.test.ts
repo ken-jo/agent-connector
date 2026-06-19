@@ -42,6 +42,8 @@ import {
 } from "../../src/core/package.js";
 import { readTomlString } from "../../src/core/toml.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
+import cursorAdapter from "../../src/adapters/cursor/index.js";
+import { buildCtx } from "../support/env.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-connector";
@@ -383,11 +385,26 @@ describe("packageConnector — cursor-plugin", () => {
     const mcp = readJson(join(res.pluginDir, "mcp.json")).mcpServers as Record<string, never>;
     expectServeWrapper(mcp[CONNECTOR_ID] as never, "cursor");
 
-    const hooks = readJson(join(res.pluginDir, "hooks", "hooks.json")).hooks as Record<
+    // Cursor's hooks.json is its OWN flat shape — lower-camel native keys,
+    // FLAT { command, matcher? } entries, top-level version — NOT the Claude
+    // shape (PascalCase keys + nested { hooks:[{type,command}] }, no version).
+    const hooksFile = readJson(join(res.pluginDir, "hooks", "hooks.json"));
+    expect(hooksFile.version).toBe(1);
+    const hooks = hooksFile.hooks as Record<
       string,
-      Array<{ hooks: Array<{ command: string }> }>
+      Array<{ command: string; matcher?: string }>
     >;
-    expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe(hookCommand("cursor", "PreToolUse"));
+    // PreToolUse → preToolUse (lower-camel), flat entry, matcher preserved.
+    expect(hooks.PreToolUse).toBeUndefined(); // no Claude-shape PascalCase key
+    expect(hooks.preToolUse![0]!.command).toBe(hookCommand("cursor", "PreToolUse"));
+    expect(hooks.preToolUse![0]!.matcher).toBe("acme_query|acme_write");
+    // The nested Claude `hooks:[{type,command}]` wrapper must NOT be present.
+    expect(
+      (hooks.preToolUse![0] as unknown as { hooks?: unknown }).hooks,
+    ).toBeUndefined();
+    // SessionStart → sessionStart; no matcher declared → flat { command } only.
+    expect(hooks.sessionStart![0]!.command).toBe(hookCommand("cursor", "SessionStart"));
+    expect(hooks.sessionStart![0]!.matcher).toBeUndefined();
 
     expect(res.marketplacePath).toBe(join(outDir, ".cursor-plugin", "marketplace.json"));
     const mkt = readJson(res.marketplacePath!);
@@ -408,6 +425,49 @@ describe("packageConnector — cursor-plugin", () => {
     expect(m.skills).toBeUndefined();
     expect(m.hooks).toBeUndefined();
     expect(m.mcpServers).toBeUndefined();
+  });
+
+  // REGRESSION (issue #172): the package emitter once wrote hooks.json in the
+  // Claude shape (PascalCase keys + nested { hooks:[{type,command}] }, no
+  // version), so a packaged Cursor plugin's hooks never loaded. Assert the
+  // bundle's hooks.json is SHAPE-CONSISTENT with the live cursor install
+  // adapter's output for the same connector — same keys, flat { command,
+  // matcher? } entries, same top-level version — so the two can never silently
+  // diverge again.
+  it("hooks.json matches the cursor INSTALL adapter's flat shape (anti-drift)", () => {
+    const res = packageConnector(connector, { outDir, format: "cursor-plugin", homeBinPath: HOME_BIN });
+    const packaged = readJson(join(res.pluginDir, "hooks", "hooks.json"));
+
+    // Drive the live install adapter against the SAME connector into a temp
+    // project; its hooks.json is the byte-oracle for Cursor's real schema.
+    const projectDir = mkdtempSync(join(tmpdir(), "ac-cursor-install-"));
+    const ctx = buildCtx(projectDir, connector, { scope: "project", homeBinPath: HOME_BIN });
+    cursorAdapter.installHooks(ctx);
+    const installed = readJson(join(projectDir, ".cursor", "hooks.json"));
+
+    // Same top-level version stamp (the bug had NONE).
+    expect(packaged.version).toBe(1);
+    expect(packaged.version).toBe(installed.version);
+
+    // Same lower-camel native event keys (the bug used PascalCase Claude keys).
+    const packagedHooks = packaged.hooks as Record<string, unknown[]>;
+    const installedHooks = installed.hooks as Record<string, unknown[]>;
+    expect(Object.keys(packagedHooks).sort()).toEqual(
+      Object.keys(installedHooks).sort(),
+    );
+    expect(Object.keys(packagedHooks).sort()).toEqual(["preToolUse", "sessionStart"]);
+
+    // Same FLAT entry structure: { command, matcher? } with NO nested Claude
+    // `hooks:[{type,command}]` wrapper (the bug emitted the nested wrapper).
+    for (const key of Object.keys(packagedHooks)) {
+      const pEntry = packagedHooks[key]![0] as Record<string, unknown>;
+      const iEntry = installedHooks[key]![0] as Record<string, unknown>;
+      expect(typeof pEntry.command).toBe("string");
+      expect(pEntry.hooks).toBeUndefined(); // no Claude nesting
+      expect(Object.keys(pEntry).sort()).toEqual(Object.keys(iEntry).sort());
+      expect(pEntry.command).toBe(iEntry.command);
+      expect(pEntry.matcher).toBe(iEntry.matcher);
+    }
   });
 });
 
