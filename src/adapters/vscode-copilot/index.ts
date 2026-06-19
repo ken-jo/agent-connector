@@ -32,9 +32,9 @@
  * vscodeEnvToken below.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type { Adapter, HookReply, InstallContext, NormalizedEvent } from "../spi.js";
@@ -492,7 +492,29 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
       }
     }
 
-    if (mutated) this.writeJson(hooksPath, file, ctx.dryRun);
+    if (mutated) {
+      // The hooks file is connector-OWNED (<connector-id>.json), so when our
+      // strip leaves it with NO hooks we must DELETE the whole file rather than
+      // rewrite a `{ "version": 1, "hooks": {} }` shell — an empty shell is an
+      // orphan per-connector file that lingers after uninstall. A non-empty
+      // result still belongs to us, so we rewrite it as before. dryRun reports
+      // the would-be remove without mutating the filesystem.
+      if (Object.keys(hooks).length === 0) {
+        if (!ctx.dryRun) rmSync(hooksPath, { force: true });
+        changes.push({
+          platform: this.id,
+          action: "remove",
+          path: hooksPath,
+          detail: "removed empty connector hooks file",
+        });
+        // Clean up the parent .github/hooks dir only when it is now empty (it is
+        // a per-connector tree; leave it in place if other connectors' files
+        // remain).
+        changes.push(this.removeDirIfEmpty(dirname(hooksPath), ctx.dryRun));
+      } else {
+        this.writeJson(hooksPath, file, ctx.dryRun);
+      }
+    }
     if (changes.length === 0) {
       changes.push({
         platform: this.id,

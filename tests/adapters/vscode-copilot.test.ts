@@ -29,7 +29,7 @@
  * per tests/README.md — ONE file per host.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -349,10 +349,62 @@ describe("vscode-copilot adapter render/round-trip", () => {
     expect(serverCfg.servers?.[CONNECTOR_ID]).toBeUndefined();
 
     vscodeCopilotAdapter.uninstallHooks(ctx);
-    const hooks = readJson(
-      join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`),
-    );
-    expect(JSON.stringify(hooks.hooks ?? {})).not.toContain(HOME_BIN);
+    // The hooks file is connector-OWNED, so stripping our last hook DELETES the
+    // whole file rather than leaving an empty { version, hooks:{} } shell.
+    expect(
+      existsSync(join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`)),
+    ).toBe(false);
+  });
+
+  it("install then uninstall leaves NO file at .github/hooks/<id>.json and removes the empty dir (no orphan shell)", () => {
+    const hooksPath = join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`);
+    const hooksDir = join(projectDir, ".github", "hooks");
+
+    vscodeCopilotAdapter.installHooks(ctx);
+    expect(existsSync(hooksPath)).toBe(true);
+
+    const changes = vscodeCopilotAdapter.uninstallHooks(ctx);
+    // The file is gone entirely — not an empty shell…
+    expect(existsSync(hooksPath)).toBe(false);
+    // …and the now-empty per-connector hooks dir is removed (NO_RESIDUE).
+    expect(existsSync(hooksDir)).toBe(false);
+    // A remove ChangeRecord for the file was emitted.
+    expect(
+      changes.some((c) => c.action === "remove" && c.path === hooksPath),
+    ).toBe(true);
+  });
+
+  it("uninstall PRESERVES .github/hooks when another connector's file sits beside ours", () => {
+    const hooksPath = join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`);
+    const hooksDir = join(projectDir, ".github", "hooks");
+    const siblingPath = join(hooksDir, "other-connector.json");
+
+    vscodeCopilotAdapter.installHooks(ctx);
+    expect(existsSync(hooksPath)).toBe(true);
+    // A foreign connector's hook file lives in the shared .github/hooks tree.
+    writeFileSync(siblingPath, JSON.stringify({ version: 1, hooks: {} }), "utf8");
+
+    vscodeCopilotAdapter.uninstallHooks(ctx);
+    // Our file is gone…
+    expect(existsSync(hooksPath)).toBe(false);
+    // …but the dir + the foreign file are left in place.
+    expect(existsSync(hooksDir)).toBe(true);
+    expect(existsSync(siblingPath)).toBe(true);
+  });
+
+  it("dryRun uninstall reports the would-be remove but leaves the file in place", () => {
+    const hooksPath = join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`);
+    vscodeCopilotAdapter.installHooks(ctx);
+    expect(existsSync(hooksPath)).toBe(true);
+
+    const dryCtx: InstallContext = { ...ctx, dryRun: true };
+    const changes = vscodeCopilotAdapter.uninstallHooks(dryCtx);
+    // Reports the remove…
+    expect(
+      changes.some((c) => c.action === "remove" && c.path === hooksPath),
+    ).toBe(true);
+    // …but the filesystem is untouched.
+    expect(existsSync(hooksPath)).toBe(true);
   });
 });
 
