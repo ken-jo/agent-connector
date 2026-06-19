@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.4.26 — 2026-06-19
+
+Post-0.4.8 wave: new host capabilities, correctness fixes surfaced by a fresh
+full-host verification campaign, and the committed verification tooling itself.
+**35 platforms**, **2794 tests**. Patch bump sized to the merged-PR count since
+0.4.8 (8 + 18 PRs = 26).
+
+### Host capabilities
+
+- **Amazon Q — hooks surface** (mcp-only → json-stdio). The agent hook triggers
+  (`agentSpawn` / `userPromptSubmit` / `preToolUse` / `postToolUse` / `stop`) are
+  wired into the built-in `q_cli_default` agent file via the JSON-over-STDIN +
+  exit-code contract (mirrors the sibling AWS host kiro). (#143, closes #22)
+- **Amazon Q — agents content surface.** Connector subagents render to
+  `cli-agents/<name>.json` agent definitions; the `tools`/`allowedTools` `*`
+  wildcard asymmetry is honored and a reserved-name guard protects the hooks
+  agent file. (#148)
+- **MiMoCode — Stop.** Canonical `Stop` wired to the OpenCode-family `session.idle`
+  event, matching the kilo/kilo-cli precedent. (#144)
+
+### Fixes
+
+- **openclaw** — the generated plugin manifest now emits the required
+  `configSchema`, so `openclaw config validate` accepts the plugin (it was
+  rejected before, so the plugin never loaded). (#147)
+- **kimi config dir** — corrected `~/.kimi` → `~/.kimi-code` and dropped the
+  non-existent `$KIMI_HOME` (official-docs-verified); the adapter writer and the
+  Kimi Code CLI now resolve the same dir. (#151)
+- **kimi usage reader** — now covers BOTH Moonshot products: Kimi CLI (`~/.kimi`,
+  `StatusUpdate` snapshots, message-id dedup) and Kimi Code (`~/.kimi-code`,
+  `usage.record` deltas, summed) — the latter parsed per the readable upstream
+  source, with the Kimi CLI path kept byte-identical. (#152, #158)
+- **content surfaces** — reject symlinked target paths. (#154)
+- **statusline** — lazy-load the telemetry usage summary. (#161)
+
+### Verification (tests + tooling)
+
+- **install-roundtrip harness generalized to all 35 hosts** — a registry-driven
+  `describe.each` drives the real `installConnector` → `uninstallConnector` into
+  an isolated HOME for every adapter and asserts on-disk placement + zero residue
+  (binary-free). (#145)
+- **`scripts/verify-host.mjs`** — a committed live host-CLI driver plus
+  reproducible pinned-binary install lanes; 20 host CLIs live-verified across the
+  config-acceptance / live-hook-firing / install-placement tiers. (#146, #149, #150)
+
+### Internal / docs
+
+- marketplace drivers derived from the adapter registry. (#163)
+- dev-dependency audit advisories cleared. (#159)
+- surface-support descriptions + README refreshes — paradigm table, stale test
+  count, and the verification section. (#156, #165, #166)
+
 ## 0.4.8 — 2026-06-18
 
 The second consolidation wave. One user-facing correctness fix (codex
