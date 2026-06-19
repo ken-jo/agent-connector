@@ -18,9 +18,12 @@
  *                   subagent → <configDir>/agents/<name>.toml (TOML).
  *   • config dir  → user scope: $CODEX_HOME || ~/.codex; project: <projectDir>/.codex.
  *   • Reply       → JSON on stdout (exit 0): PreToolUse deny → permissionDecision;
- *                   SessionStart/PostToolUse context → additionalContext;
+ *                   PreToolUse modify → permissionDecision:"allow" + updatedInput
+ *                   (Codex requires the pair; stable since 0.131.0);
+ *                   SessionStart/PostToolUse/PreToolUse context → additionalContext;
  *                   PermissionRequest uses the nested decision{behavior} envelope
- *                   (modify/ask fall through — Codex fails CLOSED on updatedInput);
+ *                   (modify/ask fall through — Codex fails CLOSED on updatedInput
+ *                   for PermissionRequest specifically);
  *                   SubagentStart context/deny → additionalContext; SubagentStop
  *                   deny → TOP-LEVEL { decision:"block" }; PostCompact observe-only.
  *
@@ -482,6 +485,41 @@ describe("codex adapter render/round-trip", () => {
     expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
     expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked");
+  });
+
+  it("capability: canModifyArgs is true (updatedInput rewrite shipped upstream), canModifyOutput stays false", () => {
+    expect(codexAdapter.capabilities.canModifyArgs).toBe(true);
+    expect(codexAdapter.capabilities.canModifyOutput).toBe(false);
+  });
+
+  it("formatReply: PreToolUse modify → permissionDecision:'allow' PAIRED with updatedInput", () => {
+    const reply = codexAdapter.formatReply!("PreToolUse", {
+      decision: "modify",
+      updatedInput: { command: "ls", limit: 50 },
+    });
+    expect(reply.exitCode).toBe(0);
+    const out = JSON.parse(reply.stdout!);
+    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    // Codex's output_parser.rs rejects updatedInput unless paired with allow.
+    expect(out.hookSpecificOutput.permissionDecision).toBe("allow");
+    expect(out.hookSpecificOutput.updatedInput).toEqual({ command: "ls", limit: 50 });
+  });
+
+  it("formatReply: PreToolUse modify WITHOUT updatedInput → passthrough (no bare allow)", () => {
+    // A bare allow without updatedInput is itself invalid on Codex; emit nothing.
+    const reply = codexAdapter.formatReply!("PreToolUse", { decision: "modify" });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBeUndefined();
+  });
+
+  it("formatReply: PreToolUse context → additionalContext (PR #20692, stable since 0.130.0)", () => {
+    const reply = codexAdapter.formatReply!("PreToolUse", {
+      decision: "context",
+      additionalContext: "budget: cap reads at 50 lines",
+    });
+    const out = JSON.parse(reply.stdout!);
+    expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
+    expect(out.hookSpecificOutput.additionalContext).toBe("budget: cap reads at 50 lines");
   });
 
   it("formatReply: SessionStart context → additionalContext native wrapper", () => {
