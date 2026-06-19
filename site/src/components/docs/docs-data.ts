@@ -549,6 +549,7 @@ export const hookEventRows: { event: string; payload: string }[] = [
     payload:
       "agentId?, agentType?, agentTranscriptPath?, lastAssistantMessage?, stopHookActive?",
   },
+  { event: "PostCompact", payload: 'trigger?: "auto" | "manual"' },
 ];
 
 /** HookResponse fields (llms-full §2.3 / types.ts). */
@@ -610,31 +611,36 @@ export const decisionSemantics: { decision: string; meaning: string }[] = [
   },
 ];
 
-/** The 3 hook paradigms (llms-full §2.3 / §6). */
+/**
+ * The 3 hook paradigms (llms-full §2.3 / §6).
+ *
+ * NOTE: per-paradigm host COUNTS are intentionally NOT stored here — they are
+ * derived at render time from the registry-backed platform lists
+ * (jsonStdioPlatforms / tsPluginPlatforms / mcpOnlyPlatforms, declared below),
+ * so the table can never drift from the adapter registry the way the old
+ * hardcoded 16/7/8 did. tests/docs/platform-drift.test.ts pins those list
+ * lengths to registryParadigms().
+ */
 export const paradigmRows: {
-  id: string;
+  id: "json-stdio" | "ts-plugin" | "mcp-only";
   label: string;
-  count: number;
   description: string;
 }[] = [
   {
     id: "json-stdio",
     label: "json-stdio",
-    count: 16,
     description:
       "Host pipes JSON to a command on stdin and reads JSON / exit-code back. One universal entrypoint (agent-connector hook <platform> <event> --connector <id>) reads the payload, normalizes it, runs your handler, and formats the reply.",
   },
   {
     id: "ts-plugin",
     label: "ts-plugin",
-    count: 7,
     description:
       "Host loads a framework-generated JS/TS module exporting lifecycle functions that import your handler — the native shape these hosts expect.",
   },
   {
     id: "mcp-only",
     label: "mcp-only",
-    count: 8,
     description:
       "No hook layer; only the MCP server is installed and hooks are reported unavailable for that host.",
   },
@@ -963,12 +969,12 @@ export const confidenceSources: { source: string; meaning: string }[] = [
   {
     source: "tokenizer-approx",
     meaning:
-      "o200k_base used as a documented approximation for Anthropic-family (no offline Claude tokenizer ships).",
+      "o200k_base used as a documented approximation for non-OpenAI families — Anthropic/Claude and the generic family (Gemini and any unrecognized host); no offline Claude tokenizer ships.",
   },
   {
     source: "heuristic",
     meaning:
-      "chars/4 fallback with content-type multipliers; never tokenizes base64; explicitly labeled.",
+      "chars/4 fallback (no content-type awareness — when an encoder loads, binary content blocks get a flat per-modality estimate that is labeled tokenizer-approx, not heuristic, and base64 is never tokenized); explicitly labeled.",
   },
   {
     source: "tokenizer-calibrated",
@@ -996,7 +1002,7 @@ export const platformOverrideFields: FieldRow[] = [
     name: "nativeHooks",
     type: "Record<string, NativeHookDef>",
     notes:
-      "Native passthrough — wire ANY host hook event outside the 13 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). claude-code only today; other adapters skip-warn.",
+      "Native passthrough — wire ANY host hook event outside the 13 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). Honored by the 13 adapters that set supportsNativeHooks; the rest skip-warn.",
   },
   {
     name: "configPatch",
@@ -1026,6 +1032,12 @@ export const platformOverrideFields: FieldRow[] = [
     type: "boolean",
     notes:
       "false → do not wire the status line on this platform (no object form in v1).",
+  },
+  {
+    name: "actions",
+    type: "boolean",
+    notes:
+      "false → do not emit the action affordance(s) on this platform (no object form in v1).",
   },
   {
     name: "memory",
@@ -1109,16 +1121,16 @@ export const cliCommands: CliCommand[] = [
   {
     name: "uninstall",
     signature:
-      "agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run] [--purge]",
+      "agent-connector uninstall [--method auto|direct|marketplace] [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--dry-run] [--purge]",
     summary:
       "Full inverse — excises memory managed blocks FIRST (a prefix scan over the connector's marker namespace plus the memory ledger, so even an id-only uninstall reclaims blocks; user-edited blocks are backed up before removal), then removes the connector's MCP + hook registrations and content files from every resolved target, using registered metadata so it works even when the source module is gone. The id comes from --connector-id, else inferred from the local config. With --purge it also removes the connector's ~/.agent-connector state record and, when no connectors remain, the shared home-bin launcher; without it the record lingers so the connector can be re-synced without re-registering.",
   },
   {
     name: "doctor",
     signature:
-      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe]",
+      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe] [--heal] [--dry-run]",
     summary:
-      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code.",
+      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code. With --heal it self-heals — re-syncs every connector that has fixable findings (e.g. a missing memory block or absent configPatch key), then re-diagnoses and reports healed / still-failing / deferred (drifted user-edited values are deferred, never overwritten). --dry-run pairs with --heal to preview what would be healed/deferred without writing anything (always exits 0).",
   },
   {
     name: "status",
@@ -1211,6 +1223,14 @@ export const internalEntrypoints: { signature: string; desc: string }[] = [
   {
     signature: "agent-connector usage-event <platform> --connector <id>",
     desc: "HIDDEN opt-in host-native turn-usage hook (installed by Gemini / Antigravity adapters when host-native usage is enabled). Reads stdin, records a distinct model_turn row, ALWAYS exits 0 (fail-open).",
+  },
+  {
+    signature: "agent-connector statusline <platform> --connector <id>",
+    desc: "Universal statusline (HUD) entrypoint a host's status line config points at. Reads the entire host payload from stdin, dispatches runStatusline, writes the rendered line. FAIL-SAFE: never wedges the host — always exits 0 (even a malformed invocation degrades to exit 0 with no output).",
+  },
+  {
+    signature: "agent-connector action <platform> <actionId> --connector <id>",
+    desc: "User-invokable action entrypoint a host affordance (slash command / keybinding) points at. Reads NO stdin, dispatches runAction. USER-TRIGGERED (unlike the fail-open hook / fail-safe statusline): an unknown actionId or throwing run surfaces as exit 1 + a stderr message.",
   },
 ];
 

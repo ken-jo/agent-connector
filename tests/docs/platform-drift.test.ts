@@ -56,6 +56,48 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(docIds["mcp-only"]).toEqual(truth["mcp-only"]);
   });
 
+  it("docs Hooks-page paradigm COUNTS equal the registry-derived per-paradigm tally", async () => {
+    // The Hooks page renders per-paradigm host counts from these list lengths
+    // (paradigmRows no longer stores a hardcoded count). This pins each rendered
+    // count to the registry tally — the exact rot the old 16/7/8 literals had.
+    const truth = await registryParadigms();
+    expect(jsonStdioPlatforms.length).toBe(truth["json-stdio"]!.length);
+    expect(tsPluginPlatforms.length).toBe(truth["ts-plugin"]!.length);
+    expect(mcpOnlyPlatforms.length).toBe(truth["mcp-only"]!.length);
+  });
+
+  it("troubleshooting 'hooks unavailable here' prose lists EXACTLY the mcp-only hosts (no Amp)", async () => {
+    // DocsContent.tsx renders the count + names from mcpOnlyPlatforms, but the
+    // adjacent hardcoded "(Warp, Roo Code, Trae, Zed, Amp, ...)" prose once drifted
+    // (listed Amp, a ts-plugin host with hooks, and the wrong count). Guard the
+    // rendered names against the registry mcp-only set so it can never drift again.
+    const truth = await registryParadigms();
+    const mcpOnlyNames = mcpOnlyPlatforms.map((p) => p.name);
+
+    // mcpOnlyPlatforms is the registry mcp-only set (pinned by the test above);
+    // assert the troubleshooting block renders from it and excludes Amp.
+    expect(mcpOnlyPlatforms.map((p) => p.id).sort()).toEqual(truth["mcp-only"]);
+    expect(mcpOnlyPlatforms.some((p) => p.id === "amp")).toBe(false);
+
+    const docs = readFileSync(
+      "site/src/components/docs/DocsContent.tsx",
+      "utf8",
+    );
+    const hooksUnavailableIdx = docs.indexOf('id="hooks-unavailable"');
+    expect(hooksUnavailableIdx, "hooks-unavailable section not found").toBeGreaterThan(-1);
+    const block = docs.slice(hooksUnavailableIdx, hooksUnavailableIdx + 600);
+    // The block derives count + names from mcpOnlyPlatforms (not a literal list),
+    // so the prose can never drift from the registry mcp-only set again.
+    expect(block).toContain("mcpOnlyPlatforms.length");
+    expect(block).toContain("mcpOnlyPlatforms.map");
+    // The old stale "8 mcp-only hosts" literal (and its hardcoded name list that
+    // wrongly included Amp) must be gone.
+    expect(block).not.toMatch(/\b8 mcp-only hosts\b/);
+    // Amp is ts-plugin (has a hook layer): it must not be in the rendered set.
+    expect(mcpOnlyNames).not.toContain("Amp");
+    expect(truth["ts-plugin"]).toContain("amp");
+  });
+
   it("site landing platform list carries EXACTLY the registry ids, in registry order", () => {
     // platform-data.ts is dependency-free (data.ts re-exports it) precisely so
     // this test can import the real array instead of regex-counting source text.
