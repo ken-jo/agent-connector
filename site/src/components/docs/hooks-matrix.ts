@@ -1062,22 +1062,23 @@ export const platforms: PlatformHookEntry[] = [
   {
     platform: "amazon-q",
     displayName: "Amazon Q Developer CLI",
-    paradigm: "mcp-only",
-    hasHooks: false,
-    configPath: "—",
+    paradigm: "json-stdio",
+    hasHooks: true,
+    configPath:
+      "~/.aws/amazonq/cli-agents/q_cli_default.json (user) / .amazonq/cli-agents/q_cli_default.json (project) — hooks merged into the built-in default agent file",
     capabilities: {
       canModifyArgs: false,
       canModifyOutput: false,
-      canInjectSessionContext: false,
+      canInjectSessionContext: true,
     },
     events: {
-      SessionStart: null,
+      SessionStart: "agentSpawn",
       SessionEnd: null,
-      UserPromptSubmit: null,
-      PreToolUse: null,
-      PostToolUse: null,
+      UserPromptSubmit: "userPromptSubmit",
+      PreToolUse: "preToolUse",
+      PostToolUse: "postToolUse",
       PreCompact: null,
-      Stop: null,
+      Stop: "stop",
       Notification: null,
       PermissionRequest: null,
       PostToolUseFailure: null,
@@ -1086,7 +1087,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "mcp-only: no hook system wired in AC (the agent-format hooks layer in cli-agents/*.json is primary-verified but not yet installed by AC); installHooks 'skip' ('hooks unavailable (Amazon Q CLI is mcp-only)'); all events null. MCP: ~/.aws/amazonq/mcp.json (user, global) and .amazonq/mcp.json (project), root 'mcpServers'. BARE stdio entry { command, args?, env?, timeout? } (timeout in ms, NO type/disabled keys); remote/http entry { type: \"http\", url } (no headers — auth is OAuth). Amazon Q reads both files and merges (workspace wins on conflict). All hook capabilities false.",
+      "EVENT_MAP camelCase: SessionStart->agentSpawn, UserPromptSubmit->userPromptSubmit, PreToolUse->preToolUse, PostToolUse->postToolUse, Stop->stop. PreCompact/SessionEnd/Notification and all four newer events have no Amazon Q equivalent -> warn-skip (null). Hooks have NO global file; AC merges into the built-in `q_cli_default` agent file (cli-agents/q_cli_default.json) at the install scope — a bare default.json would be an inactive custom agent the user must select (mirrors kiro's default-agent selection); a project install writes a project-scoped q_cli_default that shadows the user-global one. The `hooks` field is a trigger-keyed OBJECT; each entry is FLAT { command, matcher? } (NO `type`; matcher meaningful only for preToolUse/postToolUse). EXIT-CODE protocol (identical to kiro): exit 0 = allow, exit 2 + stderr = deny (ask degrades to deny exit 2). agentSpawn context injection -> exit 0 + stdout { hookSpecificOutput:{ hookEventName:'agentSpawn', additionalContext } }. Cannot rewrite args/output (modify degrades to allow). MCP: ~/.aws/amazonq/mcp.json (user) and .amazonq/mcp.json (project), root 'mcpServers'. BARE stdio entry { command, args?, env?, timeout? } (timeout in ms, NO type/disabled keys); remote/http entry { type: \"http\", url } (no headers — auth is OAuth).",
   },
   {
     platform: "continue",

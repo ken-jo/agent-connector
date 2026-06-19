@@ -525,16 +525,19 @@ export const platforms: Platform[] = [
   {
     id: "amazon-q",
     name: "Amazon Q Developer CLI",
-    paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true, false, false),
-    // mcp-only: AC installs MCP + memory. MCP at ~/.aws/amazonq/mcp.json (user)
-    // and .amazonq/mcp.json (project), root key "mcpServers". memory WIRED:
+    paradigm: "json-stdio",
+    surfaces: s(true, true, false, false, false, true, false, false),
+    // json-stdio: AC installs MCP + hooks + memory. MCP at ~/.aws/amazonq/mcp.json
+    // (user) and .amazonq/mcp.json (project), root key "mcpServers". hooks WIRED:
+    // the agent-format hooks layer (cli-agents/*.json) — an OBJECT keyed by
+    // trigger (agentSpawn/userPromptSubmit/preToolUse/postToolUse/stop), each entry
+    // { command, matcher? }, JSON-over-STDIN, exit-code 0/2. Hooks have no global
+    // file, so AC merges into the built-in `q_cli_default` agent file
+    // (cli-agents/q_cli_default.json) at the install scope — a bare default.json
+    // would be an inactive custom agent (mirrors kiro's default-agent selection).
+    // memory WIRED:
     // .amazonq/rules/agent-connector.md (project; plain Markdown auto-applied as
-    // context — docs.aws.amazon.com context-project-rules). One surface Amazon Q
-    // natively supports but AC DEFERS (rendered as an honest host-gap):
-    //   - hooks: the agent-format hooks layer (cli-agents/*.json:
-    //     agentSpawn/userPromptSubmit/preToolUse/postToolUse, JSON-over-STDIN,
-    //     exit-code 0/2) is primary-verified but not yet wired in AC.
+    // context — docs.aws.amazon.com context-project-rules).
     // N/A wired: commands/skills/subagents (no documented user-authored dir
     // verified for the mcp.json scope).
     hostNative: s(true, true, false, false, false, true, false, false),

@@ -62,8 +62,8 @@ agent-connector is the middleware that does it for you:
 >
 > | Paradigm | Platforms |
 > |---|---|
-> | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Droid (Factory) · Antigravity · Antigravity CLI · Continue |
-> | `mcp-only` (MCP registration only) | Warp · Roo Code · Cline · Trae · Zed · Codebuff · Mux · Pi · Amazon Q · Windsurf |
+> | `json-stdio` (full hook dispatch) | Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Droid (Factory) · Antigravity · Antigravity CLI · Continue · Amazon Q |
+> | `mcp-only` (MCP registration only) | Warp · Roo Code · Cline · Trae · Zed · Codebuff · Mux · Pi · Windsurf |
 > | `ts-plugin` (generated bridge module) | OpenCode · MiMoCode · Kilo CLI · Kilo · OMP · NemoClaw · OpenClaw · Amp |
 >
 > …plus the telemetry core. Adding a platform = **one registry entry + one

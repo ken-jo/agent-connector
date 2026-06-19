@@ -1,17 +1,62 @@
 /**
  * adapters/amazon-q — Amazon Q Developer CLI platform adapter.
  *
- * Amazon Q Developer CLI (`q` / `qchat`) is an **mcp-only** host from
- * agent-connector's perspective. Although the agent JSON format exposes a
- * real hooks layer (agentSpawn / userPromptSubmit / preToolUse / postToolUse,
- * JSON-over-STDIN, exit-code 0/2 contract — primary-verified via
- * aws.github.io/amazon-q-developer-cli agent-format + hooks.md), the VERIFIED
- * CONTRACT classifies this adapter as mcp-only because the hook layer lives
- * inside per-agent JSON files (cli-agents/*.json), not in the global/workspace
- * mcp.json that AC targets for MCP registration. We install MCP entries only;
- * hook registration into agent files is a separate, unimplemented surface.
+ * Amazon Q Developer CLI (`q` / `qchat`) is a **json-stdio** host. It exposes a
+ * real hooks layer (agentSpawn / userPromptSubmit / preToolUse / postToolUse /
+ * stop, JSON-over-STDIN, exit-code 0/2 contract — primary-verified via
+ * aws.github.io/amazon-q-developer-cli agent-format → Hooks Field). The hook
+ * STDIN+exit contract is IDENTICAL to the sibling AWS host kiro; only the WRITE
+ * shape differs (see below).
  *
- * MCP config (legacy files, primary-verified via AWS docs):
+ * Hooks live ONLY in per-agent config JSON files — there is NO global hooks.json:
+ *   user    → ~/.aws/amazonq/cli-agents/<name>.json
+ *   project → <projectDir>/.amazonq/cli-agents/<name>.json
+ * Because hooks have no global file, AC must target a SPECIFIC agent file. We
+ * mirror kiro's per-agent selection rule and write the built-in default agent
+ * file — `cli-agents/q_cli_default.json`. Amazon Q auto-loads the built-in
+ * `q_cli_default` agent for a new chat session (the built-in default is otherwise
+ * in-memory); a file literally named `default.json` would be an INACTIVE custom
+ * agent named `default` the user must explicitly select (`q chat --agent default`),
+ * so hooks there would never fire — exactly the trap kiro avoids with
+ * `kiro_default.json`. Primary-verified via the agent-format default
+ * knowledge-base dir `~/.aws/amazonq/knowledge_bases/q_cli_default/`.
+ *   A PROJECT install writes a project-scoped `q_cli_default` agent file
+ *   (<projectDir>/.amazonq/cli-agents/q_cli_default.json) that SHADOWS the
+ *   user-global one — a local `q_cli_default` takes precedence and auto-loads.
+ *
+ * The `hooks` field is an OBJECT keyed by trigger name (NOT kiro's matcher-grouped
+ * array). Each entry is `{ command, matcher? }` — NO `type` field; `matcher` is
+ * only meaningful for preToolUse/postToolUse:
+ *   "hooks": {
+ *     "agentSpawn":       [{ "command": "<cmd>" }],
+ *     "userPromptSubmit": [{ "command": "<cmd>" }],
+ *     "preToolUse":       [{ "command": "<cmd>", "matcher": "<toolNamePattern?>" }],
+ *     "postToolUse":      [{ "command": "<cmd>", "matcher": "<optional>" }],
+ *     "stop":             [{ "command": "<cmd>" }]
+ *   }
+ * AC MERGES into this object: it preserves ALL other agent fields (name /
+ * description / mcpServers / tools / resources / user hooks) and only upserts its
+ * own home-bin command into each mapped trigger array, identified by the command
+ * string for idempotent re-install and clean uninstall (an emptied trigger key is
+ * dropped). The shared object-map hook-array merge engine (base.ts
+ * upsertHookEntries / removeHookEntries) handles this FLAT object-of-arrays shape
+ * directly — the descriptor renders a flat `{ command, matcher? }` entry.
+ *
+ * Canonical AC event → Amazon Q trigger:
+ *   SessionStart     → agentSpawn
+ *   UserPromptSubmit → userPromptSubmit
+ *   PreToolUse       → preToolUse
+ *   PostToolUse      → postToolUse
+ *   Stop             → stop
+ * Events with no Amazon Q trigger (PreCompact / SessionEnd / Notification and the
+ * E1 extension events) warn-skip at install time.
+ *
+ * Hook protocol is EXIT-CODE based (identical to kiro): exit 0 = allow, exit 2 =
+ * block (preToolUse only; STDERR is returned to the LLM). Amazon Q cannot rewrite
+ * tool args or output, so canModifyArgs / canModifyOutput are false.
+ *
+ * MCP config (legacy files, primary-verified via AWS docs) — UNCHANGED by the
+ * hooks wiring; the MCP server surface still targets the global/workspace mcp.json:
  *   - user scope    → ~/.aws/amazonq/mcp.json   (global; applies to all workspaces)
  *   - project scope → <projectDir>/.amazonq/mcp.json   (local workspace)
  *   Both are JSON, root key "mcpServers". Amazon Q reads BOTH when both exist
@@ -48,33 +93,115 @@
  *   (a `~/.aws/amazonq/.../rules` path is unverified), so user scope returns [] →
  *   the base installMemory skip-warns rather than writing into an unread path.
  *
- * Hook "config path" is aliased to the MCP file (no separate hook file) so the
- * base doctor/backup helpers behave sensibly.
+ * Hook config path targets the built-in default agent file
+ * (cli-agents/q_cli_default.json), which is a DIFFERENT file from the MCP mcp.json
+ * (getHookConfigPath ≠ getServerConfigPath), mirroring kiro's split surfaces.
  */
 
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
+import { BaseAdapter, type HookMergeDescriptor } from "../base.js";
+import type { Adapter, HookReply, InstallContext, MemoryTarget, NormalizedEvent } from "../spi.js";
 import type {
   ChangeRecord,
   DetectedPlatform,
   HealthCheck,
+  HookEventName,
   HookParadigm,
+  HookResponse,
   PlatformCapabilities,
   PlatformId,
+  PostToolUseEvent,
+  PreToolUseEvent,
   ServerDef,
+  SessionStartEvent,
+  StopEvent,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
   buildWrappedStdio,
+  isHomeBinHookCommand,
 } from "../../core/spawn.js";
+import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "amazon-q";
 const MCP_ROOT_KEY = "mcpServers";
+
+/**
+ * The built-in default agent file AC registers hooks on. Amazon Q auto-loads the
+ * built-in `q_cli_default` agent for a new chat session (the built-in default is
+ * otherwise in-memory). A file literally named `default.json` would be an INACTIVE
+ * custom agent named `default` that the user must explicitly select
+ * (`q chat --agent default`), so hooks merged there would never fire — we register
+ * on `q_cli_default.json` instead (mirrors kiro's `kiro_default.json` selection;
+ * primary-verified via the agent-format default knowledge-base dir
+ * `knowledge_bases/q_cli_default/`).
+ */
+const DEFAULT_AGENT_FILE = "q_cli_default.json";
+
+/**
+ * Amazon Q native hook trigger names (the keys under an agent file's `hooks`
+ * object). Only the triggers Amazon Q fires for the json-stdio command paradigm.
+ */
+const Q_TRIGGER = {
+  preToolUse: "preToolUse",
+  postToolUse: "postToolUse",
+  agentSpawn: "agentSpawn",
+  userPromptSubmit: "userPromptSubmit",
+  stop: "stop",
+} as const;
+
+/**
+ * Map canonical event names → Amazon Q's native trigger names. Only mapped
+ * events are present; PreCompact / SessionEnd / Notification and the E1
+ * extension events have no Amazon Q equivalent → warn-skip at install time.
+ */
+const EVENT_MAP: Partial<Record<HookEventName, string>> = {
+  SessionStart: Q_TRIGGER.agentSpawn,
+  UserPromptSubmit: Q_TRIGGER.userPromptSubmit,
+  PreToolUse: Q_TRIGGER.preToolUse,
+  PostToolUse: Q_TRIGGER.postToolUse,
+  Stop: Q_TRIGGER.stop,
+};
+
+/** Triggers whose `matcher` is meaningful (tool-name pattern). Others omit it. */
+const MATCHER_TRIGGERS: ReadonlySet<string> = new Set([
+  Q_TRIGGER.preToolUse,
+  Q_TRIGGER.postToolUse,
+]);
+
+/**
+ * A single Amazon Q native hook entry: FLAT `{ command, matcher? }` (NO `type`
+ * field — unlike kiro's matcher-grouped nested shape).
+ */
+interface AmazonQHookEntry {
+  command: string;
+  matcher?: string;
+}
+
+/** The shape of an Amazon Q agent file (only the parts we touch). */
+interface AmazonQAgentFile {
+  hooks?: Record<string, AmazonQHookEntry[]>;
+  [key: string]: unknown;
+}
+
+/** Raw Amazon Q CLI hook stdin payload (snake_case wire fields, == kiro's). */
+interface AmazonQWireInput {
+  connector?: unknown;
+  hook_event_name?: string;
+  cwd?: string;
+  session_id?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_response?: unknown;
+  source?: string;
+  prompt?: string;
+  stop_hook_active?: boolean;
+}
 
 /**
  * Native MCP server entry shapes Amazon Q accepts under `mcpServers`.
@@ -99,7 +226,7 @@ interface AmazonQHttpServer {
 export class AmazonQAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
   readonly name = "Amazon Q Developer CLI";
-  readonly paradigm: HookParadigm = "mcp-only";
+  readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
     // Memory surface: WIRED. Amazon Q reads `.amazonq/rules` (NOT AGENTS.md), so
@@ -110,21 +237,25 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
     // only; user scope skip-warns (no verified user/global rules dir).
     supportsMemory: true,
     //
-    // Amazon Q CLI: the hooks layer lives inside per-agent JSON files, not in
-    // the global/workspace mcp.json that AC targets. Every hook flag is false
-    // for this mcp-only adapter (hooks not wired into AC install yet).
-    preToolUse: false,
-    postToolUse: false,
+    // Hooks: Amazon Q fires agentSpawn / userPromptSubmit / preToolUse /
+    // postToolUse / stop (mapped from SessionStart / UserPromptSubmit /
+    // PreToolUse / PostToolUse / Stop). It has no PreCompact / SessionEnd /
+    // Notification equivalent, nor the E1 extension events (PermissionRequest /
+    // PostToolUseFailure / SubagentStart / SubagentStop) — those warn-skip.
+    preToolUse: true,
+    postToolUse: true,
     preCompact: false,
-    sessionStart: false,
+    sessionStart: true,
     sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
+    userPromptSubmit: true,
+    stop: true,
     notification: false,
-    // No hook layer wired → no arg/output rewrite, no context injection.
+    // Exit-code protocol only — a hook can allow (0) or block (2), but it CANNOT
+    // rewrite tool args or output.
     canModifyArgs: false,
     canModifyOutput: false,
-    canInjectSessionContext: false,
+    // agentSpawn returns additionalContext via JSON stdout (mirrors kiro).
+    canInjectSessionContext: true,
     // Amazon Q registers stdio + Streamable HTTP MCP servers (primary-verified).
     transports: ["stdio", "http"],
     // Content surfaces: Amazon Q DOES have user-authored surfaces — agents
@@ -183,11 +314,16 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Amazon Q has no separate hook file — hook config path aliases the MCP file
-   * so the generic doctor/backup helpers behave sensibly (roo-code idiom).
+   * Hooks live in a per-agent file, NOT the mcp.json. Amazon Q hooks have no
+   * global file, so AC targets the built-in `q_cli_default` agent file at the
+   * install scope (mirroring kiro's default-agent selection):
+   *   user    → ~/.aws/amazonq/cli-agents/q_cli_default.json
+   *   project → <projectDir>/.amazonq/cli-agents/q_cli_default.json
+   * A project install writes a project-scoped `q_cli_default` that SHADOWS the
+   * user-global one (a local `q_cli_default` takes precedence and auto-loads).
    */
   getHookConfigPath(ctx: InstallContext): string {
-    return this.getServerConfigPath(ctx);
+    return join(this.getConfigDir(ctx), "cli-agents", DEFAULT_AGENT_FILE);
   }
 
   // ── Memory surface: the `.amazonq/rules` content tree ─────────────────────
@@ -343,33 +479,78 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
     return resolveEnvRefsDeep({ ...env });
   }
 
-  // ── Hooks (unavailable — Amazon Q CLI is mcp-only in this adapter) ────────
+  // ── Hook install / uninstall (merge into the default agent file) ──────────
 
-  installHooks(_ctx: InstallContext): ChangeRecord[] {
-    return [
-      {
-        platform: this.id,
-        action: "skip",
-        detail: "hooks unavailable (Amazon Q CLI is mcp-only)",
-      },
-    ];
+  installHooks(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.hooks === false) {
+      return [{ platform: this.id, action: "skip", detail: "hooks disabled for amazon-q" }];
+    }
+    if (connector.hookEvents.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
+    }
+
+    const pending = connector.hookEvents.map((event) => ({
+      event,
+      matcher: connector.hooks[event]?.matcher ?? "",
+    }));
+    return this.upsertHookEntries(
+      ctx,
+      this.getHookConfigPath(ctx),
+      pending,
+      this.hookDescriptor(),
+    );
   }
 
-  uninstallHooks(_ctx: InstallContext): ChangeRecord[] {
-    return [
-      {
-        platform: this.id,
-        action: "skip",
-        detail: "hooks unavailable (Amazon Q CLI is mcp-only)",
+  uninstallHooks(ctx: InstallContext): ChangeRecord[] {
+    return this.removeHookEntries(ctx, this.getHookConfigPath(ctx), this.hookDescriptor());
+  }
+
+  /**
+   * Amazon Q's hook-merge descriptor (FLAT object-of-arrays shape — each entry is
+   * `{ command, matcher? }`, NO `type` field, unlike kiro's nested
+   * `{ matcher, hooks:[...] }`).
+   *  - mapEvent = EVENT_MAP (canonical → Amazon Q trigger); unmapped events
+   *    (PreCompact / SessionEnd / Notification + the E1 set) warn-skip.
+   *  - renderEntry emits `{ command }`, adding `matcher` ONLY for the
+   *    matcher-meaningful triggers (preToolUse/postToolUse) when one is declared;
+   *    an empty matcher = all tools, so it is OMITTED (no `matcher: ""` noise).
+   *  - entryOwnsCommand / ownsEntryForRemove match the home-bin command string
+   *    (idempotency on re-install; whole-entry removal on uninstall). FLAT host →
+   *    no stripInner; an emptied trigger key is dropped by the engine.
+   */
+  private hookDescriptor(): HookMergeDescriptor<AmazonQHookEntry> {
+    return {
+      mapEvent: (e) => EVENT_MAP[e as HookEventName],
+      unmappedWarnDetail: (e) => `${e} has no Amazon Q hook equivalent — skipped`,
+      renderEntry: (trigger, matcher, command) => {
+        const entry: AmazonQHookEntry = { command };
+        if (matcher && MATCHER_TRIGGERS.has(trigger)) entry.matcher = matcher;
+        return entry;
       },
-    ];
+      entryOwnsCommand: (entry, command) => entry.command === command,
+      ownsEntryForRemove: (c) => (entry) => this.isOurCommand(entry.command, c),
+      skipDetail: (trigger) => `hooks.${trigger} already registered`,
+      removeDetail: (trigger, removed) => `hooks.${trigger} (${removed})`,
+      absentDetail: "no hooks section present",
+      noMatchDetail: "no matching hook entries",
+    };
+  }
+
+  /** True when a hook command references our home binary AND this connector id
+   *  (anchored so a shared-prefix id can't collide — see isHomeBinHookCommand). */
+  private isOurCommand(command: string | undefined, ctx: InstallContext): boolean {
+    return isHomeBinHookCommand(command, ctx.homeBinPath, ctx.connector.id);
   }
 
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
     const mcpPath = this.getServerConfigPath(ctx);
+    const agentPath = this.getHookConfigPath(ctx);
     const connectorId = ctx.connector.id;
+    const homeBin = ctx.homeBinPath;
+    const hookEvents = ctx.connector.hookEvents;
     return [
       {
         name: `${this.name}: mcp.json present`,
@@ -397,7 +578,148 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
               };
         },
       },
+      {
+        name: `${this.name}: hook command registered`,
+        check: () => {
+          if (hookEvents.length === 0) {
+            return { status: "OK", detail: "no hooks declared" };
+          }
+          const agent = this.readJson<AmazonQAgentFile>(agentPath);
+          if (!agent) return { status: "FAIL", detail: `cannot read ${agentPath}` };
+          const hooks = agent.hooks ?? {};
+          const registered = Object.values(hooks).some((entries) =>
+            (entries ?? []).some((e) => isHomeBinHookCommand(e.command, homeBin, connectorId)),
+          );
+          return registered
+            ? { status: "OK", detail: "hook command present" }
+            : { status: "FAIL", detail: `no hook for ${connectorId} in ${agentPath}` };
+        },
+      },
     ];
+  }
+
+  // ── Runtime: parse Amazon Q stdin JSON → normalized event ─────────────────
+  // Amazon Q's stdin payload shape and exit-code contract are IDENTICAL to kiro's,
+  // so this parse + the formatReply below mirror the kiro adapter exactly.
+
+  parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
+    const input = (raw ?? {}) as AmazonQWireInput;
+    const connectorId = typeof input.connector === "string" ? input.connector : "";
+    const sessionId = typeof input.session_id === "string" ? input.session_id : "";
+    const projectDir = typeof input.cwd === "string" ? input.cwd : undefined;
+
+    const base = {
+      hostPlatform: HOST,
+      connectorId,
+      sessionId,
+      raw,
+      ...(projectDir !== undefined ? { projectDir } : {}),
+    } as const;
+
+    switch (event) {
+      case "PreToolUse": {
+        const ev: PreToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+        };
+        return ev;
+      }
+      case "PostToolUse": {
+        const ev: PostToolUseEvent = {
+          ...base,
+          toolName: input.tool_name ?? "",
+          toolInput: input.tool_input ?? {},
+          ...(toolResponseToString(input.tool_response) !== undefined
+            ? { toolOutput: toolResponseToString(input.tool_response) }
+            : {}),
+        };
+        return ev;
+      }
+      case "SessionStart": {
+        const ev: SessionStartEvent = {
+          ...base,
+          source: normalizeSessionSource(input.source),
+        };
+        return ev;
+      }
+      case "UserPromptSubmit": {
+        const ev: UserPromptSubmitEvent = {
+          ...base,
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+        };
+        return ev;
+      }
+      case "Stop": {
+        const ev: StopEvent = {
+          ...base,
+          ...(typeof input.stop_hook_active === "boolean"
+            ? { stopHookActive: input.stop_hook_active }
+            : {}),
+        };
+        return ev;
+      }
+      default: {
+        // Amazon Q never delivers PreCompact / SessionEnd / Notification nor the
+        // E1 extension events (no native triggers). If the runtime dispatches one
+        // anyway, surface it loudly rather than silently mis-parse.
+        throw new Error(`unsupported amazon-q hook event: ${String(event)}`);
+      }
+    }
+  }
+
+  // ── Runtime: normalized response → Amazon Q native (exit-code) hook reply ──
+
+  formatReply(event: HookEventName, response: HookResponse): HookReply {
+    const decision = response.decision ?? "allow";
+
+    // deny → block the action: exit 2 with the reason on stderr.
+    if (decision === "deny") {
+      return { exitCode: 2, stderr: response.reason ?? "Blocked by hook" };
+    }
+
+    // ask → Amazon Q has no native "ask"; degrade to deny (exit 2) to stay fail-safe.
+    if (decision === "ask") {
+      return {
+        exitCode: 2,
+        stderr: response.reason ?? "Action requires user confirmation (security policy)",
+      };
+    }
+
+    // Stop → exit-code only (deny already handled above). No context channel on a
+    // Stop hook, so anything non-deny passes through with exit 0.
+    if (event === "Stop") {
+      return { exitCode: 0 };
+    }
+
+    // context → inject soft guidance. Amazon Q reads agentSpawn additionalContext
+    // from stdout JSON (mirrors the kiro/Claude SessionStart shape). exit 0 = allow.
+    if (decision === "context" && response.additionalContext) {
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: Q_TRIGGER.agentSpawn,
+            additionalContext: response.additionalContext,
+          },
+        }),
+      };
+    }
+
+    // modify is unsupported (exit-code protocol — cannot rewrite args/output);
+    // allow / void → pass through with exit 0.
+    return { exitCode: 0 };
+  }
+}
+
+/** Coerce an Amazon Q PostToolUse `tool_response` into a string for the normalized event. */
+function toolResponseToString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }
 
