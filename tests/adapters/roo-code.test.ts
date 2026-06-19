@@ -385,6 +385,48 @@ describe("roo-code adapter render/round-trip", () => {
   });
 });
 
+// ── remote (sse / streamable-http) servers ALWAYS carry a discriminating type ─
+// Roo Code's config schema (RooCodeInc/Roo-Code McpHub.ts, verified v3.54.0)
+// REJECTS a url config that omits `type`, and uses the HYPHENATED
+// "streamable-http" value (NOT Cline's camelCase "streamableHttp"). A
+// Streamable-HTTP connector must therefore register with type "streamable-http",
+// and an sse connector with type "sse".
+
+describe("roo-code adapter — remote transport writes a discriminating type", () => {
+  let projectDir: string;
+
+  function buildRemoteCtx(transport: "http" | "sse"): InstallContext {
+    projectDir = freshProject("ac-roo-remote-");
+    const connector = defineConnector({
+      id: MCP_CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      server: { transport, url: "https://mcp.example.com/sse" },
+    });
+    return buildCtx(projectDir, connector, { dataRoot: projectDir });
+  }
+
+  it("http (streamable) server writes type:streamable-http explicitly", () => {
+    const ctx = buildRemoteCtx("http");
+    rooCodeAdapter.installServer(ctx);
+    const cfg = readJson(rooCodeAdapter.getServerConfigPath(ctx));
+    const entry = cfg.mcpServers[MCP_CONNECTOR_ID];
+    expect(entry.type).toBe("streamable-http");
+    expect(entry.url).toBe("https://mcp.example.com/sse");
+    // No stdio fields leak into a remote entry.
+    expect(entry.command).toBeUndefined();
+  });
+
+  it("sse server writes type:sse explicitly", () => {
+    const ctx = buildRemoteCtx("sse");
+    rooCodeAdapter.installServer(ctx);
+    const cfg = readJson(rooCodeAdapter.getServerConfigPath(ctx));
+    const entry = cfg.mcpServers[MCP_CONNECTOR_ID];
+    expect(entry.type).toBe("sse");
+    expect(entry.url).toBe("https://mcp.example.com/sse");
+  });
+});
+
 // ── `disabled` reflects server.enabled (absorbed from review-fixes.test.ts) ───
 
 describe("roo-code disabled reflects server.enabled", () => {
