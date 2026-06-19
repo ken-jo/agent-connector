@@ -67,6 +67,15 @@ const LEGACY_MCP_SETTINGS_FILE = "cline_mcp_settings.json";
  * Native MCP server entry shapes Roo Code accepts under `mcpServers`.
  * We write the minimal stdio shape { command, args, env, disabled }; Roo Code
  * also accepts optional `alwaysAllow` / `timeout`, which we intentionally omit.
+ *
+ * For remote (url-based) servers we ALWAYS emit `type`. Roo Code's config schema
+ * (RooCodeInc/Roo-Code McpHub.ts `createServerTypeSchema` + `validateServerConfig`,
+ * verified against v3.54.0) is STRICTER than its Cline parent: a url config with
+ * NO `type` is REJECTED outright — "Configuration with 'url' must explicitly
+ * specify 'type' as 'sse' or 'streamable-http'." Note the value differs from
+ * Cline: Roo Code uses the HYPHENATED `"streamable-http"` (Cline uses the
+ * camelCase `"streamableHttp"`), so this is NOT byte-identical to the cline
+ * adapter despite the fork lineage.
  */
 interface RooStdioServer {
   command: string;
@@ -76,6 +85,7 @@ interface RooStdioServer {
 }
 interface RooHttpServer {
   url: string;
+  type: "sse" | "streamable-http";
   headers?: Record<string, string>;
   disabled: boolean;
 }
@@ -303,8 +313,13 @@ export class RooCodeAdapter extends BaseAdapter implements Adapter {
     }
 
     // sse / http (and any other remote transport) — Roo Code registers a URL.
+    // We ALWAYS emit `type`: Roo Code REJECTS a url config that omits it (and an
+    // untyped url has no sse-default fallback like Cline's). Map our "http"
+    // transport to Roo Code's HYPHENATED "streamable-http" (NOT Cline's camelCase
+    // "streamableHttp") so a Streamable-HTTP server registers correctly.
     const entry: RooHttpServer = {
       url: resolveEnvRefsDeep(server.url ?? ""),
+      type: transport === "http" ? "streamable-http" : "sse",
       disabled: server.enabled === false,
     };
     const headers = this.renderEnv(server.headers);
