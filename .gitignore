@@ -18,3 +18,8 @@ archive-*/
 # agent-connector local test harness + OMC orchestration (never commit)
 .acverify/
 .omg/
+
+# scripts/verify-host.mjs local toolchain prefix: host CLIs installed for LIVE
+# verification on a box that lacks them (npm --prefix .verify-tools). Persists as
+# the installed toolchain but is never committed.
+.verify-tools/
