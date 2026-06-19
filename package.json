@@ -69,6 +69,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:host": "node scripts/verify-host.mjs",
     "prepublishOnly": "npm run typecheck && npm run build"
   },
   "dependencies": {
