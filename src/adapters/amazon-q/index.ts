@@ -54,6 +54,15 @@
  * Hook protocol is EXIT-CODE based (identical to kiro): exit 0 = allow, exit 2 =
  * block (preToolUse only; STDERR is returned to the LLM). Amazon Q cannot rewrite
  * tool args or output, so canModifyArgs / canModifyOutput are false.
+ *   Context injection → exit 0 with the guidance written as PLAIN STDOUT (NOT a
+ *   JSON envelope). Amazon Q adds a hook's STDOUT to the agent's context ONLY for
+ *   agentSpawn and userPromptSubmit ("STDOUT is added to agent's context"); for
+ *   preToolUse / postToolUse / stop the docs say STDOUT is "captured but not shown
+ *   to user" — no context channel — so a `context` decision on those degrades to a
+ *   plain exit-0 pass-through. Primary-verified via aws/amazon-q-developer-cli
+ *   docs/hooks.md (Hook Output + per-event Exit Code Behavior); there is NO
+ *   hookSpecificOutput / hookEventName / additionalContext envelope anywhere in
+ *   Amazon Q's schema.
  *
  * MCP config (legacy files, primary-verified via AWS docs) — UNCHANGED by the
  * hooks wiring; the MCP server surface still targets the global/workspace mcp.json:
@@ -184,6 +193,19 @@ const MATCHER_TRIGGERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Amazon Q triggers whose hook STDOUT is added to the agent's context: agentSpawn
+ * (≈ SessionStart) and userPromptSubmit (docs/hooks.md — both say "STDOUT is added
+ * to agent's context"). For preToolUse / postToolUse / stop the docs say STDOUT is
+ * "captured but not shown to user" — no context channel — so a `context` decision
+ * on those degrades to a plain exit-0 pass-through.
+ * Ref: aws/amazon-q-developer-cli docs/hooks.md (per-event Exit Code Behavior).
+ */
+const CONTEXT_TRIGGERS: ReadonlySet<string> = new Set([
+  Q_TRIGGER.agentSpawn,
+  Q_TRIGGER.userPromptSubmit,
+]);
+
+/**
  * A single Amazon Q native hook entry: FLAT `{ command, matcher? }` (NO `type`
  * field — unlike kiro's matcher-grouped nested shape).
  */
@@ -263,7 +285,8 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
     // rewrite tool args or output.
     canModifyArgs: false,
     canModifyOutput: false,
-    // agentSpawn returns additionalContext via JSON stdout (mirrors kiro).
+    // agentSpawn / userPromptSubmit add a hook's plain STDOUT to the agent's
+    // context (no JSON envelope) — primary-verified via docs/hooks.md.
     canInjectSessionContext: true,
     // Amazon Q registers stdio + Streamable HTTP MCP servers (primary-verified).
     transports: ["stdio", "http"],
@@ -750,8 +773,10 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
   }
 
   // ── Runtime: parse Amazon Q stdin JSON → normalized event ─────────────────
-  // Amazon Q's stdin payload shape and exit-code contract are IDENTICAL to kiro's,
-  // so this parse + the formatReply below mirror the kiro adapter exactly.
+  // Amazon Q's stdin payload shape and exit-code contract are IDENTICAL to kiro's
+  // (both AWS hosts in the same hook family); this parse + the formatReply context
+  // channel below follow Amazon Q's own primary-verified schema (docs/hooks.md):
+  // exit-code reply + PLAIN STDOUT context, gated to agentSpawn / userPromptSubmit.
 
   parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
     const input = (raw ?? {}) as AmazonQWireInput;
@@ -843,18 +868,22 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
       return { exitCode: 0 };
     }
 
-    // context → inject soft guidance. Amazon Q reads agentSpawn additionalContext
-    // from stdout JSON (mirrors the kiro/Claude SessionStart shape). exit 0 = allow.
-    if (decision === "context" && response.additionalContext) {
-      return {
-        exitCode: 0,
-        stdout: JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: Q_TRIGGER.agentSpawn,
-            additionalContext: response.additionalContext,
-          },
-        }),
-      };
+    // context → inject soft guidance. Amazon Q adds a hook's PLAIN STDOUT to the
+    // agent's context (NO JSON envelope), but ONLY for agentSpawn and
+    // userPromptSubmit; preToolUse / postToolUse / stop have no context channel
+    // (their STDOUT is "captured but not shown"). So emit the raw text on stdout
+    // only when the FIRING event maps to a context-supporting Amazon Q trigger;
+    // otherwise the context decision degrades to a plain exit-0 pass-through rather
+    // than a mislabeled/ineffective payload. exit 0 = allow.
+    // Ref: aws/amazon-q-developer-cli docs/hooks.md
+    const trigger = EVENT_MAP[event as HookEventName];
+    if (
+      decision === "context" &&
+      response.additionalContext &&
+      trigger !== undefined &&
+      CONTEXT_TRIGGERS.has(trigger)
+    ) {
+      return { exitCode: 0, stdout: response.additionalContext };
     }
 
     // modify is unsupported (exit-code protocol — cannot rewrite args/output);

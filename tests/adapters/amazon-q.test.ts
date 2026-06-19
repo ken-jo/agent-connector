@@ -761,17 +761,71 @@ describe("amazon-q adapter — runtime wire (stdin → event, exit-code reply)",
     expect(deny.stderr).toBe("blocked by policy");
   });
 
-  it("formatReply: SessionStart context → exit 0 + agentSpawn additionalContext JSON", () => {
+});
+
+// ── formatReply context channel (plain STDOUT, gated to context-supporting events) ─
+// Amazon Q adds a hook's STDOUT to the agent's context ONLY for agentSpawn
+// (≈ SessionStart) and userPromptSubmit ("STDOUT is added to agent's context");
+// preToolUse / postToolUse / stop have no context channel (STDOUT is "captured but
+// not shown to user"). So a context decision emits the raw guidance as plain stdout
+// on the two context triggers and degrades to a bare exit-0 pass-through everywhere
+// else — never a fabricated JSON envelope (there is NO hookSpecificOutput /
+// hookEventName / additionalContext envelope in Amazon Q's schema).
+// Ref: aws/amazon-q-developer-cli docs/hooks.md (per-event Exit Code Behavior).
+describe("amazon-q formatReply — context decision", () => {
+  const CTX = "remember: run the migration first";
+
+  it("SessionStart context → exit 0 + the guidance as PLAIN STDOUT (no JSON envelope)", () => {
     const reply = amazonQAdapter.formatReply!("SessionStart", {
       decision: "context",
-      additionalContext: "remember the rules",
+      additionalContext: CTX,
     });
     expect(reply.exitCode).toBe(0);
-    const out = JSON.parse(reply.stdout!) as {
-      hookSpecificOutput: { hookEventName: string; additionalContext: string };
-    };
-    expect(out.hookSpecificOutput.hookEventName).toBe("agentSpawn");
-    expect(out.hookSpecificOutput.additionalContext).toBe("remember the rules");
+    expect(reply.stdout).toBe(CTX);
+    // The fabricated Claude-shaped envelope must NOT be emitted.
+    expect(reply.stdout).not.toContain("hookSpecificOutput");
+    expect(reply.stdout).not.toContain("hookEventName");
+    expect(reply.stdout).not.toContain("additionalContext");
+    expect(reply.stdout).not.toContain("agentSpawn");
+  });
+
+  it("UserPromptSubmit context → exit 0 + the guidance as PLAIN STDOUT", () => {
+    const reply = amazonQAdapter.formatReply!("UserPromptSubmit", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBe(CTX);
+    expect(reply.stdout).not.toContain("hookSpecificOutput");
+  });
+
+  it("PreToolUse context → exit 0 pass-through (Amazon Q has no context channel there)", () => {
+    const reply = amazonQAdapter.formatReply!("PreToolUse", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    // No mislabeled agentSpawn payload, and the guidance is not (silently) emitted
+    // where Amazon Q would never surface it.
+    expect(reply.stdout).toBeUndefined();
+  });
+
+  it("PostToolUse context → exit 0 pass-through (STDOUT captured but not shown)", () => {
+    const reply = amazonQAdapter.formatReply!("PostToolUse", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBeUndefined();
+  });
+
+  it("Stop context → exit 0 pass-through (Stop branch precedes context; no context channel)", () => {
+    const reply = amazonQAdapter.formatReply!("Stop", {
+      decision: "context",
+      additionalContext: CTX,
+    });
+    expect(reply.exitCode).toBe(0);
+    expect(reply.stdout).toBeUndefined();
   });
 });
 
