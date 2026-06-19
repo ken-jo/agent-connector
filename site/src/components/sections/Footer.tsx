@@ -40,7 +40,7 @@ export function Footer() {
 
           <div className="flex w-full max-w-xs flex-col items-stretch gap-3 md:w-auto">
             <div className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-3 py-2 font-mono text-xs">
-              <span className="truncate text-foreground">{INSTALL_CMD}</span>
+              <span className="min-w-0 truncate text-foreground">{INSTALL_CMD}</span>
               <CopyButton value={INSTALL_CMD} className="ml-auto size-7" />
             </div>
             <Link

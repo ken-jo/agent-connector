@@ -71,7 +71,7 @@ export function Audiences() {
           </p>
           <div className="mt-4 flex h-10 items-center gap-2 rounded-lg border border-border bg-background/60 pl-3 pr-1 font-mono text-xs shadow-sm">
             <Terminal className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="select-all truncate text-foreground">
+            <span className="min-w-0 select-all truncate text-foreground">
               {USAGE_CMD}
             </span>
             <CopyButton
