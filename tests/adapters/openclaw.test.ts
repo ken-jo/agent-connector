@@ -871,7 +871,12 @@ describe("openclaw — the subagent bridge WORKS (live, child_process mocked)", 
     return import(/* @vite-ignore */ url);
   }
 
-  it("subagent_spawned shells out as SubagentStart with the normalized payload (observe-only: returns undefined)", async () => {
+  // WIRE-CONTRACT REGRESSION. The native subagent_spawned event (openclaw/openclaw
+  // src/plugins/hook-types.ts:720-806 + wired-hooks-subagent.test.ts:73-81) carries
+  // `agentId` (real identity) + an OPTIONAL human `label`, and NOTHING named
+  // subagentId/subagentType/agent/agentType. So the bridge must read e.agentId +
+  // e.label — feeding the OLD false-friend fields must NOT populate the payload.
+  it("subagent_spawned reads the REAL native fields (agentId + label); false-friend fields do NOT resurface", async () => {
     execFileSyncImpl = () => JSON.stringify({ decision: "context", additionalContext: "x" });
 
     const mod = await loadPlugin();
@@ -881,8 +886,14 @@ describe("openclaw — the subagent bridge WORKS (live, child_process mocked)", 
     expect(typeof api.handlers["subagent_ended"]).toBe("function");
 
     const result = await api.handlers["subagent_spawned"]!({
-      agentId: "agent-7",
-      agentType: "code-reviewer",
+      // Real host event shape (hook-types.ts PluginHookSubagentSpawnedEvent).
+      agentId: "main",
+      label: "research",
+      // Fields the host NEVER emits — must be ignored, never mapped.
+      subagentId: "ghost",
+      subagentType: "ghost-type",
+      agentType: "ghost-type",
+      agent: "ghost-agent",
     });
     // Observe-only: the bridge reply is ignored, the handler never blocks.
     expect(result).toBeUndefined();
@@ -892,29 +903,50 @@ describe("openclaw — the subagent bridge WORKS (live, child_process mocked)", 
     expect(bin).toBe(HOME_BIN);
     expect(argv).toEqual(["hook", "openclaw", "SubagentStart", "--connector", CONNECTOR_ID]);
     const payload = JSON.parse(opts.input);
-    expect(payload.agentId).toBe("agent-7");
-    expect(payload.agentType).toBe("code-reviewer");
+    // Real identity comes from e.agentId; the type slot from the real e.label.
+    expect(payload.agentId).toBe("main");
+    expect(payload.agentType).toBe("research");
+    // The false-friend native values never leaked into the bridge payload.
+    expect(payload.agentId).not.toBe("ghost");
+    expect(payload.agentType).not.toBe("ghost-type");
   });
 
-  it("subagent_ended shells out as SubagentStop; a string result rides along as lastAssistantMessage", async () => {
+  // WIRE-CONTRACT REGRESSION — the spec's confirmed bug. The native subagent_ended
+  // event (openclaw/openclaw src/plugins/hook-types.ts:808-818 +
+  // wired-hooks-subagent.test.ts:118-126) has its ONLY identity in
+  // `targetSessionKey` — NO agentId/subagentId, NO agentType/subagentType/agent,
+  // and NO result/output. So the bridge must read e.targetSessionKey for agentId,
+  // and must NOT post agentType / lastAssistantMessage (the host never sends them).
+  it("subagent_ended reads e.targetSessionKey as agentId; the removed result/agentType reads do NOT resurface", async () => {
     const mod = await loadPlugin();
     const api = fakeApi();
     mod.default.register(api);
 
     const result = await api.handlers["subagent_ended"]!({
-      subagentId: "sub-9",
-      subagentType: "explore",
-      result: "review complete",
+      // Real host event shape (hook-types.ts PluginHookSubagentEndedEvent).
+      targetSessionKey: "agent:main:subagent:child",
+      targetKind: "subagent",
+      reason: "subagent-complete",
+      outcome: "ok",
+      // Fields the host NEVER emits — must be ignored, never mapped.
+      agentId: "ghost",
+      subagentId: "ghost",
+      agentType: "ghost-type",
+      subagentType: "ghost-type",
+      result: "ghost result",
+      output: "ghost output",
     });
     expect(result).toBeUndefined();
 
     const [, argv, opts] = execFileSyncMock.mock.calls[0]!;
     expect(argv).toEqual(["hook", "openclaw", "SubagentStop", "--connector", CONNECTOR_ID]);
     const payload = JSON.parse(opts.input);
-    // subagent_* field-name variants are normalized before posting.
-    expect(payload.agentId).toBe("sub-9");
-    expect(payload.agentType).toBe("explore");
-    expect(payload.lastAssistantMessage).toBe("review complete");
+    // The real identity is targetSessionKey (NOT the false-friend agentId/subagentId).
+    expect(payload.agentId).toBe("agent:main:subagent:child");
+    expect(payload.agentId).not.toBe("ghost");
+    // The host emits no type and no message on subagent_ended: those keys are gone.
+    expect("agentType" in payload).toBe(false);
+    expect("lastAssistantMessage" in payload).toBe(false);
   });
 
   it("unknown agent fields are OMITTED from the payload (never posted as empty strings)", async () => {
@@ -929,9 +961,29 @@ describe("openclaw — the subagent bridge WORKS (live, child_process mocked)", 
     expect("agentId" in payload).toBe(false);
     expect("agentType" in payload).toBe(false);
   });
+
+  it("subagent_ended with ONLY targetSessionKey posts agentId and nothing invented", async () => {
+    const mod = await loadPlugin();
+    const api = fakeApi();
+    mod.default.register(api);
+
+    await api.handlers["subagent_ended"]!({
+      targetSessionKey: "agent:main:subagent:solo",
+    });
+
+    const [, , opts] = execFileSyncMock.mock.calls[0]!;
+    const payload = JSON.parse(opts.input);
+    expect(payload.agentId).toBe("agent:main:subagent:solo");
+    expect("agentType" in payload).toBe(false);
+    expect("lastAssistantMessage" in payload).toBe(false);
+  });
 });
 
 describe("openclaw — extended-event parse + reply", () => {
+  // parseEvent reads OUR generated bridge payload (OpenClawBridgePayload), NOT the
+  // host-native event — so input.agentId is correct BY CONSTRUCTION (the bridge
+  // already projected the host's real field into agentId). This asserts the
+  // straight-through map + the empty-string drop.
   it("SubagentStart/SubagentStop map the bridge payload; empty strings are dropped (matcher fail-open)", () => {
     const start = openclawAdapter.parseEvent!("SubagentStart", {
       agentId: "agent-7",
