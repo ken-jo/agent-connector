@@ -108,3 +108,66 @@ describe("cursor health checks for a hookless connector", () => {
     expect(code).toBe(0);
   });
 });
+
+// ── Explicit --connector load-failure behaviour ───────────────────────────────
+
+function captureStderr(): { restore: () => void; text: () => string } {
+  let out = "";
+  const spy = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      out += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+      return true;
+    });
+  return { restore: () => spy.mockRestore(), text: () => out };
+}
+
+describe("doctor --connector explicit load failure", () => {
+  it("errors loudly (non-zero exit, stderr message) when the explicit path does not exist", async () => {
+    const badPath = join(tmp, "does-not-exist.mjs");
+    const capOut = captureStdout();
+    const capErr = captureStderr();
+    const code = await main(["doctor", "--connector", badPath, "--project", tmp]);
+    capOut.restore();
+    capErr.restore();
+
+    // Must exit non-zero.
+    expect(code).not.toBe(0);
+    // The error message must mention the bad path.
+    expect(capErr.text()).toContain(badPath);
+    // Must NOT silently fall through to reporting on registered/detected connectors.
+    expect(capOut.text()).not.toContain("doctor: all checks passed.");
+    expect(capOut.text()).not.toContain("claude-code:");
+  });
+
+  it("errors loudly for --explain when the explicit --connector path does not exist", async () => {
+    const badPath = join(tmp, "does-not-exist.mjs");
+    const capOut = captureStdout();
+    const capErr = captureStderr();
+    const code = await main(["doctor", "--explain", "--connector", badPath, "--project", tmp]);
+    capOut.restore();
+    capErr.restore();
+
+    expect(code).not.toBe(0);
+    expect(capErr.text()).toContain(badPath);
+    // Must not silently explain registered connectors.
+    expect(capOut.text()).not.toContain("per-event hook honor:");
+  });
+
+  it("implicit discovery (no --connector) still falls back gracefully without errors", async () => {
+    // No agent-connector.config.* in tmp, no registered connectors → doctor
+    // should run against detected hosts (claude-code/cursor are present in the
+    // sandbox) without emitting anything to stderr, and exit 0.
+    const capOut = captureStdout();
+    const capErr = captureStderr();
+    const code = await main(["doctor", "--project", tmp]);
+    capOut.restore();
+    capErr.restore();
+
+    expect(code).toBe(0);
+    // No error output — implicit fallback must be silent.
+    expect(capErr.text()).toBe("");
+    // Some platform output is expected (detected hosts are checked).
+    expect(capOut.text()).toContain("doctor:");
+  });
+});
