@@ -72,6 +72,14 @@ describe("dataRoot", () => {
     expect(telemetryPath()).toBe(join(root, "telemetry.ndjson"));
     expect(telemetryPath("sqlite")).toBe(join(root, "telemetry.db"));
   });
+
+  it("rejects invalid connector ids before building a connector record path", () => {
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+
+    for (const id of ["", ".", "..", "../victim", "../../victim", "acme/db"]) {
+      expect(() => connectorDir(id)).toThrow(/connector id must be kebab-case/);
+    }
+  });
 });
 
 describe("homeBinPath", () => {

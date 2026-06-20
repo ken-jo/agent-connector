@@ -21,7 +21,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, parse, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+
+import { assertConnectorId } from "./ids.js";
 
 /** Framework data-root: AGENT_CONNECTOR_DATA_DIR || ~/.agent-connector. */
 export function dataRoot(): string {
@@ -34,7 +36,14 @@ export function connectorsDir(): string {
   return join(dataRoot(), "connectors");
 }
 export function connectorDir(id: string): string {
-  return join(connectorsDir(), id);
+  const root = resolve(connectorsDir());
+  const safeId = assertConnectorId(id);
+  const dir = resolve(root, safeId);
+  const rel = relative(root, dir);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(`connector record path escapes ${root}: ${id}`);
+  }
+  return dir;
 }
 export function backupsDir(): string {
   return join(dataRoot(), "backups");

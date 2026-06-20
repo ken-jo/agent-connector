@@ -1,6 +1,6 @@
 ---
 name: agent-connector
-description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks (12 normalized events + a native-event passthrough), slash commands, Agent Skills, subagents, or standing AGENTS.md guidance (memory) ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 32 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
+description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks (13 normalized events + a native-event passthrough), slash commands, Agent Skills, subagents, or standing AGENTS.md guidance (memory) ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 35 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
 ---
 
 # agent-connector
@@ -68,11 +68,12 @@ export default defineConnector({
     // wrapForTelemetry defaults true for stdio when telemetry is on
   },
 
-  // Lifecycle hooks — 12 canonical events (SessionStart, SessionEnd, UserPromptSubmit,
+  // Lifecycle hooks — 13 canonical events (SessionStart, SessionEnd, UserPromptSubmit,
   // PreToolUse, PostToolUse, PreCompact, Stop, Notification, PermissionRequest,
-  // PostToolUseFailure, SubagentStart, SubagentStop); the framework synthesizes the
-  // right entrypoint per host paradigm (json-stdio binary / ts-plugin module / skip
-  // on mcp-only). Hosts without a native analog skip-warn — never silently dropped.
+  // PostToolUseFailure, SubagentStart, SubagentStop, PostCompact); the framework
+  // synthesizes the right entrypoint per host paradigm (json-stdio binary /
+  // ts-plugin module / skip on mcp-only). Hosts without a native analog skip-warn —
+  // never silently dropped.
   hooks: {
     PreToolUse: {
       matcher: "acme_write",     // regex on tool name; empty = all
@@ -113,10 +114,9 @@ export default defineConnector({
   telemetry: { enabled: true, modelFamilyHint: "auto", measureToolDefs: true }, // ON by default
 
   // Per-platform escape hatches: disable a surface, force scope, merge `extra`
-  // verbatim — plus two claude-code-only (v1) hatches: `nativeHooks` wires ANY
-  // host hook event outside the 12 normalized ones by its verbatim name (Claude
-  // Code ships 30; raw payload in, returned JSON out verbatim, fail-open) and
-  // `configPatch` patches host-exclusive settings keys (set-if-absent + skip-warn,
+  // verbatim; `nativeHooks` wires ANY host hook event outside the 13 normalized
+  // ones by its verbatim name on adapters with supportsNativeHooks; `configPatch`
+  // patches claude-code host-exclusive settings keys (set-if-absent + skip-warn,
   // refcounted ownership, sensitive-key denylist, reversible uninstall).
   platforms: {
     warp: { hooks: false },
@@ -142,7 +142,7 @@ declaration). `defineConnector` validates eagerly and throws `ConnectorConfigErr
 on bad ids, non-function handlers, duplicate surface names, oversized skill
 descriptions (>1024 chars), unsafe skill `resources` paths, memory content over the
 16 KiB hard cap (or containing the literal managed-block marker tokens), a
-`nativeHooks` key that names one of the 12 normalized events (use `hooks` for
+`nativeHooks` key that names one of the 13 normalized events (use `hooks` for
 those), or a `configPatch` key in the agent-connector namespace (`hooks*`,
 `mcpServers*` — the sensitive-key denylist is enforced at install).
 

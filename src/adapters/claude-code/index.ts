@@ -468,6 +468,9 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const internal = surfaceLabel !== "configPatch";
     const { connector } = ctx;
     const filePath = this.getPatchableConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(filePath);
+    if (symlink) return [symlink];
+
     // OVERWRITE GUARD (upsertServerInJson precedent): never round-trip a
     // present-but-unparseable settings file into `{}`.
     if (this.isPresentButUnparseable(filePath)) {
@@ -717,6 +720,12 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     }
 
     for (const [filePath, entries] of byFile) {
+      const symlink = this.symlinkPathWarning(filePath);
+      if (symlink) {
+        changes.push(symlink);
+        continue;
+      }
+
       const unparseable = this.isPresentButUnparseable(filePath);
       const settings = unparseable
         ? null

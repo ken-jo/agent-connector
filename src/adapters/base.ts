@@ -700,21 +700,25 @@ export abstract class BaseAdapter implements Adapter {
 
   // ── Content-file helpers (used by surface-supporting adapters) ────────────
 
+  protected symlinkPathWarning(path: string): ChangeRecord | null {
+    const symlink = firstSymlinkInPath(path);
+    if (symlink === null) return null;
+    return {
+      platform: this.id,
+      action: "warn",
+      path,
+      detail: `${basename(path)} skipped: symbolic link in path (${symlink})`,
+    };
+  }
+
   /**
    * Write a content file idempotently: "skip" when the existing bytes are
    * already identical, else "create"/"update". Creates parent dirs (mkdir -p).
    * Honors dryRun (computes the action but writes nothing).
    */
   protected writeContentFile(path: string, contents: string, dryRun: boolean): ChangeRecord {
-    const symlink = firstSymlinkInPath(path);
-    if (symlink !== null) {
-      return {
-        platform: this.id,
-        action: "warn",
-        path,
-        detail: `${basename(path)} skipped: symbolic link in path (${symlink})`,
-      };
-    }
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return symlink;
 
     let action: ChangeRecord["action"];
     if (!existsSync(path)) {
@@ -741,15 +745,8 @@ export abstract class BaseAdapter implements Adapter {
    * (e.g. a skill folder removed by the supporting adapter).
    */
   protected removeContentFile(path: string, dryRun: boolean): ChangeRecord {
-    const symlink = firstSymlinkInPath(path);
-    if (symlink !== null) {
-      return {
-        platform: this.id,
-        action: "warn",
-        path,
-        detail: `${basename(path)} skipped: symbolic link in path (${symlink})`,
-      };
-    }
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return symlink;
 
     if (!existsSync(path)) {
       return { platform: this.id, action: "skip", path, detail: `${basename(path)} absent` };
@@ -914,6 +911,10 @@ export abstract class BaseAdapter implements Adapter {
 
   protected writeJson(path: string, data: unknown, dryRun = false): void {
     if (dryRun) return;
+    const symlink = firstSymlinkInPath(path);
+    if (symlink !== null) {
+      throw new Error(`${basename(path)} skipped: symbolic link in path (${symlink})`);
+    }
     ensureDir(dirname(path));
     writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
   }
@@ -1015,6 +1016,9 @@ export abstract class BaseAdapter implements Adapter {
     descriptor: HookMergeDescriptor<E>,
     native?: ReadonlyArray<{ event: string; matcher: string }>,
   ): ChangeRecord[] {
+    const symlink = this.symlinkPathWarning(configPath);
+    if (symlink) return [symlink];
+
     const file = this.readJson<Record<string, unknown>>(configPath) ?? {};
     const coerce = descriptor.malformedPolicy === "coerce";
     let hooks: Record<string, E[]>;
@@ -1132,6 +1136,9 @@ export abstract class BaseAdapter implements Adapter {
     configPath: string,
     descriptor: HookMergeDescriptor<E>,
   ): ChangeRecord[] {
+    const symlink = this.symlinkPathWarning(configPath);
+    if (symlink) return [symlink];
+
     const file = this.readJson<Record<string, unknown>>(configPath);
     const hooks = file?.hooks as Record<string, E[]> | undefined;
     if (!file || !hooks) {
@@ -1209,6 +1216,9 @@ export abstract class BaseAdapter implements Adapter {
     entry: unknown,
     dryRun = false,
   ): ChangeRecord {
+    const symlink = this.symlinkPathWarning(configPath);
+    if (symlink) return symlink;
+
     return upsertInObjectMap({
       codec: this.jsonObjectMapCodec(),
       rootKey,
@@ -1227,6 +1237,9 @@ export abstract class BaseAdapter implements Adapter {
     serverId: string,
     dryRun = false,
   ): ChangeRecord {
+    const symlink = this.symlinkPathWarning(configPath);
+    if (symlink) return symlink;
+
     return removeFromObjectMap({
       codec: this.jsonObjectMapCodec(),
       rootKey,

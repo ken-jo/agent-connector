@@ -45,6 +45,17 @@ async function registryParadigms(): Promise<Record<string, string[]>> {
   return sets;
 }
 
+async function hostsWithCapability(
+  key: "supportsStatusline" | "supportsActions" | "supportsNativeHooks",
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const factory of ADAPTER_REGISTRY) {
+    const adapter = await factory.load();
+    if (adapter.capabilities[key] ?? false) ids.push(factory.id);
+  }
+  return ids.sort();
+}
+
 describe("robot docs drift guard — llms.txt + llms-full.txt (code is the source of truth)", () => {
   // ── Paradigm partition (migrated from platform-drift) ────────────────────
   it("llms.txt paradigm bullets name EXACTLY the registry ids, and the heading count is current", async () => {
@@ -101,6 +112,28 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
         new RegExp(`^\\| \`${event}\` \\|`, "m").test(LLMS_FULL),
         `llms-full.txt payload table is missing the ${event} row`,
       ).toBe(true);
+    }
+  });
+
+  it("llms.txt handler-surface claims match adapter capability flags", async () => {
+    const statusline = await hostsWithCapability("supportsStatusline");
+    const actions = await hostsWithCapability("supportsActions");
+    const nativeHooks = await hostsWithCapability("supportsNativeHooks");
+
+    const statuslineLine = bullet(LLMS, "- `statusline`");
+    const actionsLine = bullet(LLMS, "- `actions`");
+    expect(statuslineLine).toBeTruthy();
+    expect(actionsLine).toBeTruthy();
+
+    for (const id of statusline) {
+      expect(statuslineLine, `llms.txt statusline bullet omits "${id}"`).toContain(id);
+    }
+    for (const id of actions) {
+      expect(actionsLine, `llms.txt actions bullet omits "${id}"`).toContain(id);
+    }
+    expect(LLMS).toContain(`${nativeHooks.length} adapters support it today`);
+    for (const id of nativeHooks) {
+      expect(LLMS, `llms.txt nativeHooks paragraph omits "${id}"`).toContain(id);
     }
   });
 

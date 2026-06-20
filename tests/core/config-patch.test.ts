@@ -31,6 +31,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -335,6 +336,24 @@ describe("claude-code adapter — installConfigPatches", () => {
     expect(entry.writtenValue).toEqual(WIDGET_PATCH.value);
     expect(entry.writtenValueHash).toMatch(/^[0-9a-f]{64}$/);
     expect(entry.owners.map((o) => o.connectorId)).toEqual(["cp-a"]);
+  });
+
+  it("warns and leaves a symlinked settings.json target untouched", () => {
+    mkdirSync(join(tmpProject, ".claude"), { recursive: true });
+    const outside = join(tmpData, "outside-settings.json");
+    const before = "{}\n";
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, settingsPath());
+
+    const connector = patchConnector("cp-link", [WIDGET_PATCH]);
+    const changes = claudeAdapter.installConfigPatches(buildCtx(connector));
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(settingsPath());
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
+    expect(loadConfigPatchLedger(tmpData).entries).toHaveLength(0);
   });
 
   it("creates only absent intermediates and never disturbs sibling keys", () => {

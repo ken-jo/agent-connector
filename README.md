@@ -14,7 +14,7 @@
 ![install verified](https://img.shields.io/badge/install%20verified-35%2F35-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-20%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-2840%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-passing-22c55e)
 
 ## Who this is for
 
