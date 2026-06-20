@@ -8,9 +8,11 @@ import {
   readFileSync,
   symlinkSync,
   existsSync,
+  realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
+import { searchForWorkspaceRoot } from "vite";
 import {
   dataRoot,
   homeBinPath,
@@ -22,6 +24,7 @@ import {
   logsDir,
   telemetryPath,
 } from "../../src/core/paths.js";
+import { vitestFsAllow } from "../../vitest.config.js";
 
 const ORIG_HOME = process.env.HOME;
 const ORIG_USERPROFILE = process.env.USERPROFILE;
@@ -157,6 +160,19 @@ describe("ensureHomeBin", () => {
 
     expect(() => ensureHomeBin("/opt/cli.js", "/usr/bin/node")).toThrow(/symbolic link/i);
     expect(existsSync(join(outside, "agent-connector"))).toBe(false);
+  });
+});
+
+describe("vitest filesystem allow list", () => {
+  it("keeps generated temp connector fixtures and Vite's workspace root allowed", () => {
+    const normalizedAllow = new Set(vitestFsAllow.map((path) => path.replace(/\\/g, "/")));
+    const expectedTempRoot = realpathSync.native(tmpdir()).replace(/\\/g, "/");
+    const expectedWorkspaceRoot = realpathSync
+      .native(searchForWorkspaceRoot(process.cwd()))
+      .replace(/\\/g, "/");
+
+    expect(normalizedAllow).toContain(expectedTempRoot);
+    expect(normalizedAllow).toContain(expectedWorkspaceRoot);
   });
 });
 
