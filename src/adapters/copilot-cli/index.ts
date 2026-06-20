@@ -152,9 +152,19 @@ const EVENT_CAPABILITY: Record<HookEventName, keyof PlatformCapabilities> = {
   PostCompact: "postCompact",
 };
 
-/** A single Copilot CLI hook registration entry (Claude-shaped). */
+/**
+ * A single Copilot CLI hook registration entry (Claude-shaped).
+ *
+ * `matcher` is OPTIONAL and, when present, MUST be non-empty. Copilot CLI's
+ * hooks schema is `matcher: z.string().min(1).optional()` (live-verified on CLI
+ * 1.0.63): an OMITTED matcher passes validation, but an EMPTY STRING fails it —
+ * the loader logs "Invalid hook configuration … matcher cannot be empty" and
+ * DISCARDS THE ENTIRE hook file, registering zero hooks. So we OMIT the key
+ * entirely when there is no matcher and emit it only when non-empty; we must
+ * never write `matcher: ""`.
+ */
 interface CopilotHookEntry {
-  matcher: string;
+  matcher?: string;
   hooks: Array<{ type: "command"; command: string }>;
 }
 
@@ -494,9 +504,11 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         continue;
       }
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
-      const matcher = connector.hooks[event]?.matcher ?? "";
+      const matcher = connector.hooks[event]?.matcher;
+      // OMIT the matcher key when there is none — Copilot CLI rejects an empty
+      // string (matcher cannot be empty) and discards the whole hooks file.
       const entry: CopilotHookEntry = {
-        matcher,
+        ...(matcher ? { matcher } : {}),
         hooks: [{ type: "command", command }],
       };
 
@@ -538,8 +550,10 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     // command so a native key coinciding with a normalized one never clobbers it.
     for (const nativeEvent of nativeEvents) {
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, nativeEvent, connector.id);
+      const matcher = nativeHooks[nativeEvent]?.matcher;
+      // OMIT the matcher key when there is none (empty string fails validation).
       const entry: CopilotHookEntry = {
-        matcher: nativeHooks[nativeEvent]?.matcher ?? "",
+        ...(matcher ? { matcher } : {}),
         hooks: [{ type: "command", command }],
       };
       const bucket = (hooks[nativeEvent] ??= []);
@@ -610,7 +624,9 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         const innerBefore = e.hooks?.length ?? 0;
         const inner = (e.hooks ?? []).filter((h) => !this.isOurCommand(h.command, ctx));
         removed += innerBefore - inner.length;
-        if (inner.length > 0) next.push({ matcher: e.matcher ?? "", hooks: inner });
+        // Preserve the entry's original matcher verbatim, but never synthesize an
+        // empty string — Copilot CLI rejects `matcher: ""` (whole file discarded).
+        if (inner.length > 0) next.push({ ...(e.matcher ? { matcher: e.matcher } : {}), hooks: inner });
       }
 
       if (removed > 0) {
@@ -626,7 +642,17 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
       }
     }
 
-    if (mutated) this.writeJson(hooksPath, file, ctx.dryRun);
+    if (mutated) {
+      // When our uninstall empties the hooks map, delete this connector's
+      // dedicated file rather than leaving an inert `{version:1,hooks:{}}` stub.
+      // The file is owned solely by AC (see getHookConfigPath), so removing it on
+      // full teardown is safe and keeps ~/.copilot/hooks clean.
+      if (Object.keys(hooks).length === 0) {
+        this.removeManagedFile(hooksPath, ctx.dryRun);
+      } else {
+        this.writeJson(hooksPath, file, ctx.dryRun);
+      }
+    }
     if (changes.length === 0) {
       changes.push({
         platform: this.id,

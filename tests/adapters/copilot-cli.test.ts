@@ -348,6 +348,7 @@ describe("copilot-cli adapter render/round-trip", () => {
     expect(Array.isArray(pre)).toBe(true);
     // PascalCase key must NOT be present — it would never fire.
     expect(cfg.hooks.PreToolUse).toBeUndefined();
+    // A declared matcher is written through as-is (non-empty → key PRESENT).
     expect(pre[0].matcher).toBe("acme_query|acme_write");
     const cmd = pre[0].hooks[0].command;
     expect(cmd).toContain(HOME_BIN);
@@ -360,6 +361,59 @@ describe("copilot-cli adapter render/round-trip", () => {
     expect(cfg.hooks.sessionStart[0].hooks[0].command).toContain(
       "hook copilot-cli SessionStart",
     );
+    // SessionStart has NO matcher → the key must be ABSENT, never `matcher: ""`.
+    // Copilot CLI's schema is `matcher: z.string().min(1).optional()`: an empty
+    // string FAILS validation and the loader DISCARDS THE ENTIRE hooks file, so
+    // every hook silently stops firing. The key is omitted, not empty.
+    expect("matcher" in cfg.hooks.sessionStart[0]).toBe(false);
+    expect(cfg.hooks.sessionStart[0].matcher).toBeUndefined();
+  });
+
+  it("REGRESSION: never writes `matcher: \"\"` — an empty string discards the whole hooks file", () => {
+    // The bug: writing `matcher ?? ""` produced `matcher: ""` on every key, which
+    // Copilot CLI rejects ("matcher cannot be empty") → it drops the ENTIRE file
+    // and registers ZERO hooks. Drive every supported event (most with NO matcher)
+    // and assert no entry anywhere carries an empty-string matcher.
+    const connector = defineConnector({
+      id: CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      hooks: {
+        SessionStart: { handler: () => ({ decision: "allow" }) },
+        SessionEnd: { handler: () => ({ decision: "allow" }) },
+        UserPromptSubmit: { handler: () => ({ decision: "allow" }) },
+        // PreToolUse keeps a real matcher → must still be present + non-empty.
+        PreToolUse: { matcher: "acme_query", handler: () => ({ decision: "allow" }) },
+        PostToolUse: { handler: () => ({ decision: "allow" }) },
+        PreCompact: { handler: () => ({ decision: "allow" }) },
+        Stop: { handler: () => ({ decision: "allow" }) },
+        SubagentStop: { handler: () => ({ decision: "allow" }) },
+      },
+    });
+    const ctx = buildCtx(projectDir, connector, "user");
+    copilotCliAdapter.installHooks(ctx);
+
+    const written = readJson(hooksFile(projectDir));
+    // The empty-matcher token must appear NOWHERE in the file.
+    const raw = JSON.stringify(written);
+    expect(raw).not.toContain('"matcher":""');
+    expect(raw).not.toContain('"matcher": ""');
+
+    for (const [key, entries] of Object.entries(written.hooks as Record<string, any[]>)) {
+      for (const entry of entries) {
+        if ("matcher" in entry) {
+          // When present, the matcher is a real non-empty string (never "").
+          expect(typeof entry.matcher).toBe("string");
+          expect(entry.matcher.length).toBeGreaterThan(0);
+        }
+      }
+      // preToolUse keeps its real matcher; every other event omits the key.
+      if (key === "preToolUse") {
+        expect(entries[0].matcher).toBe("acme_query");
+      } else {
+        expect("matcher" in entries[0]).toBe(false);
+      }
+    }
   });
 
   it("installServer is idempotent — second call yields skip and does not duplicate", () => {
@@ -390,8 +444,9 @@ describe("copilot-cli adapter render/round-trip", () => {
     expect(serverCfg.mcpServers?.[CONNECTOR_ID]).toBeUndefined();
 
     copilotCliAdapter.uninstallHooks(ctx);
-    const hooks = readJson(hooksFile(projectDir));
-    expect(JSON.stringify(hooks.hooks ?? {})).not.toContain(HOME_BIN);
+    // Full teardown empties the hooks map → the dedicated file is DELETED, not
+    // left as an inert `{version:1,hooks:{}}` stub.
+    expect(existsSync(hooksFile(projectDir))).toBe(false);
   });
 });
 
@@ -470,7 +525,8 @@ describe("copilot-cli adapter — nativeHooks passthrough", () => {
     expect(second.every((c) => c.action === "skip")).toBe(true);
 
     copilotCliAdapter.uninstallHooks(ctx);
-    expect(JSON.stringify(readHooks(projectDir))).not.toContain(HOME_BIN);
+    // Only AC entries existed → the dedicated file is removed entirely.
+    expect(existsSync(hooksFile(projectDir))).toBe(false);
   });
 
   it("uninstall strips only OUR native entry, leaving a foreign hook intact", () => {
@@ -488,6 +544,10 @@ describe("copilot-cli adapter — nativeHooks passthrough", () => {
     const flat = JSON.stringify(hooks);
     expect(flat).toContain("other run"); // foreign survives
     expect(flat).not.toContain(HOME_BIN); // every AC command gone
+    // Rewriting the surviving foreign entry must NOT re-introduce `matcher: ""`
+    // (the seed carried an empty matcher; uninstall drops the key, not keeps "").
+    expect(flat).not.toContain('"matcher":""');
+    expect("matcher" in hooks.ErrorOccurred[0]).toBe(false);
   });
 });
 
