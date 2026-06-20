@@ -48,6 +48,7 @@ import type {
   ConnectorConfig,
   PermissionRequestEvent,
   PostCompactEvent,
+  PostToolUseEvent,
   ResolvedConnector,
   ServerDef,
   SubagentStopEvent,
@@ -501,6 +502,90 @@ describe("codex adapter render/round-trip", () => {
     expect(out.hookSpecificOutput.hookEventName).toBe("PreToolUse");
     expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(out.hookSpecificOutput.permissionDecisionReason).toBe("blocked");
+  });
+
+  // ── PostToolUse hook-stdin wire contract (primary-source verified) ────────
+  // Codex serializes PostToolUseCommandInput (#[serde(deny_unknown_fields)]):
+  // it has NO top-level is_error, and tool_response is serde_json::Value — a
+  // bare STRING for shell/apply_patch but an OBJECT for MCP tools. These guard
+  // against the false-friend reads (top-level is_error; tool_response-as-string).
+  // Source: openai/codex codex-rs/hooks/src/schema.rs PostToolUseCommandInput
+  // (no is_error; tool_response:Value) + core/src/tools/handlers/{mcp.rs,shell_tests.rs}.
+
+  it("parseEvent PostToolUse: shell tool_response is a bare string → toolOutput verbatim, isError false", () => {
+    const evt = codexAdapter.parseEvent!("PostToolUse", {
+      tool_name: "shell",
+      tool_input: { command: "ls" },
+      tool_response: "shell output",
+      cwd: projectDir,
+      session_id: "cx-pt-shell",
+    }) as PostToolUseEvent;
+    expect(evt.toolName).toBe("shell");
+    expect(evt.toolOutput).toBe("shell output");
+    // shell carries no boolean error signal in tool_response → false.
+    expect(evt.isError).toBe(false);
+  });
+
+  it("parseEvent PostToolUse: MCP tool_response is an OBJECT → JSON-stringified into toolOutput (never a raw object)", () => {
+    const responseObj = {
+      content: [{ type: "text", text: "notes" }],
+      structuredContent: { bytes: 5 },
+    };
+    const evt = codexAdapter.parseEvent!("PostToolUse", {
+      tool_name: "mcp__filesystem__read_file",
+      tool_input: { path: "/tmp/notes.txt" },
+      tool_response: responseObj,
+      cwd: projectDir,
+      session_id: "cx-pt-mcp",
+    }) as PostToolUseEvent;
+    // toolOutput is typed string — an object MUST be coerced, not passed raw.
+    expect(typeof evt.toolOutput).toBe("string");
+    expect(evt.toolOutput).toBe(JSON.stringify(responseObj));
+    expect(evt.isError).toBe(false);
+  });
+
+  it("parseEvent PostToolUse: isError derives from the NESTED CallToolResult.isError, not a top-level is_error", () => {
+    const failing = codexAdapter.parseEvent!("PostToolUse", {
+      tool_name: "mcp__db__query",
+      tool_input: {},
+      tool_response: { content: [{ type: "text", text: "boom" }], isError: true },
+      session_id: "cx-pt-err",
+    }) as PostToolUseEvent;
+    expect(failing.isError).toBe(true);
+
+    const ok = codexAdapter.parseEvent!("PostToolUse", {
+      tool_name: "mcp__db__query",
+      tool_input: {},
+      tool_response: { content: [], isError: false },
+      session_id: "cx-pt-ok",
+    }) as PostToolUseEvent;
+    expect(ok.isError).toBe(false);
+  });
+
+  it("parseEvent PostToolUse: a top-level is_error is IGNORED (dead read removed — host never emits it)", () => {
+    // The host's deny_unknown_fields struct can't carry is_error; were it ever
+    // present (or hand-forged), the adapter must NOT resurrect the old read.
+    const evt = codexAdapter.parseEvent!("PostToolUse", {
+      tool_name: "shell",
+      tool_input: {},
+      tool_response: "ok",
+      // is_error is not part of the Codex wire (deny_unknown_fields). A forged
+      // top-level flag must be ignored — the dead read must not resurface.
+      is_error: true,
+      session_id: "cx-pt-deadread",
+    }) as PostToolUseEvent;
+    // tool_response carries no nested isError → false, despite the bogus top-level flag.
+    expect(evt.isError).toBe(false);
+  });
+
+  it("parseEvent PostToolUse: missing tool_response → toolOutput undefined, isError false (no invented signal)", () => {
+    const evt = codexAdapter.parseEvent!("PostToolUse", {
+      tool_name: "apply_patch",
+      tool_input: {},
+      session_id: "cx-pt-empty",
+    }) as PostToolUseEvent;
+    expect(evt.toolOutput).toBeUndefined();
+    expect(evt.isError).toBe(false);
   });
 
   it("capability: canModifyArgs is true (updatedInput rewrite shipped upstream), canModifyOutput stays false", () => {

@@ -97,13 +97,23 @@ import type {
 interface CodexHookInput {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: string;
+  // PostToolUse only. The host serializes this as serde_json::Value (any JSON):
+  // a BARE STRING for shell/apply_patch (e.g. json!("shell output")) but an
+  // OBJECT for MCP/structured tools (the serialized CallToolResult, e.g.
+  // json!({content,structuredContent,isError})) — NOT always a string. Typed
+  // `unknown` so PostToolUse coerces it for the string-typed toolOutput.
+  // Primary source: openai/codex codex-rs/hooks/src/schema.rs PostToolUseCommandInput
+  // `tool_response: Value` + core/src/tools/handlers/{mcp.rs object, shell_tests.rs string}.
+  tool_response?: unknown;
   session_id?: string;
   cwd?: string;
   hook_event_name?: string;
   source?: string;
   prompt?: string;
-  is_error?: boolean;
+  // NO is_error: Codex's PostToolUseCommandInput struct (#[serde(deny_unknown_fields)])
+  // never serializes a top-level is_error — the error signal for MCP tools lives
+  // INSIDE tool_response as the CallToolResult `isError`. The field was removed;
+  // see derivePostToolUseIsError below. (openai/codex codex-rs/hooks/src/schema.rs:317-337)
   stop_hook_active?: boolean;
   trigger?: string;
   message?: string;
@@ -174,6 +184,47 @@ const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set(["PostToolUseFailur
  */
 const PRE_TOOL_USE_MATCHER =
   "local_shell|shell|shell_command|exec_command|Bash|Shell|apply_patch|Edit|Write|grep_files|mcp__";
+
+/**
+ * Coerce Codex's PostToolUse `tool_response` (serde_json::Value — bare string
+ * for shell/apply_patch, OBJECT for MCP/structured tools) to a string for the
+ * string-typed `toolOutput`. A string passes through verbatim; everything else
+ * (object/array/number/bool) is JSON-stringified; undefined/null → undefined
+ * (leave `toolOutput` unset).
+ *
+ * Source: openai/codex codex-rs/hooks/src/schema.rs PostToolUseCommandInput
+ * `tool_response: Value`; core/src/tools/handlers/shell_tests.rs emits
+ * `json!("shell output")` (string), mcp.rs emits `json!({...})` (object).
+ */
+function coerceToolResponse(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Derive PostToolUse `isError`. Codex's PostToolUseCommandInput
+ * (`#[serde(deny_unknown_fields)]`) has NO top-level is_error field, so the only
+ * machine-readable error signal is the MCP CallToolResult `isError` nested in
+ * the `tool_response` object (serialized camelCase by rmcp). For shell/
+ * apply_patch tool_response is a bare string carrying no boolean, so we report
+ * false. Returns false when no such signal exists (never invents one).
+ *
+ * Source: openai/codex codex-rs/hooks/src/schema.rs:317-337 (no is_error field);
+ * codex-rs/core/src/tools/handlers/mcp.rs (tool_response = serialized
+ * CallToolResult → `isError` when the MCP call failed).
+ */
+function derivePostToolUseIsError(toolResponse: unknown): boolean {
+  if (toolResponse !== null && typeof toolResponse === "object") {
+    const flag = (toolResponse as Record<string, unknown>).isError;
+    if (typeof flag === "boolean") return flag;
+  }
+  return false;
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Adapter
@@ -764,8 +815,14 @@ export class CodexAdapter extends BaseAdapter {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          toolOutput: input.tool_response,
-          isError: input.is_error ?? false,
+          // tool_response is a bare string for shell/apply_patch but an OBJECT
+          // for MCP tools — coerce non-strings to JSON so the string-typed
+          // toolOutput never receives a raw object.
+          toolOutput: coerceToolResponse(input.tool_response),
+          // Codex never serializes a top-level is_error (deny_unknown_fields);
+          // the true error signal is the CallToolResult.isError nested inside
+          // tool_response for MCP tools. Derive it from there.
+          isError: derivePostToolUseIsError(input.tool_response),
         };
       case "SessionStart":
         return { ...base, source: normalizeSessionSource(input.source) };
