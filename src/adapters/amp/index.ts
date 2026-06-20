@@ -129,7 +129,10 @@ const EVENT_TO_AMP: Partial<Record<HookEventName, string>> = {
 interface AmpBridgePayload {
   toolName?: string;
   toolInput?: Record<string, unknown>;
-  toolOutput?: string;
+  // ToolResultEvent.output is typed `unknown` by the host (@ampcode/plugin
+  // index.d.ts:947 — "Tool output/result if available"), so the bridge may
+  // forward a string OR a structured value; parseEvent stringifies non-strings.
+  toolOutput?: unknown;
   isError?: boolean;
   prompt?: string;
   sessionId?: string;
@@ -607,11 +610,13 @@ let SESSION_ID = "";
 
     if (has("UserPromptSubmit")) {
       handlers.push(`  // UserPromptSubmit → agent.start "fires when the user submits a prompt"
-  // (ampcode.com/manual). The manual's example takes (_event) and documents no
-  // prompt field or return surface, so this is observe-only — the raw event is
-  // forwarded for the connector to inspect; any deny/context decision is a no-op.
+  // (ampcode.com/manual). The host DOES carry the prompt: AgentStartEvent.message
+  // is "The user's prompt message" (@ampcode/plugin index.d.ts:1011-1012), so we
+  // PROJECT event.message into the bridge payload's prompt key (the prior version
+  // dropped it). Observe-only return surface — any deny/context decision is a no-op.
   amp.on("agent.start", async (event) => {
     bridge("UserPromptSubmit", {
+      prompt: (event && typeof event.message === "string" && event.message) || "",
       sessionId: SESSION_ID,
       projectDir: PROJECT_DIR,
       raw: event,
@@ -648,13 +653,16 @@ let SESSION_ID = "";
     if (has("PostToolUse")) {
       handlers.push(`  // PostToolUse → tool.result "fires after a tool finishes and before the result
   // is sent back to the model" (ampcode.com/manual). The tool name is event.tool
-  // and the error signal is event.status === "error" (both verified). The manual
-  // says a replacement status/output CAN be returned but never documents the
-  // replacement object shape, so this is observe-only (canModifyOutput:false) —
-  // the raw event is forwarded; we never return a guessed replacement.
+  // and the error signal is event.status === "error" (both verified). The host DOES
+  // carry the output: ToolResultEvent extends ToolResult.output (typed unknown —
+  // "Tool output/result if available", @ampcode/plugin index.d.ts:946-947,976), so
+  // we PROJECT event.output into the bridge payload's toolOutput (prior version
+  // dropped it). Replacement still observe-only (canModifyOutput:false) — the
+  // replacement OBJECT shape is undocumented, so we never return a guessed mutation.
   amp.on("tool.result", async (event) => {
     bridge("PostToolUse", {
       toolName: (event && event.tool) || "",
+      toolOutput: event && event.output,
       isError: !!(event && event.status === "error"),
       sessionId: SESSION_ID,
       projectDir: PROJECT_DIR,
@@ -721,13 +729,16 @@ ${handlers.join("\n\n")}
         return ev;
       }
       case "PostToolUse": {
+        // ToolResultEvent.output is typed `unknown` by the host (@ampcode/plugin
+        // index.d.ts:947), so the bridge can forward a string OR a structured value.
+        // Accept both: pass strings through, JSON-stringify other non-nullish
+        // values (the old `typeof === "string"` guard silently dropped the latter).
+        const out = coerceToolOutput(input.toolOutput);
         const ev: PostToolUseEvent = {
           ...base,
           toolName: input.toolName ?? "",
           toolInput: input.toolInput ?? {},
-          ...(typeof input.toolOutput === "string"
-            ? { toolOutput: input.toolOutput }
-            : {}),
+          ...(out !== undefined ? { toolOutput: out } : {}),
           ...(typeof input.isError === "boolean"
             ? { isError: input.isError }
             : {}),
@@ -831,6 +842,23 @@ ${handlers.join("\n\n")}
   }
 
   /** Read a file, returning undefined on any error (idempotency compare). */
+}
+
+/**
+ * Coerce Amp's `ToolResultEvent.output` (typed `unknown` upstream) into the
+ * normalized event's `toolOutput: string`. Strings pass through; other
+ * non-nullish values (objects / arrays / numbers) are JSON-stringified so a
+ * structured tool result is no longer silently dropped. `undefined`/`null`
+ * yields `undefined` (the key is omitted by the caller).
+ */
+function coerceToolOutput(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 /**

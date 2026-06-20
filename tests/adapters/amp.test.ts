@@ -487,6 +487,99 @@ describe("amp adapter — ts-plugin hooks", () => {
   });
 });
 
+// ── regression: the bridge projects the host's REAL hook-stdin fields ─────────
+// kimi #189 class — OUR bridge must build the payload from the host's NATIVE
+// event fields. Verified against @ampcode/plugin index.d.ts:
+//   • AgentStartEvent.message  (1011-1012) → UserPromptSubmit.prompt
+//   • ToolResultEvent.output   (946-947,976, typed unknown) → PostToolUse.toolOutput
+describe("amp adapter — bridge projects the real native hook fields (regression)", () => {
+  it("agent.start handler projects event.message into the bridge prompt key", () => {
+    const projectDir = freshProject("ac-amp-wire-");
+    ampAdapter.installHooks(buildCtx(projectDir, hooksConnector()));
+    const src = readFileSync(entryPath(projectDir), "utf8");
+
+    // The generated agent.start handler must read event.message (the host's
+    // verified prompt field) and post it under `prompt:`.
+    expect(src).toContain('amp.on("agent.start"');
+    expect(src).toContain("event.message");
+    expect(src).toMatch(/prompt:\s*\(event && typeof event\.message === "string"/);
+    // It must NOT post a payload that omits the prompt (the prior bridge gap):
+    // the agent.start block must contain a `prompt:` key.
+    const agentStart = src.slice(src.indexOf('amp.on("agent.start"'));
+    const handlerBody = agentStart.slice(0, agentStart.indexOf("});") + 3);
+    expect(handlerBody).toContain("prompt:");
+  });
+
+  it("tool.result handler projects event.output into the bridge toolOutput key", () => {
+    const projectDir = freshProject("ac-amp-wire-");
+    ampAdapter.installHooks(buildCtx(projectDir, hooksConnector()));
+    const src = readFileSync(entryPath(projectDir), "utf8");
+
+    expect(src).toContain('amp.on("tool.result"');
+    const toolResult = src.slice(src.indexOf('amp.on("tool.result"'));
+    const handlerBody = toolResult.slice(0, toolResult.indexOf("});") + 3);
+    // The host's ToolResult.output (typed unknown) must be projected as toolOutput.
+    expect(handlerBody).toContain("toolOutput: event && event.output");
+    // observe-only stays: no guessed replacement-output mutation resurfaces.
+    expect(handlerBody).not.toContain("res.updatedOutput");
+    expect(handlerBody).not.toContain("return { output:");
+  });
+
+  it("parseEvent surfaces the projected prompt (string passthrough)", () => {
+    const ev = ampAdapter.parseEvent!("UserPromptSubmit", {
+      prompt: "summarize the repo",
+      sessionId: "s1",
+    });
+    expect(ev).toMatchObject({
+      hostPlatform: "amp",
+      prompt: "summarize the repo",
+      sessionId: "s1",
+    });
+  });
+
+  it("parseEvent passes a string toolOutput straight through", () => {
+    const ev = ampAdapter.parseEvent!("PostToolUse", {
+      toolName: "Bash",
+      toolOutput: "ok\n",
+      isError: false,
+    });
+    expect(ev).toMatchObject({ toolName: "Bash", toolOutput: "ok\n", isError: false });
+  });
+
+  it("parseEvent JSON-stringifies a STRUCTURED toolOutput (host types output as unknown)", () => {
+    // The old `typeof toolOutput === "string"` guard silently dropped structured
+    // results; the host types ToolResultEvent.output as `unknown`, so a non-string
+    // payload must survive (stringified) rather than vanish.
+    const ev = ampAdapter.parseEvent!("PostToolUse", {
+      toolName: "read_file",
+      toolOutput: { lines: 3, text: "hi" },
+      isError: false,
+    }) as { toolOutput?: string };
+    expect(ev.toolOutput).toBe(JSON.stringify({ lines: 3, text: "hi" }));
+  });
+
+  it("parseEvent stringifies an ARRAY toolOutput (content-block style result)", () => {
+    const ev = ampAdapter.parseEvent!("PostToolUse", {
+      toolName: "grep",
+      toolOutput: [{ type: "text", text: "match" }],
+    }) as { toolOutput?: string };
+    expect(ev.toolOutput).toBe(JSON.stringify([{ type: "text", text: "match" }]));
+  });
+
+  it("parseEvent omits toolOutput when the host sends none (no invented field)", () => {
+    const ev = ampAdapter.parseEvent!("PostToolUse", {
+      toolName: "Bash",
+      isError: false,
+    }) as { toolOutput?: string };
+    expect(ev).not.toHaveProperty("toolOutput");
+  });
+
+  it("parseEvent prompt defaults to '' when the host omits it (no crash, no junk)", () => {
+    const ev = ampAdapter.parseEvent!("UserPromptSubmit", { sessionId: "s1" });
+    expect(ev).toMatchObject({ hostPlatform: "amp", prompt: "" });
+  });
+});
+
 // ── skills surface (.agents/skills — NOT ~/.config/amp/skills) ───────────────
 
 describe("amp adapter — skills surface", () => {
