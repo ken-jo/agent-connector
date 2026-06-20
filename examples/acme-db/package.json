@@ -1,0 +1,10 @@
+{
+  "name": "acme-db-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal runnable acme-db example — a stub MCP server + agent-connector config.",
+  "type": "module",
+  "dependencies": {
+    "@ken-jo/agent-connector": "../.."
+  }
+}
