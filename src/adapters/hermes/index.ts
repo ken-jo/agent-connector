@@ -69,7 +69,6 @@ import {
   isHomeBinHookCommand,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
-import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "hermes";
 /** Root key under which Hermes stores MCP servers in config.yaml (snake_case). */
@@ -149,35 +148,70 @@ interface HermesHookEntry {
   timeout: number;
 }
 
-/** Raw Hermes hook stdin payload. Hermes uses snake_case pre_tool_call /
- *  post_tool_call event tokens; field names below cover both its tool-call and
- *  session payloads. Shape kept Claude-like where Hermes does not document it. */
+/**
+ * Raw Hermes hook stdin payload — the ACTUAL wire shape emitted by Hermes'
+ * `agent/shell_hooks.py::_serialize_payload` (NousResearch/hermes-agent), NOT a
+ * Claude-like guess. The serializer keeps ONLY these top-level keys:
+ *
+ *     { hook_event_name, tool_name, tool_input, session_id, cwd, extra }
+ *
+ * where `tool_name`/`tool_input` come from the invoke kwargs `tool_name`/`args`,
+ * `session_id` from `session_id` ?? `parent_session_id`, and EVERY other kwarg
+ * is nested under `extra` (see `_TOP_LEVEL_PAYLOAD_KEYS` = {tool_name, args,
+ * session_id, parent_session_id}). So all per-event result/status/child fields
+ * are read from `extra.*` — top-level reads for them are always undefined.
+ */
 interface HermesWireInput {
   session_id?: string;
   cwd?: string;
-  event?: string;
   hook_event_name?: string;
   tool_name?: string;
+  /** Top-level: the serializer lifts the `args` kwarg here (PreToolUse). */
   tool_input?: Record<string, unknown>;
-  tool_response?: unknown;
-  tool_output?: unknown;
-  source?: string;
-  reason?: string;
+  /**
+   * Every non-allowlisted invoke kwarg nests here. Per-event contents (verified
+   * against the host source):
+   *   - post_tool_call: result, status ("ok"|"error"), error_type, error_message,
+   *     duration_ms, task_id, tool_call_id, turn_id, api_request_id, middleware_trace
+   *   - subagent_stop:  child_session_id, child_role, child_summary, child_status
+   *     ("completed"|"failed"|"interrupted"|"error"), duration_ms, parent_turn_id
+   *   - on_session_start: model, platform
+   *   - on_session_end:   completed (bool), interrupted (bool), task_id, turn_id,
+   *     model, platform
+   */
+  extra?: HermesExtra;
+  /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
+  connector?: string;
+}
+
+/** The `extra` envelope — non-allowlisted invoke kwargs, by event (see above). */
+interface HermesExtra {
+  // post_tool_call
+  result?: unknown;
+  status?: string;
+  error_type?: string;
+  error_message?: string;
+  // subagent_stop
+  child_session_id?: string;
+  child_role?: string;
+  child_summary?: string;
+  child_status?: string;
+  // on_session_end
+  completed?: boolean;
+  interrupted?: boolean;
+  // on_session_start / on_session_end
+  model?: string;
+  platform?: string;
+  // ── Defensive only ──────────────────────────────────────────────────────
+  // Hermes does NOT fire UserPromptSubmit / PreCompact / PostCompact / Stop /
+  // Notification (the matching capabilities are false; install warn-skips them).
+  // Were any ever mis-routed here, the serializer would still nest its kwargs
+  // under `extra`, so these defensive parse arms read from extra — they never
+  // resurface as invented top-level fields.
   prompt?: string;
   trigger?: string;
   stop_hook_active?: boolean;
   message?: string;
-  is_error?: boolean;
-  // subagent_stop — fires when a delegate_task child exits. agent_* are the
-  // Claude-compatible names, child_* the Hermes-native ones (child_status ∈
-  // completed/failed/interrupted/error stays accessible via `raw`).
-  agent_id?: string;
-  agent_type?: string;
-  child_id?: string;
-  child_status?: string;
-  last_assistant_message?: string;
-  /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
-  connector?: string;
 }
 
 export class HermesAdapter extends BaseAdapter implements Adapter {
@@ -944,40 +978,78 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostToolUse": {
-        // Hermes may carry the result under tool_output or tool_response.
-        const out = toStringOrUndefined(input.tool_output ?? input.tool_response);
+        // VERIFIED (NousResearch/hermes-agent model_tools.py:856-871 +
+        // shell_hooks.py::_serialize_payload): post_tool_call's `result` kwarg is
+        // NOT allowlisted, so it lands at extra.result — top-level tool_output/
+        // tool_response are NEVER emitted. Read extra.result for the output.
+        const extra = input.extra ?? {};
+        const out = toStringOrUndefined(extra.result);
+        // VERIFIED: there is no `is_error` boolean. The host emits status
+        // ("ok"|"error") + error_type/error_message (model_tools.py:815-821,
+        // _tool_result_observer_fields), all under extra. Derive isError from a
+        // non-ok status or a present error_type; emit only when determinable.
+        const isError =
+          typeof extra.status === "string"
+            ? extra.status !== "ok"
+            : typeof extra.error_type === "string"
+              ? true
+              : undefined;
         const ev: PostToolUseEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
           ...(out !== undefined ? { toolOutput: out } : {}),
-          ...(typeof input.is_error === "boolean" ? { isError: input.is_error } : {}),
+          ...(typeof isError === "boolean" ? { isError } : {}),
         };
         return ev;
       }
       case "SessionStart": {
-        const ev: SessionStartEvent = { ...base, source: normalizeSessionSource(input.source) };
+        // VERIFIED (NousResearch/hermes-agent conversation_loop.py:340-344):
+        // on_session_start is invoked with { session_id, model, platform } only —
+        // there is NO `source`/start-reason kwarg (model/platform land under
+        // extra). Hermes fires on_session_start ONLY for a brand-new session (not
+        // on continuation), so the canonical "startup" is the single honest
+        // value; there is no compact/resume/clear discriminator to normalize.
+        const ev: SessionStartEvent = { ...base, source: "startup" };
         return ev;
       }
       case "SessionEnd": {
+        // VERIFIED (NousResearch/hermes-agent turn_finalizer.py:415-423):
+        // on_session_end is invoked with completed:bool / interrupted:bool (both
+        // under extra) — there is NO top-level `reason` kwarg. Derive a reason
+        // string from the two booleans (interrupted wins; else completed).
+        const extra = input.extra ?? {};
+        const reason =
+          extra.interrupted === true
+            ? "interrupted"
+            : extra.completed === true
+              ? "completed"
+              : undefined;
         const ev: SessionEndEvent = {
           ...base,
-          ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
+          ...(reason !== undefined ? { reason } : {}),
         };
         return ev;
       }
+      // The five arms below parse events Hermes does NOT fire (userPromptSubmit/
+      // preCompact/stop/notification capabilities are false; PostCompact unset).
+      // They stay as defensive normalizers for a manual/mis-routed dispatch, and
+      // read from `extra` because that is the only envelope Hermes' serializer
+      // produces — never an invented top-level field.
       case "UserPromptSubmit": {
+        const extra = input.extra ?? {};
         const ev: UserPromptSubmitEvent = {
           ...base,
-          prompt: typeof input.prompt === "string" ? input.prompt : "",
+          prompt: typeof extra.prompt === "string" ? extra.prompt : "",
         };
         return ev;
       }
       case "PreCompact": {
+        const extra = input.extra ?? {};
         const ev: PreCompactEvent = {
           ...base,
-          ...(input.trigger === "auto" || input.trigger === "manual"
-            ? { trigger: input.trigger }
+          ...(extra.trigger === "auto" || extra.trigger === "manual"
+            ? { trigger: extra.trigger }
             : {}),
         };
         return ev;
@@ -986,46 +1058,53 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
         // Hermes does not fire PostCompact natively (postCompact unset →
         // warn-skip at install). Parsed defensively, mirroring PreCompact, so a
         // manual/mis-routed dispatch normalizes instead of hitting the guard.
+        const extra = input.extra ?? {};
         const ev: PostCompactEvent = {
           ...base,
-          ...(input.trigger === "auto" || input.trigger === "manual"
-            ? { trigger: input.trigger }
+          ...(extra.trigger === "auto" || extra.trigger === "manual"
+            ? { trigger: extra.trigger }
             : {}),
         };
         return ev;
       }
       case "Stop": {
+        const extra = input.extra ?? {};
         const ev: StopEvent = {
           ...base,
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
+          ...(typeof extra.stop_hook_active === "boolean"
+            ? { stopHookActive: extra.stop_hook_active }
             : {}),
         };
         return ev;
       }
       case "Notification": {
+        const extra = input.extra ?? {};
         const ev: NotificationEvent = {
           ...base,
-          message: typeof input.message === "string" ? input.message : "",
+          message: typeof extra.message === "string" ? extra.message : "",
         };
         return ev;
       }
       case "SubagentStop": {
-        // agent_id/agent_type stay optional (some hosts never populate them);
-        // Hermes' native child_id is accepted as the id fallback. child_status
-        // is host-specific and stays accessible via `raw`.
-        const agentId = input.agent_id ?? input.child_id;
+        // VERIFIED (NousResearch/hermes-agent delegate_tool.py:2520-2529): the
+        // subagent_stop invoke passes parent_session_id, child_session_id,
+        // child_role, child_summary, child_status, duration_ms. Only
+        // parent_session_id is allowlisted (→ top-level session_id); EVERY child_*
+        // field nests under extra. So the id/role/output all come from extra.* —
+        // top-level agent_id/agent_type/child_id/last_assistant_message/
+        // stop_hook_active are NEVER emitted by Hermes. child_status (∈ completed/
+        // failed/interrupted/error) stays accessible via `raw`.
+        const extra = input.extra ?? {};
         const ev: SubagentStopEvent = {
           ...base,
-          ...(typeof agentId === "string" ? { agentId } : {}),
-          ...(typeof input.agent_type === "string"
-            ? { agentType: input.agent_type }
+          ...(typeof extra.child_session_id === "string"
+            ? { agentId: extra.child_session_id }
             : {}),
-          ...(typeof input.last_assistant_message === "string"
-            ? { lastAssistantMessage: input.last_assistant_message }
+          ...(typeof extra.child_role === "string"
+            ? { agentType: extra.child_role }
             : {}),
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
+          ...(typeof extra.child_summary === "string"
+            ? { lastAssistantMessage: extra.child_summary }
             : {}),
         };
         return ev;
