@@ -34,6 +34,7 @@ import {
   uninstallViaMarketplace,
 } from "../../core/marketplace.js";
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
+import { assertConnectorId } from "../../core/ids.js";
 import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-connector.js";
 import type { InstallResult, PlatformId } from "../../core/types.js";
 import { fail, parseScope, parseTargets, print, renderInstallResult } from "../app.js";
@@ -87,6 +88,19 @@ export async function run(argv: string[]): Promise<number> {
       "could not determine connector id. Pass --connector-id <id>, " +
         "--connector <path>, or run inside a project with an agent-connector config.",
     );
+  }
+
+  // Single choke-point: validate the id BEFORE any path is built or any delete
+  // runs. Every branch below (explicit --method marketplace, --method auto, and
+  // the direct strip) constructs record / staging-root paths from this id —
+  // including the explicit --targets marketplace path, which reaches
+  // driver.finishUninstall(id) → rmSync(join(stagingRoot, id)) without otherwise
+  // routing the raw id through connectorDir's validation. Failing loud here closes
+  // the `--connector-id ../../x` traversal window for ALL of them at once.
+  try {
+    assertConnectorId(connectorId);
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : String(err));
   }
 
   const targets = parseTargets(values.targets);
