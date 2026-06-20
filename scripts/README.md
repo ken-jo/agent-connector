@@ -76,6 +76,19 @@ Lane result statuses:
     fresh. A turn runs `agy --dangerously-skip-permissions --model 'Gemini 3.5 Flash
     (Low)' -p <prompt>`; the dual oracle is our `events.log` + the host's own
     `~/.gemini/antigravity-cli/cli.log` (`jsonhook__hooks_<Event>_0_0`).
+  - `codex` (`codex`) — **authed-runtime** (no offline model): a turn needs the real
+    `~/.codex/auth.json`. The sandbox copies it into the isolated `CODEX_HOME`
+    (`$CODEX_HOME=<sandbox>/.codex`) and leaves the rest of the config tree empty so
+    our `config.toml` + `hooks.json` are written fresh. A turn runs `codex exec --cd
+    <proj> --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check
+    **--dangerously-bypass-hook-trust** <prompt>`. The **bypass-hook-trust flag is
+    mandatory**: codex requires *persisted hook trust*, and without the flag the same
+    turn fires **zero** hooks **silently** (no `events.log`). With it, all 5 events
+    fire — the dual oracle is our `events.log` + codex's own `hook: <Event>` exec-stdout
+    lines. MCP/telemetry use an **env-pinned** connector: codex strips the environment
+    of MCP-server children, so `AGENT_CONNECTOR_DATA_DIR`/`AC_MCP_LOG`/`AC_TOOL_MARK_DIR`
+    are pinned into the `[mcp_servers.<id>.env]` TOML table (which codex DOES pass) so
+    the serve-wrap child finds the overridden data-root instead of dying "not registered".
 
 The real HOME is **never written**. Sandbox prep only ever reads from it.
 
@@ -84,26 +97,26 @@ The real HOME is **never written**. Sandbox prep only ever reads from it.
 `V` = verified (real lane) · `CB` = ceiling-blocked (driven rung + honest ceiling) ·
 `U` = host-unsupported · `BUG` = host-supported-but-adapter-broken.
 
-| verb | copilot-cli | claude-code | opencode | antigravity-cli |
-|---|---|---|---|---|
-| mcp-install | V | V (project) | V | V |
-| mcp-tool-load | V | V | V | V |
-| mcp-tool-call | V | V | V | V |
-| telemetry | V | V | V | V |
-| hook-fire | (roundtrip lane) | — | V | V |
-| per-event-fire | V | V | V | V⁵ |
-| hook-reply-deny | V¹ | V | V | V |
-| hook-reply-context | **U** | V | V | **CB**⁶ |
-| content-command | — | V | V | — |
-| content-skill | — | V | **CB**² | **CB**⁷ |
-| content-subagent | — | V | V³ | **U**⁸ |
-| content-memory | — | V | — | (in content-skill⁷) |
-| content-statusline | — | **CB**⁴ | — | — |
-| update | V | V | V | V |
-| doctor | V | V | V | V |
-| uninstall-residue | V | V | V | V |
-| idempotency | V | V | V | V |
-| coexistence | V | V | V | V |
+| verb | copilot-cli | claude-code | opencode | antigravity-cli | codex |
+|---|---|---|---|---|---|
+| mcp-install | V | V (project) | V | V | V |
+| mcp-tool-load | V | V | V | V | V⁹ |
+| mcp-tool-call | V | V | V | V | V⁹ |
+| telemetry | V | V | V | V | V⁹ |
+| hook-fire | (roundtrip lane) | — | V | V | V¹⁰ |
+| per-event-fire | V | V | V | V⁵ | V¹⁰ |
+| hook-reply-deny | V¹ | V | V | V | V¹⁰ |
+| hook-reply-context | **U** | V | V | **CB**⁶ | V¹¹ |
+| content-command | — | V | V | — | **CB**¹² |
+| content-skill | — | V | **CB**² | **CB**⁷ | V¹³ |
+| content-subagent | — | V | V³ | **U**⁸ | **CB**¹² |
+| content-memory | — | V | — | (in content-skill⁷) | — |
+| content-statusline | — | **CB**⁴ | — | — | — |
+| update | V | V | V | V | V |
+| doctor | V | V | V | V | V¹⁴ |
+| uninstall-residue | V | V | V | V | V |
+| idempotency | V | V | V | V | V |
+| coexistence | V | V | V | V | V |
 
 Honest ceilings / non-gaps recorded by the lanes:
 
@@ -141,6 +154,39 @@ Honest ceilings / non-gaps recorded by the lanes:
    workflow/skill is model-discretion (non-deterministic offline) — the ceiling.
 8. **antigravity-cli `content-subagent`** — host-unsupported: antigravity-cli has no
    subagent surface; install warn-skips ("subagents not supported on antigravity-cli").
+9. **codex `mcp-tool-load`/`mcp-tool-call`/`telemetry`** — codex **strips the
+   environment of MCP-server children**, so the `agent-connector serve` wrapper would
+   resolve the DEFAULT data-root and die "Connector … is not registered" (telemetry
+   empty, tool never loads). The codex connector therefore **pins**
+   `AGENT_CONNECTOR_DATA_DIR`/`AC_MCP_LOG`/`AC_TOOL_MARK_DIR` into the
+   `[mcp_servers.<id>.env]` TOML table (which codex passes), after which the full
+   handshake + tool call + `scope:'call'` telemetry row all record. Oracle:
+   `mcp-server.log` `recv:"tools/list"`/`recv:"tools/call"` + `telemetry.ndjson`.
+10. **codex `per-event-fire`/`hook-fire`/`hook-reply-deny`** — one `codex exec
+    --dangerously-bypass-hook-trust` shell-tool turn fires **all 5** events
+    (SessionStart, UserPromptSubmit, PreToolUse(Bash), PostToolUse(Bash), Stop). The
+    **bypass-hook-trust flag is mandatory**: without it codex fires **zero** hooks
+    **silently** (it requires persisted hook trust) — this corrects the stale notes
+    claiming "only Stop fires" / "exec doesn't fire Pre/PostToolUse". `hook-reply-deny`
+    asserts codex HONORED the deny (`hook: PreToolUse Blocked` + our exact reason
+    `AC_DENY_MARKER_blocked`; the command never ran). Dual oracle: our `events.log` +
+    codex's own `hook: <Event>` exec-stdout lines.
+11. **codex `hook-reply-context`** — deterministic oracle: a `role:"developer"` message
+    item carrying the token exists in a `$CODEX_HOME/sessions/.../rollout-*.jsonl`
+    (codex injected the SessionStart `additionalContext` as a developer message). The
+    model echo is a bonus signal only (non-deterministic), so the rollout item is the
+    assertion.
+12. **codex `content-command`/`content-subagent`** — placement is verified
+    (`~/.codex/prompts/ac-echo.md` with the sentinel; `~/.codex/agents/ac-subagent.toml`
+    with `developer_instructions`), but codex exposes **no headless prompt-run /
+    agent-run verb**, so in-session activation (`/ac-echo`, the subagent) is TUI-only —
+    the honest ceiling.
+13. **codex `content-skill`** — `V`: the skill loads from `~/.agents/skills/ac-skill/
+    SKILL.md` (user scope) and `codex debug prompt-input` lists it in the
+    `<skills_instructions>` block — a deterministic load oracle (not a model turn).
+14. **codex `doctor`** — the AC-CLI `doctor` "all checks passed" is the assertion;
+    `codex doctor --summary` is a host-side cross-check (its `✓ config` + `✓ mcp`
+    marker pair, **not** exit 0, since `codex doctor` exits 1 on the sandbox auth check).
 
 **copilot-cli `hook-reply-context`** is **host-unsupported**: copilot 1.0.63 has no
 `additionalContext` injection field (only a full `modifiedPrompt` rewrite, which
@@ -153,6 +199,12 @@ token copied into the sandbox. There is **no** reproducible network-install entr
 so it is not in `HOST_INSTALL`; the lane is exercised only where `agy` is already
 present and authed on the box. A missing/unauthed `agy` is a **SKIP**, never a failure.
 
+**codex is also an authed-runtime lane**: a turn needs the real `~/.codex/auth.json`
+copied into the sandbox `CODEX_HOME`, and every hook lane **requires
+`--dangerously-bypass-hook-trust`** (codex requires persisted hook trust — without the
+flag hooks fire zero, silently). A missing/unauthed `codex` is a **SKIP**, never a
+failure. Live-verified on `codex-cli 0.141.0` (local + my-mac, `auth_mode=Chatgpt`).
+
 ## Examples
 
 ```bash
@@ -163,6 +215,7 @@ node scripts/verify-host.mjs copilot-cli     --verb mcp-tool-call
 node scripts/verify-host.mjs claude-code      --verb hook-reply-deny
 node scripts/verify-host.mjs opencode         --verb hook-fire
 node scripts/verify-host.mjs antigravity-cli  --verb per-event-fire
+node scripts/verify-host.mjs codex            --verb per-event-fire
 
 # every codified lane for a host:
 node scripts/verify-host.mjs claude-code --all-verbs
