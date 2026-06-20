@@ -1,0 +1,119 @@
+name: Host adapter request
+description: Request support for a new AI-agent CLI platform.
+labels: ["new-host"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        agent-connector adds platform support by implementing the adapter SPI (`src/adapters/spi.ts`). The more primary-source detail you provide here, the faster we can verify and ship.
+
+  - type: input
+    id: cli-name
+    attributes:
+      label: CLI name
+      description: The name of the agent CLI (as users know it).
+      placeholder: "e.g. Crush, Continue, Hermes"
+    validations:
+      required: true
+
+  - type: input
+    id: homepage
+    attributes:
+      label: Homepage / repository
+      description: Official website or source repository URL.
+      placeholder: "https://github.com/example/agent-cli"
+    validations:
+      required: true
+
+  - type: input
+    id: install
+    attributes:
+      label: How is it installed?
+      description: npm package name, brew formula, download URL, etc.
+      placeholder: "npm install -g @example/agent-cli"
+    validations:
+      required: false
+
+  - type: textarea
+    id: mcp-config
+    attributes:
+      label: MCP config location and format
+      description: |
+        Where does the CLI read its MCP server list? Provide the file path (absolute or relative to HOME/project), the root JSON/YAML key, and an example entry. Link to docs if available.
+      placeholder: |
+        File: ~/.example/mcp.json
+        Root key: "mcpServers"
+        Entry shape: { "command": "...", "args": [...] }
+        Docs: https://docs.example.com/mcp
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hooks
+    attributes:
+      label: Does it support lifecycle hooks?
+      description: Can it call an external process at hook events (PreToolUse, PostToolUse, Stop, etc.)?
+      options:
+        - "Yes — json-stdio (reads JSON from stdin, writes JSON to stdout)"
+        - "Yes — ts-plugin (loads a generated TypeScript/JS plugin module)"
+        - "No — MCP only (no hook layer)"
+        - "Unknown / not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: hook-docs
+    attributes:
+      label: Hook / event documentation
+      description: |
+        Link to the primary source for hook behavior (official docs, source code, changelog). If you know the hook event names on the wire or the stdin payload shape, include them here. This is the most valuable thing you can provide.
+      placeholder: |
+        Hook docs: https://docs.example.com/hooks
+        Events: PreToolUse, PostToolUse, Stop
+        Wire payload: { tool_name, tool_input, session_id }
+    validations:
+      required: false
+
+  - type: dropdown
+    id: commands
+    attributes:
+      label: Supports slash commands?
+      description: Can it load custom slash-command prompts from a file?
+      options:
+        - "Yes"
+        - "No"
+        - "Unknown"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: skills
+    attributes:
+      label: Supports agent skills?
+      description: Can it load agent skill folders (e.g. a SKILL.md + resources directory)?
+      options:
+        - "Yes"
+        - "No"
+        - "Unknown"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: subagents
+    attributes:
+      label: Supports subagent definitions?
+      description: Can it load custom subagent/persona files?
+      options:
+        - "Yes"
+        - "No"
+        - "Unknown"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Anything else
+      description: Known quirks, platform-specific flags, version constraints, or prior art (e.g. another tool that already supports it).
+    validations:
+      required: false

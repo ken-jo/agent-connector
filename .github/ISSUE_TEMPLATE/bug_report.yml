@@ -1,0 +1,121 @@
+name: Bug report
+description: Something is not working correctly in agent-connector.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check that `npm run typecheck` is clean and that the drift tests pass (`tests/docs/platform-drift.test.ts`, `tests/docs/hook-event-drift.test.ts`). Include as much detail below as you can.
+
+  - type: input
+    id: version
+    attributes:
+      label: agent-connector version
+      description: Output of `agent-connector --version` or the version in your package.json.
+      placeholder: "0.4.44"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Affected host(s)
+      description: Which AI-agent CLI(s) exhibit the problem? Select all that apply.
+      multiple: true
+      options:
+        - claude-code
+        - codex
+        - cursor
+        - vscode-copilot
+        - copilot-cli
+        - gemini-cli
+        - warp
+        - opencode
+        - mimo-code
+        - kilo-cli
+        - droid
+        - roo-code
+        - kilo
+        - cline
+        - trae
+        - antigravity-cli
+        - antigravity
+        - zed
+        - amp
+        - codebuff
+        - mux
+        - pi
+        - jetbrains-copilot
+        - qwen-code
+        - kiro
+        - kimi
+        - crush
+        - goose
+        - hermes
+        - omp
+        - nemoclaw
+        - openclaw
+        - amazon-q
+        - continue
+        - windsurf
+        - other / not listed
+    validations:
+      required: true
+
+  - type: input
+    id: host-version
+    attributes:
+      label: Host version
+      description: Version of the affected agent CLI (e.g. `claude --version`).
+      placeholder: "e.g. Claude Code 1.2.3"
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal connector config + commands to trigger the issue.
+      placeholder: |
+        1. Define connector with …
+        2. Run `agent-connector install --host cursor`
+        3. Open Cursor and observe …
+    validations:
+      required: true
+
+  - type: textarea
+    id: rendered-config
+    attributes:
+      label: Rendered config or hook output (if relevant)
+      description: |
+        Paste the generated config file (e.g. `~/.cursor/mcp.json`, `~/.cursor/hooks.json`) or the raw hook stdin/stdout payload. Redact any secrets.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node.js version, and any other relevant details.
+      placeholder: |
+        OS: macOS 14 arm64
+        Node: 22.4.0
+    validations:
+      required: false

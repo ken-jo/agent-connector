@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://agent-connector.ai
+    about: Full platform coverage, API reference, and integration guides.
+  - name: Question or discussion
+    url: https://github.com/ken-jo/agent-connector/discussions
+    about: Ask a question or start a discussion — not a bug, not a feature request.
