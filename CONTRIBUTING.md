@@ -129,6 +129,15 @@ When you cite a source in a code comment, use the format:
 - **Authoring and review are separate passes.** A PR opened by the author must not be self-approved in the same context.
 - **Squash merge + delete branch** is the merge policy (enforced in repo settings).
 
+### Cross-cutting changes
+
+"One host per PR" is the *specialization* of a more general rule: **one logical concern per PR, revertable as a unit.** Some changes are cross-cutting by nature — a shared engine or codec, an SPI field, the test harness, the registry — and cannot be split per host. Handle them like this:
+
+- **One concern per PR.** Scope a cross-cutting PR to a single lift / codec / SPI change. Never bundle several unrelated cross-cutting changes, and never entangle a refactor with a feature or a per-host fix — if it needs reverting, it must come out cleanly. Title with the affected layer: `refactor(core):`, `feat(core):`, `fix(core):`.
+- **Behavior-preserving refactors must be byte-identical.** Commonization, dedup, and lifts must produce the exact same on-disk output for every affected host. The per-host byte-oracle suites and `tests/contracts/` are the proof. **Revert-on-mismatch:** if any host's bytes change, either the refactor is wrong, or that host has a real divergence that must be handled explicitly — never silently absorbed.
+- **Behavior-changing shared mechanisms land with contract coverage, then adoption follows per host.** A new capability, a shared bug fix, or a new surface lands as one host-agnostic PR whose `tests/contracts/*.contract.test.ts` (`describe.each` over the registry) proves the invariant holds for every host. Any per-host adoption that isn't automatic is a separate per-host PR. Keep the *mechanism* (cross-cutting, one PR) separate from the *adoption* (per-host, one PR each).
+- **Registry / SPI / drift data move together.** A change to `src/adapters/registry.ts` or the SPI that ripples into `platform-data.ts` / `hooks-matrix.ts` / `docs-data.ts` / `llms.txt` is one PR — the drift tests enforce they stay in sync, so splitting them leaves `main` red.
+
 ---
 
 ## Adding a new host adapter
