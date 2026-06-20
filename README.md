@@ -11,10 +11,10 @@
 ![platforms](https://img.shields.io/badge/platforms-35-2563eb)
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
-![install verified](https://img.shields.io/badge/install%20verified-29%2F29-22c55e)
-![headless runtime](https://img.shields.io/badge/headless%20runtime-10%20CLIs%20activated-22c55e)
+![install verified](https://img.shields.io/badge/install%20verified-35%2F35-22c55e)
+![headless runtime](https://img.shields.io/badge/headless%20runtime-20%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
-![tests](https://img.shields.io/badge/tests-1916%20passing-22c55e)
+![tests](https://img.shields.io/badge/tests-2840%20passing-22c55e)
 
 ## Who this is for
 
@@ -677,10 +677,23 @@ defineConnector({
 ```bash
 npm install
 npm run typecheck
-npm test
 npm run build
 npm run dev -- detect     # run the CLI from source via tsx
+
+# Tests: scope + single-fork (NOT bare `npm test` — it OOMs low-RAM machines).
+npx vitest run --pool=forks --poolOptions.forks.singleFork=true --poolOptions.forks.maxForks=1 \
+  tests/adapters/<host>.test.ts
 ```
+
+## Contributing
+
+PRs welcome — especially new host adapters and fixes verified against a host's
+primary source. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the dev workflow,
+the single-fork test discipline, the **verify-first** rule for adapters, and the
+new-host checklist. Want a new agent CLI supported? Open a
+[host adapter request](https://github.com/ken-jo/agent-connector/issues/new?template=host_adapter_request.yml).
+
+Security reports: see [SECURITY.md](SECURITY.md).
 
 ## License
 
