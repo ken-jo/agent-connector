@@ -106,12 +106,14 @@ interface JetBrainsWireInput {
   workspace_roots?: string[];
   hook_event_name?: string;
 
-  // tool events
+  // tool events. PostToolUse fires ONLY after a tool completes SUCCESSFULLY and
+  // sends { tool_name, tool_input, tool_use_id, tool_response } — the VS Code
+  // `.github/hooks` dialect this host ALIASES (vscode-copilot), NOT copilot-cli's
+  // `tool_result`. `tool_response` is the sole result field; there is NO
+  // `tool_output` and NO `error_message`, so those reads are dead here.
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   tool_response?: unknown;
-  tool_output?: string;
-  error_message?: string;
 
   // SessionStart
   source?: string;
@@ -762,16 +764,20 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostToolUse": {
-        const toolOutput =
-          toolResponseToString(input.tool_response) ??
-          input.tool_output ??
-          input.error_message;
+        // PRIMARY SOURCE (VS Code Copilot hooks docs, "PostToolUse input"):
+        // JetBrains aliases the VS Code `.github/hooks` surface, which fires
+        // PostToolUse only after a tool completes SUCCESSFULLY and serializes a
+        // single result field, `tool_response`. There is NO `tool_output` and NO
+        // `error_message` in this dialect, so the old fallback legs read
+        // host-nonexistent fields and the `error_message`-driven `isError` could
+        // never become true. Read only `tool_response`; a tool-failure event
+        // (PostToolUseFailure) is not part of this surface and is not wired.
+        const toolOutput = toolResponseToString(input.tool_response);
         const ev: PostToolUseEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
           ...(toolOutput !== undefined ? { toolOutput } : {}),
-          ...(input.error_message ? { isError: true } : {}),
         };
         return ev;
       }
