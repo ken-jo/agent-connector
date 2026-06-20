@@ -67,11 +67,12 @@ const CRUSH_HOOK_EVENTS = ["PreToolUse"] as const;
 type CrushHookEventName = (typeof CRUSH_HOOK_EVENTS)[number];
 
 /**
- * Newer canonical events with NO Crush analog: there is no permission-dialog,
- * tool-failure, or subagent lifecycle hook. Declared hooks for these warn-skip
- * at install so the degradation is reported, never silent. (The legacy silent
- * drop of the other unwired events — SessionStart, Stop, … — predates this
- * convention and is deliberately left untouched.)
+ * Newer E1 canonical events with NO Crush analog (no permission-dialog,
+ * tool-failure, or subagent lifecycle hook). Declared hooks for these warn-skip
+ * (action `warn`, exit-1) — the established degradation convention. EVERY OTHER
+ * unsupported event (the legacy SessionStart / Stop / … that previously vanished)
+ * now reports a VISIBLE `skip` instead — see {@link CrushAdapter.declinedHookEvents}.
+ * Nothing Crush cannot fire is ever silently dropped.
  */
 const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set([
   "PermissionRequest",
@@ -344,10 +345,10 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     }
 
     const events = this.effectiveHookEvents(ctx);
-    const dropped = this.warnSkipHookEvents(ctx);
+    const declined = this.declinedHookEvents(ctx);
     const path = this.getHookConfigPath(ctx);
 
-    if (events.length === 0 && dropped.length === 0) {
+    if (events.length === 0 && declined.length === 0) {
       return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
     }
 
@@ -359,11 +360,14 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
-    // Declared events Crush cannot fire are reported, never silently dropped.
-    for (const event of dropped) {
+    // EVERY declared event Crush cannot fire is reported, never silently dropped.
+    // The 4 newer E1 events keep the established `warn` (exit-1); the legacy
+    // events (SessionStart, Stop, …) — silently dropped before this fix — surface
+    // as a VISIBLE `skip` so the install exit code is unchanged for them.
+    for (const { event, action } of declined) {
       changes.push({
         platform: this.id,
-        action: "warn",
+        action,
         path,
         detail: `${event} has no Crush hook equivalent — skipped`,
       });
@@ -454,10 +458,24 @@ export class CrushAdapter extends BaseAdapter implements Adapter {
     return CRUSH_HOOK_EVENTS.filter((e) => ctx.connector.hookEvents.includes(e));
   }
 
-  /** Declared events Crush has no analog for — install reports a warn-skip. */
-  private warnSkipHookEvents(ctx: InstallContext): HookEventName[] {
+  /**
+   * Every declared event Crush has NO native equivalent for, tagged with the
+   * severity install reports it at — so a host that cannot fire an event is
+   * NEVER silent. The 4 newer E1 events ({@link WARN_SKIP_EVENTS}) keep `warn`
+   * (exit-1, the established convention); every other unsupported event (the
+   * legacy SessionStart / Stop / … that used to vanish) reports a visible
+   * `skip` (counted, but exit-0-preserving).
+   */
+  private declinedHookEvents(
+    ctx: InstallContext,
+  ): { event: HookEventName; action: "warn" | "skip" }[] {
     if (ctx.connector.platforms[HOST]?.hooks === false) return [];
-    return ctx.connector.hookEvents.filter((e) => WARN_SKIP_EVENTS.has(e));
+    return ctx.connector.hookEvents
+      .filter((e) => !(CRUSH_HOOK_EVENTS as readonly string[]).includes(e))
+      .map((event) => ({
+        event,
+        action: WARN_SKIP_EVENTS.has(event) ? ("warn" as const) : ("skip" as const),
+      }));
   }
 
   /**

@@ -168,11 +168,12 @@ const CODEX_HOOK_EVENTS = [
 type CodexHookEventName = (typeof CODEX_HOOK_EVENTS)[number];
 
 /**
- * Newer canonical events with NO Codex analog: Codex ships PostToolUse only —
+ * Newer E1 canonical events with NO Codex analog: Codex ships PostToolUse only —
  * there is no failure event on the live hooks page. Declared hooks for these
- * warn-skip at install so the degradation is reported, never silent. (The
- * legacy SessionEnd / Notification silent filter predates this convention and
- * is deliberately left untouched.)
+ * warn-skip (action `warn`, exit-1) — the established convention. The legacy
+ * SessionEnd / Notification, which Codex also cannot fire, are reported as a
+ * VISIBLE `skip` instead (exit-0 preserving) — see the hook descriptor's
+ * `unmappedAction`. Nothing Codex cannot fire is ever silently dropped.
  */
 const WARN_SKIP_EVENTS: ReadonlySet<HookEventName> = new Set(["PostToolUseFailure"]);
 
@@ -453,21 +454,25 @@ export class CodexAdapter extends BaseAdapter {
 
   override installHooks(ctx: InstallContext): ChangeRecord[] {
     const path = this.getHookConfigPath(ctx);
-    const events = this.effectiveHookEvents(ctx);
-    const dropped = this.warnSkipHookEvents(ctx);
+    const hooksOff = ctx.connector.platforms[this.id]?.hooks === false;
+    const declared = hooksOff ? [] : ctx.connector.hookEvents;
 
-    if (events.length === 0 && dropped.length === 0) {
+    if (declared.length === 0) {
       return [{ platform: this.id, action: "skip", path, detail: "no hooks declared" }];
     }
 
-    // HOST-ORDERED pending: warn-skip events (mapEvent → undefined → warn) FIRST,
-    // then the supported events in CODEX_HOOK_EVENTS order. Events neither
-    // supported nor in WARN_SKIP_EVENTS are never enqueued → silently dropped, as
-    // before. matcher is "" for every item; renderEntry derives the real matcher
-    // from the event (PreToolUse/PermissionRequest), never from this field.
+    // HOST-ORDERED pending: the unsupported events (mapEvent → undefined →
+    // warn/skip via the descriptor) FIRST, then the supported events in
+    // CODEX_HOOK_EVENTS order. EVERY declared event is enqueued — an event with
+    // no Codex analog is reported VISIBLY (warn for the E1 newer events, a `skip`
+    // for the legacy SessionEnd/Notification whose drop predates the convention),
+    // never silently dropped. matcher is "" for every item; renderEntry derives
+    // the real matcher from the event (PreToolUse/PermissionRequest).
+    const supported = (e: HookEventName) =>
+      (CODEX_HOOK_EVENTS as readonly string[]).includes(e);
     const pending = [
-      ...dropped.map((event) => ({ event: event as string, matcher: "" })),
-      ...events.map((event) => ({ event: event as string, matcher: "" })),
+      ...declared.filter((e) => !supported(e)).map((event) => ({ event: event as string, matcher: "" })),
+      ...declared.filter(supported).map((event) => ({ event: event as string, matcher: "" })),
     ];
     return this.upsertHookEntries(ctx, path, pending, this.hookDescriptor(ctx));
   }
@@ -488,11 +493,16 @@ export class CodexAdapter extends BaseAdapter {
     return {
       // Codex's server path coerces a malformed root; the hook path matches it.
       malformedPolicy: "coerce",
-      // Supported event → identity; a WARN_SKIP event (PostToolUseFailure, which
-      // is the only thing `dropped` ever contains) → undefined → warn.
+      // Supported event → identity; any other canonical event → undefined → the
+      // engine reports it (never silent), at the severity unmappedAction picks.
       mapEvent: (e) =>
         (CODEX_HOOK_EVENTS as readonly string[]).includes(e) ? e : undefined,
       unmappedWarnDetail: (e) => `${e} has no Codex hook equivalent — skipped`,
+      // E1 newer events (PostToolUseFailure) keep the established `warn` (exit-1);
+      // the legacy SessionEnd / Notification — silently dropped before this fix —
+      // become a VISIBLE `skip` so the install exit code is unchanged for them.
+      unmappedAction: (e) =>
+        WARN_SKIP_EVENTS.has(e as HookEventName) ? "warn" : "skip",
       renderEntry: (event, _matcher, command) => {
         const entry: CodexHookEntry = { hooks: [{ type: "command", command }] };
         // KEY ORDER: hooks THEN matcher. Matcher is EVENT-derived, not from the
@@ -1033,20 +1043,6 @@ export class CodexAdapter extends BaseAdapter {
     const base = ctx.connector.server;
     if (!base) return undefined;
     return override ? { ...base, ...override } : base;
-  }
-
-  /** Which canonical hook events to register for Codex, honoring overrides. */
-  private effectiveHookEvents(ctx: InstallContext): CodexHookEventName[] {
-    const override = ctx.connector.platforms[this.id]?.hooks;
-    if (override === false) return [];
-    return CODEX_HOOK_EVENTS.filter((e) => ctx.connector.hookEvents.includes(e));
-  }
-
-  /** Declared events Codex has no analog for — install reports a warn-skip. */
-  private warnSkipHookEvents(ctx: InstallContext): HookEventName[] {
-    const override = ctx.connector.platforms[this.id]?.hooks;
-    if (override === false) return [];
-    return ctx.connector.hookEvents.filter((e) => WARN_SKIP_EVENTS.has(e));
   }
 
   /**
