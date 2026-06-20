@@ -12,8 +12,76 @@
  * the registry, imported only when queried).
  */
 
-import type { PlatformCapabilities, PlatformId } from "../core/types.js";
+import type {
+  HookEventName,
+  PlatformCapabilities,
+  PlatformId,
+} from "../core/types.js";
 import { allAdapters, loadAdapter } from "../adapters/registry.js";
+
+/**
+ * The single source of truth mapping each normalized {@link HookEventName} onto
+ * the {@link PlatformCapabilities} flag that says "this host can natively FIRE
+ * this event". The optional flags (the newer E1 events + PostCompact) are read
+ * as `?? false`, mirroring the supportsCommands precedent — a host that leaves a
+ * flag unset cannot fire that event, so a declared hook for it skip-warns at
+ * install and `explain` reports it as not honored.
+ *
+ * This is the per-event signal {@link explain}'s hooks row evaluates against the
+ * connector's DECLARED events (so a Stop-only connector on a PreToolUse-only
+ * host no longer falsely shows `native`), and the same signal `simulate`'s real
+ * parse→handler→format chain expresses at runtime.
+ */
+export function hostCanFireEvent(
+  c: PlatformCapabilities,
+  event: HookEventName,
+): boolean {
+  switch (event) {
+    case "SessionStart":
+      return c.sessionStart;
+    case "SessionEnd":
+      return c.sessionEnd;
+    case "UserPromptSubmit":
+      return c.userPromptSubmit;
+    case "PreToolUse":
+      return c.preToolUse;
+    case "PostToolUse":
+      return c.postToolUse;
+    case "PreCompact":
+      return c.preCompact;
+    case "Stop":
+      return c.stop;
+    case "Notification":
+      return c.notification;
+    case "PermissionRequest":
+      return c.permissionRequest ?? false;
+    case "PostToolUseFailure":
+      return c.postToolUseFailure ?? false;
+    case "SubagentStart":
+      return c.subagentStart ?? false;
+    case "SubagentStop":
+      return c.subagentStop ?? false;
+    case "PostCompact":
+      return c.postCompact ?? false;
+  }
+}
+
+/** The full normalized hook-event union, in canonical order. */
+const ALL_HOOK_EVENTS: HookEventName[] = [
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PostToolUse",
+  "PreCompact",
+  "Stop",
+  "Notification",
+  "PermissionRequest",
+  "PostToolUseFailure",
+  "SubagentStart",
+  "SubagentStop",
+  "PostCompact",
+];
 
 /**
  * The developer-facing surface names a connector can declare. These mirror the
@@ -39,28 +107,21 @@ export type SurfaceName =
  * (the supportsCommands precedent in core/types), so a host that simply leaves
  * a flag unset reports the surface as unsupported (the installer skip-warns it).
  *
- * `hooks` is satisfied by ANY normalized hook event (i.e. the host has at least
- * one event it can dispatch); the per-event flags map 1:1 onto the
- * {@link import("../core/types.js").HookEventName} union.
+ * `hooks` here is the COARSE host-capability predicate: `true` when the host can
+ * fire AT LEAST ONE normalized event (it derives from {@link hostCanFireEvent},
+ * the per-event source of truth, so the two never drift). It is the right answer
+ * for the connector-less queries ({@link hostsSupporting} / {@link surfaceSupport}:
+ * "which hosts have a hook runtime at all?"). It is deliberately NOT used by
+ * {@link explain}, which must judge the hooks surface against the connector's
+ * SPECIFIC declared events — a Stop-only connector on a PreToolUse-only host is
+ * NOT honored even though the host has a hook runtime (see {@link explain}).
  */
 export const SURFACE_PREDICATES: Record<
   SurfaceName,
   (c: PlatformCapabilities) => boolean
 > = {
   server: (c) => c.transports.length > 0,
-  hooks: (c) =>
-    c.sessionStart ||
-    c.preToolUse ||
-    c.postToolUse ||
-    c.userPromptSubmit ||
-    c.stop ||
-    c.sessionEnd ||
-    c.preCompact ||
-    c.notification ||
-    (c.permissionRequest ?? false) ||
-    (c.postToolUseFailure ?? false) ||
-    (c.subagentStart ?? false) ||
-    (c.subagentStop ?? false),
+  hooks: (c) => ALL_HOOK_EVENTS.some((e) => hostCanFireEvent(c, e)),
   commands: (c) => c.supportsCommands ?? false,
   skills: (c) => c.supportsSkills ?? false,
   subagents: (c) => c.supportsSubagents ?? false,

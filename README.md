@@ -306,7 +306,13 @@ handler / HUD actually work on host X?"* before you touch a real host:
 
 - `explain(connector)` → `Promise<ExplainRow[]>` — the per-host × per-declared-surface
   matrix. Each row is `{ host, surface, support: "native"|"skip-warn"|"disabled", reason }`.
-  Only surfaces the connector actually declares are included.
+  Only surfaces the connector actually declares are included. The `hooks` row is judged
+  against **your connector's specific declared events** — a Stop-only connector reports
+  `skip-warn` (not `native`) on a host that cannot fire Stop, naming the dead events.
+- `explainHooks(connector, hosts)` → `Promise<HookEventVerdict[]>` — the per-`(host, event)`
+  honor matrix (`honored | degraded | dropped` + reason), powered by `simulate()`. This is
+  what `agent-connector doctor --explain` prints — the trustworthy per-event diagnostic,
+  no hand-enumeration of `(host, event)` pairs.
 - `simulate(connector, { surface, host, event?, input })` → `Promise<{ honored, hostReply?, reason }>`
   — runs the **real** adapter parse→handler→format chain offline and judges the
   actual `(event, decision)` contract. It encodes each host's real honor / drop /
@@ -607,7 +613,7 @@ verdict — intentional).
 | `install [--scope user\|project] [--targets …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces (commands / skills / subagents / memory) across targets. `--force` overwrites user-edited memory blocks (after a backup). |
 | `uninstall [--targets …]` | Full inverse — removes everything we wrote. |
 | `upgrade [--channel stable\|latest]` | One verb (alias: `update`, `sync`) — re-render host config + heal stale pointers + refresh the home-binary pointer, printing managed-update guidance (never a silent self-update). |
-| `doctor [--probe]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real server. |
+| `doctor [--probe] [--explain]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real server; `--explain` prints the per-`(host, event)` hook honor matrix (`honored` / `degraded` / `dropped` + reason) for the connector's declared events. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
 | `package [--format <fmt>\|all]` | Emit a host bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
 | `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | **MCP-developer track.** Per-tool token footprint of **your connector's own wrapped server** (scope with `--connector`). Stdio servers only. |

@@ -32,6 +32,8 @@ import { marketplaceDoctorChecks } from "../../core/marketplace.js";
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { probeStdioServer } from "../../runtime/probe.js";
+import { explainHooks } from "../../sdk/test-harness.js";
+import type { HookEventVerdict } from "../../sdk/test-harness.js";
 import { fail, parseScope, parseTargets, print } from "../app.js";
 
 const STATUS_GLYPH: Record<DiagnosticResult["status"], string> = {
@@ -215,6 +217,87 @@ async function collectDiagnostics(
   return { byPlatform, tagged, anyFail };
 }
 
+const VERDICT_GLYPH: Record<HookEventVerdict["verdict"], string> = {
+  honored: "[honored]",
+  degraded: "[degraded]",
+  dropped: "[dropped]",
+};
+
+/**
+ * Resolve which hosts `--explain` reports a connector against: an explicit
+ * --targets list (intersected with the registry), else the connector's declared
+ * targets, else (targets:"auto") every registered host. Detection-independent —
+ * the per-event honor verdict is a static/offline property a dev wants BEFORE
+ * installing, not gated on what happens to be installed.
+ */
+function explainHostsFor(
+  connector: ResolvedConnector,
+  explicit: PlatformId[] | undefined,
+): PlatformId[] {
+  if (explicit && explicit.length > 0) {
+    return explicit.filter((id) => REGISTERED_PLATFORM_IDS.has(id));
+  }
+  if (connector.targets !== "auto") {
+    return (connector.targets as PlatformId[]).filter((id) =>
+      REGISTERED_PLATFORM_IDS.has(id),
+    );
+  }
+  return [...REGISTERED_PLATFORM_IDS].sort();
+}
+
+/**
+ * The `doctor --explain` body: for each resolved connector, the per-(host,
+ * event) honor matrix from {@link explainHooks} (honored / degraded / dropped
+ * with the simulate()-grade reason). A `degraded` or `dropped` cell is a real
+ * finding — the connector declared a hook the host silently weakens or never
+ * fires — so the command exits non-zero when any cell is not honored, mirroring
+ * the plain-doctor fail convention. A connector with no hooks reports cleanly.
+ */
+async function runExplain(
+  entries: ConnectorEntry[],
+  explicit: PlatformId[] | undefined,
+  json: boolean,
+): Promise<number> {
+  const report: { connector: string; rows: HookEventVerdict[] }[] = [];
+  for (const { connector } of entries) {
+    if (connector.hookEvents.length === 0) {
+      report.push({ connector: connector.id, rows: [] });
+      continue;
+    }
+    const hosts = explainHostsFor(connector, explicit);
+    const rows = await explainHooks(connector, hosts);
+    report.push({ connector: connector.id, rows });
+  }
+
+  const anyNotHonored = report.some((r) =>
+    r.rows.some((row) => row.verdict !== "honored"),
+  );
+
+  if (json) {
+    print(JSON.stringify(report, null, 2));
+    return anyNotHonored ? 1 : 0;
+  }
+
+  for (const { connector, rows } of report) {
+    print(`${connector} — per-event hook honor:`);
+    if (rows.length === 0) {
+      print("  (connector declares no hooks)");
+      print("");
+      continue;
+    }
+    for (const row of rows) {
+      print(`  ${VERDICT_GLYPH[row.verdict]} ${row.host} / ${row.event} — ${row.reason}`);
+    }
+    print("");
+  }
+  print(
+    anyNotHonored
+      ? "doctor --explain: one or more declared hook events are degraded or dropped."
+      : "doctor --explain: every declared hook event is honored on its target hosts.",
+  );
+  return anyNotHonored ? 1 : 0;
+}
+
 export async function run(argv: string[]): Promise<number> {
   const { values } = parseArgs({
     args: argv,
@@ -226,6 +309,7 @@ export async function run(argv: string[]): Promise<number> {
       json: { type: "boolean", default: false },
       probe: { type: "boolean", default: false },
       heal: { type: "boolean", default: false },
+      explain: { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
     },
     allowPositionals: false,
@@ -238,6 +322,15 @@ export async function run(argv: string[]): Promise<number> {
 
   const entries = await resolveDoctorConnectors(values.connector, projectDir);
   const connectors = entries.map((e) => e.connector);
+
+  // ── Per-event explain path (--explain) ───────────────────────────────────
+  // Additive, OFFLINE detail layer: the trustworthy per-(host, event) honor
+  // matrix (honored / degraded / dropped) the coarse "any hook present = OK"
+  // doctor cannot give. Resolves hosts from the connector's OWN targets (or
+  // --targets), NOT from detection — a dev wants this BEFORE installing.
+  if (values.explain) {
+    return runExplain(entries, parseTargets(values.targets), values.json ?? false);
+  }
 
   // Target set: explicit --targets (intersected with the registry), else the
   // same chain install uses — connector-declared targets ∩ detected platforms
