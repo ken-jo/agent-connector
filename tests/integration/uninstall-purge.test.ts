@@ -17,7 +17,7 @@
  * are throwaway temp dirs, restored verbatim in afterEach; both trees removed.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   existsSync,
@@ -31,6 +31,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { main } from "../../src/cli/app.js";
 import {
   installConnector,
   purgeFrameworkState,
@@ -41,6 +42,7 @@ import {
   loadRegisteredConnector,
   readRegisteredMeta,
 } from "../../src/core/load-connector.js";
+import { claudeStagingRoot } from "../../src/core/marketplace-state.js";
 import { homeBinPath } from "../../src/core/paths.js";
 import type { InstallResult } from "../../src/core/types.js";
 
@@ -307,5 +309,122 @@ describe("uninstall --purge deregisters the connector record + home-bin", () => 
     } finally {
       rmSync(outside, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * CLI-boundary id validation — the uninstall command must reject a malformed
+ * connector id (traversal / absolute / empty) BEFORE any path is built or any
+ * filesystem delete runs, on BOTH the default uninstall path and the explicit
+ * `--targets` marketplace path.
+ *
+ * Regression for the #197/#199 review gap: resolveConnectorId did not call
+ * assertConnectorId, so on the explicit `--targets` marketplace branch
+ * uninstallViaMarketplace skipped the readMarketplaceInstalls validation and an
+ * unvalidated id reached driver.finishUninstall(id) → rmSync(join(stagingRoot,
+ * id)) — a `--connector-id ../../x` traversal window. The fix validates once at
+ * the top of the command, covering every branch.
+ *
+ * The traversal probe plants a victim at the exact location a raw `../../x` id
+ * would resolve to via `rmSync(join(claudeStagingRoot(), id))` (which lands at
+ * <dataRoot>/x) and asserts it survives — proof no delete ran.
+ */
+describe("uninstall rejects an invalid connector id at the CLI boundary", () => {
+  function silenceCli(): { restore: () => void; err: () => string } {
+    let errText = "";
+    const outSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const errSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        errText += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+        return true;
+      });
+    return {
+      restore: () => {
+        outSpy.mockRestore();
+        errSpy.mockRestore();
+      },
+      err: () => errText,
+    };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // "../../x" and "/abs" are non-empty malformed ids that pass the
+  // "could-not-determine" guard and reach assertConnectorId. The empty id is
+  // rejected one step earlier (the explicit-id trim guard) — still exit 2, still
+  // before any delete, but with the "could not determine" message — so it asserts
+  // that distinct (and equally safe) rejection text.
+  const REJECTED: ReadonlyArray<readonly [string, RegExp]> = [
+    ["../../x", /connector id must be kebab-case/],
+    ["/abs", /connector id must be kebab-case/],
+    ["", /could not determine connector id/],
+  ];
+
+  for (const [badId, message] of REJECTED) {
+    it(`rejects ${JSON.stringify(badId)} on the DEFAULT path before any delete (exit 2)`, async () => {
+      const cap = silenceCli();
+      const code = await main([
+        "uninstall",
+        "--connector-id",
+        badId,
+        "--project",
+        projectDir,
+      ]);
+      cap.restore();
+      expect(code).toBe(2);
+      // The branded fail() carries the helpful rejection message.
+      expect(cap.err()).toMatch(message);
+    });
+
+    it(`rejects ${JSON.stringify(badId)} on the --targets MARKETPLACE path before any delete (exit 2)`, async () => {
+      const cap = silenceCli();
+      const code = await main([
+        "uninstall",
+        "--method",
+        "marketplace",
+        "--targets",
+        "claude-code",
+        "--connector-id",
+        badId,
+        "--project",
+        projectDir,
+      ]);
+      cap.restore();
+      expect(code).toBe(2);
+      expect(cap.err()).toMatch(message);
+    });
+  }
+
+  it("the traversal id never reaches rmSync(join(stagingRoot, id)) on the --targets path", async () => {
+    // `rmSync(join(claudeStagingRoot(), "../../x"))` resolves to <dataRoot>/x.
+    const victimDir = join(tmpData, "x");
+    mkdirSync(victimDir, { recursive: true });
+    writeFileSync(join(victimDir, "keep.txt"), "keep\n", "utf8");
+    // Make the staging root exist so finishUninstall's existsSync gate is live.
+    mkdirSync(claudeStagingRoot(), { recursive: true });
+
+    const cap = silenceCli();
+    const code = await main([
+      "uninstall",
+      "--method",
+      "marketplace",
+      "--targets",
+      "claude-code",
+      "--connector-id",
+      "../../x",
+      "--project",
+      projectDir,
+    ]);
+    cap.restore();
+
+    expect(code).toBe(2);
+    // The victim outside the connector-record root is untouched: validation
+    // fired before any path construction or delete.
+    expect(existsSync(join(victimDir, "keep.txt"))).toBe(true);
   });
 });
