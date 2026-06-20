@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.67 — 2026-06-20
+
+### Fixed
+
+- **copilot-cli — hooks now actually fire.** The adapter wrote `matcher: ""` on every
+  hook entry, but GitHub Copilot CLI's hook schema is `matcher: z.string().min(1).optional()`
+  — an empty string **fails validation**, so the CLI discarded the *entire* hook file and
+  registered zero hooks. Live-verified on CLI 1.0.63 (authenticated session): omitting the
+  matcher makes the hook fire. The key is now omitted when empty (at all write sites + the
+  uninstall rebuild), and uninstall deletes the empty stub. This was the real reason
+  copilot-cli hooks never ran — the earlier camelCase event-key change (#216) is
+  canonical-form cleanup, not the cause (both casings work; the hooks schema is
+  `.passthrough()`). (#218, #216)
+- **antigravity — read the real *nested* hook stdin shape** (`toolCall.name` / `toolCall.args`,
+  `conversationId` → sessionId, `workspacePaths[0]` → projectDir, PostToolUse `error`),
+  not the flat Claude-shaped fields the host never sends; `antigravity-cli` inherits the fix. (#215)
+- **jetbrains-copilot — PostToolUse reads `tool_response`** (the VS Code `.github/hooks`
+  dialect it aliases — not the terminal CLI's `tool_result`), dropping the dead
+  `tool_output`/`error_message` fallbacks. (#217)
+- **CLI uninstall — validate the connector id at the command boundary**, closing a narrow
+  path-traversal window on the explicit `--targets` marketplace-uninstall path (the #197/#199
+  security follow-up). (#214)
+
+### Internal
+
+- Sync `package-lock.json` to the released version. (#213)
+
+**35 platforms, 2929 tests.**
+
 ## 0.4.61 — 2026-06-20
 
 ### Fixed — hook wire-contract "false friends" (12 adapters)
