@@ -119,19 +119,29 @@ const MCP_ROOT_KEY = "mcpServers";
 interface KimiHookInput {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: unknown;
+  // PostToolUse (success) — tool output as a string (kimi turn/index.ts:739,
+  // toolOutputText(output).slice(0,2000)). kimi has NO `tool_response` field
+  // (0 hits repo-wide; that key is a Claude-Code false-friend); the EVENT TYPE
+  // (PostToolUse vs PostToolUseFailure, chosen at turn/index.ts:731) encodes
+  // success/failure, so there is also no `is_error` field on the wire.
+  tool_output?: string;
   session_id?: string;
   cwd?: string;
   hook_event_name?: string;
   source?: string;
-  prompt?: string;
+  // UserPromptSubmit — kimi sends `readonly ContentPart[]` (turn/index.ts:571,
+  // sole call site; a text prompt is [{type:'text', text}], kosong
+  // message.ts:3-6). SubagentStart sends a plain string. Accept both.
+  prompt?: unknown;
   is_error?: boolean;
   stop_hook_active?: boolean;
   trigger?: string;
   message?: string;
   reason?: string;
-  // PostToolUseFailure — the failure message.
-  error?: string;
+  // PostToolUseFailure — kimi sends a KimiErrorPayload OBJECT
+  // {code, message, name?, details?, retryable} (turn/index.ts:738 via
+  // toKimiErrorPayload; agent-core errors/serialize.ts:22-27), NOT a string.
+  error?: unknown;
   // SubagentStart / SubagentStop — Kimi sends agent_name (NOT agent_id /
   // agent_type) plus prompt (start) / response (stop).
   agent_name?: string;
@@ -736,9 +746,12 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          ...(toolResponseToString(input.tool_response) !== undefined
-            ? { toolOutput: toolResponseToString(input.tool_response) }
+          ...(typeof input.tool_output === "string"
+            ? { toolOutput: input.tool_output }
             : {}),
+          // kimi sends no `is_error` on the wire; success is encoded by the
+          // event type (PostToolUseFailure fires on failure), so `?? false`
+          // is always the correct value here.
           isError: input.is_error ?? false,
         };
         return ev;
@@ -760,7 +773,7 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       case "UserPromptSubmit": {
         const ev: UserPromptSubmitEvent = {
           ...base,
-          prompt: typeof input.prompt === "string" ? input.prompt : "",
+          prompt: extractPromptText(input.prompt),
         };
         return ev;
       }
@@ -817,7 +830,7 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          error: typeof input.error === "string" ? input.error : "",
+          error: extractErrorMessage(input.error),
         };
         return ev;
       }
@@ -973,15 +986,37 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
   }
 }
 
-/** Best-effort stringify of Kimi's tool_response into a normalized toolOutput. */
-function toolResponseToString(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return undefined;
+/**
+ * Extract the prompt text from Kimi's UserPromptSubmit payload. Kimi sends
+ * `readonly ContentPart[]` (turn/index.ts:571); a text prompt is
+ * [{type:'text', text}] (kosong message.ts:3-6). Concatenate the `text` of the
+ * text parts. A plain string (e.g. SubagentStart) is returned as-is.
+ */
+function extractPromptText(prompt: unknown): string {
+  if (typeof prompt === "string") return prompt;
+  if (Array.isArray(prompt)) {
+    return prompt
+      .map((part) =>
+        part && typeof (part as { text?: unknown }).text === "string"
+          ? (part as { text: string }).text
+          : "",
+      )
+      .join("");
   }
+  return "";
+}
+
+/**
+ * Extract the failure message from Kimi's PostToolUseFailure payload. Kimi
+ * sends a KimiErrorPayload object {code, message, ...} (turn/index.ts:738);
+ * use its `message`. A plain string is accepted defensively.
+ */
+function extractErrorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error && typeof (error as { message?: unknown }).message === "string") {
+    return (error as { message: string }).message;
+  }
+  return "";
 }
 
 export const adapter = new KimiAdapter();
