@@ -136,7 +136,6 @@ import {
   buildWrappedStdio,
   isHomeBinHookCommand,
 } from "../../core/spawn.js";
-import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "amazon-q";
 const MCP_ROOT_KEY = "mcpServers";
@@ -220,18 +219,31 @@ interface AmazonQAgentFile {
   [key: string]: unknown;
 }
 
-/** Raw Amazon Q CLI hook stdin payload (snake_case wire fields, == kiro's). */
+/**
+ * Raw Amazon Q CLI hook stdin payload (snake_case wire fields).
+ *
+ * PRIMARY-VERIFIED against aws/amazon-q-developer-cli
+ * crates/chat-cli/src/cli/chat/cli/hooks.rs:300-321 (run_hook builds `hook_input`)
+ * and docs/hooks.md:14-107 (per-event input examples). The host serializes ONLY:
+ *   - hook_event_name + cwd            (always)
+ *   - prompt                           (userPromptSubmit only)
+ *   - tool_name + tool_input + tool_response  (pre/postToolUse only; response optional)
+ * `connector` is injected by AC's own hook-command argv, not the host.
+ *
+ * Host GAPS (fields the host NEVER serializes — do NOT add reads for these):
+ *   - session_id      : no session id on stdin → sessionId stays "".
+ *   - source          : agentSpawn carries no start-reason discriminator; the Rust
+ *                       hook::Source enum is config-grouping, never serialized.
+ *   - stop_hook_active: stop payload is exactly {hook_event_name, cwd}.
+ */
 interface AmazonQWireInput {
   connector?: unknown;
   hook_event_name?: string;
   cwd?: string;
-  session_id?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   tool_response?: unknown;
-  source?: string;
   prompt?: string;
-  stop_hook_active?: boolean;
 }
 
 /**
@@ -781,7 +793,11 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
   parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
     const input = (raw ?? {}) as AmazonQWireInput;
     const connectorId = typeof input.connector === "string" ? input.connector : "";
-    const sessionId = typeof input.session_id === "string" ? input.session_id : "";
+    // Host gap: Amazon Q never serializes a session id onto hook stdin — the only
+    // always-present fields are hook_event_name + cwd (hooks.rs:300-304). sessionId
+    // stays "" rather than reading a non-existent input.session_id.
+    // Ref: aws/amazon-q-developer-cli crates/chat-cli/src/cli/chat/cli/hooks.rs:300-321
+    const sessionId = "";
     const projectDir = typeof input.cwd === "string" ? input.cwd : undefined;
 
     const base = {
@@ -813,9 +829,16 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "SessionStart": {
+        // Host gap: agentSpawn stdin is exactly {hook_event_name, cwd} — Amazon Q
+        // serializes no start-reason discriminator (the Rust hook::Source enum is
+        // config-grouping, never written to the payload), so resume/compact/clear
+        // are indistinguishable. Default to "startup" rather than reading a
+        // non-existent input.source.
+        // Ref: aws/amazon-q-developer-cli crates/chat-cli/src/cli/chat/cli/hooks.rs:300-304
+        //      + docs/hooks.md:14-17 (agentSpawn input example)
         const ev: SessionStartEvent = {
           ...base,
-          source: normalizeSessionSource(input.source),
+          source: "startup",
         };
         return ev;
       }
@@ -827,11 +850,13 @@ export class AmazonQAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "Stop": {
+        // Host gap: stop stdin is exactly {hook_event_name, cwd} — Amazon Q never
+        // serializes a stop_hook_active boolean, so the field is omitted (never set
+        // from a non-existent input.stop_hook_active).
+        // Ref: aws/amazon-q-developer-cli crates/chat-cli/src/cli/chat/cli/hooks.rs:300-321
+        //      + docs/hooks.md:106-107 (stop input example)
         const ev: StopEvent = {
           ...base,
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
-            : {}),
         };
         return ev;
       }

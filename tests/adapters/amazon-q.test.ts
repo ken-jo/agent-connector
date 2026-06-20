@@ -28,6 +28,8 @@ import type {
   ConnectorConfig,
   PreToolUseEvent,
   ResolvedConnector,
+  SessionStartEvent,
+  StopEvent,
 } from "../../src/core/types.js";
 
 import amazonQAdapter from "../../src/adapters/amazon-q/index.js";
@@ -735,7 +737,6 @@ describe("amazon-q adapter — hook uninstall (remove only AC entries)", () => {
 describe("amazon-q adapter — runtime wire (stdin → event, exit-code reply)", () => {
   it("parseEvent yields a normalized PreToolUse from snake_case stdin", () => {
     const ev = amazonQAdapter.parseEvent!("PreToolUse", {
-      session_id: "sess-1",
       cwd: "/work/proj",
       hook_event_name: "PreToolUse",
       tool_name: "fs_write",
@@ -744,9 +745,67 @@ describe("amazon-q adapter — runtime wire (stdin → event, exit-code reply)",
     }) as PreToolUseEvent;
     expect(ev.hostPlatform).toBe("amazon-q");
     expect(ev.connectorId).toBe(CONNECTOR_ID);
-    expect(ev.sessionId).toBe("sess-1");
+    expect(ev.projectDir).toBe("/work/proj");
     expect(ev.toolName).toBe("fs_write");
     expect(ev.toolInput).toEqual({ path: "/tmp/x" });
+  });
+
+  // ── Wire-contract regressions (kimi #189 class): Amazon Q serializes ONLY
+  // hook_event_name + cwd (+prompt / +tool_* per event). It NEVER emits
+  // session_id, source, or stop_hook_active — so reads for those false-friend
+  // fields must NOT resurface. Even if a (non-host) payload carries them, the
+  // parser must ignore them.
+  // Ref: aws/amazon-q-developer-cli crates/chat-cli/src/cli/chat/cli/hooks.rs:300-321
+  //      + docs/hooks.md:14-107 (per-event input examples).
+  it("sessionId is always '' — Amazon Q never serializes session_id on stdin", () => {
+    // Even when a stray session_id is present, the parser must not read it.
+    const ev = amazonQAdapter.parseEvent!("PreToolUse", {
+      session_id: "sess-should-be-ignored",
+      cwd: "/work/proj",
+      hook_event_name: "PreToolUse",
+      tool_name: "fs_read",
+      tool_input: {},
+      connector: CONNECTOR_ID,
+    }) as PreToolUseEvent;
+    expect(ev.sessionId).toBe("");
+  });
+
+  it("SessionStart (agentSpawn) source defaults to 'startup' — no host start-reason discriminator", () => {
+    // Host real payload: { hook_event_name, cwd } only.
+    const ev = amazonQAdapter.parseEvent!("SessionStart", {
+      cwd: "/work/proj",
+      hook_event_name: "agentSpawn",
+      connector: CONNECTOR_ID,
+    }) as SessionStartEvent;
+    expect(ev.source).toBe("startup");
+    // A stray `source` on the payload must be ignored (the read was removed).
+    const evStray = amazonQAdapter.parseEvent!("SessionStart", {
+      cwd: "/work/proj",
+      hook_event_name: "agentSpawn",
+      source: "resume",
+      connector: CONNECTOR_ID,
+    }) as SessionStartEvent;
+    expect(evStray.source).toBe("startup");
+    expect(evStray.sessionId).toBe("");
+  });
+
+  it("Stop never sets stopHookActive — Amazon Q does not emit stop_hook_active", () => {
+    // Host real payload: { hook_event_name, cwd } only.
+    const ev = amazonQAdapter.parseEvent!("Stop", {
+      cwd: "/work/proj",
+      hook_event_name: "stop",
+      connector: CONNECTOR_ID,
+    }) as StopEvent;
+    expect(ev.stopHookActive).toBeUndefined();
+    // A stray stop_hook_active must NOT resurface (the read was removed).
+    const evStray = amazonQAdapter.parseEvent!("Stop", {
+      cwd: "/work/proj",
+      hook_event_name: "stop",
+      stop_hook_active: true,
+      connector: CONNECTOR_ID,
+    }) as StopEvent;
+    expect(evStray.stopHookActive).toBeUndefined();
+    expect(evStray.sessionId).toBe("");
   });
 
   it("formatReply: allow → exit 0; deny → exit 2 with reason on stderr", () => {
