@@ -27,7 +27,7 @@ export function Audiences() {
 
       <div className="mt-12 grid gap-6 md:grid-cols-2">
         {/* Track A — MCP developer */}
-        <div className="flex flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm">
+        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm">
           <div className="mb-2 flex items-center gap-2">
             <span aria-hidden="true" className="text-lg">
               🔌
@@ -54,7 +54,7 @@ export function Audiences() {
         </div>
 
         {/* Track B — agent-CLI end user */}
-        <div className="flex flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm">
+        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm">
           <div className="mb-2 flex items-center gap-2">
             <span aria-hidden="true" className="text-lg">
               🖥️
@@ -69,7 +69,7 @@ export function Audiences() {
             not per-tool — read locally from each CLI&apos;s own session logs.
             No connector, no config, nothing installed.
           </p>
-          <div className="mt-4 flex h-10 items-center gap-2 rounded-lg border border-border bg-background/60 pl-3 pr-1 font-mono text-xs shadow-sm">
+          <div className="mt-4 flex h-10 min-w-0 items-center gap-2 rounded-lg border border-border bg-background/60 pl-3 pr-1 font-mono text-xs shadow-sm">
             <Terminal className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 select-all truncate text-foreground">
               {USAGE_CMD}
