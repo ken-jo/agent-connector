@@ -360,6 +360,9 @@ export class CodexAdapter extends BaseAdapter {
       ];
     }
 
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const entry = this.renderMcpEntry(ctx, server);
 
     return [
@@ -379,6 +382,9 @@ export class CodexAdapter extends BaseAdapter {
   override uninstallServer(ctx: InstallContext): ChangeRecord[] {
     const { connector, dryRun } = ctx;
     const path = this.getServerConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     return [
       removeFromObjectMap({
         codec: this.tomlObjectMapCodec(),

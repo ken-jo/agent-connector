@@ -23,7 +23,7 @@
  * continue-hooks.test.ts (the Claude-compatible hooks layer).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { parse, stringify } from "yaml";
@@ -357,6 +357,23 @@ describe("continue adapter — MCP install (array, user scope)", () => {
     expect(entry.args).toEqual(["--port", "0"]);
   });
 
+  it("installServer warn-skips a symlinked config.yaml without touching the target", () => {
+    const ctx = buildCtx(projectDir, buildConnector(), "user");
+    const path = userCfgPath();
+    const outside = join(home, "outside-continue.yaml");
+    const before = stringify({ outside: true });
+    mkdirSync(join(home, ".continue"), { recursive: true });
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, path);
+
+    const changes = continueAdapter.installServer(ctx);
+
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(path);
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
+  });
+
   it("stdio entry omits `type` and never emits apiKey/requestOptions/connectionTimeout", () => {
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     continueAdapter.installServer(ctx);
@@ -575,6 +592,22 @@ describe("continue adapter — memory (.continue/rules/agent-connector.md)", () 
     // Always-on directive must be a real YAML boolean (not the string "true").
     expect(frontmatter.alwaysApply).toBe(true);
     expect(body).toContain("Project guidance for Continue.");
+  });
+
+  it("installMemory warn-skips a symlinked memory file without touching the target", () => {
+    const outside = join(home, "outside-memory.md");
+    const before = "# outside memory\n";
+    mkdirSync(join(projectDir, ".continue", "rules"), { recursive: true });
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, memFile());
+
+    const ctx = buildCtx(projectDir, buildConnector(), "project");
+    const changes = continueAdapter.installMemory(ctx);
+
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(memFile());
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
   });
 
   it("is idempotent and uninstall deletes the dedicated file", () => {

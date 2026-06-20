@@ -347,6 +347,9 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const entry = this.renderServerEntry(ctx, server);
 
     return [
@@ -366,6 +369,9 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
   override uninstallServer(ctx: InstallContext): ChangeRecord[] {
     const { connector, dryRun } = ctx;
     const path = this.getServerConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     return [
       removeFromObjectMap({
         codec: yamlObjectMapCodec(),
@@ -448,6 +454,9 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const cfg = readYaml<Record<string, unknown>>(path) ?? {};
     const hooks = this.hooksBucket(cfg);
     const changes: ChangeRecord[] = [];
@@ -528,6 +537,9 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
 
   override uninstallHooks(ctx: InstallContext): ChangeRecord[] {
     const path = this.getHookConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const cfg = readYaml<Record<string, unknown>>(path);
     const hooksRaw = cfg?.[HOOKS_KEY];
     if (
@@ -586,6 +598,9 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
       return [{ platform: this.id, action: "skip", path, detail: "connector declares no actions" }];
     }
 
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const cfg = readYaml<Record<string, unknown>>(path) ?? {};
     const bucket = this.objectBucket(cfg, QUICK_COMMANDS_KEY);
     const changes: ChangeRecord[] = [];
@@ -640,6 +655,9 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
 
   override uninstallActions(ctx: InstallContext): ChangeRecord[] {
     const path = this.getHookConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const cfg = readYaml<Record<string, unknown>>(path);
     const bucketRaw = cfg?.[QUICK_COMMANDS_KEY];
     if (

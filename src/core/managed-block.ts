@@ -60,7 +60,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { backupsDir, connectorDir, ensureDir } from "./paths.js";
+import { assertNoSymlinkInPath, backupsDir, connectorDir, ensureDir } from "./paths.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Grammar constants (shared with defineConnector's content validation)
@@ -807,6 +807,7 @@ export function loadMemoryLedger(connectorId: string): MemoryLedger {
 /** Persist the ledger; an EMPTY ledger deletes the file (no orphan state). */
 export function saveMemoryLedger(connectorId: string, ledger: MemoryLedger): void {
   const p = memoryLedgerPath(connectorId);
+  assertNoSymlinkInPath(p);
   if (ledger.targets.length === 0) {
     rmSync(p, { force: true });
     return;

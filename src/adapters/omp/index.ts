@@ -48,16 +48,9 @@
  * any .env `OMP_*` keys to `PI_*` before process.env is read) takes precedence.
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type {
@@ -486,26 +479,15 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
 
     for (const file of files) {
-      const before = existsSync(file.path)
-        ? this.safeRead(file.path)
-        : undefined;
-      let action: ChangeRecord["action"];
-      if (before === undefined) action = "create";
-      else if (before === file.contents) action = "skip";
-      else action = "update";
-
-      if (action !== "skip" && !ctx.dryRun) {
-        ensureDir(dirname(file.path));
-        writeFileSync(file.path, file.contents, "utf8");
-        chmodSync(file.path, file.executable ? 0o755 : 0o644);
-      }
-
-      changes.push({
-        platform: this.id,
-        action,
-        path: file.path,
-        detail: detailFor(file),
-      });
+      changes.push(
+        this.writeManagedFile(
+          file.path,
+          file.contents,
+          ctx.dryRun,
+          detailFor(file),
+          file.executable,
+        ),
+      );
     }
 
     return changes;
@@ -555,15 +537,8 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
 
     const changes: ChangeRecord[] = [];
     for (const p of present) {
-      if (!ctx.dryRun) rmSync(p, { force: true });
-      changes.push({
-        platform: this.id,
-        action: "remove",
-        path: p,
-        detail: p.endsWith("package.json")
-          ? "omp extension manifest"
-          : "omp plugin module",
-      });
+      const detail = p.endsWith("package.json") ? "omp extension manifest" : "omp plugin module";
+      changes.push(this.removeManagedFile(p, ctx.dryRun, detail, `no ${detail} present`));
     }
     return changes;
   }
@@ -915,18 +890,6 @@ ${[...handlers, ...actionHandlers].join("\n\n")}
   }
 
   /** Read a file, returning undefined on any error (idempotency compare). */
-  private safeRead(path: string): string | undefined {
-    try {
-      return readFileSync(path, "utf8");
-    } catch {
-      return undefined;
-    }
-  }
-}
-
-/** Create a directory (recursive) if it does not already exist. */
-function ensureDir(dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 export const adapter = new OMPAdapter();

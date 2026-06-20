@@ -65,16 +65,9 @@
  *     is honored verbatim there.)
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type {
@@ -435,29 +428,15 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
 
     for (const file of files) {
-      // Idempotent: compare existing contents before writing.
-      const before = existsSync(file.path)
-        ? this.safeRead(file.path)
-        : undefined;
-      let action: ChangeRecord["action"];
-      if (before === undefined) action = "create";
-      else if (before === file.contents) action = "skip";
-      else action = "update";
-
-      if (action !== "skip" && !ctx.dryRun) {
-        ensureDir(dirname(file.path));
-        writeFileSync(file.path, file.contents, "utf8");
-        // 0644 — readable plugin module; the executable bit is irrelevant for an
-        // imported ESM module, but honor the SPI flag if a host ever needs it.
-        chmodSync(file.path, file.executable ? 0o755 : 0o644);
-      }
-
-      changes.push({
-        platform: this.id,
-        action,
-        path: file.path,
-        detail: `opencode plugin module (${this.hookDetail(ctx)})`,
-      });
+      changes.push(
+        this.writeManagedFile(
+          file.path,
+          file.contents,
+          ctx.dryRun,
+          `opencode plugin module (${this.hookDetail(ctx)})`,
+          file.executable,
+        ),
+      );
     }
 
     return changes;
@@ -497,24 +476,13 @@ export class OpenCodeAdapter extends BaseAdapter implements Adapter {
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
     const pluginPath = this.getHookConfigPath(ctx);
-    if (!existsSync(pluginPath)) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path: pluginPath,
-          detail: "no opencode plugin module present",
-        },
-      ];
-    }
-    if (!ctx.dryRun) rmSync(pluginPath, { force: true });
     return [
-      {
-        platform: this.id,
-        action: "remove",
-        path: pluginPath,
-        detail: "opencode plugin module",
-      },
+      this.removeManagedFile(
+        pluginPath,
+        ctx.dryRun,
+        "opencode plugin module",
+        "no opencode plugin module present",
+      ),
     ];
   }
 
@@ -1014,18 +982,6 @@ ${handlers.join("\n")}
   }
 
   /** Read a file, returning undefined on any error (idempotency compare). */
-  private safeRead(path: string): string | undefined {
-    try {
-      return readFileSync(path, "utf8");
-    } catch {
-      return undefined;
-    }
-  }
-}
-
-/** Create a directory (recursive) if it does not already exist. */
-function ensureDir(dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 export const adapter = new OpenCodeAdapter();

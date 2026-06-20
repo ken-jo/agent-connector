@@ -32,7 +32,7 @@
  * vscodeEnvToken below.
  */
 
-import { existsSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -387,6 +387,9 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     }
 
     const hooksPath = this.getHookConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(hooksPath);
+    if (symlink) return [symlink];
+
     const file = this.readJson<VSCodeHooksFile>(hooksPath) ?? {};
     const __skip = this.malformedHookRootSkip(hooksPath, (file as Record<string, unknown>).hooks);
     if (__skip) return [__skip];
@@ -454,6 +457,9 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
     const hooksPath = this.getHookConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(hooksPath);
+    if (symlink) return [symlink];
+
     const file = this.readJson<VSCodeHooksFile>(hooksPath);
     const hooks = file?.hooks;
     if (!file || !hooks) {
@@ -500,13 +506,14 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
       // result still belongs to us, so we rewrite it as before. dryRun reports
       // the would-be remove without mutating the filesystem.
       if (Object.keys(hooks).length === 0) {
-        if (!ctx.dryRun) rmSync(hooksPath, { force: true });
-        changes.push({
-          platform: this.id,
-          action: "remove",
-          path: hooksPath,
-          detail: "removed empty connector hooks file",
-        });
+        changes.push(
+          this.removeManagedFile(
+            hooksPath,
+            ctx.dryRun,
+            "removed empty connector hooks file",
+            "no hooks file present",
+          ),
+        );
         // Clean up the parent .github/hooks dir only when it is now empty (it is
         // a per-connector tree; leave it in place if other connectors' files
         // remain).

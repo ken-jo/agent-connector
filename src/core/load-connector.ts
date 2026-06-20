@@ -31,7 +31,7 @@ import type {
   SubagentDef,
 } from "./types.js";
 import { defineConnector } from "./define-connector.js";
-import { connectorDir, connectorsDir, ensureDir } from "./paths.js";
+import { assertNoSymlinkInPath, connectorDir, connectorsDir, ensureDir } from "./paths.js";
 
 /** Candidate config filenames, in resolution-precedence order. */
 const CONFIG_FILENAMES = [
@@ -238,8 +238,9 @@ export function registerConnector(
   };
 
   const dir = connectorDir(connector.id);
-  ensureDir(dir);
   const outPath = join(dir, "connector.json");
+  assertNoSymlinkInPath(outPath);
+  ensureDir(dir);
   writeFileSync(outPath, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
   return outPath;
 }
@@ -257,6 +258,7 @@ export function deregisterConnector(id: string): {
   path: string;
 } {
   const dir = connectorDir(id);
+  assertNoSymlinkInPath(dir);
   const existed = existsSync(dir);
   if (existed) rmSync(dir, { recursive: true, force: true });
   return { removed: existed, path: dir };

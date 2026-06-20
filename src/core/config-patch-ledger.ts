@@ -37,7 +37,7 @@ import {
 import { dirname, join } from "node:path";
 
 import type { ConfigPatchDef, JsonValue, PlatformId } from "./types.js";
-import { ensureDir } from "./paths.js";
+import { assertNoSymlinkInPath, ensureDir } from "./paths.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared configPatch helpers (grammar / values / namespace guard / hints)
@@ -230,6 +230,7 @@ function isPlausibleEntry(e: unknown): e is ConfigPatchLedgerEntry {
  */
 export function saveConfigPatchLedger(dataRoot: string, ledger: ConfigPatchLedger): void {
   const path = configPatchLedgerPath(dataRoot);
+  assertNoSymlinkInPath(path);
   ensureDir(dirname(path));
   const tmpFile = `${path}.${process.pid}-${randomBytes(4).toString("hex")}.tmp`;
   try {

@@ -13,7 +13,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -93,5 +100,16 @@ describe("registerConnector scope persistence", () => {
     // The record is rewritten whole on re-register → the old scope is gone.
     registerConnector(connector, modPath);
     expect(readRegisteredMeta(CONN_ID)?.scope).toBeUndefined();
+  });
+
+  it("rejects a symlinked connector record directory before writing connector.json", async () => {
+    const { connector } = await loadConnectorFromPath(modPath);
+    const outside = join(tmpData, "outside-record");
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(join(tmpData, "connectors"), { recursive: true });
+    symlinkSync(outside, join(tmpData, "connectors", CONN_ID), "dir");
+
+    expect(() => registerConnector(connector, modPath)).toThrow(/symbolic link/i);
+    expect(existsSync(join(outside, "connector.json"))).toBe(false);
   });
 });

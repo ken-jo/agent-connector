@@ -36,7 +36,7 @@
  * also accepts native ${VAR}, but resolve-to-literal avoids surprises.
  */
 
-import { chmodSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -636,11 +636,7 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     }
     return triggers.map((trigger) => {
       const path = this.actionPath(ctx, trigger.id);
-      const record = this.writeContentFile(path, this.renderActionScript(trigger.command), ctx.dryRun);
-      // Set the executable bit so Droid's CLI can call the interpreter. Only
-      // when we actually wrote (create/update) and not in dryRun.
-      if (record.action !== "skip" && !ctx.dryRun) chmodSync(path, 0o755);
-      return record;
+      return this.writeManagedFile(path, this.renderActionScript(trigger.command), ctx.dryRun, undefined, true);
     });
   }
 

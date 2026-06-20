@@ -45,6 +45,7 @@ import {
   connectorsDir,
   dataRoot,
   ensureHomeBin,
+  firstSymlinkInPath,
   homeBinPath,
 } from "./paths.js";
 import { configPatchManualEdit } from "./config-patch-ledger.js";
@@ -447,6 +448,14 @@ export function purgeFrameworkState(
   } catch (err) {
     const detail = `--purge skipped: invalid connector id "${connectorId}" (${errMessage(err)})`;
     result.changes.push({ platform, action: "warn", detail });
+    result.warnings.push(detail);
+    return;
+  }
+
+  const symlink = firstSymlinkInPath(recordDir);
+  if (symlink !== null) {
+    const detail = `--purge skipped: connector record path contains symbolic link (${symlink})`;
+    result.changes.push({ platform, action: "warn", path: recordDir, detail });
     result.warnings.push(detail);
     return;
   }

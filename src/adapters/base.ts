@@ -8,6 +8,7 @@
  */
 
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   readdirSync,
@@ -362,6 +363,12 @@ export abstract class BaseAdapter implements Adapter {
     let ledgerMutated = false;
 
     for (const target of targets) {
+      const symlink = this.symlinkPathWarning(target.path);
+      if (symlink) {
+        changes.push(symlink);
+        continue;
+      }
+
       for (const entry of ctx.connector.memory ?? []) {
         const blockId = `${ctx.connector.id}/${entry.name ?? "memory"}`;
         const res = upsertManagedBlockFile(target.path, {
@@ -464,7 +471,15 @@ export abstract class BaseAdapter implements Adapter {
     // Prefix scan (`<connectorId>/`), NOT the declared entry list: renamed or
     // removed entries and stale blocks from older versions are reclaimed too.
     const changes: ChangeRecord[] = [];
+    let sawSymlink = false;
     for (const [path, { createdFile }] of candidates) {
+      const symlink = this.symlinkPathWarning(path);
+      if (symlink) {
+        changes.push(symlink);
+        sawSymlink = true;
+        continue;
+      }
+
       const results = removeManagedBlocksFile(
         path,
         { blockIdPrefix: `${connector.id}/` },
@@ -490,7 +505,7 @@ export abstract class BaseAdapter implements Adapter {
 
     // Prune this connector's ledger rows for this platform (the file itself is
     // deleted when no rows remain). Markers stay the uninstall source of truth.
-    if (!ctx.dryRun && mine.length > 0) {
+    if (!ctx.dryRun && mine.length > 0 && !sawSymlink) {
       ledger.targets = ledger.targets.filter((t) => t.platform !== this.id);
       saveMemoryLedger(connector.id, ledger);
     }
@@ -711,12 +726,13 @@ export abstract class BaseAdapter implements Adapter {
     };
   }
 
-  /**
-   * Write a content file idempotently: "skip" when the existing bytes are
-   * already identical, else "create"/"update". Creates parent dirs (mkdir -p).
-   * Honors dryRun (computes the action but writes nothing).
-   */
-  protected writeContentFile(path: string, contents: string, dryRun: boolean): ChangeRecord {
+  protected writeManagedFile(
+    path: string,
+    contents: string,
+    dryRun: boolean,
+    detail = basename(path),
+    executable?: boolean,
+  ): ChangeRecord {
     const symlink = this.symlinkPathWarning(path);
     if (symlink) return symlink;
 
@@ -735,8 +751,36 @@ export abstract class BaseAdapter implements Adapter {
     if (action !== "skip" && !dryRun) {
       ensureDir(dirname(path));
       writeFileSync(path, contents, "utf8");
+      if (executable !== undefined) chmodSync(path, executable ? 0o755 : 0o644);
     }
-    return { platform: this.id, action, path, detail: basename(path) };
+    return { platform: this.id, action, path, detail };
+  }
+
+  protected removeManagedFile(
+    path: string,
+    dryRun: boolean,
+    detail = basename(path),
+    absentDetail = `${detail} absent`,
+  ): ChangeRecord {
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return symlink;
+
+    if (!existsSync(path)) {
+      return { platform: this.id, action: "skip", path, detail: absentDetail };
+    }
+    if (!dryRun) {
+      rmSync(path, { recursive: true, force: true });
+    }
+    return { platform: this.id, action: "remove", path, detail };
+  }
+
+  /**
+   * Write a content file idempotently: "skip" when the existing bytes are
+   * already identical, else "create"/"update". Creates parent dirs (mkdir -p).
+   * Honors dryRun (computes the action but writes nothing).
+   */
+  protected writeContentFile(path: string, contents: string, dryRun: boolean): ChangeRecord {
+    return this.writeManagedFile(path, contents, dryRun);
   }
 
   /**
@@ -745,16 +789,7 @@ export abstract class BaseAdapter implements Adapter {
    * (e.g. a skill folder removed by the supporting adapter).
    */
   protected removeContentFile(path: string, dryRun: boolean): ChangeRecord {
-    const symlink = this.symlinkPathWarning(path);
-    if (symlink) return symlink;
-
-    if (!existsSync(path)) {
-      return { platform: this.id, action: "skip", path, detail: `${basename(path)} absent` };
-    }
-    if (!dryRun) {
-      rmSync(path, { recursive: true, force: true });
-    }
-    return { platform: this.id, action: "remove", path, detail: basename(path) };
+    return this.removeManagedFile(path, dryRun);
   }
 
   /**
@@ -811,6 +846,9 @@ export abstract class BaseAdapter implements Adapter {
    * missing dir is a no-op "skip".
    */
   protected removeDirIfEmpty(dir: string, dryRun: boolean): ChangeRecord {
+    const symlink = this.symlinkPathWarning(dir);
+    if (symlink) return symlink;
+
     if (!existsSync(dir)) {
       return { platform: this.id, action: "skip", path: dir, detail: `${basename(dir)} absent` };
     }
