@@ -26,6 +26,7 @@
 import type {
   HookEventName,
   HookResponse,
+  PlatformCapabilities,
   PlatformId,
   PlatformOverride,
   ResolvedConnector,
@@ -37,7 +38,7 @@ import {
   eventMatcherSubject,
 } from "../runtime/hook-entrypoint.js";
 import type { SurfaceName } from "./introspect.js";
-import { SURFACE_PREDICATES } from "./introspect.js";
+import { hostCanFireEvent, SURFACE_PREDICATES } from "./introspect.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // explain — the static per-host × per-declared-surface matrix
@@ -161,6 +162,14 @@ export async function explain(connector: ResolvedConnector): Promise<ExplainRow[
         });
         continue;
       }
+      // The hooks surface is judged against the connector's SPECIFIC declared
+      // events, not the coarse "host has a hook runtime" predicate — otherwise a
+      // Stop-only connector falsely shows `native` on a PreToolUse-only host
+      // (the host CAN fire a hook, just not the one this connector declared).
+      if (surface === "hooks") {
+        rows.push(hooksRow(connector, adapter.id, adapter.capabilities));
+        continue;
+      }
       const native = SURFACE_PREDICATES[surface](adapter.capabilities);
       rows.push({
         host: adapter.id,
@@ -175,6 +184,41 @@ export async function explain(connector: ResolvedConnector): Promise<ExplainRow[
     a.host === b.host ? a.surface.localeCompare(b.surface) : a.host.localeCompare(b.host),
   );
   return rows;
+}
+
+/**
+ * The per-DECLARED-event hooks verdict for one host. A connector's hooks surface
+ * is `native` only when EVERY event it declares can fire on the host; if any
+ * declared event has no native equivalent the row is `skip-warn` and the reason
+ * names the specific dead events (the same events install skip-warns). This is
+ * the fix for the OR-across-all-events false green: a Stop-only connector on a
+ * host that cannot fire Stop now reports skip-warn, not native.
+ *
+ * Reuses {@link hostCanFireEvent} — the single per-event source of truth shared
+ * with {@link SURFACE_PREDICATES} and simulate's runtime verdict — so explain
+ * never re-derives the per-event rules.
+ */
+function hooksRow(
+  connector: ResolvedConnector,
+  host: PlatformId,
+  capabilities: PlatformCapabilities,
+): ExplainRow {
+  const declared = connector.hookEvents;
+  const dead = declared.filter((e) => !hostCanFireEvent(capabilities, e));
+  if (dead.length === 0) {
+    return {
+      host,
+      surface: "hooks",
+      support: "native",
+      reason: `${host} can fire every declared hook event (${declared.join(", ")})`,
+    };
+  }
+  const fireable = declared.filter((e) => hostCanFireEvent(capabilities, e));
+  const reason =
+    fireable.length === 0
+      ? `${host} cannot fire any declared hook event (${dead.join(", ")}); install skip-warns each`
+      : `${host} cannot fire ${dead.join(", ")} (install skip-warns these); honors ${fireable.join(", ")}`;
+  return { host, surface: "hooks", support: "skip-warn", reason };
 }
 
 /**
@@ -525,4 +569,147 @@ export async function simulate(
     const verb = opts.surface === "statusline" ? "render" : "handler";
     return { honored: false, reason: `${verb} threw: ${message}` };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// explainHooks — the per-(host, event) honor verdict (powers doctor --explain)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * One per-(host, event) cell of {@link explainHooks}.
+ *
+ *  - "honored"  — the host fires the event AND carries the connector's response
+ *                 intent (simulate's runtime verdict, e.g. a real deny/block).
+ *  - "degraded" — the host fires the event but silently DROPS the response's
+ *                 decision (e.g. codex fires UserPromptSubmit but has no stdout
+ *                 path for a context injection, so the injection vanishes).
+ *  - "dropped"  — the host cannot fire the event at all (no native equivalent /
+ *                 mcp-only host); install skip-warns it and it never runs.
+ */
+export interface HookEventVerdict {
+  host: PlatformId;
+  event: HookEventName;
+  verdict: "honored" | "degraded" | "dropped";
+  /** The simulate()-grade reason string (names the documented degradation). */
+  reason: string;
+}
+
+/**
+ * A subject (tool name / agent type) that SATISFIES the connector's matcher for
+ * this event, so a matcher-gated hook actually runs and the verdict reflects the
+ * real honor — not a spurious "matcher excludes my arbitrary synthetic tool".
+ * A plain-literal matcher (no regex metacharacters — the common case, e.g.
+ * `acme_query`) IS the subject. A missing/empty matcher matches everything, and
+ * a complex regex falls back to the generic subject (then an honest "matcher
+ * excludes" verdict surfaces — the dev's matcher genuinely would not fire here).
+ */
+function matchingSubject(matcher: string | undefined, fallback: string): string {
+  if (!matcher || matcher === "") return fallback;
+  return /^[\w.-]+$/.test(matcher) ? matcher : fallback;
+}
+
+/**
+ * A minimal host-shaped synthetic payload so the real parse→handler→format
+ * chain has something to run on. The harness coerces a `{}` to a valid event,
+ * but tool/subagent events read a subject (tool name / agent type) the connector
+ * matcher may filter on — so we plant a subject that SATISFIES the connector's
+ * declared matcher ({@link matchingSubject}) to exercise the honor path.
+ */
+function syntheticPayloadFor(
+  event: HookEventName,
+  matcher: string | undefined,
+): Record<string, unknown> {
+  switch (event) {
+    case "PreToolUse":
+    case "PostToolUse":
+    case "PostToolUseFailure":
+    case "PermissionRequest": {
+      const tool = matchingSubject(matcher, "Bash");
+      return { tool_name: tool, tool_input: { command: "echo hi" } };
+    }
+    case "SubagentStart":
+    case "SubagentStop": {
+      const agent = matchingSubject(matcher, "general");
+      return { agent_type: agent, subagent_type: agent };
+    }
+    case "UserPromptSubmit":
+      return { prompt: "hello" };
+    default:
+      return {};
+  }
+}
+
+/**
+ * The per-(host, event) hook honor matrix for the connector's DECLARED events
+ * across `hosts` — the trustworthy detail behind `doctor --explain`.
+ *
+ * For each (host, declared event): when the host cannot fire the event
+ * ({@link hostCanFireEvent} is false, OR the host has no hook runtime at all)
+ * the cell is `dropped`; otherwise it RUNS the real chain via {@link simulate}
+ * and reports `honored` (simulate honored the response) or `degraded` (the host
+ * fired but dropped the decision). Reuses the per-event signal + simulate's
+ * verdict — no per-event honor logic is re-derived here.
+ */
+export async function explainHooks(
+  connector: ResolvedConnector,
+  hosts: (PlatformId | string)[],
+): Promise<HookEventVerdict[]> {
+  const events = connector.hookEvents;
+  const rows: HookEventVerdict[] = [];
+
+  for (const host of hosts) {
+    const adapter = await loadAdapter(host);
+    if (!adapter) {
+      for (const event of events) {
+        rows.push({
+          host: host as PlatformId,
+          event,
+          verdict: "dropped",
+          reason: `unknown host "${host}"`,
+        });
+      }
+      continue;
+    }
+
+    // An mcp-only host (no hook runtime) drops every declared event.
+    const hasHookRuntime = !!adapter.parseEvent && !!adapter.formatReply;
+
+    for (const event of events) {
+      if (!hasHookRuntime) {
+        rows.push({
+          host: adapter.id,
+          event,
+          verdict: "dropped",
+          reason: `${adapter.id} has no hook runtime (mcp-only) — ${event} never fires`,
+        });
+        continue;
+      }
+      if (!hostCanFireEvent(adapter.capabilities, event)) {
+        rows.push({
+          host: adapter.id,
+          event,
+          verdict: "dropped",
+          reason: `${adapter.id} has no ${event} equivalent — install skip-warns it; never fires`,
+        });
+        continue;
+      }
+      const sim = await simulate(connector, {
+        surface: "hooks",
+        host: adapter.id,
+        event,
+        input: syntheticPayloadFor(event, connector.hooks[event]?.matcher),
+      });
+      rows.push({
+        host: adapter.id,
+        event,
+        verdict: sim.honored ? "honored" : "degraded",
+        reason: sim.reason,
+      });
+    }
+  }
+
+  rows.sort((a, b) =>
+    a.host === b.host ? a.event.localeCompare(b.event) : a.host.localeCompare(b.host),
+  );
+  return rows;
 }

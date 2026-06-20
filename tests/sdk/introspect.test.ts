@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   capabilitiesOf,
+  hostCanFireEvent,
   hostsSupporting,
   surfaceSupport,
   SURFACE_PREDICATES,
@@ -101,5 +102,52 @@ describe("SURFACE_PREDICATES", () => {
         "subagents",
       ].sort(),
     );
+  });
+
+  it("the coarse hooks predicate is true when ANY event can fire (host-level query)", async () => {
+    // crush fires PreToolUse only → still a hook host at the coarse level.
+    const crush = await capabilitiesOf("crush");
+    expect(SURFACE_PREDICATES.hooks(crush!)).toBe(true);
+    // an mcp-only host fires nothing → not a hook host.
+    const warp = await capabilitiesOf("warp");
+    expect(SURFACE_PREDICATES.hooks(warp!)).toBe(false);
+  });
+});
+
+describe("hostCanFireEvent — the per-event source of truth", () => {
+  it("PostCompact is honored on codex but not on crush", async () => {
+    const codex = await capabilitiesOf("codex");
+    const crush = await capabilitiesOf("crush");
+    expect(hostCanFireEvent(codex!, "PostCompact")).toBe(true);
+    expect(hostCanFireEvent(crush!, "PostCompact")).toBe(false);
+  });
+
+  it("crush fires PreToolUse but NOT Stop (the false-green pair)", async () => {
+    const crush = await capabilitiesOf("crush");
+    expect(hostCanFireEvent(crush!, "PreToolUse")).toBe(true);
+    expect(hostCanFireEvent(crush!, "Stop")).toBe(false);
+  });
+
+  it("the coarse hooks predicate is the OR of hostCanFireEvent over the union", async () => {
+    const events = [
+      "SessionStart",
+      "SessionEnd",
+      "UserPromptSubmit",
+      "PreToolUse",
+      "PostToolUse",
+      "PreCompact",
+      "Stop",
+      "Notification",
+      "PermissionRequest",
+      "PostToolUseFailure",
+      "SubagentStart",
+      "SubagentStop",
+      "PostCompact",
+    ] as const;
+    for (const host of ["claude-code", "crush", "codex", "warp"]) {
+      const caps = await capabilitiesOf(host);
+      const anyFire = events.some((e) => hostCanFireEvent(caps!, e));
+      expect(SURFACE_PREDICATES.hooks(caps!), host).toBe(anyFire);
+    }
   });
 });

@@ -201,7 +201,8 @@ const COMMAND_USAGE: Record<string, string> = {
   package:
     "package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]",
   doctor:
-    "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--json] [--heal] [--dry-run]",
+    "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--explain] [--json] [--heal] [--dry-run]\n" +
+    "  --explain   per-(host,event) hook honor matrix (honored/degraded/dropped). Exit non-zero ONLY when an explicitly-targeted host DEGRADES a declared event (fires it but silently won't honor the reply); dropped/mcp-only hosts and fleet-wide (targets:auto) gaps are informational (exit 0).",
   status: "status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
   telemetry:
     "telemetry report|export|leaderboard [--by <dim>] [--since <dur>] [--connector <id>] [--scope <slice>] [--format csv|json] [--out <file>] [--json]",

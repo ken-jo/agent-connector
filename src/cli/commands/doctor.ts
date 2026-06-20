@@ -32,6 +32,8 @@ import { marketplaceDoctorChecks } from "../../core/marketplace.js";
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { probeStdioServer } from "../../runtime/probe.js";
+import { explainHooks } from "../../sdk/test-harness.js";
+import type { HookEventVerdict } from "../../sdk/test-harness.js";
 import { fail, parseScope, parseTargets, print } from "../app.js";
 
 const STATUS_GLYPH: Record<DiagnosticResult["status"], string> = {
@@ -215,6 +217,124 @@ async function collectDiagnostics(
   return { byPlatform, tagged, anyFail };
 }
 
+const VERDICT_GLYPH: Record<HookEventVerdict["verdict"], string> = {
+  honored: "[honored]",
+  degraded: "[degraded]",
+  dropped: "[dropped]",
+};
+
+/**
+ * Resolve which hosts `--explain` reports a connector against: an explicit
+ * --targets list (intersected with the registry), else the connector's declared
+ * targets, else (targets:"auto") every registered host. Detection-independent —
+ * the per-event honor verdict is a static/offline property a dev wants BEFORE
+ * installing, not gated on what happens to be installed.
+ */
+function explainHostsFor(
+  connector: ResolvedConnector,
+  explicit: PlatformId[] | undefined,
+): PlatformId[] {
+  if (explicit && explicit.length > 0) {
+    return explicit.filter((id) => REGISTERED_PLATFORM_IDS.has(id));
+  }
+  if (connector.targets !== "auto") {
+    return (connector.targets as PlatformId[]).filter((id) =>
+      REGISTERED_PLATFORM_IDS.has(id),
+    );
+  }
+  return [...REGISTERED_PLATFORM_IDS].sort();
+}
+
+/**
+ * The exit rule for a single connector's per-event matrix. The principle: a
+ * non-zero exit means "something is wrong with YOUR connector", NOT "some host
+ * cannot do hooks as designed". So:
+ *   • `dropped` (mcp-only host / no native equivalent) is EXPECTED and NEVER
+ *     fails — it mirrors install's `skip` (= exit 0) for the very same
+ *     no-equivalent case the never-silent-skip work ships;
+ *   • `degraded` (the host FIRES the event but silently won't honor the reply,
+ *     e.g. a deny that fails open) is genuine silent misbehavior — but only a
+ *     finding worth FAILING on when the dev EXPLICITLY targeted that host
+ *     (`--targets`, or the connector's own `targets:[...]`). Under `targets:"auto"`
+ *     the matrix spans the whole fleet, where such gaps are expected, so it stays
+ *     informational (exit 0) — matching plain-doctor's scope-aware non-failure.
+ */
+function explainConnectorFails(
+  rows: HookEventVerdict[],
+  scoped: boolean,
+): boolean {
+  if (!scoped) return false;
+  return rows.some((row) => row.verdict === "degraded");
+}
+
+/**
+ * The `doctor --explain` body: for each resolved connector, the per-(host,
+ * event) honor matrix from {@link explainHooks} (honored / degraded / dropped
+ * with the simulate()-grade reason). ALL rows are always printed (visibility is
+ * never gated on the exit rule). The exit code follows {@link explainConnectorFails}:
+ * only a `degraded` cell on an EXPLICITLY-targeted host fails the command — a
+ * `dropped` cell (a host that architecturally cannot fire hooks) never does.
+ */
+async function runExplain(
+  entries: ConnectorEntry[],
+  explicit: PlatformId[] | undefined,
+  json: boolean,
+): Promise<number> {
+  const report: {
+    connector: string;
+    rows: HookEventVerdict[];
+    scoped: boolean;
+  }[] = [];
+  for (const { connector } of entries) {
+    // "scoped" = the dev narrowed the host set deliberately (an explicit
+    // --targets list, or the connector's own targets:[...]). Under targets:"auto"
+    // the matrix is fleet-wide and degraded cells stay informational.
+    const scoped =
+      (explicit != null && explicit.length > 0) || connector.targets !== "auto";
+    if (connector.hookEvents.length === 0) {
+      report.push({ connector: connector.id, rows: [], scoped });
+      continue;
+    }
+    const hosts = explainHostsFor(connector, explicit);
+    const rows = await explainHooks(connector, hosts);
+    report.push({ connector: connector.id, rows, scoped });
+  }
+
+  const anyFail = report.some((r) => explainConnectorFails(r.rows, r.scoped));
+
+  if (json) {
+    print(JSON.stringify(report.map(({ connector, rows }) => ({ connector, rows })), null, 2));
+    return anyFail ? 1 : 0;
+  }
+
+  for (const { connector, rows } of report) {
+    print(`${connector} — per-event hook honor:`);
+    if (rows.length === 0) {
+      print("  (connector declares no hooks)");
+      print("");
+      continue;
+    }
+    for (const row of rows) {
+      print(`  ${VERDICT_GLYPH[row.verdict]} ${row.host} / ${row.event} — ${row.reason}`);
+    }
+    print("");
+  }
+  // Footer states the verdict AND the exit rule, so a `dropped`-only run that
+  // exits 0 (the common default-targets case) is not surprising.
+  if (anyFail) {
+    print(
+      "doctor --explain: a declared hook event is DEGRADED on an explicitly-targeted host (the host fires it but silently won't honor the reply).",
+    );
+  } else if (report.some((r) => r.rows.some((row) => row.verdict !== "honored"))) {
+    print(
+      "doctor --explain: some hosts drop or degrade declared events (expected for mcp-only / fleet-wide gaps) — informational, exit 0.",
+    );
+  } else {
+    print("doctor --explain: every declared hook event is honored on its target hosts.");
+  }
+  return anyFail ? 1 : 0;
+}
+
 export async function run(argv: string[]): Promise<number> {
   const { values } = parseArgs({
     args: argv,
@@ -226,6 +346,7 @@ export async function run(argv: string[]): Promise<number> {
       json: { type: "boolean", default: false },
       probe: { type: "boolean", default: false },
       heal: { type: "boolean", default: false },
+      explain: { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
     },
     allowPositionals: false,
@@ -238,6 +359,15 @@ export async function run(argv: string[]): Promise<number> {
 
   const entries = await resolveDoctorConnectors(values.connector, projectDir);
   const connectors = entries.map((e) => e.connector);
+
+  // ── Per-event explain path (--explain) ───────────────────────────────────
+  // Additive, OFFLINE detail layer: the trustworthy per-(host, event) honor
+  // matrix (honored / degraded / dropped) the coarse "any hook present = OK"
+  // doctor cannot give. Resolves hosts from the connector's OWN targets (or
+  // --targets), NOT from detection — a dev wants this BEFORE installing.
+  if (values.explain) {
+    return runExplain(entries, parseTargets(values.targets), values.json ?? false);
+  }
 
   // Target set: explicit --targets (intersected with the registry), else the
   // same chain install uses — connector-declared targets ∩ detected platforms

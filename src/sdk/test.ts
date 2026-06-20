@@ -9,14 +9,17 @@
  *   • `explain(connector)`  — the static per-host × per-declared-surface matrix.
  *   • `simulate(connector, …)` — drive ONE host-shaped payload through the real
  *     adapter parse→handler→format chain and report whether the host honors it.
+ *   • `explainHooks(connector, hosts)` — the per-(host, event) honor matrix
+ *     (honored / degraded / dropped) behind `doctor --explain`.
  *
  * Both are READ-ONLY and offline: they install nothing and touch no host file.
  */
 
-export { explain, simulate } from "./test-harness.js";
+export { explain, explainHooks, simulate } from "./test-harness.js";
 
 export type {
   ExplainRow,
+  HookEventVerdict,
   SimulateOptions,
   SimulateResult,
 } from "./test-harness.js";
