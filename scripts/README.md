@@ -67,6 +67,15 @@ Lane result statuses:
     pre-approves the sandboxed project so a project-scope MCP is not "Pending").
   - `opencode` — no auth needed; advances offline with the bundled zero-auth model
     `opencode/big-pickle`.
+  - `antigravity-cli` (`agy`) — **authed-runtime** (no offline model): a turn needs
+    the real Google OAuth token. The sandbox copies `~/.gemini/oauth_creds.json`
+    (+ `google_accounts.json`/`installation_id`/`settings.json`/`state.json`/
+    `trustedFolders.json`) and `~/.gemini/antigravity-cli/antigravity-oauth-token`
+    (+ `installation_id`/`settings.json`/`keybindings.json`), and starts with an
+    **empty** `~/.gemini/config` so our `mcp_config.json` + `hooks.json` are written
+    fresh. A turn runs `agy --dangerously-skip-permissions --model 'Gemini 3.5 Flash
+    (Low)' -p <prompt>`; the dual oracle is our `events.log` + the host's own
+    `~/.gemini/antigravity-cli/cli.log` (`jsonhook__hooks_<Event>_0_0`).
 
 The real HOME is **never written**. Sandbox prep only ever reads from it.
 
@@ -75,26 +84,26 @@ The real HOME is **never written**. Sandbox prep only ever reads from it.
 `V` = verified (real lane) · `CB` = ceiling-blocked (driven rung + honest ceiling) ·
 `U` = host-unsupported · `BUG` = host-supported-but-adapter-broken.
 
-| verb | copilot-cli | claude-code | opencode |
-|---|---|---|---|
-| mcp-install | V | V (project) | V |
-| mcp-tool-load | V | V | V |
-| mcp-tool-call | V | V | V |
-| telemetry | V | V | V |
-| hook-fire | (roundtrip lane) | — | V |
-| per-event-fire | V | V | V |
-| hook-reply-deny | V¹ | V | V |
-| hook-reply-context | **U** | V | V |
-| content-command | — | V | V |
-| content-skill | — | V | **CB**² |
-| content-subagent | — | V | V³ |
-| content-memory | — | V | — |
-| content-statusline | — | **CB**⁴ | — |
-| update | V | V | V |
-| doctor | V | V | V |
-| uninstall-residue | V | V | V |
-| idempotency | V | V | V |
-| coexistence | V | V | V |
+| verb | copilot-cli | claude-code | opencode | antigravity-cli |
+|---|---|---|---|---|
+| mcp-install | V | V (project) | V | V |
+| mcp-tool-load | V | V | V | V |
+| mcp-tool-call | V | V | V | V |
+| telemetry | V | V | V | V |
+| hook-fire | (roundtrip lane) | — | V | V |
+| per-event-fire | V | V | V | V⁵ |
+| hook-reply-deny | V¹ | V | V | V |
+| hook-reply-context | **U** | V | V | **CB**⁶ |
+| content-command | — | V | V | — |
+| content-skill | — | V | **CB**² | **CB**⁷ |
+| content-subagent | — | V | V³ | **U**⁸ |
+| content-memory | — | V | — | (in content-skill⁷) |
+| content-statusline | — | **CB**⁴ | — | — |
+| update | V | V | V | V |
+| doctor | V | V | V | V |
+| uninstall-residue | V | V | V | V |
+| idempotency | V | V | V | V |
+| coexistence | V | V | V | V |
 
 Honest ceilings / non-gaps recorded by the lanes:
 
@@ -113,10 +122,36 @@ Honest ceilings / non-gaps recorded by the lanes:
 4. **claude-code `content-statusline`** — placement + dispatcher-render are driven;
    the host actually rendering the line needs an interactive TUI (`claude -p` never
    refreshes the status line), so host-render is a documented TUI-only ceiling.
+5. **antigravity-cli `per-event-fire`** — `agy -p` (print mode) fires **PreToolUse**
+   (toolName `run_command`) + **PostToolUse** (the adapter sends no tool fields on
+   PostToolUse → `toolName ""`) + **Stop**. `SessionStart` is **not** fireable under
+   print mode (it only fires on an interactive session start) and `UserPromptSubmit`
+   is host-unsupported (install warn-skips it) — both are honest carve-outs the lane
+   records, not failures. Live-verified on `agy 1.0.9`/`1.0.10`; the dual oracle is
+   our `events.log` + the host's own `cli.log` `jsonhook__hooks_<Event>_0_0` lines.
+6. **antigravity-cli `hook-reply-context`** — the reply-**render** rung is driven via
+   direct home-bin dispatch (the adapter emits `{"additionalContext":"…ZX9…"}` for a
+   SessionStart context reply). The host's **consumption** is the ceiling: SessionStart
+   never fires under `agy -p`, so headless activation is not observable (interactive
+   session start only).
+7. **antigravity-cli `content-skill`** — covers the markdown content surfaces:
+   placement is verified (skill → `~/.gemini/antigravity-cli/skills/<n>/SKILL.md`,
+   workflow → `~/.gemini/antigravity/global_workflows/<n>.md`, memory →
+   `~/.gemini/AGENTS.md` managed block). Headless `agy -p` **activation** of a
+   workflow/skill is model-discretion (non-deterministic offline) — the ceiling.
+8. **antigravity-cli `content-subagent`** — host-unsupported: antigravity-cli has no
+   subagent surface; install warn-skips ("subagents not supported on antigravity-cli").
 
 **copilot-cli `hook-reply-context`** is **host-unsupported**: copilot 1.0.63 has no
 `additionalContext` injection field (only a full `modifiedPrompt` rewrite, which
 `HookResponse` does not expose). The lane records this honestly without a host run.
+
+**antigravity-cli is an authed-runtime lane**, not a bundled-offline-model lane:
+unlike `opencode` (zero-auth model) the deep-verb lanes require the real Google OAuth
+token copied into the sandbox. There is **no** reproducible network-install entry for
+`agy` (it ships through the Antigravity app installer, not npm or a pinned vendor URL),
+so it is not in `HOST_INSTALL`; the lane is exercised only where `agy` is already
+present and authed on the box. A missing/unauthed `agy` is a **SKIP**, never a failure.
 
 ## Examples
 
@@ -124,9 +159,10 @@ Honest ceilings / non-gaps recorded by the lanes:
 npm run build                                   # dist/cli.js must exist
 
 # one lane:
-node scripts/verify-host.mjs copilot-cli --verb mcp-tool-call
-node scripts/verify-host.mjs claude-code  --verb hook-reply-deny
-node scripts/verify-host.mjs opencode     --verb hook-fire
+node scripts/verify-host.mjs copilot-cli     --verb mcp-tool-call
+node scripts/verify-host.mjs claude-code      --verb hook-reply-deny
+node scripts/verify-host.mjs opencode         --verb hook-fire
+node scripts/verify-host.mjs antigravity-cli  --verb per-event-fire
 
 # every codified lane for a host:
 node scripts/verify-host.mjs claude-code --all-verbs
@@ -141,8 +177,9 @@ npm run verify:host -- claude-code --all-verbs
 
 ## Honest ceiling — what this harness can and cannot reach
 
-It reaches exactly the verbs codified above for `copilot-cli`, `claude-code`, and
-`opencode` (the three hosts a verification workflow live-confirmed). Other hosts
-have no deep-verb recipe yet and report `no-lane` for `--verb` — they remain covered
-for placement by `install-roundtrip.test.ts`. Adding a host means adding a runner +
-a `HOST_VERBS` entry grounded in a real live run (never a guessed recipe).
+It reaches exactly the verbs codified above for `copilot-cli`, `claude-code`,
+`opencode`, and `antigravity-cli` (the four hosts a verification workflow
+live-confirmed). Other hosts have no deep-verb recipe yet and report `no-lane` for
+`--verb` — they remain covered for placement by `install-roundtrip.test.ts`. Adding a
+host means adding a runner + a `HOST_VERBS` entry grounded in a real live run (never a
+guessed recipe).

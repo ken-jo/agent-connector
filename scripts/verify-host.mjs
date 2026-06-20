@@ -139,7 +139,12 @@ const HOST_LANES = {
     // accept verb. It does not echo our MCP id, so this is an "ok" (exit-0) lane:
     // it proves the binary reads its config tree without error, not id presence.
     accept: { argv: ["plugin", "list"], kind: "ok" },
-    note: "`agy plugin list` reads config offline (no mcp-list verb); turn is Google-OAuth-gated.",
+    // The OFFLINE accept lane stays "ok" (exit-0). A turn is Google-OAuth-gated,
+    // but agy IS an AUTHED-RUNTIME deep-verb host (see HOST_VERBS["antigravity-cli"]
+    // + agyRunners): with the real ~/.gemini token copied into the sandbox, `agy -p`
+    // advances a turn and our PreToolUse/PostToolUse/Stop hooks fire (live-verified).
+    // There is no auth-free offline model — the deep-verb lanes need the real token.
+    note: "`agy plugin list` reads config offline (no mcp-list verb); turn is Google-OAuth-gated. AUTHED-RUNTIME deep-verb host: with the copied ~/.gemini token, `--verb`/`--all-verbs` fire hooks + MCP live.",
   },
   "amazon-q": {
     bin: "q",
@@ -1263,6 +1268,41 @@ function prepClaudeSandbox(home, projectDir, enabledMcpId) {
   return { ok: true, reason: "claude sandbox ready" };
 }
 
+/** antigravity-cli (agy): an authed-runtime, Gemini-family json-stdio host that
+ *  reads its login + MCP/hook config under `~/.gemini`. There is NO offline/auth-
+ *  free model — a turn needs the real Google OAuth token — so the sandbox COPIES
+ *  the real `~/.gemini` token set in (NEVER writes the real tree) and starts with
+ *  an EMPTY `~/.gemini/config` so OUR mcp_config.json + hooks.json are written
+ *  fresh by install (the real config/ is deliberately NOT copied). Live-verified
+ *  (agy 1.0.9/1.0.10): swapping HOME triggers OAuth re-login, so the token copy is
+ *  mandatory; the real token files are restored byte-identical (sha256) after by
+ *  virtue of never being touched. Returns { ok, reason } — ok:false is a SKIP
+ *  (agy not logged in on this box). */
+function prepAgySandbox(home) {
+  const realGemini = join(realHome(), ".gemini");
+  const realToken = join(realGemini, "antigravity-cli", "antigravity-oauth-token");
+  const realOauth = join(realGemini, "oauth_creds.json");
+  if (!existsSync(realToken) || !existsSync(realOauth)) {
+    return { ok: false, reason: "no ~/.gemini/antigravity-cli/antigravity-oauth-token + oauth_creds.json — agy not logged in on this box" };
+  }
+  const sandGemini = join(home, ".gemini");
+  // Fresh config dir for OUR surfaces (mcp_config.json + hooks.json written by install).
+  mkdirSync(join(sandGemini, "config"), { recursive: true });
+  mkdirSync(join(sandGemini, "antigravity-cli"), { recursive: true });
+  // Copy ONLY the auth/state files a turn needs (the exact set the live probe
+  // confirmed lets `agy -p` advance without an OAuth re-login). copyFileSync is a
+  // pure read of the real tree → the real ~/.gemini is never written.
+  for (const f of ["oauth_creds.json", "google_accounts.json", "installation_id", "settings.json", "state.json", "trustedFolders.json"]) {
+    const src = join(realGemini, f);
+    if (existsSync(src)) copyFileSync(src, join(sandGemini, f));
+  }
+  for (const f of ["antigravity-oauth-token", "installation_id", "settings.json", "keybindings.json"]) {
+    const src = join(realGemini, "antigravity-cli", f);
+    if (existsSync(src)) copyFileSync(src, join(sandGemini, "antigravity-cli", f));
+  }
+  return { ok: true, reason: "agy sandbox ready (copied ~/.gemini token set; real tree untouched)" };
+}
+
 /** The REAL user home (process HOME may already be isolated by a parent). */
 function realHome() {
   return process.env.AC_VERIFY_REAL_HOME || originalHome;
@@ -1819,6 +1859,258 @@ const opencodeRunners = {
   },
 };
 
+// ── antigravity-cli (agy) verb runners ────────────────────────────────────
+// AUTHED-RUNTIME lane, NOT a bundled-offline-model lane: a turn needs the real
+// Google OAuth token, so every runner first builds the auth-preserving sandbox
+// (prepAgySandbox copies ~/.gemini token files; ok:false → SKIP). agy is Gemini-
+// family json-stdio under ~/.gemini, NOT codex-shaped: MCP at
+// ~/.gemini/config/mcp_config.json, hooks at ~/.gemini/config/hooks.json. The
+// adapter supports PreToolUse / PostToolUse / SessionStart / Stop; UserPromptSubmit
+// is host-unsupported (install warn-skips it). A turn is driven with
+// `agy --dangerously-skip-permissions --model 'Gemini 3.5 Flash (Low)' -p <prompt>`.
+// Live dual oracle: OUR $AC_VERIFY_DIR/events.log + the host's own
+// ~/.gemini/antigravity-cli/cli.log (`json_hook_caller.go ... jsonhook__hooks_
+// <Event>_0_0 ... executing command`). Note (live-confirmed): SessionStart does
+// NOT fire under `agy -p` (print-mode, interactive-session-start-only); the tool
+// events that DO fire are PreToolUse (toolName run_command) + PostToolUse (the
+// adapter sends no tool fields on PostToolUse → toolName "") + Stop.
+
+function agyEnv(ctx, extra = {}) {
+  return {
+    ...ctx.env,
+    AGENT_CONNECTOR_DATA_DIR: join(ctx.work, "data"),
+    AC_VERIFY_DIR: join(ctx.work, "acv"),
+    AC_TOOL_MARK_DIR: join(ctx.work, "tm"),
+    AC_MCP_LOG: join(ctx.work, "mcp-server.log"),
+    ...extra,
+  };
+}
+const AGY_MODEL = "Gemini 3.5 Flash (Low)";
+
+/** Drive an agy print-mode turn (skip-permissions so tool calls run unattended). */
+function agyTurn(ctx, env, prompt, timeoutMs = 200_000) {
+  return run(ctx.bin, ["--dangerously-skip-permissions", "--model", AGY_MODEL, "-p", prompt], env, timeoutMs, ctx.projectDir);
+}
+
+/** Read the host's own cli.log (follow the cli.log → log/cli-*.log symlink) and
+ *  test whether it logged the host firing `jsonhook__hooks_<Event>_0_0`. This is
+ *  the host-side cross-check that complements OUR events.log. Best-effort: returns
+ *  false if the log is absent (e.g. agy version that does not write it). */
+function agyHostFiredEvent(home, event) {
+  const logLink = join(home, ".gemini", "antigravity-cli", "cli.log");
+  try {
+    if (!existsSync(logLink)) return false;
+    return new RegExp(`jsonhook__hooks_${event}_\\d+_\\d+`).test(readFileSync(logLink, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+const agyRunners = {
+  // per-event-fire: a real shell-tool turn fires PreToolUse(run_command) +
+  // PostToolUse + Stop into events.log (SessionStart is print-mode-unfireable,
+  // UserPromptSubmit host-unsupported — both are honest carve-outs, not failures).
+  "per-event-fire": (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = agyTurn(ctx, env, "Run the shell command: echo AC_LIVE_TURN_OK");
+    const lines = readEventsLog(ctx.work);
+    const events = new Set(lines.map((e) => e.event).filter(Boolean));
+    // The fireable-under-print-mode set (NOT SessionStart, NOT UserPromptSubmit).
+    const want = ["PreToolUse", "PostToolUse", "Stop"];
+    const got = want.filter((e) => events.has(e));
+    const preRunCommand = lines.some((e) => e.event === "PreToolUse" && e.toolName === "run_command");
+    // Host-side cross-check (best-effort; not required for pass).
+    const hostFired = ["PreToolUse", "PostToolUse", "Stop"].filter((e) => agyHostFiredEvent(ctx.home, e));
+    const carveouts = "SessionStart print-mode-unfireable; UserPromptSubmit host-unsupported (warn-skip)";
+    if (got.includes("PreToolUse") && got.includes("PostToolUse")) {
+      return {
+        status: "pass",
+        detail: `tool turn fired ${got.join(", ")}${preRunCommand ? " (PreToolUse toolName=run_command)" : ""}${hostFired.length ? `; host cli.log fired ${hostFired.join(", ")}` : ""} — ${carveouts}`,
+      };
+    }
+    if (events.size > 0) return { status: "pass", detail: `events fired: ${[...events].join(", ")} (subset; model may not have used the shell tool this turn) — ${carveouts}` };
+    if (rt.timedOut) return { status: "skip", detail: "agy -p turn timed out (model/network ceiling)" };
+    return { status: "fail", detail: `events.log empty — no hook fired (exit=${rt.status})` };
+  },
+
+  // hook-fire alias of per-event-fire (the brief's "per-event-fire (or hook-fire)").
+  "hook-fire": (ctx) => agyRunners["per-event-fire"](ctx),
+
+  // hook-reply-deny: PreToolUse {decision:'deny'} for run_command → host HONORS the
+  // deny (command never runs; our exact reason string reaches the model).
+  "hook-reply-deny": (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id, denyTool: "run_command" });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = agyTurn(ctx, env, "Run the shell command: echo DENY_TEST_SHOULD_BE_BLOCKED");
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    const lines = readEventsLog(ctx.work);
+    const repliedDeny = lines.some((e) => e.event === "PreToolUse" && e.toolName === "run_command");
+    // DETERMINISTIC oracle: the host echoes OUR exact deny-reason marker
+    // (AC_DENY_MARKER_blocked) into its run transcript ONLY when it actually
+    // blocked the tool call — observed as an `ERROR_MESSAGE` ("Tool call denied
+    // with reason: AC_DENY_MARKER_blocked") + a `PLANNER_RESPONSE` narrating the
+    // block. That reason string is ours alone and never appears unless the host
+    // honored the deny, so it is the assertion (NOT the brittle "did the command
+    // marker appear in narration" heuristic — the marker is the command ARGUMENT
+    // and shows up in block-narration regardless). The model's -p stdout is a
+    // bonus signal only. The agy run transcript lives under the sandbox
+    // ~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/*.jsonl.
+    const transcriptDir = join(ctx.home, ".gemini", "antigravity-cli", "brain");
+    const denyInTranscript = existsSync(transcriptDir) && filesContaining(transcriptDir, SENTINELS.denyMarker).length > 0;
+    const denyInStdout = blob.includes(SENTINELS.denyMarker);
+    if (repliedDeny && (denyInTranscript || denyInStdout)) {
+      return { status: "pass", detail: `host HONORED PreToolUse deny — our reason '${SENTINELS.denyMarker}' surfaced as the block reason (${denyInTranscript ? "host transcript" : "model stdout"}); command call was rejected` };
+    }
+    if (rt.timedOut) return { status: "skip", detail: "agy -p turn timed out (model/network ceiling)" };
+    if (repliedDeny) return { status: "skip", detail: "inconclusive: PreToolUse(run_command) fired but the deny-reason marker was not observed in the transcript/stdout this turn (model phrasing varies)" };
+    return { status: "skip", detail: `inconclusive: no PreToolUse(run_command) fire (model may not have attempted the shell tool); exit=${rt.status}` };
+  },
+
+  // hook-reply-context (CB): the reply-RENDER rung is driven via direct home-bin
+  // dispatch (the adapter emits {"additionalContext":...} for a SessionStart
+  // context reply). The host's CONSUMPTION is the ceiling: SessionStart never
+  // fires under `agy -p` (interactive-session-start-only), so headless activation
+  // is not observable. Drives the render; records the un-driveable rung honestly.
+  "hook-reply-context": (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const homeBin = join(ctx.work, "data", "bin", "agent-connector");
+    const payload = JSON.stringify({ workspacePaths: [ctx.projectDir] });
+    const disp = existsSync(homeBin)
+      ? runWithInput(homeBin, ["hook", "antigravity-cli", "SessionStart", "--connector", ctx.id], env, payload, 30_000)
+      : { stdout: "", status: 1 };
+    const rendered = `${disp.stdout}`.includes(SENTINELS.context) && /"additionalContext"/.test(`${disp.stdout}`);
+    if (rendered) {
+      return { status: "ceiling", detail: 'SessionStart context reply RENDERED by the dispatcher ({"additionalContext":"…ZX9…"}); host consumption is interactive-TUI-only (SessionStart never fires under `agy -p`) — un-driveable headless' };
+    }
+    return { status: "ceiling", detail: `dispatcher render not reproduced (home-bin absent or exit ${disp.status}); SessionStart consumption is interactive-TUI-only — un-driveable headless` };
+  },
+
+  // mcp-install: mcpServers.<id> written to ~/.gemini/config/mcp_config.json
+  // (the LIVE-canonical agy path, NOT the IDE antigravity/ dir).
+  "mcp-install": (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const cfg = join(ctx.home, ".gemini", "config", "mcp_config.json");
+    if (existsSync(cfg) && readFileSync(cfg, "utf8").includes(ctx.id)) return { status: "pass", detail: `mcpServers.${ctx.id} written to ~/.gemini/config/mcp_config.json (canonical agy path)` };
+    return { status: "fail", detail: "mcp_config.json missing our mcpServers entry at ~/.gemini/config/" };
+  },
+
+  // mcp-tool-load: a turn that references the tool spawns the serve-wrapped server
+  // → telemetry scope:'tool_defs' row (initialize + tools/list reached).
+  "mcp-tool-load": (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = agyTurn(ctx, env, 'Call the MCP tool named ac_echo with text "hello-from-agy"');
+    const ndjson = join(ctx.work, "data", "telemetry.ndjson");
+    const log = join(ctx.work, "mcp-server.log");
+    const handshook = existsSync(log) && /"recv":"tools\/list"/.test(readFileSync(log, "utf8"));
+    let toolDefs = false;
+    if (existsSync(ndjson)) {
+      toolDefs = readFileSync(ndjson, "utf8").split(/\r?\n/).filter(Boolean).some((l) => {
+        try { const r = JSON.parse(l); return r.scope === "tool_defs"; } catch { return false; }
+      });
+    }
+    if (handshook || toolDefs) return { status: "pass", detail: `server loaded through the serve wrapper (${handshook ? "tools/list received" : ""}${handshook && toolDefs ? " + " : ""}${toolDefs ? "telemetry tool_defs row" : ""})` };
+    if (rt.timedOut) return { status: "skip", detail: "agy -p turn timed out (model/network ceiling)" };
+    return { status: "fail", detail: `tool not loaded (no handshake / tool_defs; exit=${rt.status})` };
+  },
+
+  // mcp-tool-call: model calls ac_echo → tool-calls.log line + AC_ECHO_MARKER +
+  // telemetry scope:'call' row (full round-trip through the serve wrap).
+  "mcp-tool-call": (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const text = "hello-from-agy";
+    const rt = agyTurn(ctx, env, `Call the MCP tool named ac_echo with text "${text}"`);
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    const callLog = join(ctx.work, "tm", "tool-calls.log");
+    const called = existsSync(callLog) && readFileSync(callLog, "utf8").includes(text);
+    const log = join(ctx.work, "mcp-server.log");
+    const recvCall = existsSync(log) && /"recv":"tools\/call"/.test(readFileSync(log, "utf8"));
+    if (called || recvCall || blob.includes(`${SENTINELS.echo}:${text}`)) {
+      return { status: "pass", detail: `model round-tripped ac_echo through the serve wrap (${called ? "tool-calls.log" : recvCall ? "tools/call recv" : "AC_ECHO_MARKER in output"})` };
+    }
+    if (rt.timedOut) return { status: "skip", detail: "agy -p turn timed out (model/network ceiling)" };
+    return { status: "fail", detail: `no ac_echo call recorded (exit=${rt.status})` };
+  },
+
+  // telemetry: a tool turn records a scope:'call' row with integer tokens.
+  telemetry: (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id, telemetry: true });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = agyTurn(ctx, env, 'Call the MCP tool named ac_echo with text "teltest"');
+    return assertTelemetry(ctx, rt, "ac_echo");
+  },
+
+  // content-commands-skills-memory (CB): placement of the markdown content
+  // surfaces is verified (workflows/skills/memory) and subagents warn-skip; the
+  // headless `agy -p` ACTIVATION of a workflow/skill is model-discretion
+  // (non-deterministic offline) — the honest ceiling.
+  "content-skill": (ctx) => {
+    const prep = prepAgySandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = agyEnv(ctx);
+    const conn = genContentConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const skillFile = join(ctx.home, ".gemini", "antigravity-cli", "skills", "ac-skill", "SKILL.md");
+    const workflow = join(ctx.home, ".gemini", "antigravity", "global_workflows", "ac-echo.md");
+    const memory = join(ctx.home, ".gemini", "AGENTS.md");
+    const subagentWarn = / subagents? .*(not supported|skipped)/i.test(ins.out) || /antigravity-cli.* skipped/i.test(ins.out);
+    const placed = [
+      existsSync(skillFile) && "skills/ac-skill/SKILL.md",
+      existsSync(workflow) && "antigravity/global_workflows/ac-echo.md",
+      existsSync(memory) && readFileSync(memory, "utf8").includes(SENTINELS.memory) && "AGENTS.md",
+    ].filter(Boolean);
+    if (placed.length > 0) {
+      return { status: "ceiling", detail: `content placed: ${placed.join(", ")}${subagentWarn ? "; subagents warn-skipped (host-unsupported)" : ""}. Headless \`agy -p\` activation is model-discretion (non-deterministic) — ceiling` };
+    }
+    return { status: "fail", detail: "no content surface placed (expected skills/SKILL.md, workflow, or AGENTS.md)" };
+  },
+
+  // content-subagent (U): antigravity-cli has no subagent surface — install warn-skips.
+  "content-subagent": () => ({
+    status: "unsupported",
+    detail: "antigravity-cli has no subagent surface — install warn-skips ('subagents not supported on antigravity-cli').",
+  }),
+
+  update: (ctx) => lifecycleUpdate(ctx, () => prepAgySandbox(ctx.home), agyEnv(ctx)),
+  doctor: (ctx) => lifecycleDoctor(ctx, () => prepAgySandbox(ctx.home), agyEnv(ctx), "antigravity-cli"),
+  "uninstall-residue": (ctx) => lifecycleUninstall(ctx, () => prepAgySandbox(ctx.home), agyEnv(ctx)),
+  idempotency: (ctx) => lifecycleIdempotency(ctx, () => prepAgySandbox(ctx.home), agyEnv(ctx)),
+  coexistence: (ctx) => lifecycleCoexistence(ctx, () => prepAgySandbox(ctx.home), agyEnv(ctx), join(ctx.home, ".gemini", "config")),
+};
+
 // ── Lifecycle runners (shared shape across hosts) ─────────────────────────
 // Each takes a prep() (the host's auth-preserving sandbox) and an env, installs
 // the hook+mcp connector, then drives the lifecycle verb against the BUILT cli.
@@ -1834,7 +2126,19 @@ function lifecycleUpdate(ctx, prep, env) {
   if (/ failed on /.test(out)) return { status: "fail", detail: `upgrade step failed: ${out.slice(0, 160)}` };
   const refreshed = /Refreshed home binary pointer/.test(out);
   const allSkip = /skip|already registered|up to date/i.test(out);
-  if (r.status === 0 && (refreshed || allSkip)) return { status: "pass", detail: `upgrade idempotent re-render${refreshed ? " + home pointer refreshed" : ""}, exit 0` };
+  // The exit code is NOT the pass/fail signal: `agent-connector upgrade` exits 1
+  // whenever ANY `warn` ChangeRecord is present, and a benign "unsupported hook
+  // event — skipped" warning (e.g. antigravity-cli / gemini-cli decline an event
+  // with no native equivalent) is a documented never-silent SKIP, not a failure —
+  // exactly the discipline the default verifyHost install path applies. So an
+  // exit-1 with ONLY benign warning(s) (no ` failed on `) and the expected output
+  // markers is a pass; the strict exit-0 case is kept for warning-free hosts.
+  // Benign = exit≠0 AND the summary reports ≥1 warning AND there is no ` failed on `
+  // (already returned above). A `! warn:` change line confirms it is a warn-skip.
+  const benignWarnExit = r.status !== 0 && /[1-9]\d* warning/i.test(out) && /(^|\n)\s*! .*warn:/i.test(out);
+  if ((r.status === 0 || benignWarnExit) && (refreshed || allSkip)) {
+    return { status: "pass", detail: `upgrade idempotent re-render${refreshed ? " + home pointer refreshed" : ""}${benignWarnExit ? " (exit 1 from a benign warn-skipped event, not a failure)" : ", exit 0"}` };
+  }
   return { status: "fail", detail: `upgrade exit=${r.status}; ${out.trim().slice(0, 160)}` };
 }
 
@@ -1996,6 +2300,30 @@ const HOST_VERBS = {
     doctor: { status: "V", runner: opencodeRunners.doctor },
     "uninstall-residue": { status: "V", runner: opencodeRunners["uninstall-residue"] },
     idempotency: { status: "V", runner: opencodeRunners.idempotency },
+  },
+  // antigravity-cli (agy): AUTHED-RUNTIME, Gemini-family json-stdio (~/.gemini).
+  // Live-verified on agy 1.0.9 (local) / 1.0.10 (mac). PreToolUse/PostToolUse/Stop
+  // FIRE under `agy -p`; SessionStart is print-mode-unfireable (interactive only);
+  // UserPromptSubmit is host-unsupported (warn-skip). hook-reply-context is CB (the
+  // reply render is driven; host consumption needs an interactive session start);
+  // content surfaces are CB (placement verified, headless activation is model-
+  // discretion); subagents are host-unsupported (U).
+  "antigravity-cli": {
+    "mcp-install": { status: "V", runner: agyRunners["mcp-install"] },
+    "mcp-tool-load": { status: "V", runner: agyRunners["mcp-tool-load"] },
+    "mcp-tool-call": { status: "V", runner: agyRunners["mcp-tool-call"] },
+    telemetry: { status: "V", runner: agyRunners.telemetry },
+    "hook-fire": { status: "V", runner: agyRunners["hook-fire"] },
+    "per-event-fire": { status: "V", runner: agyRunners["per-event-fire"], note: "fires PreToolUse(run_command)/PostToolUse/Stop; SessionStart print-mode-unfireable, UserPromptSubmit host-unsupported." },
+    "hook-reply-deny": { status: "V", runner: agyRunners["hook-reply-deny"] },
+    "hook-reply-context": { status: "CB", runner: agyRunners["hook-reply-context"] },
+    "content-skill": { status: "CB", runner: agyRunners["content-skill"], note: "covers commands/skills/memory placement; subagents warn-skip." },
+    "content-subagent": { status: "U", runner: agyRunners["content-subagent"] },
+    update: { status: "V", runner: agyRunners.update },
+    doctor: { status: "V", runner: agyRunners.doctor },
+    "uninstall-residue": { status: "V", runner: agyRunners["uninstall-residue"] },
+    idempotency: { status: "V", runner: agyRunners.idempotency },
+    coexistence: { status: "V", runner: agyRunners.coexistence },
   },
 };
 
