@@ -172,7 +172,10 @@ interface CopilotWireInput {
   // tool events
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: unknown;
+  // PostToolUse (VS Code-compatible dialect): the tool result rides under
+  // `tool_result`, NOT `tool_response`. PostToolUse fires success-only, so
+  // result_type is always "success" (hooks-reference.md:397-400).
+  tool_result?: { result_type?: string; text_result_for_llm?: string };
 
   // SessionStart
   source?: string;
@@ -182,27 +185,18 @@ interface CopilotWireInput {
   prompt?: string;
   // PreCompact
   trigger?: string;
-  // Stop / SubagentStop
-  stop_hook_active?: boolean;
   // Notification
   message?: string;
 
-  // PermissionRequest — permission-update entries the dialog would offer.
-  permission_suggestions?: unknown[];
-
-  // PostToolUseFailure
-  tool_use_id?: string;
+  // PostToolUseFailure — payload is {tool_name, tool_input, error} + base
+  // (hooks-reference.md:421-430). No tool_use_id/is_interrupt/duration_ms.
   error?: string;
-  is_interrupt?: boolean;
-  duration_ms?: number;
 
-  // SubagentStart / SubagentStop — agent_type is unreliable on SubagentStop
-  // (Claude-compatible quirk); treat both as optional everywhere.
-  agent_id?: string;
-  agent_type?: string;
-  // SubagentStop — the subagent's OWN transcript + its final response text.
-  agent_transcript_path?: string;
-  last_assistant_message?: string;
+  // SubagentStart / SubagentStop — VS Code dialect identity is `agent_name`
+  // (+ optional `agent_display_name`); there is no agent_id/agent_type
+  // (hooks-reference.md:467-476,497-507).
+  agent_name?: string;
+  agent_display_name?: string;
 }
 
 export class CopilotCliAdapter extends BaseAdapter implements Adapter {
@@ -821,12 +815,16 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostToolUse": {
-        const toolOutput = toolResponseToString(input.tool_response);
+        // PostToolUse fires success-only and carries the result under
+        // `tool_result.text_result_for_llm` (VS Code dialect). Failures arrive
+        // via the separate PostToolUseFailure event, so isError is never set
+        // here (hooks-reference.md:219,397-400).
+        const toolOutput = input.tool_result?.text_result_for_llm;
         const ev: PostToolUseEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          ...(toolOutput !== undefined ? { toolOutput } : {}),
+          ...(typeof toolOutput === "string" ? { toolOutput } : {}),
         };
         return ev;
       }
@@ -873,12 +871,10 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "Stop": {
-        const ev: StopEvent = {
-          ...base,
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
-            : {}),
-        };
+        // The host signals completion via stop_reason:"end_turn", not the
+        // stopHookActive loop-guard boolean, so nothing maps onto StopEvent
+        // beyond base (hooks-reference.md:449-457).
+        const ev: StopEvent = { ...base };
         return ev;
       }
       case "Notification": {
@@ -889,61 +885,49 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PermissionRequest": {
+        // permissionRequest uses the PreToolUse shape (tool_name + tool_input
+        // only); the host emits no permission_suggestions payload
+        // (hooks-reference.md:218,627-649).
         const ev: PermissionRequestEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          ...(Array.isArray(input.permission_suggestions)
-            ? { permissionSuggestions: input.permission_suggestions }
-            : {}),
         };
         return ev;
       }
       case "PostToolUseFailure": {
+        // Host payload is {tool_name, tool_input, error} + base; it carries no
+        // tool_use_id / is_interrupt / duration_ms correlation fields
+        // (hooks-reference.md:421-430).
         const ev: PostToolUseFailureEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
           error: typeof input.error === "string" ? input.error : "",
-          ...(typeof input.tool_use_id === "string"
-            ? { toolUseId: input.tool_use_id }
-            : {}),
-          ...(typeof input.is_interrupt === "boolean"
-            ? { isInterrupt: input.is_interrupt }
-            : {}),
-          ...(typeof input.duration_ms === "number"
-            ? { durationMs: input.duration_ms }
-            : {}),
         };
         return ev;
       }
       case "SubagentStart": {
+        // The host's subagent identity field is `agent_name`; there is no
+        // agent_id or agent_type (agent_display_name is a human label, not a
+        // type), so agentType stays unset (hooks-reference.md:467-476).
         const ev: SubagentStartEvent = {
           ...base,
-          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
-          ...(typeof input.agent_type === "string"
-            ? { agentType: input.agent_type }
-            : {}),
+          ...(typeof input.agent_name === "string" ? { agentId: input.agent_name } : {}),
         };
         return ev;
       }
       case "SubagentStop": {
-        // agent_id/agent_type stay optional — hosts do not reliably populate
-        // agent_type on SubagentStop (Claude-compatible quirk).
+        // VS Code dialect: identity is `agent_name`, the subagent transcript is
+        // the BASE `transcript_path` (not agent_transcript_path), and there is
+        // no agent_type / last_assistant_message / stop_hook_active — the final
+        // response is reachable only via transcript_path, and completion is
+        // signalled by stop_reason (hooks-reference.md:497-507).
         const ev: SubagentStopEvent = {
           ...base,
-          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
-          ...(typeof input.agent_type === "string"
-            ? { agentType: input.agent_type }
-            : {}),
-          ...(typeof input.agent_transcript_path === "string"
-            ? { agentTranscriptPath: input.agent_transcript_path }
-            : {}),
-          ...(typeof input.last_assistant_message === "string"
-            ? { lastAssistantMessage: input.last_assistant_message }
-            : {}),
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
+          ...(typeof input.agent_name === "string" ? { agentId: input.agent_name } : {}),
+          ...(typeof input.transcript_path === "string"
+            ? { agentTranscriptPath: input.transcript_path }
             : {}),
         };
         return ev;
@@ -1094,17 +1078,6 @@ function extractSessionId(input: CopilotWireInput): string {
     return input.session_id;
   }
   return "";
-}
-
-/** Coerce a Copilot PostToolUse `tool_response` into a string for the normalized event. */
-function toolResponseToString(value: unknown): string | undefined {
-  if (value == null) return undefined;
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
 }
 
 export const adapter = new CopilotCliAdapter();
