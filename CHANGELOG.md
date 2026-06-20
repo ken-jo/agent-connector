@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.44 — 2026-06-20
+
+### Fixed
+
+- **kimi** — the hook-stdin parser (`parseEvent`) read three field names that don't
+  match what Kimi Code actually emits, each silently producing empty/dropped data
+  (verified against MoonshotAI/kimi-code source + independently reviewed):
+  - **UserPromptSubmit** `prompt` is a `ContentPart[]` array (`[{type:'text',text}]`),
+    not a string — the parser only accepted a string, so the prompt was always `""`.
+  - **PostToolUse** sends tool output in `tool_output` (string), not `tool_response`
+    (which has zero hits in Kimi's source — a Claude Code false-friend) — so the tool
+    output was always dropped.
+  - **PostToolUseFailure** `error` is a `KimiErrorPayload` object `{code,message,…}`,
+    not a string — so the error was always `""`.
+
+  Fix retypes `KimiHookInput` and adds `extractPromptText` / `extractErrorMessage`
+  helpers (both keep a defensive string branch — SubagentStart's `prompt` and
+  PermissionResult's `error` are genuinely strings). Regression tests cover all three
+  shapes plus the empty/non-text/null branches. (#189)
+
 ## 0.4.43 — 2026-06-19
 
 A per-host adapter correctness wave: a 35-host audit (dynamic workflow, every
