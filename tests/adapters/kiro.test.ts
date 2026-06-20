@@ -45,6 +45,7 @@ import type {
   ConnectorConfig,
   PreToolUseEvent,
   ResolvedConnector,
+  StopEvent,
 } from "../../src/core/types.js";
 
 import kiroAdapter from "../../src/adapters/kiro/index.js";
@@ -496,6 +497,60 @@ describe("kiro formatReply — context decision", () => {
     });
     expect(reply.exitCode).toBe(0);
     expect(reply.stdout).toBeUndefined();
+  });
+});
+
+// ── Stop hook stdin wire contract (false-friend field fixes) ─────────────────
+// Kiro's stop hook stdin is EXACTLY { hook_event_name, cwd, session_id,
+// assistant_response } — verified against the primary source
+// (kiro.dev/docs/cli/hooks → "Stop Hook" → Hook Event). There is NO
+// `stop_hook_active` flag, so the old `stopHookActive` read was a dead read
+// (always undefined) and the real `assistant_response` was never surfaced. These
+// regressions pin the remapped field and assert the removed read can't resurface.
+describe("kiro Stop hook — real stdin fields (assistant_response, no stop_hook_active)", () => {
+  /** The exact Kiro stop stdin per kiro.dev/docs/cli/hooks. */
+  function stopPayload(): Record<string, unknown> {
+    return {
+      hook_event_name: "stop",
+      cwd: "/work/proj",
+      session_id: "sess-stop-1",
+      assistant_response: "All tests pass; nothing left to do.",
+      connector: CONNECTOR_ID,
+    };
+  }
+
+  it("reads assistant_response into lastAssistantMessage", () => {
+    const ev = kiroAdapter.parseEvent!("Stop", stopPayload()) as StopEvent & {
+      lastAssistantMessage?: string;
+    };
+    expect(ev.hostPlatform).toBe("kiro");
+    expect(ev.sessionId).toBe("sess-stop-1");
+    expect(ev.lastAssistantMessage).toBe("All tests pass; nothing left to do.");
+    // The never-emitted re-entrancy flag must NOT appear on the normalized event.
+    expect(ev.stopHookActive).toBeUndefined();
+  });
+
+  it("omits lastAssistantMessage when assistant_response is absent (no fabricated empty string)", () => {
+    const ev = kiroAdapter.parseEvent!("Stop", {
+      hook_event_name: "stop",
+      cwd: "/work/proj",
+      session_id: "sess-stop-2",
+    }) as StopEvent & { lastAssistantMessage?: string };
+    expect("lastAssistantMessage" in ev).toBe(false);
+    expect(ev.stopHookActive).toBeUndefined();
+  });
+
+  it("does NOT resurface stop_hook_active even if a stray flag is present on stdin", () => {
+    // Defensive: Kiro never sends stop_hook_active, but if a future/stray payload
+    // carried one, the dead read must stay removed — we never read it back.
+    const ev = kiroAdapter.parseEvent!("Stop", {
+      hook_event_name: "stop",
+      session_id: "sess-stop-3",
+      stop_hook_active: true,
+      assistant_response: "done",
+    } as Record<string, unknown>) as StopEvent & { lastAssistantMessage?: string };
+    expect(ev.stopHookActive).toBeUndefined();
+    expect(ev.lastAssistantMessage).toBe("done");
   });
 });
 
