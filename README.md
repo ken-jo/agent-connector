@@ -400,6 +400,19 @@ export default defineConnector({
 });
 ```
 
+> **Secret env-refs (`${env:VAR}`).** Write `"${env:VAR}"` in `command`, `args`,
+> `env`, `url`, or `headers` to reference an environment variable, or
+> `"${env:VAR:-default}"` to supply a fallback. On hosts with **native**
+> interpolation (Claude Code, Cursor, VS Code Copilot, amp, codebuff) the token
+> is written through to the host config and resolved at runtime — the secret is
+> never baked into a file. Every other host has **no** native interpolation, so
+> the value is resolved to a **literal at install time**. An unset variable with
+> no default resolves to an **empty string**; on a literal-resolving host that
+> would silently bake `""` where a secret was meant, so `install` now emits a
+> `warn` for it (e.g. *"ACME_DB_DSN is unset — baking an empty value into codex
+> config"*) — `export` the variable before installing, or give the ref a
+> `:-default`.
+
 > **Native hooks escape hatch.** The normalized `hooks` API covers the 13
 > cross-platform events. For host-only events — Claude Code alone ships 30
 > (`TaskCompleted`, `TeammateIdle`, `WorktreeCreate`, …) — declare

@@ -191,6 +191,10 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     // configPatch (never clobbers a statusLine agent-connector does not own).
     supportsStatusline: true,
     transports: ["stdio", "http"],
+    // Server secret-bearing fields use Claude's NATIVE ${VAR} interpolation
+    // (rewriteEnvRefs) — the token survives into the config, never a baked
+    // literal — so the installer's unset-env-ref bake warn does not apply here.
+    nativeServerEnvInterpolation: true,
     // Content surfaces: Claude Code is the reference implementation for all three.
     supportsCommands: true,
     supportsSkills: true,

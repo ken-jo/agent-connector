@@ -4,6 +4,7 @@ import {
   resolveEnvRefsDeep,
   rewriteEnvRefs,
   hasEnvRef,
+  findUnsetEnvRefs,
   ENV_REF_RE,
 } from "../../src/core/interpolate.js";
 
@@ -142,5 +143,51 @@ describe("hasEnvRef", () => {
 describe("ENV_REF_RE", () => {
   it("is exported and global so resolve/rewrite can replace all matches", () => {
     expect(ENV_REF_RE.global).toBe(true);
+  });
+});
+
+describe("findUnsetEnvRefs", () => {
+  it("reports an unset, defaultless ref (the bake-empty case)", () => {
+    const env = {} as NodeJS.ProcessEnv;
+    expect(findUnsetEnvRefs("${env:ACME_DB_URL}", env)).toEqual(["ACME_DB_URL"]);
+  });
+
+  it("does NOT report a ref that resolves to a set value", () => {
+    const env = { ACME_DB_URL: "postgres://x" } as NodeJS.ProcessEnv;
+    expect(findUnsetEnvRefs("${env:ACME_DB_URL}", env)).toEqual([]);
+  });
+
+  it("does NOT report a ref WITH a default (even an empty default)", () => {
+    const env = {} as NodeJS.ProcessEnv;
+    expect(findUnsetEnvRefs("${env:A:-fallback}", env)).toEqual([]);
+    expect(findUnsetEnvRefs("${env:B:-}", env)).toEqual([]);
+  });
+
+  it("treats a present-but-empty var (no default) as a bake-empty case", () => {
+    const env = { EMPTY: "" } as NodeJS.ProcessEnv;
+    expect(findUnsetEnvRefs("${env:EMPTY}", env)).toEqual(["EMPTY"]);
+  });
+
+  it("walks nested objects + arrays and dedupes in first-seen order", () => {
+    const env = { SET: "v" } as NodeJS.ProcessEnv;
+    const value = {
+      command: "${env:CMD}",
+      args: ["--url", "${env:URL}", "${env:CMD}"],
+      env: { TOKEN: "${env:TOKEN}", KEEP: "${env:SET}" },
+    };
+    expect(findUnsetEnvRefs(value, env)).toEqual(["CMD", "URL", "TOKEN"]);
+  });
+
+  it("returns [] for a value with no refs", () => {
+    expect(findUnsetEnvRefs({ a: "plain", b: ["x", 1, null] }, {})).toEqual([]);
+  });
+
+  it("uses the SAME unset/default semantics as resolveEnvRefs", () => {
+    // A ref findUnsetEnvRefs flags is exactly one resolveEnvRefs bakes to "".
+    const env = { HAS: "y" } as NodeJS.ProcessEnv;
+    expect(findUnsetEnvRefs("${env:MISSING}", env)).toEqual(["MISSING"]);
+    expect(resolveEnvRefs("${env:MISSING}", env)).toBe("");
+    expect(findUnsetEnvRefs("${env:HAS}", env)).toEqual([]);
+    expect(resolveEnvRefs("${env:HAS}", env)).toBe("y");
   });
 });

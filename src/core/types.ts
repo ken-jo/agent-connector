@@ -580,6 +580,19 @@ export interface PlatformCapabilities {
   /** MCP transports this host can register. */
   transports: Transport[];
   /**
+   * Does this host config support NATIVE ${env:VAR}-style interpolation for the
+   * server's secret-bearing fields (command/args/env/url/headers), so the
+   * adapter passes the `${env:VAR}` token THROUGH (via rewriteEnvRefs) instead
+   * of baking a literal at install time? OPTIONAL, read as `?? false`
+   * (supportsNativeHooks precedent). Hosts that leave it unset resolve env-refs
+   * to LITERALS (resolveEnvRefsDeep, e.g. Codex TOML), so an unset/defaultless
+   * ref would bake `""` — the installer emits a `warn` ChangeRecord for that
+   * case (never silent). Set true ONLY on the native-interpolation hosts
+   * (claude-code/cursor/vscode-copilot/amp/codebuff): there the token survives
+   * into the host config, so the warn would be a false positive.
+   */
+  nativeServerEnvInterpolation?: boolean;
+  /**
    * Native (passthrough) hooks support — can this adapter install
    * {@link PlatformOverride.nativeHooks} entries verbatim into the host's hook
    * config? OPTIONAL, read as `?? false` (supportsCommands precedent). Only

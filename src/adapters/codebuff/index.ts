@@ -131,6 +131,10 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Codebuff registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
+    // Server env/url use Codebuff's NATIVE ${env:VAR} interpolation
+    // (rewriteEnvRefs) — the token survives into the config, never a baked
+    // literal — so the installer's unset-env-ref bake warn does not apply here.
+    nativeServerEnvInterpolation: true,
     // Content surfaces: Codebuff reads AgentSkills from
     // <configDir>/skills/<name>/SKILL.md (configDir is .agents, so the path is
     // .agents/skills/<name>/SKILL.md). Verified against codebuff source

@@ -226,6 +226,10 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "http"],
+    // Server env/url use Cursor's NATIVE ${env:VAR} interpolation (rewriteEnvRefs)
+    // — the token survives into mcp.json, never a baked literal — so the
+    // installer's unset-env-ref bake warn does not apply here.
+    nativeServerEnvInterpolation: true,
     // Content surfaces: Cursor supports all three (commands, skills, subagents).
     supportsCommands: true,
     supportsSkills: true,

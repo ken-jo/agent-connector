@@ -61,3 +61,48 @@ export function hasEnvRef(input: string): boolean {
   ENV_REF_RE.lastIndex = 0;
   return ENV_REF_RE.test(input);
 }
+
+/**
+ * Names of every ${env:VAR} reference in a JSON-ish value that
+ * {@link resolveEnvRefsDeep} would bake to an EMPTY literal — i.e. the var is
+ * unset/empty in `env` AND the reference carries no `:-default`. These are the
+ * silent-empty-secret bakes on hosts WITHOUT native interpolation: the install
+ * succeeds but writes `""` where a secret was meant, surfacing only as a
+ * runtime auth failure inside the MCP server. Returns deduped names in
+ * first-seen order; uses the SAME unset/default semantics as resolveEnvRefs so
+ * the two can never disagree. A ref WITH a `:-default` is intentional and never
+ * reported (even when the default itself is empty — the dev opted into "").
+ */
+export function findUnsetEnvRefs<T>(
+  value: T,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  const scanString = (input: string): void => {
+    // A FRESH regex per scan — the shared ENV_REF_RE carries /g lastIndex state
+    // (hasEnvRef / matchAll would otherwise start mid-string and miss matches).
+    const re = new RegExp(ENV_REF_RE.source, "g");
+    for (const m of input.matchAll(re)) {
+      const name = m[1] as string;
+      const def = m[2] as string | undefined;
+      // Mirrors resolveEnvRefs: a present, non-empty value resolves to itself;
+      // otherwise the default is used (no bake of ""). Only an unset/empty var
+      // WITHOUT a default bakes "" — the case we report.
+      const v = env[name];
+      if (v != null && v !== "") continue;
+      if (def !== undefined) continue;
+      if (!seen.has(name)) {
+        seen.add(name);
+        order.push(name);
+      }
+    }
+  };
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") scanString(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(value);
+  return order;
+}

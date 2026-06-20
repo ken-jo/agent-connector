@@ -191,6 +191,10 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: false,
     // Amp registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
+    // Server env/url use Amp's NATIVE ${env:VAR} interpolation (rewriteEnvRefs)
+    // — the token survives into the config, never a baked literal — so the
+    // installer's unset-env-ref bake warn does not apply here.
+    nativeServerEnvInterpolation: true,
     // Skills: Amp reads SKILL.md from ~/.config/agents/skills/<name>/SKILL.md
     // (user) and <projectDir>/.agents/skills/<name>/SKILL.md (project) — a root
     // OUTSIDE the config dir, so the skillDir() helper resolves it explicitly.
