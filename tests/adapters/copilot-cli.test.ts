@@ -8,10 +8,14 @@
  *                   (Streamable) or "sse" (legacy). No native ${env:VAR} interp →
  *                   env/header/url refs resolve to LITERALS at install time.
  *   • Hooks       → a dedicated ~/.copilot/hooks/agent-connector.json shaped
- *                   { version: 1, hooks: { <PascalCaseEvent>: [ { matcher, hooks:
- *                   [ { type:"command", command } ] } ] } } — the Claude shape,
- *                   PascalCase events 1:1 (no rename table). nativeHooks (e.g.
- *                   ErrorOccurred) are filed VERBATIM as a sibling declaration.
+ *                   { version: 1, hooks: { <camelCaseWireKey>: [ { matcher, hooks:
+ *                   [ { type:"command", command } ] } ] } }. The CLI loader honors
+ *                   ONLY lowerCamelCase keys (verified Set in app.js) and silently
+ *                   drops PascalCase, so events are written via EVENT_WIRE_KEY
+ *                   (Stop→agentStop, UserPromptSubmit→userPromptSubmitted, rest
+ *                   first-letter-lowercased). The home-bin command token stays
+ *                   PascalCase (the AC router event). nativeHooks (e.g.
+ *                   errorOccurred) are filed VERBATIM as a sibling declaration.
  *   • Content     → skills + subagents (NO command surface — commands inherit the
  *                   BaseAdapter skip/warn default). user scope → ~/.copilot; project
  *                   scope → the shared <projectDir>/.github tree. skills are
@@ -133,7 +137,11 @@ function buildConnector(): ResolvedConnector {
   });
 }
 
-/** A connector declaring exactly the four E1 extension events. */
+/**
+ * A connector declaring the four E1 extension events. On the installed CLI
+ * 1.0.63 surface only SubagentStop is in the file-hook validator Set; the other
+ * three are demoted (not in the Set) and warn-skip at install.
+ */
 function buildExtConnector(): ResolvedConnector {
   return defineConnector({
     id: CONNECTOR_ID,
@@ -156,6 +164,33 @@ function buildExtConnector(): ResolvedConnector {
         matcher: AGENT_MATCHER,
         handler() {
           return { decision: "context", additionalContext: "subagent ctx" };
+        },
+      },
+      SubagentStop: {
+        matcher: AGENT_MATCHER,
+        handler() {
+          return { decision: "deny", reason: "keep going" };
+        },
+      },
+    },
+  });
+}
+
+/** A connector exercising the two NON-trivial wire mappings (Stop, UserPromptSubmit). */
+function buildWireMapConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    hooks: {
+      UserPromptSubmit: {
+        handler() {
+          return { decision: "context", additionalContext: "ups" };
+        },
+      },
+      Stop: {
+        handler() {
+          return { decision: "allow" };
         },
       },
       SubagentStop: {
@@ -296,7 +331,7 @@ describe("copilot-cli adapter render/round-trip", () => {
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
 
-  it("installHooks writes ~/.copilot/hooks/agent-connector.json with version 1 + Claude-shaped entries", () => {
+  it("installHooks writes ~/.copilot/hooks/agent-connector.json with version 1 + camelCase wire keys", () => {
     const changes = copilotCliAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
 
@@ -307,16 +342,22 @@ describe("copilot-cli adapter render/round-trip", () => {
     const cfg = readJson(hooksPath);
     expect(cfg.version).toBe(1);
 
-    // PascalCase event keys; nested { matcher, hooks: [{ type, command }] } shape.
-    const pre = cfg.hooks.PreToolUse;
+    // camelCase WIRE keys (NOT PascalCase — the CLI loader drops unknown keys);
+    // nested { matcher, hooks: [{ type, command }] } shape.
+    const pre = cfg.hooks.preToolUse;
     expect(Array.isArray(pre)).toBe(true);
+    // PascalCase key must NOT be present — it would never fire.
+    expect(cfg.hooks.PreToolUse).toBeUndefined();
     expect(pre[0].matcher).toBe("acme_query|acme_write");
     const cmd = pre[0].hooks[0].command;
     expect(cmd).toContain(HOME_BIN);
+    // The home-bin command token stays PascalCase (the AC router event).
     expect(cmd).toContain("hook copilot-cli PreToolUse");
     expect(cmd).toContain(`--connector ${CONNECTOR_ID}`);
 
-    expect(cfg.hooks.SessionStart[0].hooks[0].command).toContain(
+    // SessionStart → wire key sessionStart, but the command token is PascalCase.
+    expect(cfg.hooks.SessionStart).toBeUndefined();
+    expect(cfg.hooks.sessionStart[0].hooks[0].command).toContain(
       "hook copilot-cli SessionStart",
     );
   });
@@ -336,8 +377,8 @@ describe("copilot-cli adapter render/round-trip", () => {
     expect(second.every((c) => c.action === "skip")).toBe(true);
 
     const cfg = readJson(hooksFile(projectDir));
-    expect(cfg.hooks.PreToolUse).toHaveLength(1);
-    expect(cfg.hooks.SessionStart).toHaveLength(1);
+    expect(cfg.hooks.preToolUse).toHaveLength(1);
+    expect(cfg.hooks.sessionStart).toHaveLength(1);
   });
 
   it("uninstallServer + uninstallHooks remove the entries (re-read confirms gone)", () => {
@@ -398,8 +439,9 @@ describe("copilot-cli adapter — nativeHooks passthrough", () => {
     copilotCliAdapter.installHooks(buildCtx(projectDir, nativeConnector(), "user"));
     const hooks = readHooks(projectDir);
 
-    expect(hooks.PreToolUse[0].hooks[0].command).toContain("hook copilot-cli PreToolUse");
-    // Native key filed verbatim (no EVENT_MAP) with the native event token.
+    // Normalized PreToolUse → camelCase wire key preToolUse (command token stays PascalCase).
+    expect(hooks.preToolUse[0].hooks[0].command).toContain("hook copilot-cli PreToolUse");
+    // Native key filed verbatim (no EVENT_MAP) — the author supplies the exact key.
     expect(hooks.ErrorOccurred[0].hooks[0].command).toContain("hook copilot-cli ErrorOccurred");
     expect(hooks.ErrorOccurred[0].hooks[0].command).toContain(`--connector ${NATIVE_CONNECTOR_ID}`);
     expect(hooks.ErrorOccurred[0].matcher).toBe("Bash");
@@ -417,7 +459,7 @@ describe("copilot-cli adapter — nativeHooks passthrough", () => {
     copilotCliAdapter.installHooks(buildCtx(projectDir, connector, "user"));
     const hooks = readHooks(projectDir);
     expect(hooks.ErrorOccurred[0].hooks[0].command).toContain("hook copilot-cli ErrorOccurred");
-    expect(hooks.PreToolUse).toBeUndefined(); // normalized disabled by hooks:false
+    expect(hooks.preToolUse).toBeUndefined(); // normalized disabled by hooks:false
   });
 
   it("is idempotent (second install → skip) and uninstall removes the native entry", () => {
@@ -449,7 +491,7 @@ describe("copilot-cli adapter — nativeHooks passthrough", () => {
   });
 });
 
-// ── extended events (E1): PermissionRequest/PostToolUseFailure/SubagentStart/Stop ──
+// ── extended events (E1): only SubagentStop is loadable; the other three are demoted ──
 
 describe("copilot-cli — extended-event install", () => {
   let projectDir: string;
@@ -460,27 +502,121 @@ describe("copilot-cli — extended-event install", () => {
     ctx = buildCtx(projectDir, buildExtConnector(), "user");
   });
 
-  it("registers all four extension events PascalCase 1:1 with matchers (write-all adapter)", () => {
+  it("writes ONLY SubagentStop (→subagentStop); warn-skips the three demoted events", () => {
     const changes = copilotCliAdapter.installHooks(ctx);
-    expect(changes.some((c) => c.action === "warn")).toBe(false);
+
+    // The three events absent from the CLI 1.0.63 file-hook Set warn-skip.
+    for (const event of ["PermissionRequest", "PostToolUseFailure", "SubagentStart"]) {
+      const warn = changes.find(
+        (c) => c.action === "warn" && c.detail === `${event} unsupported on copilot-cli — skipped`,
+      );
+      expect(warn).toBeTruthy();
+    }
 
     const hooksPath = hooksFile(projectDir);
     expect(existsSync(hooksPath)).toBe(true);
     const cfg = readJson(hooksPath);
     expect(cfg.version).toBe(1);
 
-    for (const event of [
+    // SubagentStop is in the Set → written under its camelCase wire key.
+    expect(cfg.hooks.subagentStop[0].matcher).toBe(AGENT_MATCHER);
+    expect(cfg.hooks.subagentStop[0].hooks[0].command).toContain(
+      "hook copilot-cli SubagentStop",
+    );
+
+    // None of the demoted events — nor any PascalCase key — landed on disk.
+    for (const key of [
       "PermissionRequest",
+      "permissionRequest",
       "PostToolUseFailure",
+      "postToolUseFailure",
       "SubagentStart",
+      "subagentStart",
       "SubagentStop",
     ]) {
-      const bucket = cfg.hooks[event];
-      expect(Array.isArray(bucket)).toBe(true);
-      expect(bucket[0].hooks[0].command).toContain(`hook copilot-cli ${event}`);
+      expect(cfg.hooks[key]).toBeUndefined();
     }
-    expect(cfg.hooks.PermissionRequest[0].matcher).toBe("acme_query");
-    expect(cfg.hooks.SubagentStop[0].matcher).toBe(AGENT_MATCHER);
+  });
+});
+
+// ── REGRESSION: pin the exact lowerCamelCase wire-key casing ──────────────────
+// The installed GitHub Copilot CLI 1.0.63 loader honors ONLY these camelCase
+// keys (hardcoded validator Set in app.js) and SILENTLY DROPS any other key, so
+// a PascalCase key means the hook NEVER FIRES. This test pins the byte-level
+// wire keys (incl. the two non-trivial maps Stop→agentStop and
+// UserPromptSubmit→userPromptSubmitted) so a regression to PascalCase fails CI.
+
+describe("copilot-cli — hook wire-key casing (regression pin)", () => {
+  it("Stop→agentStop and UserPromptSubmit→userPromptSubmitted (NOT a naive lowercase)", () => {
+    const projectDir = freshProject("ac-wire-key-");
+    const ctx = buildCtx(projectDir, buildWireMapConnector(), "user");
+    copilotCliAdapter.installHooks(ctx);
+    const cfg = readJson(hooksFile(projectDir));
+
+    // The two NON-trivial mappings.
+    expect(cfg.hooks.agentStop).toBeDefined();
+    expect(cfg.hooks.userPromptSubmitted).toBeDefined();
+    // Their PascalCase / naive-lowercase forms must be ABSENT.
+    expect(cfg.hooks.Stop).toBeUndefined();
+    expect(cfg.hooks.stop).toBeUndefined();
+    expect(cfg.hooks.UserPromptSubmit).toBeUndefined();
+    expect(cfg.hooks.userPromptSubmit).toBeUndefined();
+
+    // The command token stays the PascalCase AC router event.
+    expect(cfg.hooks.agentStop[0].hooks[0].command).toContain("hook copilot-cli Stop");
+    expect(cfg.hooks.userPromptSubmitted[0].hooks[0].command).toContain(
+      "hook copilot-cli UserPromptSubmit",
+    );
+  });
+
+  it("every written hooks key is a member of the CLI's camelCase validator Set", () => {
+    // The exact Set hardcoded in GitHub Copilot CLI 1.0.63 (app.js).
+    const VALID_WIRE_KEYS = new Set([
+      "sessionStart",
+      "sessionEnd",
+      "userPromptSubmitted",
+      "preToolUse",
+      "postToolUse",
+      "errorOccurred",
+      "agentStop",
+      "subagentStop",
+      "preCompact",
+    ]);
+    const projectDir = freshProject("ac-wire-key-set-");
+    // Drive the full set of supported normalized events at once.
+    const connector = defineConnector({
+      id: CONNECTOR_ID,
+      displayName: "Acme DB Tools",
+      version: "1.2.3",
+      hooks: {
+        SessionStart: { handler: () => ({ decision: "allow" }) },
+        SessionEnd: { handler: () => ({ decision: "allow" }) },
+        UserPromptSubmit: { handler: () => ({ decision: "allow" }) },
+        PreToolUse: { handler: () => ({ decision: "allow" }) },
+        PostToolUse: { handler: () => ({ decision: "allow" }) },
+        PreCompact: { handler: () => ({ decision: "allow" }) },
+        Stop: { handler: () => ({ decision: "allow" }) },
+        SubagentStop: { handler: () => ({ decision: "allow" }) },
+      },
+    });
+    copilotCliAdapter.installHooks(buildCtx(projectDir, connector, "user"));
+    const cfg = readJson(hooksFile(projectDir));
+    for (const key of Object.keys(cfg.hooks)) {
+      expect(VALID_WIRE_KEYS.has(key)).toBe(true);
+    }
+    // All eight supported events made it onto disk under their wire keys.
+    expect(Object.keys(cfg.hooks).sort()).toEqual(
+      [
+        "agentStop",
+        "preCompact",
+        "preToolUse",
+        "postToolUse",
+        "sessionEnd",
+        "sessionStart",
+        "subagentStop",
+        "userPromptSubmitted",
+      ].sort(),
+    );
   });
 });
 
@@ -526,23 +662,28 @@ describe("copilot-cli — capability gate (unsupported PostCompact warn-skips)",
     expect(warn).toBeTruthy();
     expect(warn?.detail).toBe("PostCompact unsupported on copilot-cli — skipped");
 
-    // PreToolUse IS supported → created.
+    // PreToolUse IS supported → created under its camelCase wire key.
     expect(
-      changes.some((c) => c.action === "create" && c.detail === "hooks.PreToolUse"),
+      changes.some((c) => c.action === "create" && c.detail === "hooks.preToolUse"),
     ).toBe(true);
 
-    // No NON-warn change record wrote hooks.PostCompact.
+    // No change record wrote a PostCompact key (any casing).
     expect(
-      changes.some((c) => c.action !== "warn" && c.detail === "hooks.PostCompact"),
+      changes.some(
+        (c) =>
+          c.action !== "warn" &&
+          (c.detail === "hooks.PostCompact" || c.detail === "hooks.postCompact"),
+      ),
     ).toBe(false);
 
-    // The on-disk file carries PreToolUse but NOT the unsupported PostCompact.
+    // The on-disk file carries preToolUse but NOT the unsupported PostCompact.
     const cfg = readJson(hooksFile(projectDir));
-    expect(cfg.hooks.PreToolUse).toBeTruthy();
-    expect(cfg.hooks.PreToolUse[0].hooks[0].command).toContain(
+    expect(cfg.hooks.preToolUse).toBeTruthy();
+    expect(cfg.hooks.preToolUse[0].hooks[0].command).toContain(
       "hook copilot-cli PreToolUse",
     );
     expect(cfg.hooks.PostCompact).toBeUndefined();
+    expect(cfg.hooks.postCompact).toBeUndefined();
   });
 });
 
