@@ -8,8 +8,19 @@
 //
 // Write it ONCE here; agent-connector renders it into each host's native dialect
 // (Claude Code mcpServers JSON, Codex TOML [mcp_servers.*], Cursor mcp.json + hooks.json, …).
+//
+// This example ships a real runnable stub server (acme-db-mcp-server.mjs).
+// For your own connector, replace the server block with your real MCP server.
+// See https://modelcontextprotocol.io/quickstart/server for the official SDK quickstart.
 
+import { fileURLToPath } from "node:url";
 import { defineConnector } from "@ken-jo/agent-connector";
+
+// Resolve the bundled stub server to an absolute path: host CLIs spawn MCP
+// servers from their own CWD, so a relative path would not resolve correctly.
+const serverPath = fileURLToPath(
+  new URL("./acme-db-mcp-server.mjs", import.meta.url),
+);
 
 export default defineConnector({
   id: "acme-db",
@@ -17,10 +28,11 @@ export default defineConnector({
   version: "1.0.0",
 
   // The MCP server — declared once, transport-polymorphic.
+  // Replace `node [serverPath]` with your own server's command when you ship the real thing.
   server: {
     transport: "stdio",
-    command: "npx",
-    args: ["-y", "@acme/db-mcp"],
+    command: "node",
+    args: [serverPath],
     env: {
       // Universal env-ref syntax; resolved or translated per host so the secret
       // is never baked into a config file where the host supports interpolation.

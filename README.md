@@ -120,6 +120,12 @@ The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
 migrations (context-mode, oh-my-claudecode) and verified in isolated-home
 installs before landing (see [`CHANGELOG.md`](CHANGELOG.md)).
 
+**Dogfood result:** the context-mode connector migration — porting a real
+multi-host plugin to `defineConnector` — collapsed **~20,322 lines of
+hand-maintained per-host code down to ~76 lines** (a 99.63% reduction). The
+other hand-maintained surfaces — MCP registration, hook entries, memory files —
+dissolved into the same single config declaration.
+
 Coverage was confirmed by **installing the real, not-yet-present agent CLIs into
 isolated homes and observing their actual config** — which caught defects a
 static code/web audit missed. See the reports under
@@ -175,6 +181,14 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 > **Audience A** — you write an MCP server + hooks once and deploy them across
 > every detected host, measuring **your own server's** per-tool tokens.
 
+**Step 0 — write your MCP server.** agent-connector deploys and wraps an MCP
+server you already have (or are about to write). If you haven't built one yet,
+the [official MCP SDK quickstart](https://modelcontextprotocol.io/quickstart/server)
+is the fastest on-ramp — pick your language, follow the tutorial, and come back
+with a working stdio server binary or script. The
+[`examples/acme-db/acme-db-mcp-server.mjs`](examples/acme-db/acme-db-mcp-server.mjs)
+in this repo is a self-contained ~35-line stub you can copy as a template.
+
 agent-connector is an **SDK you depend on**, not a global tool. Add it to the
 package that holds your connector, declare the connector once, then **either**
 ship a branded CLI your users drive directly **or** run it with `npx`. No
@@ -225,7 +239,7 @@ users never install agent-connector globally or type `--connector`. See
   "name": "acme-db-tools",
   "type": "module",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "@ken-jo/agent-connector": "^0.2.0" }
+  "dependencies": { "@ken-jo/agent-connector": "^0.4.0" }
 }
 ```
 
@@ -376,14 +390,18 @@ Same one definition, your choice of distribution:
 ## Define once
 
 ```ts
+import { fileURLToPath } from "node:url";
 import { defineConnector } from "@ken-jo/agent-connector";
+
+// Resolve your server to an absolute path — host CLIs spawn it from their own CWD.
+const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
 
 export default defineConnector({
   id: "acme-db",
   server: {
     transport: "stdio",
-    command: "npx",
-    args: ["-y", "@acme/db-mcp"],
+    command: "node",           // or "npx", "python", etc. — whatever starts your server
+    args: [serverPath],        // replace with your real server entrypoint
     env: { ACME_DB_DSN: "${env:ACME_DB_DSN}" },
   },
   hooks: {
@@ -604,7 +622,7 @@ verdict — intentional).
 
 > `hook` and `serve` also exist — internal entrypoints the written host configs
 > point at; you never run them by hand. Full flag-level reference: the
-> [docs site `/docs/dev/cli`](https://github.com/ken-jo/agent-connector) · `llms-full.txt` §3 (canonical, drift-guarded by tests).
+> [docs site `/docs/dev/cli`](https://agent-connector.ai/docs/dev/cli) · `llms-full.txt` §3 (canonical, drift-guarded by tests).
 
 > A **branded CLI** auto-injects `--connector` for you: `<your-tool>
 > leaderboard` ≈ `agent-connector leaderboard --connector <id>`, and
