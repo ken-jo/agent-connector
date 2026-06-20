@@ -10,6 +10,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { isNonDefaultDataRoot } from "./paths.js";
 import type { InstallScope, PlatformId, ServerDef } from "./types.js";
 import type { InstallContext } from "../adapters/spi.js";
 import type {
@@ -280,6 +281,19 @@ export function shouldWrapForTelemetry(
  * otherwise mis-attributes). Emitted as `--host <platformId>` in the FLAG
  * section (before `--`). It is OPTIONAL + backward-compatible: when omitted the
  * `--host` flag is not emitted and the runtime falls back to env detection.
+ *
+ * `dataDir` pins the framework data-root the spawned `serve` child must use to
+ * resolve the connector record (and write telemetry). Emitted as `--data-dir
+ * <path>` in the FLAG section. It exists because some hosts (codex strips the
+ * MCP child's environment) do NOT propagate `AGENT_CONNECTOR_DATA_DIR` to the
+ * spawned server — so a child that relied on inheriting it would resolve the
+ * DEFAULT `~/.agent-connector` and die with "Connector not registered" when the
+ * install wrote the record under an OVERRIDDEN root. Passing it explicitly makes
+ * the wrap env-independent for any env-stripping host. OPTIONAL + backward-
+ * compatible: callers pass it only for a non-default root (a default-root install
+ * stays flag-free and relies on the correct fallback), and when omitted the
+ * `--data-dir` flag is not emitted and the runtime resolves the data-root the
+ * usual way.
  */
 export function buildServeWrapperCommand(
   homeBinPath: string,
@@ -288,10 +302,12 @@ export function buildServeWrapperCommand(
   realArgs: string[],
   scope?: InstallScope,
   platformId?: PlatformId,
+  dataDir?: string,
 ): { command: string; args: string[] } {
   const flags = ["serve", "--connector", connectorId];
   if (scope !== undefined) flags.push("--scope", narrowInstallScope(scope));
   if (platformId !== undefined) flags.push("--host", platformId);
+  if (dataDir !== undefined && dataDir !== "") flags.push("--data-dir", dataDir);
   return {
     command: homeBinPath,
     args: [...flags, "--", realCommand, ...realArgs],
@@ -303,9 +319,15 @@ export function buildServeWrapperCommand(
  * `command`/`args` through `<homeBin> serve --connector <id> -- …`; otherwise
  * return them unchanged. Consolidates the per-host wrap snippet — the caller
  * keeps its own command/args seeding + downstream env-resolution + entry shaping.
+ *
+ * When the install's framework data-root is NON-DEFAULT (overridden via
+ * AGENT_CONNECTOR_DATA_DIR), the wrap also carries an explicit `--data-dir
+ * <root>` so the spawned `serve` child resolves the connector record from that
+ * root even on hosts that strip the child's environment (codex). A default-root
+ * install emits no flag and relies on the correct runtime fallback.
  */
 export function buildWrappedStdio(
-  ctx: Pick<InstallContext, "homeBinPath" | "connector" | "scope">,
+  ctx: Pick<InstallContext, "homeBinPath" | "connector" | "scope" | "dataRoot">,
   server: ServerDef,
   platformId: PlatformId,
   command: string,
@@ -314,6 +336,7 @@ export function buildWrappedStdio(
   if (!shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
     return { command, args };
   }
+  const dataDir = isNonDefaultDataRoot(ctx.dataRoot) ? ctx.dataRoot : undefined;
   return buildServeWrapperCommand(
     ctx.homeBinPath,
     ctx.connector.id,
@@ -321,6 +344,7 @@ export function buildWrappedStdio(
     args,
     ctx.scope,
     platformId,
+    dataDir,
   );
 }
 

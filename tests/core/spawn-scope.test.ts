@@ -13,13 +13,18 @@
  *     server → "http"; anything else → "binary"; empty → "unknown".
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   buildServeWrapperCommand,
+  buildWrappedStdio,
   detectLaunchMethod,
   narrowInstallScope,
 } from "../../src/core/spawn.js";
+import type { ResolvedConnector, ServerDef } from "../../src/core/types.js";
 import type { InstallScope } from "../../src/core/types.js";
 
 const HOME_BIN = "/home/u/.agent-connector/bin/agent-connector";
@@ -167,6 +172,137 @@ describe("buildServeWrapperCommand embeds --host", () => {
       "--",
       "srv",
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildServeWrapperCommand — embedding --data-dir (env-stripping hosts)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildServeWrapperCommand embeds --data-dir", () => {
+  it("emits `--data-dir <path>` in the FLAG section, after --host, before the `--` separator", () => {
+    const { args } = buildServeWrapperCommand(
+      HOME_BIN,
+      "acme-db",
+      "npx",
+      ["-y", "@acme/db-mcp"],
+      "user",
+      "codex",
+      "/tmp/custom-root",
+    );
+    expect(args).toEqual([
+      "serve",
+      "--connector",
+      "acme-db",
+      "--scope",
+      "user",
+      "--host",
+      "codex",
+      "--data-dir",
+      "/tmp/custom-root",
+      "--",
+      "npx",
+      "-y",
+      "@acme/db-mcp",
+    ]);
+    const sep = args.indexOf("--");
+    const ddIdx = args.indexOf("--data-dir");
+    expect(ddIdx).toBeGreaterThan(-1);
+    expect(ddIdx).toBeLessThan(sep);
+    expect(args[ddIdx + 1]).toBe("/tmp/custom-root");
+    // The real command tail is untouched.
+    expect(args.slice(sep + 1)).toEqual(["npx", "-y", "@acme/db-mcp"]);
+  });
+
+  it("emits `--data-dir` even when scope and host are omitted", () => {
+    const { args } = buildServeWrapperCommand(
+      HOME_BIN,
+      "c1",
+      "node",
+      ["server.js"],
+      undefined,
+      undefined,
+      "/data/root",
+    );
+    expect(args).toEqual([
+      "serve",
+      "--connector",
+      "c1",
+      "--data-dir",
+      "/data/root",
+      "--",
+      "node",
+      "server.js",
+    ]);
+  });
+
+  it("OMITS --data-dir entirely when no dataDir is supplied (backward-compatible)", () => {
+    const { args } = buildServeWrapperCommand(HOME_BIN, "c1", "srv", [], "user", "codex");
+    expect(args).not.toContain("--data-dir");
+  });
+
+  it("OMITS --data-dir when dataDir is the empty string", () => {
+    const { args } = buildServeWrapperCommand(HOME_BIN, "c1", "srv", [], "user", "codex", "");
+    expect(args).not.toContain("--data-dir");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildWrappedStdio — gating the --data-dir flag on a NON-DEFAULT data-root
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildWrappedStdio gates --data-dir on a non-default data-root", () => {
+  const SERVER: ServerDef = {
+    transport: "stdio",
+    command: "npx",
+    args: ["-y", "@acme/db-mcp"],
+    tools: { include: ["*"] },
+  };
+  const connector = {
+    id: "acme-db",
+    telemetry: { enabled: true },
+  } as unknown as ResolvedConnector;
+
+  // isNonDefaultDataRoot compares against homedir()/.agent-connector at call
+  // time, so the default-root assertion must build that path from the SAME homedir.
+  const defaultRoot = join(homedir(), ".agent-connector");
+
+  it("BAKES --data-dir when the data-root differs from ~/.agent-connector", () => {
+    const { command, args } = buildWrappedStdio(
+      { homeBinPath: HOME_BIN, connector, scope: "user", dataRoot: "/tmp/overridden-root" },
+      SERVER,
+      "codex",
+      "npx",
+      ["-y", "@acme/db-mcp"],
+    );
+    expect(command).toBe(HOME_BIN);
+    expect(args).toContain("--data-dir");
+    expect(args[args.indexOf("--data-dir") + 1]).toBe("/tmp/overridden-root");
+  });
+
+  it("OMITS --data-dir when the data-root IS the default ~/.agent-connector", () => {
+    const { args } = buildWrappedStdio(
+      { homeBinPath: HOME_BIN, connector, scope: "user", dataRoot: defaultRoot },
+      SERVER,
+      "codex",
+      "npx",
+      ["-y", "@acme/db-mcp"],
+    );
+    expect(args).not.toContain("--data-dir");
+  });
+
+  it("does not wrap (no --data-dir) when telemetry is OFF", () => {
+    const noTel = { id: "acme-db", telemetry: { enabled: false } } as unknown as ResolvedConnector;
+    const { command, args } = buildWrappedStdio(
+      { homeBinPath: HOME_BIN, connector: noTel, scope: "user", dataRoot: "/tmp/overridden-root" },
+      SERVER,
+      "codex",
+      "npx",
+      ["-y", "@acme/db-mcp"],
+    );
+    expect(command).toBe("npx");
+    expect(args).not.toContain("--data-dir");
+    expect(args).not.toContain("serve");
   });
 });
 

@@ -227,9 +227,11 @@ function buildMcpConnector(): ResolvedConnector {
 /**
  * The serve-wrapper args bake the install TARGET platform as `--host <id>`
  * (before the `--` separator) so the proxy stamps hostPlatform correctly under a
- * headless spawn.
+ * headless spawn. When the ctx uses a NON-DEFAULT data-root (the render fixture
+ * sets `dataRoot: projectDir`), the wrap also bakes `--data-dir <root>` so an
+ * env-stripping host (codex) resolves the connector record from the right root.
  */
-const wrappedArgs = (host: string): string[] => [
+const wrappedArgs = (host: string, dataDir: string): string[] => [
   "serve",
   "--connector",
   MCP_CONNECTOR_ID,
@@ -237,6 +239,8 @@ const wrappedArgs = (host: string): string[] => [
   "project",
   "--host",
   host,
+  "--data-dir",
+  dataDir,
   "--",
   "npx",
   "-y",
@@ -279,7 +283,7 @@ describe("zed adapter render/round-trip", () => {
     // FLAT shape — `command` is a STRING (the home bin), not a nested object.
     expect(typeof entry.command).toBe("string");
     expect(entry.command).toBe(HOME_BIN);
-    expect(entry.args).toEqual(wrappedArgs("zed"));
+    expect(entry.args).toEqual(wrappedArgs("zed", projectDir));
 
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
