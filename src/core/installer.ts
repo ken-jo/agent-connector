@@ -441,6 +441,16 @@ export function purgeFrameworkState(
   // connector id (cast once) — there is no real host platform to attribute.
   const platform = connectorId as PlatformId;
 
+  let recordDir: string;
+  try {
+    recordDir = connectorDir(connectorId);
+  } catch (err) {
+    const detail = `--purge skipped: invalid connector id "${connectorId}" (${errMessage(err)})`;
+    result.changes.push({ platform, action: "warn", detail });
+    result.warnings.push(detail);
+    return;
+  }
+
   // Marketplace survivors → refuse the purge for this connector (the remedy is
   // a one-command marketplace uninstall; the failure mode is orphaned plugins).
   if (connectorHasMarketplaceRecords(connectorId)) {
@@ -453,7 +463,6 @@ export function purgeFrameworkState(
   }
 
   // 1. Deregister the connector record directory.
-  const recordDir = connectorDir(connectorId);
   const recordExisted = existsSync(recordDir);
   if (recordExisted) {
     if (!dryRun) {

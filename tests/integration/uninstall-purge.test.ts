@@ -19,18 +19,23 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { installConnector, uninstallConnector } from "../../src/core/installer.js";
+import {
+  installConnector,
+  purgeFrameworkState,
+  uninstallConnector,
+} from "../../src/core/installer.js";
 import {
   loadConnectorFromPath,
   loadRegisteredConnector,
   readRegisteredMeta,
 } from "../../src/core/load-connector.js";
 import { homeBinPath } from "../../src/core/paths.js";
+import type { InstallResult } from "../../src/core/types.js";
 
 const DIST_INDEX = join(__dirname, "..", "..", "dist", "index.js");
 
@@ -246,5 +251,29 @@ describe("uninstall --purge deregisters the connector record + home-bin", () => 
     const details = result.changes.map((c) => c.detail);
     expect(details).toContain("deregistered connector record");
     expect(details).toContain("removed home-bin (no connectors remain)");
+  });
+
+  it("rejects an invalid connector id before purge can escape the connector record root", () => {
+    const victim = mkdtempSync(join(tmpdir(), "ac-purge-victim-"));
+    try {
+      mkdirSync(victim, { recursive: true });
+      writeFileSync(join(victim, "keep.txt"), "keep\n", "utf8");
+
+      const result: InstallResult = {
+        connectorId: "../../victim",
+        dryRun: false,
+        changes: [],
+        warnings: [],
+      };
+      purgeFrameworkState("../../victim", false, result);
+
+      expect(existsSync(join(victim, "keep.txt"))).toBe(true);
+      expect(result.changes).toHaveLength(1);
+      expect(result.changes[0]?.action).toBe("warn");
+      expect(result.changes[0]?.detail).toContain("invalid connector id");
+      expect(result.warnings[0]).toContain("invalid connector id");
+    } finally {
+      rmSync(victim, { recursive: true, force: true });
+    }
   });
 });

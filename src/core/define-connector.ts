@@ -27,6 +27,7 @@ import type {
 } from "./types.js";
 import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
+import { CONNECTOR_ID_RE, isValidConnectorId } from "./ids.js";
 import {
   MANAGED_BLOCK_BEGIN_TOKEN,
   MANAGED_BLOCK_END_TOKEN,
@@ -38,8 +39,6 @@ import {
   isJsonValue,
   isValidConfigPatchKey,
 } from "./config-patch-ledger.js";
-
-const ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /** kebab-case name regex shared by command/skill/subagent names. */
 const SURFACE_NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -87,9 +86,9 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   if (!config || typeof config !== "object") {
     throw new ConnectorConfigError("config must be an object");
   }
-  if (typeof config.id !== "string" || !ID_RE.test(config.id)) {
+  if (!isValidConnectorId(config.id)) {
     throw new ConnectorConfigError(
-      `id must be kebab-case matching ${ID_RE} (got ${JSON.stringify(config.id)})`,
+      `id must be kebab-case matching ${CONNECTOR_ID_RE} (got ${JSON.stringify(config.id)})`,
     );
   }
   const hasCommands = Array.isArray(config.commands) && config.commands.length > 0;

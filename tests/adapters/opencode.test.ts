@@ -46,7 +46,7 @@
  * spawn — but they share this file's ONE hoisted mock.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -492,6 +492,21 @@ describe("opencode adapter (ts-plugin) render", () => {
     // No native interpolation token → env resolves to a LITERAL value.
     expect(entry.environment[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.environment[ENV_VAR]).not.toContain("${");
+  });
+
+  it("installServer warn-skips a symlinked opencode.json without touching the target", () => {
+    const outside = join(projectDir, "outside.json");
+    const serverPath = join(projectDir, "opencode.json");
+    const before = `${JSON.stringify({ outside: true }, null, 2)}\n`;
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, serverPath);
+
+    const changes = ocAdapter.installServer(ctx);
+
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(serverPath);
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
   });
 
   it("installServer is idempotent — second call yields skip and does not duplicate", () => {

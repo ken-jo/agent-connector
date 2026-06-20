@@ -127,30 +127,31 @@ Distilled from the union of platform behaviors (report §3).
 - **Normalized lifecycle events** — `SessionStart`, `SessionEnd`,
   `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `Stop`,
   `Notification`, `PermissionRequest`, `PostToolUseFailure`, `SubagentStart`,
-  `SubagentStop` (12 canonical events — the last four are newer additions;
-  hosts without a native analog mark them unsupported in capabilities and the
-  install reports a skip-warn, never a silent drop). Mapped to each platform's names
+  `SubagentStop`, `PostCompact` (13 canonical events — the last five are newer
+  additions; hosts without a native analog mark them unsupported in capabilities
+  and the install reports a skip-warn, never a silent drop). Mapped to each platform's names
   (`PreToolUse`↔`BeforeTool`↔`tool.execute.before`↔`pre_tool_call`). Normalized
   payload `{ toolName, toolInput, toolOutput?, isError?, sessionId, projectDir?,
   raw }`; normalized response `{ decision: allow|deny|modify|context|ask, reason?,
   updatedInput?, additionalContext?, updatedOutput? }`. The union is a floor, not
   a ceiling: host-only events (Claude Code alone ships 30) are reachable per
   platform via the `platforms.<id>.nativeHooks` passthrough — raw payload in,
-  verbatim JSON reply out, exit 0 only; claude-code-only today
-  (`supportsNativeHooks`), others skip-warn. An event is promoted into the union
-  once ≥3 hosts ship a native analog (TaskCreated/TaskCompleted first candidates).
-  Full contract: `llms-full.txt` §2.3.
+  verbatim JSON reply out, exit 0 only; adapters that set `supportsNativeHooks`
+  wire it and the rest skip-warn. An event is promoted into the union once ≥3
+  hosts ship a native analog (TaskCreated/TaskCompleted first candidates). Full
+  contract: `llms-full.txt` §2.3.
 - **Hook I/O paradigm taxonomy** (the deepest divergence — exactly three):
-  - **`json-stdio`** (16) — Claude Code, Codex, Cursor, VS Code Copilot,
+  - **`json-stdio`** (18) — Claude Code, Codex, Cursor, VS Code Copilot,
     JetBrains Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose,
-    Hermes, Droid (Factory), Antigravity, Antigravity CLI. One universal hook
-    entrypoint binary reads host JSON, the adapter normalizes it, the dev's
-    handler runs, the adapter formats the reply.
-  - **`ts-plugin`** (4) — OpenCode, Kilo CLI, OMP, OpenClaw. Framework
-    *generates* an exported plugin module importing the dev's handler.
-  - **`mcp-only`** (9) — Warp, Kilo, Roo Code, Trae, Zed, Amp, Codebuff, Mux,
-    Pi. No hook layer; install only the MCP server; detection surfaces "hooks
-    unavailable here."
+    Hermes, Droid (Factory), Antigravity, Antigravity CLI, Continue, Amazon Q.
+    One universal hook entrypoint binary reads host JSON, the adapter normalizes
+    it, the dev's handler runs, the adapter formats the reply.
+  - **`ts-plugin`** (8) — OpenCode, MiMoCode, Kilo CLI, Kilo, OMP, NemoClaw,
+    OpenClaw, Amp. Framework *generates* an exported plugin module importing the
+    dev's handler.
+  - **`mcp-only`** (9) — Warp, Roo Code, Cline, Trae, Zed, Codebuff, Mux, Pi,
+    Windsurf. No hook layer; install only the MCP server; detection surfaces
+    "hooks unavailable here."
 - **`PlatformCapabilities`** flags (`preToolUse`, `postToolUse`, `preCompact`,
   `sessionStart`, `canModifyArgs`, `canModifyOutput`, `canInjectSessionContext`) —
   the single-API layer queries these and degrades gracefully.

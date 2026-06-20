@@ -13,7 +13,7 @@
  * createAdapterSuite). Adopts the shared harness (tests/support/env).
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -222,6 +222,22 @@ describe("BaseAdapter — malformed JSON root-key guard (warn-skip, file preserv
     expect(change.action).toBe("create");
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, any>;
     expect(parsed[ROOT_KEY]["acme-db"]).toEqual({ command: "node" });
+  });
+
+  it("upsertServerInJson warns and preserves a symlink target", () => {
+    const dir = tempDir("ac-rootkey-link-");
+    const outside = join(dir, "outside.json");
+    const link = join(dir, "mcp.json");
+    const before = `${JSON.stringify({ outside: true }, null, 2)}\n`;
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, link);
+
+    const change = probe.upsert(link, ROOT_KEY, "acme-db", { command: "node" });
+
+    expect(change.action).toBe("warn");
+    expect(change.path).toBe(link);
+    expect(change.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
   });
 });
 

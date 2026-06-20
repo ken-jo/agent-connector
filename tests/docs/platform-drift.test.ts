@@ -161,6 +161,27 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     }
   });
 
+  it("site nativeHooks prose count and list match adapter capabilities", async () => {
+    const nativeHookIds: string[] = [];
+    for (const factory of ADAPTER_REGISTRY) {
+      const adapter = await factory.load();
+      if (adapter.capabilities.supportsNativeHooks ?? false) nativeHookIds.push(factory.id);
+    }
+    nativeHookIds.sort();
+
+    const docsContent = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
+    const docsData = readFileSync("site/src/components/docs/docs-data.ts", "utf8");
+    const supportIdx = docsContent.indexOf("supportsNativeHooks");
+    expect(supportIdx, "DocsContent nativeHooks prose not found").toBeGreaterThan(-1);
+    const block = docsContent.slice(supportIdx - 120, supportIdx + 520);
+
+    expect(block).toContain(`${nativeHookIds.length} adapters set`);
+    expect(docsData).toContain(`Honored by the ${nativeHookIds.length} adapters`);
+    for (const id of nativeHookIds) {
+      expect(block, `DocsContent nativeHooks prose omits "${id}"`).toContain(id);
+    }
+  });
+
   it("hostNative is a superset of our support (we cannot install what the host lacks)", () => {
     // The landing wall renders three chip states from (surfaces, hostNative):
     // supported / host-has-it-we-don't / host-doesn't-offer-it. The pair is
@@ -185,6 +206,8 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
   it("README badge count is current and Droid sits in the json-stdio row", () => {
     const text = readFileSync("README.md", "utf8");
     expect(text).toContain(`platforms-${ADAPTER_REGISTRY.length}-`);
+    expect(text).toContain("tests-passing");
+    expect(text).not.toMatch(/tests-\d+%20passing/);
     const jsonStdioRow = text.split("\n").find((l) => l.includes("`json-stdio`") && l.includes("|"));
     expect(jsonStdioRow, "README json-stdio table row not found").toBeTruthy();
     expect(jsonStdioRow).toContain("Droid");

@@ -71,18 +71,18 @@ export type PlatformId =
  * Hook I/O paradigm — the deepest cross-platform divergence (report §4).
  * Canonical shipped sets (keep in sync with src/adapters/registry.ts — this
  * comment once drifted and seeded a docs-wide misclassification):
- *   - "json-stdio" (17): host pipes JSON to a command on stdin, reads
+ *   - "json-stdio" (18): host pipes JSON to a command on stdin, reads
  *     JSON/exit-code back — Claude Code, Codex, Cursor, VS Code/JetBrains
  *     Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose, Hermes,
- *     Droid (Factory), Antigravity (+ the agy CLI), Continue. One universal
- *     entrypoint binary handles all of them.
+ *     Droid (Factory), Antigravity (+ the agy CLI), Continue, Amazon Q. One
+ *     universal entrypoint binary handles all of them.
  *   - "ts-plugin" (8): host loads a JS/TS module exporting lifecycle functions
  *     — OpenCode, MiMoCode (an OpenCode fork), Kilo CLI, Kilo, OMP, OpenClaw,
  *     NemoClaw (an OpenClaw wrapper/fork), Amp (.amp/plugins/*.ts). Framework
  *     generates the module.
- *   - "mcp-only" (10): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
- *     Codebuff, Mux, Pi, Amazon Q, Windsurf. Only the MCP server (or skills
- *     surface) is installed; hooks are reported unavailable.
+ *   - "mcp-only" (9): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
+ *     Codebuff, Mux, Pi, Windsurf. Only the MCP server (or skills surface) is
+ *     installed; hooks are reported unavailable.
  */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";
 
@@ -619,8 +619,8 @@ export interface PlatformCapabilities {
    * Statusline-surface support (a HUD/status line wired at the single home
    * binary). OPTIONAL, read as `?? false` (supportsMemory precedent). Only
    * statusline-supporting adapters set this true; the BaseAdapter
-   * install/uninstall defaults skip-warn regardless of the flag (v1:
-   * claude-code only). Unlike the content surfaces this is a runtime-dispatched
+   * install/uninstall defaults skip-warn regardless of the flag. Unlike the
+   * content surfaces this is a runtime-dispatched
    * handler — the supporting adapter wires the host's status line at
    * `<homeBin> statusline <host> --connector <id>`.
    */

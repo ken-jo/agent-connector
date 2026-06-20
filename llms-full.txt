@@ -151,7 +151,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `skills` | `SkillDef[]` | `[]` | Agent Skills → native content files. |
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
 | `memory` | `MemoryDef[]` | `[]` | Standing guidance → marker-fenced MANAGED BLOCKS in each host's memory/rules file (AGENTS.md-first; see §2.4). |
-| `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` function; v1 deploys on claude-code only; other hosts skip-warn. See §2.5. |
+| `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` function; deploys on claude-code and qwen-code today; other hosts skip-warn. See §2.5. |
 | `actions` | `ActionDef[]` | `[]` | Named actions the connector exposes for user-triggered dispatch. See §2.6. |
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
@@ -628,8 +628,8 @@ SDK helpers exported from `@ken-jo/agent-connector`:
 - `defineStatusline({ render })` — typed identity helper
 - Types: `StatuslineDef`, `StatuslineContext`
 
-**Deployment (v1 = claude-code only).** `PlatformCapabilities.supportsStatusline`
-gates it (read `?? false`). On **claude-code**, install registers:
+**Deployment.** `PlatformCapabilities.supportsStatusline` gates it (read
+`?? false`). Today claude-code and qwen-code set it. On **claude-code**, install registers:
 
 ```json
 { "statusLine": { "type": "command", "command": "<homeBin> statusline claude-code --connector <id>" } }
@@ -732,7 +732,7 @@ interface TelemetryConfig {
 ```ts
 interface PlatformOverride {
   hooks?: boolean | Partial<HooksConfig>;   // false → no NORMALIZED hooks here; object → merge/replace
-  nativeHooks?: Record<string, NativeHookDef>; // native-event passthrough (§2.3); claude-code only today
+  nativeHooks?: Record<string, NativeHookDef>; // native-event passthrough (§2.3); honored where supportsNativeHooks is true
   configPatch?: ConfigPatchDef[];           // host-config key patches (below); claude-code only today (§2.8)
   server?: Partial<ServerDef> | false;      // false → don't register server here; object → shallow-merge
   scope?: InstallScope;                     // force a scope for this platform
@@ -1151,9 +1151,8 @@ newer per-event flags `permissionRequest` / `postToolUseFailure` /
 the content-surface flags `supportsCommands` / `supportsSkills` /
 `supportsSubagents` / `supportsMemory`, and the handler/escape-hatch surface
 flags `supportsStatusline` / `supportsConfigPatch` / `supportsNativeHooks` /
-`supportsActions` (v1: statusline/configPatch/nativeHooks are claude-code-only;
-no adapter sets `supportsActions` yet — dispatch backbone only, install
-skip-warns everywhere).
+`supportsActions` (current counts: statusline 2, configPatch 1, nativeHooks 14,
+actions 6; unsupported adapters skip-warn).
 
 `InstallScope` is the normalized, low→high-precedence enum
 `{ system, user, project, profile, managed }`; each adapter maps it to a concrete
