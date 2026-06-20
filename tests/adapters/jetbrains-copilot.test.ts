@@ -47,6 +47,7 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   HookEventName,
+  PostToolUseEvent,
   PreToolUseEvent,
   ResolvedConnector,
 } from "../../src/core/types.js";
@@ -373,6 +374,44 @@ describe("jetbrains-copilot adapter render + round-trip", () => {
     ).toBe(true);
     // …but the filesystem is untouched.
     expect(existsSync(hooksPath)).toBe(true);
+  });
+
+  it("parseEvent(PostToolUse) reads tool_response → toolOutput (no isError)", () => {
+    // VS Code `.github/hooks` dialect (this host ALIASES vscode-copilot): the
+    // success-only PostToolUse result rides under tool_response — NOT
+    // copilot-cli's tool_result.text_result_for_llm. isError is never inferred.
+    const ev = jetbrainsCopilotAdapter.parseEvent!("PostToolUse", {
+      session_id: "sess-123",
+      cwd: "/work/proj",
+      hook_event_name: "PostToolUse",
+      tool_name: "acme_query",
+      tool_input: { sql: "SELECT 1" },
+      tool_response: "out",
+      connector: RENDER_CONNECTOR_ID,
+    }) as PostToolUseEvent;
+    expect(ev.toolName).toBe("acme_query");
+    expect(ev.toolInput).toEqual({ sql: "SELECT 1" });
+    expect(ev.toolOutput).toBe("out");
+    expect(ev.isError).toBeUndefined();
+  });
+
+  it("parseEvent(PostToolUse) ignores the dead tool_output/error_message/tool_result fields", () => {
+    // Only tool_response is read on this surface. A payload carrying the
+    // host-nonexistent tool_output / error_message (copilot-cli's tool_result
+    // too) surfaces neither toolOutput nor isError.
+    const ev = jetbrainsCopilotAdapter.parseEvent!("PostToolUse", {
+      session_id: "sess-123",
+      cwd: "/work/proj",
+      hook_event_name: "PostToolUse",
+      tool_name: "acme_query",
+      tool_input: { sql: "SELECT 1" },
+      tool_output: "legacy ignored",
+      error_message: "legacy ignored",
+      tool_result: { result_type: "success", text_result_for_llm: "legacy ignored" },
+      connector: RENDER_CONNECTOR_ID,
+    }) as PostToolUseEvent;
+    expect(ev.toolOutput).toBeUndefined();
+    expect(ev.isError).toBeUndefined();
   });
 
   it("parseEvent yields a normalized PreToolUse; formatReply(deny) → stdout hookSpecificOutput deny, exit 0", () => {
