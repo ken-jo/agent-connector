@@ -543,18 +543,17 @@ describe("vscode-copilot — extended-event parse + replies", () => {
     expect(start.agentId).toBe("agent-7");
     expect(start.agentType).toBe("code-reviewer");
 
+    // PRIMARY SOURCE (code.visualstudio.com/docs/copilot/customization/hooks —
+    // "SubagentStop input"): the payload is EXACTLY { agent_id, agent_type,
+    // stop_hook_active }. agent_type IS documented (stable string) — read it.
     const stop = vscodeCopilotAdapter.parseEvent!("SubagentStop", {
       ...COMMON,
       agent_id: "agent-7",
-      agent_transcript_path: "/x/subagents/agent-7.jsonl",
-      last_assistant_message: "done",
+      agent_type: "Plan",
       stop_hook_active: false,
     }) as SubagentStopEvent;
-    // The missing-agent_type quirk stays tolerated.
-    expect(stop.agentType).toBeUndefined();
+    expect(stop.agentType).toBe("Plan");
     expect(stop.agentId).toBe("agent-7");
-    expect(stop.agentTranscriptPath).toBe("/x/subagents/agent-7.jsonl");
-    expect(stop.lastAssistantMessage).toBe("done");
     expect(stop.stopHookActive).toBe(false);
   });
 
@@ -613,6 +612,99 @@ describe("vscode-copilot — extended-event parse + replies", () => {
 
     const noop = vscodeCopilotAdapter.formatReply!("SubagentStart", {});
     expect(noop).toEqual({ exitCode: 0 });
+  });
+});
+
+// ── hook stdin wire-contract (PRIMARY-SOURCE field set) ───────────────────────
+// Guards the kimi #189-class false-friend fixes: parseEvent must read ONLY the
+// fields VS Code actually serializes, per the official docs
+// (code.visualstudio.com/docs/copilot/customization/hooks — "Hook input and
+// output"). Each removed read is asserted dead so it can't silently resurface.
+describe("vscode-copilot — hook stdin wire contract", () => {
+  const COMMON = { session_id: "s1", cwd: "/work/proj", connector: CONNECTOR_ID };
+
+  it("PostToolUse reads tool_response only — host sends no tool_output/error_message", () => {
+    // docs "PostToolUse input": { tool_name, tool_input, tool_use_id, tool_response }.
+    const ev = vscodeCopilotAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      tool_name: "editFiles",
+      tool_input: { files: ["src/main.ts"] },
+      tool_use_id: "tool-123",
+      tool_response: "File edited successfully",
+    }) as any;
+    expect(ev.toolName).toBe("editFiles");
+    expect(ev.toolInput).toEqual({ files: ["src/main.ts"] });
+    expect(ev.toolOutput).toBe("File edited successfully");
+    // PostToolUse fires only on SUCCESS; there is no error path on this host.
+    expect(ev.isError).toBeUndefined();
+  });
+
+  it("PostToolUse object tool_response is JSON-stringified into toolOutput", () => {
+    const ev = vscodeCopilotAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      tool_name: "runTests",
+      tool_response: { passed: 3, failed: 0 },
+    }) as any;
+    expect(ev.toolOutput).toBe(JSON.stringify({ passed: 3, failed: 0 }));
+  });
+
+  it("PostToolUse: the removed tool_output/error_message fields are DEAD (do not resurface)", () => {
+    // Even if a (host-impossible) payload carried these old field names, the
+    // parser must ignore them: tool_output must NOT feed toolOutput, and
+    // error_message must NOT set isError. Only the real tool_response is read.
+    const ev = vscodeCopilotAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      tool_name: "editFiles",
+      tool_output: "SHOULD-BE-IGNORED",
+      error_message: "boom",
+    } as any) as any;
+    expect(ev.toolOutput).toBeUndefined();
+    expect(ev.isError).toBeUndefined();
+  });
+
+  it("getProjectDir uses cwd only — there is no workspace_roots field", () => {
+    const ev = vscodeCopilotAdapter.parseEvent!("PreToolUse", {
+      ...COMMON,
+      tool_name: "x",
+    }) as any;
+    expect(ev.projectDir).toBe("/work/proj");
+
+    // A payload WITHOUT cwd yields no projectDir — the old workspace_roots[0]
+    // fallback is gone, so a stray workspace_roots must NOT repopulate it.
+    const ev2 = vscodeCopilotAdapter.parseEvent!("PreToolUse", {
+      session_id: "s1",
+      connector: CONNECTOR_ID,
+      tool_name: "x",
+      workspace_roots: ["/should/not/be/read"],
+    } as any) as any;
+    expect(ev2.projectDir).toBeUndefined();
+  });
+
+  it("SubagentStop reads { agent_id, agent_type, stop_hook_active } — no transcript/message fields", () => {
+    const ev = vscodeCopilotAdapter.parseEvent!("SubagentStop", {
+      ...COMMON,
+      agent_id: "subagent-456",
+      agent_type: "Plan",
+      stop_hook_active: false,
+    }) as any;
+    expect(ev.agentId).toBe("subagent-456");
+    expect(ev.agentType).toBe("Plan");
+    expect(ev.stopHookActive).toBe(false);
+    // The removed reads must stay gone (host emits neither).
+    expect(ev.agentTranscriptPath).toBeUndefined();
+    expect(ev.lastAssistantMessage).toBeUndefined();
+  });
+
+  it("SubagentStop: stray agent_transcript_path/last_assistant_message do NOT resurface", () => {
+    const ev = vscodeCopilotAdapter.parseEvent!("SubagentStop", {
+      ...COMMON,
+      agent_id: "subagent-456",
+      agent_transcript_path: "/x/agent.jsonl",
+      last_assistant_message: "done",
+    } as any) as any;
+    expect(ev.agentId).toBe("subagent-456");
+    expect(ev.agentTranscriptPath).toBeUndefined();
+    expect(ev.lastAssistantMessage).toBeUndefined();
   });
 });
 
