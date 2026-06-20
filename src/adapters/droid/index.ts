@@ -151,12 +151,15 @@ interface DroidWireInput {
   reason?: string;
   /** Stop / SubagentStop loop guard. */
   stop_hook_active?: boolean;
-  // SubagentStop — Claude-compatible snake_case fields. agent_type is
-  // unreliable on SubagentStop across hosts; treat both as optional.
-  agent_id?: string;
-  agent_type?: string;
-  agent_transcript_path?: string;
-  last_assistant_message?: string;
+  // NO SubagentStop agent_id / agent_type / agent_transcript_path /
+  // last_assistant_message: Factory documents a SINGLE shared "Stop and
+  // SubagentStop Input" whose COMPLETE shape is { session_id, transcript_path,
+  // cwd, permission_mode, hook_event_name, stop_hook_active } — there is no
+  // per-subagent identity, no subagent transcript, and no final-response field
+  // on the wire (the final response is reachable only via transcript_path). We
+  // previously read all four; they were false-friends that never populated.
+  // Primary source: docs.factory.ai/reference/hooks-reference
+  // (Stop and SubagentStop Input — verified zero occurrences of each field).
   /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
   connector?: unknown;
 }
@@ -767,20 +770,16 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "SubagentStop": {
-        // agent_id/agent_type stay optional — hosts do not reliably populate
-        // agent_type on SubagentStop (Claude-compatible quirk).
+        // Droid sends ONLY the documented Stop/SubagentStop wire:
+        // { session_id, transcript_path, cwd, permission_mode, hook_event_name,
+        //   stop_hook_active }. It emits NO agent_id / agent_type /
+        // agent_transcript_path / last_assistant_message — reading those was a
+        // false-friend (they never populated). The subagent's final response is
+        // reachable only through transcript_path, which rides on base.raw.
+        // Primary source: docs.factory.ai/reference/hooks-reference
+        // (Stop and SubagentStop Input).
         const ev: SubagentStopEvent = {
           ...base,
-          ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
-          ...(typeof input.agent_type === "string"
-            ? { agentType: input.agent_type }
-            : {}),
-          ...(typeof input.agent_transcript_path === "string"
-            ? { agentTranscriptPath: input.agent_transcript_path }
-            : {}),
-          ...(typeof input.last_assistant_message === "string"
-            ? { lastAssistantMessage: input.last_assistant_message }
-            : {}),
           ...(typeof input.stop_hook_active === "boolean"
             ? { stopHookActive: input.stop_hook_active }
             : {}),

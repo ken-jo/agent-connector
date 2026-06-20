@@ -768,21 +768,47 @@ describe("droid — extended-event install", () => {
 describe("droid — extended-event parse + replies", () => {
   const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
 
-  it("SubagentStop maps the Claude-compatible fields and tolerates missing agent_type", () => {
+  it("SubagentStop reads ONLY the documented wire (stop_hook_active); the documented base fields map", () => {
+    // Primary source: docs.factory.ai/reference/hooks-reference — the COMPLETE
+    // "Stop and SubagentStop Input" is { session_id, transcript_path, cwd,
+    // permission_mode, hook_event_name, stop_hook_active }. We map session_id,
+    // cwd (→projectDir) and stop_hook_active; everything else rides on base.raw.
     const evt = droidAdapter.parseEvent!("SubagentStop", {
       ...COMMON,
-      agent_id: "agent-7",
-      agent_transcript_path: "/x/subagents/agent-7.jsonl",
-      last_assistant_message: "review complete",
+      transcript_path: "~/.factory/projects/x/sess-1.jsonl",
+      permission_mode: "off",
+      hook_event_name: "SubagentStop",
       stop_hook_active: true,
     }) as SubagentStopEvent;
     expect(evt.hostPlatform).toBe("droid");
-    expect(evt.agentId).toBe("agent-7");
-    expect(evt.agentType).toBeUndefined();
-    expect(evt.agentTranscriptPath).toBe("/x/subagents/agent-7.jsonl");
-    expect(evt.lastAssistantMessage).toBe("review complete");
+    expect(evt.sessionId).toBe("sess-1");
     expect(evt.stopHookActive).toBe(true);
     expect(evt.projectDir).toBe("/home/dev/acme");
+    // None of these are on Droid's wire — they must never resurface as reads.
+    expect(evt.agentId).toBeUndefined();
+    expect(evt.agentType).toBeUndefined();
+    expect(evt.agentTranscriptPath).toBeUndefined();
+    expect(evt.lastAssistantMessage).toBeUndefined();
+  });
+
+  it("SubagentStop does NOT read the removed false-friend fields even if a stray payload carries them", () => {
+    // Regression guard for the kimi #189 class: Droid emits none of these, so
+    // even a malformed payload that DOES carry them must be ignored — we read
+    // the host's real wire, not Claude-shaped fields Droid never sends.
+    const evt = droidAdapter.parseEvent!("SubagentStop", {
+      ...COMMON,
+      agent_id: "agent-7",
+      agent_type: "code-reviewer",
+      agent_transcript_path: "/x/subagents/agent-7.jsonl",
+      last_assistant_message: "review complete",
+      stop_hook_active: false,
+    }) as SubagentStopEvent;
+    expect(evt.agentId).toBeUndefined();
+    expect(evt.agentType).toBeUndefined();
+    expect(evt.agentTranscriptPath).toBeUndefined();
+    expect(evt.lastAssistantMessage).toBeUndefined();
+    // The one documented field still maps.
+    expect(evt.stopHookActive).toBe(false);
   });
 
   it("PermissionRequest / PostToolUseFailure / SubagentStart throw (no Droid analog)", () => {
