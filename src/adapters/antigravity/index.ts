@@ -160,15 +160,34 @@ interface AntigravityHttpServer {
   headers?: Record<string, string>;
 }
 
-/** Raw Antigravity hook stdin payload (camelCase wire fields). */
+/**
+ * Raw Antigravity hook stdin payload (camelCase wire fields).
+ *
+ * SOURCE-VERIFIED against Google's official Antigravity hooks docs
+ * (antigravity.google/docs/hooks) and corroborated by production integrations
+ * (Cisco defenseclaw, camjac251/tool-gates, ntd4996/agentpet): Antigravity does
+ * NOT use the flat Claude-Code shape. It carries no `hook_event_name`; the tool
+ * descriptor is NESTED under `toolCall` (`toolCall.name` / `toolCall.args`); the
+ * stable session id is `conversationId`; and the workspace roots are a string
+ * array `workspacePaths` (first entry is the project dir). PostToolUse sends NO
+ * tool fields — only `stepIdx`, an `error` string (empty/absent on success), and
+ * the common fields.
+ */
+interface AntigravityToolCall {
+  name?: string;
+  args?: Record<string, unknown>;
+}
 interface AntigravityWireInput {
   connector?: unknown;
-  toolName?: string;
-  toolInput?: Record<string, unknown>;
+  /** PreToolUse: nested tool descriptor (`toolCall.name`, `toolCall.args`). */
+  toolCall?: AntigravityToolCall;
   toolOutput?: string;
-  isError?: boolean;
-  sessionId?: string;
-  cwd?: string;
+  /** PostToolUse: runtime error message — empty/absent on success. */
+  error?: string;
+  /** Stable session id (the active agent conversation UUID). */
+  conversationId?: string;
+  /** Mounted workspace roots; the first entry is the project dir. */
+  workspacePaths?: string[];
   source?: string;
   reason?: string;
   stopHookActive?: boolean;
@@ -852,8 +871,14 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
   parseEvent(event: HookEventName, raw: unknown): NormalizedEvent {
     const input = (raw ?? {}) as AntigravityWireInput;
     const connectorId = typeof input.connector === "string" ? input.connector : "";
-    const sessionId = typeof input.sessionId === "string" ? input.sessionId : "";
-    const projectDir = typeof input.cwd === "string" ? input.cwd : undefined;
+    // Stable session id is `conversationId` (NOT a flat `sessionId`).
+    const sessionId = typeof input.conversationId === "string" ? input.conversationId : "";
+    // Project dir is the first mounted workspace root (`workspacePaths[0]`), a
+    // string array — NOT a flat `cwd` string.
+    const projectDir =
+      Array.isArray(input.workspacePaths) && typeof input.workspacePaths[0] === "string"
+        ? input.workspacePaths[0]
+        : undefined;
 
     const base = {
       hostPlatform: this.id,
@@ -865,20 +890,28 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
 
     switch (event) {
       case "PreToolUse": {
+        // Tool descriptor is nested under `toolCall` (`.name` / `.args`).
         const ev: PreToolUseEvent = {
           ...base,
-          toolName: input.toolName ?? "",
-          toolInput: input.toolInput ?? {},
+          toolName: input.toolCall?.name ?? "",
+          toolInput: input.toolCall?.args ?? {},
         };
         return ev;
       }
       case "PostToolUse": {
+        // Antigravity's PostToolUse carries no tool fields — only `stepIdx`,
+        // an `error` string, and the common fields. Derive isError from a
+        // non-empty error string and surface it as the failure output.
+        const error = typeof input.error === "string" ? input.error : "";
         const ev: PostToolUseEvent = {
           ...base,
-          toolName: input.toolName ?? "",
-          toolInput: input.toolInput ?? {},
-          ...(input.toolOutput !== undefined ? { toolOutput: input.toolOutput } : {}),
-          ...(input.isError === true ? { isError: true } : {}),
+          toolName: "",
+          toolInput: {},
+          ...(error.length > 0
+            ? { isError: true, toolOutput: error }
+            : input.toolOutput !== undefined
+              ? { toolOutput: input.toolOutput }
+              : {}),
         };
         return ev;
       }

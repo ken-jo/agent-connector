@@ -26,7 +26,7 @@
  * The E1 inherit/warn-skip slice was absorbed from extended-events-degrade.test.ts.
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -41,8 +41,7 @@ import antigravityAdapter, {
 import antigravityCliAdapter, {
   AntigravityCliAdapter,
 } from "../../src/adapters/antigravity-cli/index.js";
-import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
-import { readJson } from "../support/fs.js";
+import { buildCtx, freshProject, isolateEnv } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -193,13 +192,21 @@ describe("antigravity-cli MCP user-config resolution", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("antigravity-cli runtime parse", () => {
-  it("parseEvent stamps hostPlatform = antigravity-cli (dispatched events route to THIS adapter)", () => {
+  it("parseEvent stamps hostPlatform = antigravity-cli AND inherits the nested IDE shape (toolCall.*, conversationId, workspacePaths)", () => {
+    // The CLI adapter inherits the IDE's parseEvent unchanged, so it reads the
+    // same SOURCE-VERIFIED nested Antigravity stdin shape; only hostPlatform
+    // differs (so a CLI-dispatched event routes back to THIS adapter).
     const ev = antigravityCliAdapter.parseEvent("PreToolUse", {
       connector: CONNECTOR_ID,
-      toolName: "t",
-      toolInput: {},
+      conversationId: "c1",
+      workspacePaths: ["/p"],
+      toolCall: { name: "run_command", args: { CommandLine: "ls" } },
     }) as PreToolUseEvent;
     expect(ev.hostPlatform).toBe("antigravity-cli");
+    expect(ev.sessionId).toBe("c1");
+    expect(ev.projectDir).toBe("/p");
+    expect(ev.toolName).toBe("run_command");
+    expect(ev.toolInput).toEqual({ CommandLine: "ls" });
   });
 });
 

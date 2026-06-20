@@ -397,29 +397,50 @@ describe("antigravity hooks.json round-trip + runtime parse/format", () => {
     expect(remaining[0].hooks[0].command).toBe("/usr/bin/my-own-hook");
   });
 
-  it("parseEvent maps camelCase stdin → normalized for all four events", () => {
+  it("parseEvent reads the REAL nested Antigravity stdin shape (toolCall.*, conversationId, workspacePaths)", () => {
+    // SOURCE-VERIFIED against antigravity.google/docs/hooks (corroborated by
+    // Cisco defenseclaw, camjac251/tool-gates, ntd4996/agentpet): PreToolUse
+    // nests the tool descriptor under `toolCall` and uses `conversationId` +
+    // `workspacePaths` for the session id and project dir.
     const pre = antigravityAdapter.parseEvent("PreToolUse", {
       connector: CONNECTOR_ID,
-      sessionId: "s1",
-      cwd: "/proj",
-      toolName: "acme_query",
-      toolInput: { sql: "select 1" },
+      conversationId: "c1",
+      workspacePaths: ["/p"],
+      stepIdx: 19,
+      toolCall: { name: "Shell", args: { cmd: "ls" } },
     }) as PreToolUseEvent;
     expect(pre.hostPlatform).toBe("antigravity");
     expect(pre.connectorId).toBe(CONNECTOR_ID);
-    expect(pre.sessionId).toBe("s1");
-    expect(pre.projectDir).toBe("/proj");
-    expect(pre.toolName).toBe("acme_query");
-    expect(pre.toolInput).toEqual({ sql: "select 1" });
+    expect(pre.sessionId).toBe("c1");
+    expect(pre.projectDir).toBe("/p");
+    expect(pre.toolName).toBe("Shell");
+    expect(pre.toolInput).toEqual({ cmd: "ls" });
 
+    // PostToolUse carries NO tool fields — only stepIdx, an `error` string
+    // (empty/absent on success), and the common fields. A non-empty `error`
+    // derives isError=true and is surfaced as the failure output.
     const post = antigravityAdapter.parseEvent("PostToolUse", {
-      toolName: "acme_query",
-      toolInput: {},
-      toolOutput: "rows: 1",
-      isError: true,
+      conversationId: "c1",
+      workspacePaths: ["/p"],
+      stepIdx: 5,
+      error: "boom",
     }) as PostToolUseEvent;
-    expect(post.toolOutput).toBe("rows: 1");
+    expect(post.sessionId).toBe("c1");
+    expect(post.projectDir).toBe("/p");
     expect(post.isError).toBe(true);
+    expect(post.toolOutput).toBe("boom");
+    // It does NOT fabricate a tool name/input it never received.
+    expect(post.toolName).toBe("");
+    expect(post.toolInput).toEqual({});
+
+    // An empty `error` string means success → no isError, no surfaced error.
+    const ok = antigravityAdapter.parseEvent("PostToolUse", {
+      conversationId: "c1",
+      stepIdx: 6,
+      error: "",
+    }) as PostToolUseEvent;
+    expect(ok.isError).toBeUndefined();
+    expect(ok.toolOutput).toBeUndefined();
 
     const ss = antigravityAdapter.parseEvent("SessionStart", {
       source: "resume",
@@ -430,6 +451,30 @@ describe("antigravity hooks.json round-trip + runtime parse/format", () => {
       stopHookActive: true,
     }) as StopEvent;
     expect(stop.stopHookActive).toBe(true);
+  });
+
+  it("parseEvent does NOT resurface the old flat Claude-Code reads (regression guard)", () => {
+    // The old WRONG shape: flat toolName/toolInput/sessionId/cwd/isError. The
+    // adapter must read NONE of these — they are silently dropped by the host,
+    // so feeding them must yield empty/undefined normalized fields.
+    const pre = antigravityAdapter.parseEvent("PreToolUse", {
+      sessionId: "flat-session",
+      cwd: "/flat/cwd",
+      toolName: "flat_tool",
+      toolInput: { flat: true },
+    }) as PreToolUseEvent;
+    expect(pre.sessionId).toBe("");
+    expect(pre.projectDir).toBeUndefined();
+    expect(pre.toolName).toBe("");
+    expect(pre.toolInput).toEqual({});
+
+    const post = antigravityAdapter.parseEvent("PostToolUse", {
+      toolName: "flat_tool",
+      isError: true,
+    }) as PostToolUseEvent;
+    // Flat `isError:true` must NOT derive an error (the host sends `error`).
+    expect(post.isError).toBeUndefined();
+    expect(post.toolName).toBe("");
   });
 
   it("formatReply renders deny / modify-input / modify-output / context / allow (camelCase)", () => {
