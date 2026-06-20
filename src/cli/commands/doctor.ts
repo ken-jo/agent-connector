@@ -60,14 +60,23 @@ interface ConnectorEntry {
 async function resolveDoctorConnectors(
   connectorPath: string | undefined,
   projectDir: string,
-): Promise<ConnectorEntry[]> {
-  const configPath = connectorPath ?? findConnectorConfig(projectDir);
+): Promise<ConnectorEntry[] | { error: string }> {
+  // When the user explicitly passed --connector <path>, any load failure is an
+  // error they need to see — silently falling through to registered connectors
+  // would report on a completely different set of installs with no indication
+  // that the requested connector was never loaded.
+  if (connectorPath !== undefined) {
+    const { connector, modulePath } = await loadConnectorFromPath(connectorPath);
+    return [{ connector, modulePath }];
+  }
+
+  const configPath = findConnectorConfig(projectDir);
   if (configPath) {
     try {
       const { connector, modulePath } = await loadConnectorFromPath(configPath);
       return [{ connector, modulePath }];
     } catch {
-      /* fall through */
+      /* fall through — implicit discovery failure is a convenience, not an error */
     }
   }
 
@@ -357,7 +366,13 @@ export async function run(argv: string[]): Promise<number> {
   const scope = parseScope(values.scope);
   if (scope == null) return fail(`invalid --scope "${values.scope}" (use user|project)`);
 
-  const entries = await resolveDoctorConnectors(values.connector, projectDir);
+  const resolved = await resolveDoctorConnectors(values.connector, projectDir).catch(
+    (err: unknown) => ({
+      error: `cannot load connector "${values.connector}": ${err instanceof Error ? err.message : String(err)}`,
+    }),
+  );
+  if ("error" in resolved) return fail(resolved.error);
+  const entries = resolved;
   const connectors = entries.map((e) => e.connector);
 
   // ── Per-event explain path (--explain) ───────────────────────────────────

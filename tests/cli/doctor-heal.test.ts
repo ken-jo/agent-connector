@@ -91,12 +91,15 @@ function readSettings(): Record<string, unknown> {
   return JSON.parse(readFileSync(projectSettingsPath(), "utf8")) as Record<string, unknown>;
 }
 
-// A fake module path: installConnector needs one, but for a JSON-based connector
-// we pass the connector as a written JSON file. We write a minimal JSON file and
-// use its path as the modulePath.
+// Write the full connector as a JSON config file so doctor --connector <path>
+// can load it. We omit resolved-only runtime fields (hookEvents, telemetry
+// defaults) that defineConnector adds but the JSON schema does not require;
+// the surfaces (memory/platforms/targets) are preserved so validation passes.
 function writeConnectorJson(connector: ReturnType<typeof defineConnector>): string {
   const p = join(tmp, `${connector.id}.config.json`);
-  writeFileSync(p, JSON.stringify({ id: connector.id, version: connector.version }), "utf8");
+  // Pick the fields the JSON connector schema accepts.
+  const { id, version, memory, targets, platforms } = connector;
+  writeFileSync(p, JSON.stringify({ id, version, memory, targets, platforms }), "utf8");
   return p;
 }
 
