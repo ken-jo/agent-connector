@@ -152,7 +152,16 @@ interface KiroHttpServer {
   headers?: Record<string, string>;
 }
 
-/** Raw Kiro CLI hook stdin payload (snake_case wire fields). */
+/**
+ * Raw Kiro CLI hook stdin payload (snake_case wire fields).
+ *
+ * Fields are the ones Kiro ACTUALLY serializes onto a hook's stdin per
+ * kiro.dev/docs/cli/hooks. NOTE the stop hook: its stdin is exactly
+ * `{ hook_event_name, cwd, session_id, assistant_response }` — there is NO
+ * `stop_hook_active` field (Kiro does not model a re-entrant stop-hook flag),
+ * so we read `assistant_response` (the agent's last response text) rather than a
+ * never-emitted boolean. Ref: kiro.dev/docs/cli/hooks (Stop Hook → Hook Event).
+ */
 interface KiroWireInput {
   connector?: unknown;
   hook_event_name?: string;
@@ -163,7 +172,8 @@ interface KiroWireInput {
   tool_response?: unknown;
   source?: string;
   prompt?: string;
-  stop_hook_active?: boolean;
+  /** Stop hook only: the text of the assistant's last response. */
+  assistant_response?: string;
 }
 
 export class KiroAdapter extends BaseAdapter implements Adapter {
@@ -689,10 +699,15 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "Stop": {
-        const ev: StopEvent = {
+        // Kiro's stop stdin is EXACTLY { hook_event_name, cwd, session_id,
+        // assistant_response } — there is no `stop_hook_active` flag (reading it
+        // always yielded undefined), so we read the real `assistant_response`
+        // (the agent's last response text) instead and surface it as
+        // lastAssistantMessage. Ref: kiro.dev/docs/cli/hooks (Stop Hook Event).
+        const ev: StopEvent & { lastAssistantMessage?: string } = {
           ...base,
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
+          ...(typeof input.assistant_response === "string"
+            ? { lastAssistantMessage: input.assistant_response }
             : {}),
         };
         return ev;
