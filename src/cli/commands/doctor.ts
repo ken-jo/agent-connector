@@ -246,36 +246,65 @@ function explainHostsFor(
 }
 
 /**
+ * The exit rule for a single connector's per-event matrix. The principle: a
+ * non-zero exit means "something is wrong with YOUR connector", NOT "some host
+ * cannot do hooks as designed". So:
+ *   • `dropped` (mcp-only host / no native equivalent) is EXPECTED and NEVER
+ *     fails — it mirrors install's `skip` (= exit 0) for the very same
+ *     no-equivalent case the never-silent-skip work ships;
+ *   • `degraded` (the host FIRES the event but silently won't honor the reply,
+ *     e.g. a deny that fails open) is genuine silent misbehavior — but only a
+ *     finding worth FAILING on when the dev EXPLICITLY targeted that host
+ *     (`--targets`, or the connector's own `targets:[...]`). Under `targets:"auto"`
+ *     the matrix spans the whole fleet, where such gaps are expected, so it stays
+ *     informational (exit 0) — matching plain-doctor's scope-aware non-failure.
+ */
+function explainConnectorFails(
+  rows: HookEventVerdict[],
+  scoped: boolean,
+): boolean {
+  if (!scoped) return false;
+  return rows.some((row) => row.verdict === "degraded");
+}
+
+/**
  * The `doctor --explain` body: for each resolved connector, the per-(host,
  * event) honor matrix from {@link explainHooks} (honored / degraded / dropped
- * with the simulate()-grade reason). A `degraded` or `dropped` cell is a real
- * finding — the connector declared a hook the host silently weakens or never
- * fires — so the command exits non-zero when any cell is not honored, mirroring
- * the plain-doctor fail convention. A connector with no hooks reports cleanly.
+ * with the simulate()-grade reason). ALL rows are always printed (visibility is
+ * never gated on the exit rule). The exit code follows {@link explainConnectorFails}:
+ * only a `degraded` cell on an EXPLICITLY-targeted host fails the command — a
+ * `dropped` cell (a host that architecturally cannot fire hooks) never does.
  */
 async function runExplain(
   entries: ConnectorEntry[],
   explicit: PlatformId[] | undefined,
   json: boolean,
 ): Promise<number> {
-  const report: { connector: string; rows: HookEventVerdict[] }[] = [];
+  const report: {
+    connector: string;
+    rows: HookEventVerdict[];
+    scoped: boolean;
+  }[] = [];
   for (const { connector } of entries) {
+    // "scoped" = the dev narrowed the host set deliberately (an explicit
+    // --targets list, or the connector's own targets:[...]). Under targets:"auto"
+    // the matrix is fleet-wide and degraded cells stay informational.
+    const scoped =
+      (explicit != null && explicit.length > 0) || connector.targets !== "auto";
     if (connector.hookEvents.length === 0) {
-      report.push({ connector: connector.id, rows: [] });
+      report.push({ connector: connector.id, rows: [], scoped });
       continue;
     }
     const hosts = explainHostsFor(connector, explicit);
     const rows = await explainHooks(connector, hosts);
-    report.push({ connector: connector.id, rows });
+    report.push({ connector: connector.id, rows, scoped });
   }
 
-  const anyNotHonored = report.some((r) =>
-    r.rows.some((row) => row.verdict !== "honored"),
-  );
+  const anyFail = report.some((r) => explainConnectorFails(r.rows, r.scoped));
 
   if (json) {
-    print(JSON.stringify(report, null, 2));
-    return anyNotHonored ? 1 : 0;
+    print(JSON.stringify(report.map(({ connector, rows }) => ({ connector, rows })), null, 2));
+    return anyFail ? 1 : 0;
   }
 
   for (const { connector, rows } of report) {
@@ -290,12 +319,20 @@ async function runExplain(
     }
     print("");
   }
-  print(
-    anyNotHonored
-      ? "doctor --explain: one or more declared hook events are degraded or dropped."
-      : "doctor --explain: every declared hook event is honored on its target hosts.",
-  );
-  return anyNotHonored ? 1 : 0;
+  // Footer states the verdict AND the exit rule, so a `dropped`-only run that
+  // exits 0 (the common default-targets case) is not surprising.
+  if (anyFail) {
+    print(
+      "doctor --explain: a declared hook event is DEGRADED on an explicitly-targeted host (the host fires it but silently won't honor the reply).",
+    );
+  } else if (report.some((r) => r.rows.some((row) => row.verdict !== "honored"))) {
+    print(
+      "doctor --explain: some hosts drop or degrade declared events (expected for mcp-only / fleet-wide gaps) — informational, exit 0.",
+    );
+  } else {
+    print("doctor --explain: every declared hook event is honored on its target hosts.");
+  }
+  return anyFail ? 1 : 0;
 }
 
 export async function run(argv: string[]): Promise<number> {

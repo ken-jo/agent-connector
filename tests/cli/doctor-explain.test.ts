@@ -76,7 +76,9 @@ describe("doctor --explain — per-(host, event) honor", () => {
     expect(out).toMatch(/\[dropped\] crush \/ Stop .*no Stop equivalent/);
     // warp is mcp-only — dropped.
     expect(out).toMatch(/\[dropped\] warp \/ Stop .*mcp-only/);
-    // a degraded / dropped cell is a finding → non-zero exit.
+    // codex (an EXPLICITLY-targeted host) DEGRADES the deny → exit 1. The
+    // dropped crush/warp cells alone would NOT fail — only the degraded one does.
+    expect(out).toMatch(/DEGRADED on an explicitly-targeted host/);
     expect(code).toBe(1);
   });
 
@@ -141,5 +143,58 @@ describe("doctor --explain — per-(host, event) honor", () => {
       (r: { host: string; event: string }) => r.host === "crush" && r.event === "Stop",
     );
     expect(row.verdict).toBe("dropped");
+  });
+});
+
+describe("doctor --explain — scope-aware exit semantics (footgun fix)", () => {
+  it("REGRESSION: a DEFAULT (targets:auto) hooks connector exits 0 despite mcp-only drops", async () => {
+    // The footgun: a healthy default connector declaring one benign hook used to
+    // exit 1 purely because ~9 mcp-only hosts architecturally cannot fire hooks.
+    // dropped is EXPECTED (mirrors install's skip = exit 0) — fleet-wide gaps must
+    // NOT fail the command.
+    const cfg = writeConnector(`{
+      id: "explain-cli-auto",
+      hooks: { PreToolUse: { handler: () => ({ decision: "allow" }) } },
+    }`);
+    const cap = captureStdout();
+    const code = await main(["doctor", "--explain", "--connector", cfg]);
+    cap.restore();
+    const out = cap.text();
+    // The matrix still shows the mcp-only drops (visibility unchanged)…
+    expect(out).toMatch(/\[dropped\] warp \/ PreToolUse .*mcp-only/);
+    // …but a fleet-wide auto connector with no degradations exits 0, informational.
+    expect(out).toMatch(/informational, exit 0/);
+    expect(code).toBe(0);
+  });
+
+  it("an explicitly-targeted DEGRADED host fails (exit 1)", async () => {
+    // codex fires Stop but drops the deny (fails open) → degraded; targeting it
+    // explicitly makes that a real finding worth flagging.
+    const cfg = writeConnector(`{
+      id: "explain-cli-degraded",
+      hooks: { Stop: { handler: () => ({ decision: "deny", reason: "go" }) } },
+      targets: ["codex"],
+    }`);
+    const cap = captureStdout();
+    const code = await main(["doctor", "--explain", "--connector", cfg]);
+    cap.restore();
+    expect(cap.text()).toMatch(/\[degraded\] codex \/ Stop/);
+    expect(code).toBe(1);
+  });
+
+  it("an explicitly-targeted DROPPED-only host does NOT fail (exit 0)", async () => {
+    // crush has no Stop equivalent (dropped, not degraded) — the no-equivalent
+    // case install skip-warns at exit 0. Even when explicitly targeted, a dropped
+    // cell must NOT fail: the host cannot do hooks AS DESIGNED, not a connector bug.
+    const cfg = writeConnector(`{
+      id: "explain-cli-dropped",
+      hooks: { Stop: { handler: () => ({ decision: "deny", reason: "go" }) } },
+      targets: ["crush"],
+    }`);
+    const cap = captureStdout();
+    const code = await main(["doctor", "--explain", "--connector", cfg]);
+    cap.restore();
+    expect(cap.text()).toMatch(/\[dropped\] crush \/ Stop/);
+    expect(code).toBe(0);
   });
 });
