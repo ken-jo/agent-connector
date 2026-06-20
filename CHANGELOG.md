@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.4.61 — 2026-06-20
+
+### Fixed — hook wire-contract "false friends" (12 adapters)
+
+A deep, source-verified audit of every adapter's `parseEvent` uncovered a recurring bug
+class: an adapter reading Claude Code-shaped hook-stdin field names that the host does
+**not** actually emit, so user-facing data (tool output, the user prompt, subagent
+identity, failure text) was silently dropped or left empty. Every fix was verified
+against the host's **primary source** (its docs or source code) and independently
+reviewed; the per-host byte-oracle suites confirm only the runtime parse changed.
+Following **kimi** (0.4.44), this release corrects:
+
+- **gemini-cli** — PostToolUse output lives in `tool_response` (`llmContent`/`returnDisplay`), not `tool_output`. (#198)
+- **goose** — the UserPromptSubmit prompt rides on `message`, not `prompt`; now reads goose's real `HookContext` struct and drops the phantom fields. (#200)
+- **copilot-cli** — VS Code dialect: `tool_result.text_result_for_llm`, `agent_name`, base `transcript_path`; removed the phantom Claude-shaped reads. (#201)
+- **cursor** — SubagentStop `summary`, PostToolUseFailure bare `duration`; SessionStart sends no `source`. (#202)
+- **hermes** — the host nests per-event kwargs under an `extra` envelope (tool result, subagent child id, session-end flags). (#204)
+- **codex** — PostToolUse `tool_response` is a typed value; `is_error` is derived from it. (#205)
+- **amp** — the ts-plugin bridge now projects `event.message`→prompt and `event.output`→toolOutput. (#206)
+- **openclaw** — the ts-plugin bridge extracts `targetSessionKey` as the subagent_ended identity. (#207)
+- **amazon-q** — no `session_id`/`source`/`stop_hook_active` on the wire (documented host gaps). (#208)
+- **kiro** — Stop carries `assistant_response`, not `stop_hook_active`. (#209)
+- **droid** — SubagentStop carries no `last_assistant_message`; phantom reads removed. (#210)
+- **vscode-copilot** — PostToolUse is success-only; removed the phantom reads. (#211)
+
+### Security
+
+- Reject path-traversal connector ids before any record-path construction, and warn-skip
+  symlinked write paths across the JSON/TOML/YAML config writers, managed-block files,
+  the memory ledger, and framework state (home-bin, connector records, marketplace
+  state, configPatch ledger). (#197, #199)
+
+### Added
+
+- **Contributor infrastructure**: `CONTRIBUTING.md` (the verify-first golden rule, the
+  single-fork test discipline, the new-host checklist, and the cross-cutting-change
+  policy), GitHub issue + PR templates (incl. a host-adapter-request form), and
+  `SECURITY.md`. Repo settings refreshed (description, homepage, Discussions, labels,
+  branch protection). (#191, #192)
+
+### Internal
+
+- Preserve Vite's auto workspace-root detection when extending Vitest `server.fs.allow`
+  for generated temp fixtures (declares `vite` as a direct dev dep for the
+  `searchForWorkspaceRoot` import — already a deduped transitive dep). (#203)
+
+**35 platforms, 2916 tests.**
+
 ## 0.4.44 — 2026-06-20
 
 ### Fixed
