@@ -43,8 +43,11 @@ import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   ActionDef,
   ConnectorConfig,
+  PostToolUseEvent,
   PreToolUseEvent,
   ResolvedConnector,
+  SessionEndEvent,
+  SessionStartEvent,
   SubagentStopEvent,
   Transport,
 } from "../../src/core/types.js";
@@ -894,28 +897,53 @@ describe("hermes — extended-event install", () => {
 describe("hermes — extended-event parse + replies", () => {
   const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
 
-  it("SubagentStop maps agent fields (child_id fallback) and tolerates missing agent_type", () => {
+  it("SubagentStop reads child_* fields from the `extra` envelope (the REAL wire shape)", () => {
+    // VERIFIED wire shape: delegate_tool.py:2520-2529 passes child_session_id /
+    // child_role / child_summary / child_status; the serializer
+    // (shell_hooks.py::_serialize_payload) nests ALL of them under `extra`
+    // because only parent_session_id is allowlisted to the top level.
+    const evt = hermesAdapter.parseEvent!("SubagentStop", {
+      ...COMMON,
+      extra: {
+        child_session_id: "child-3",
+        child_role: "code-reviewer",
+        child_summary: "done",
+        child_status: "completed",
+      },
+    }) as SubagentStopEvent;
+    expect(evt.hostPlatform).toBe("hermes");
+    expect(evt.agentId).toBe("child-3"); // from extra.child_session_id
+    expect(evt.agentType).toBe("code-reviewer"); // from extra.child_role
+    expect(evt.lastAssistantMessage).toBe("done"); // from extra.child_summary
+    // child_status stays accessible via raw (host-specific, no canonical slot).
+    expect((evt.raw as any).extra.child_status).toBe("completed");
+
+    // tolerates a missing child_role (agentType omitted, not invented).
+    const partial = hermesAdapter.parseEvent!("SubagentStop", {
+      ...COMMON,
+      extra: { child_session_id: "child-9" },
+    }) as SubagentStopEvent;
+    expect(partial.agentId).toBe("child-9");
+    expect(partial.agentType).toBeUndefined();
+    expect(partial.lastAssistantMessage).toBeUndefined();
+  });
+
+  it("SubagentStop does NOT read the removed top-level false-friend fields", () => {
+    // Hermes NEVER emits these at the top level — they were the false-friend
+    // reads. A payload that only sets them must yield nothing (the regression
+    // guard: a removed read must not resurface).
     const evt = hermesAdapter.parseEvent!("SubagentStop", {
       ...COMMON,
       agent_id: "agent-7",
-      agent_type: "code-reviewer",
-      last_assistant_message: "done",
-    }) as SubagentStopEvent;
-    expect(evt.hostPlatform).toBe("hermes");
-    expect(evt.agentId).toBe("agent-7");
-    expect(evt.agentType).toBe("code-reviewer");
-    expect(evt.lastAssistantMessage).toBe("done");
-
-    // Hermes-native child_* names: child_id backs agentId; child_status stays
-    // accessible via raw.
-    const native = hermesAdapter.parseEvent!("SubagentStop", {
-      ...COMMON,
-      child_id: "child-3",
-      child_status: "completed",
-    }) as SubagentStopEvent;
-    expect(native.agentId).toBe("child-3");
-    expect(native.agentType).toBeUndefined();
-    expect((native.raw as any).child_status).toBe("completed");
+      child_id: "child-x",
+      agent_type: "explorer",
+      last_assistant_message: "ghost",
+      stop_hook_active: true,
+    } as any) as SubagentStopEvent;
+    expect(evt.agentId).toBeUndefined();
+    expect(evt.agentType).toBeUndefined();
+    expect(evt.lastAssistantMessage).toBeUndefined();
+    expect((evt as any).stopHookActive).toBeUndefined();
   });
 
   it("PermissionRequest / PostToolUseFailure / SubagentStart throw (no decision-capable analog)", () => {
@@ -937,6 +965,115 @@ describe("hermes — extended-event parse + replies", () => {
       hermesAdapter.formatReply!("PreToolUse", { decision: "deny", reason: "nope" }),
     );
     expect(pre.hookSpecificOutput.permissionDecision).toBe("deny");
+  });
+});
+
+// ── hook stdin wire contract (the `extra` envelope — kimi #189 class) ──────────
+// Hermes' agent/shell_hooks.py::_serialize_payload keeps ONLY
+// { hook_event_name, tool_name, tool_input, session_id, cwd, extra } at the top
+// level (allowlist = {tool_name, args, session_id, parent_session_id}); EVERY
+// other invoke kwarg nests under `extra`. These regression tests pin the real
+// field reads against the VERIFIED host source and guard the removed
+// false-friend top-level reads from resurfacing.
+
+describe("hermes — hook stdin wire contract", () => {
+  const COMMON = { session_id: "sess-1", cwd: "/home/dev/acme" };
+
+  it("PostToolUse reads the tool result from extra.result (not top-level tool_output/tool_response)", () => {
+    // VERIFIED model_tools.py:826-871: post_tool_call's `result` kwarg is not
+    // allowlisted → lands at extra.result.
+    const ev = hermesAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      tool_name: "acme_query",
+      tool_input: { sql: "SELECT 1" },
+      extra: { result: "42 rows", status: "ok" },
+    }) as PostToolUseEvent;
+    expect(ev.toolName).toBe("acme_query");
+    expect(ev.toolInput).toEqual({ sql: "SELECT 1" });
+    expect(ev.toolOutput).toBe("42 rows");
+    // status "ok" is an explicit success signal ⇒ isError:false (the host knows
+    // it is not an error; only a fully-absent signal omits the field).
+    expect(ev.isError).toBe(false);
+
+    // A non-string result is JSON-stringified, same as before.
+    const obj = hermesAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      extra: { result: { rows: 3 }, status: "ok" },
+    }) as PostToolUseEvent;
+    expect(obj.toolOutput).toBe('{"rows":3}');
+  });
+
+  it("PostToolUse does NOT read the removed top-level tool_output/tool_response/is_error", () => {
+    // These were the false-friend reads; Hermes never emits them top-level.
+    const ev = hermesAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      tool_output: "ghost-out",
+      tool_response: "ghost-resp",
+      is_error: true,
+    } as any) as PostToolUseEvent;
+    expect(ev.toolOutput).toBeUndefined();
+    expect(ev.isError).toBeUndefined();
+  });
+
+  it("PostToolUse derives isError from extra.status / extra.error_type", () => {
+    // VERIFIED _tool_result_observer_fields: status ∈ {"ok","error"} +
+    // error_type/error_message under extra; there is NO is_error boolean.
+    const errored = hermesAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      extra: { result: "boom", status: "error", error_type: "tool_error" },
+    }) as PostToolUseEvent;
+    expect(errored.isError).toBe(true);
+    expect(errored.toolOutput).toBe("boom");
+
+    // error_type present but status absent still flags an error.
+    const byType = hermesAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      extra: { error_type: "tool_error" },
+    }) as PostToolUseEvent;
+    expect(byType.isError).toBe(true);
+
+    // Neither signal present ⇒ isError omitted (not invented).
+    const unknown = hermesAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      extra: { result: "ok-ish" },
+    }) as PostToolUseEvent;
+    expect(unknown.isError).toBeUndefined();
+  });
+
+  it("SessionStart is always 'startup' (Hermes emits no source discriminator)", () => {
+    // VERIFIED conversation_loop.py:340-344: on_session_start passes
+    // { session_id, model, platform } — no source. A stray top-level/extra
+    // `source` must NOT change the result.
+    const ev = hermesAdapter.parseEvent!("SessionStart", {
+      ...COMMON,
+      source: "resume",
+      extra: { source: "compact", model: "nous-hermes" },
+    } as any) as SessionStartEvent;
+    expect(ev.source).toBe("startup");
+  });
+
+  it("SessionEnd derives reason from extra.completed / extra.interrupted (no top-level reason)", () => {
+    // VERIFIED turn_finalizer.py:415-423: on_session_end passes completed:bool /
+    // interrupted:bool under extra — there is NO reason kwarg.
+    const completed = hermesAdapter.parseEvent!("SessionEnd", {
+      ...COMMON,
+      extra: { completed: true, interrupted: false },
+    }) as SessionEndEvent;
+    expect(completed.reason).toBe("completed");
+
+    const interrupted = hermesAdapter.parseEvent!("SessionEnd", {
+      ...COMMON,
+      extra: { completed: false, interrupted: true },
+    }) as SessionEndEvent;
+    expect(interrupted.reason).toBe("interrupted");
+
+    // A top-level `reason` is a false friend — it must be ignored, and with
+    // neither boolean set the reason is omitted.
+    const ghost = hermesAdapter.parseEvent!("SessionEnd", {
+      ...COMMON,
+      reason: "ghost-reason",
+    } as any) as SessionEndEvent;
+    expect(ghost.reason).toBeUndefined();
   });
 });
 
