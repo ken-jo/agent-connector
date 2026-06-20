@@ -2,21 +2,22 @@
  * adapters/copilot-cli — GitHub Copilot CLI platform adapter for agent-connector.
  *
  * GitHub Copilot CLI is a json-stdio host: the host pipes a JSON payload to a
- * hook command on stdin and reads JSON/exit-code back. Its hook event names and
- * reply shape are Claude-compatible (PascalCase events, `hookSpecificOutput`
- * reply wrapper), so the normalized HookEventName values map 1:1 — no event
- * rename table is needed.
+ * hook command on stdin and reads JSON/exit-code back. Its reply shape is
+ * Claude-compatible (`hookSpecificOutput` wrapper), but its hooks-file event
+ * KEYS are NOT — the CLI's loader honors ONLY a fixed set of lowerCamelCase
+ * keys and SILENTLY DROPS anything else (see EVENT_WIRE_KEY below), so a
+ * PascalCase→camelCase rename table IS required when writing the config.
  *
  * Native config (user/global only — Copilot CLI has no project-scoped config):
  *   - MCP servers: ~/.copilot/mcp-config.json, root key "mcpServers". An stdio
  *     server is written with type "local" (the host also accepts "stdio") plus
  *     `tools: ["*"]`. Remote servers use type "http".
- *   - Hooks: a Claude-compatible hooks file shaped `{ version: 1, hooks: { … } }`
- *     discovered from ~/.copilot/hooks/*.json. We write a single dedicated file,
+ *   - Hooks: a hooks file shaped `{ version: 1, hooks: { … } }` discovered from
+ *     ~/.copilot/hooks/*.json. We write a single dedicated file,
  *     ~/.copilot/hooks/agent-connector.json, so we never disturb a user's own
  *     hook files and removal is a clean, scoped operation. Each event maps to an
  *     array of flat command entries `{ matcher?, hooks: [{ type:"command", command }] }`
- *     — the Claude shape, which Copilot CLI reads.
+ *     keyed by the CLI's lowerCamelCase wire name (EVENT_WIRE_KEY).
  *   - Reply: a `hookSpecificOutput` object keyed by `hookEventName` carrying
  *     `permissionDecision` (allow|deny|ask) + `permissionDecisionReason`,
  *     `additionalContext`, and (PreToolUse) `updatedInput`. PreToolUse is
@@ -90,18 +91,38 @@ const MCP_ROOT_KEY = "mcpServers";
 const COPILOT_HOOKS_VERSION = 1;
 
 /**
- * Copilot CLI accepts both camelCase and PascalCase hook event names; PascalCase
- * is the portable, Claude/VS Code-compatible form (and selects the snake_case
- * payload dialect), so we emit it directly. Our normalized HookEventName values
- * are already PascalCase and match 1:1, hence no rename table — every declared
- * event has a native equivalent, including the newer four: subagentStart
- * (additionalContext only, matcher on agent name), subagentStop (can block and
- * force continuation), permissionRequest (decision control), and
- * postToolUseFailure (recovery guidance; the host also has a broader
- * errorOccurred event with no normalized analog — reachable via
- * platforms["copilot-cli"].nativeHooks, see capabilities.supportsNativeHooks).
+ * EVENT→WIRE-KEY map for the hooks file. VERIFIED against the installed GitHub
+ * Copilot CLI 1.0.63 bundle (app.js): the hook loader validates every
+ * `config.hooks` key against a hardcoded Set of NINE lowerCamelCase event names —
+ *   { sessionStart, sessionEnd, userPromptSubmitted, preToolUse, postToolUse,
+ *     errorOccurred, agentStop, subagentStop, preCompact }
+ * — and any key NOT in that Set is SILENTLY DROPPED (logged only at debug:
+ * "Ignoring unknown hook event(s)"). The Zod hooks schema defines the same nine
+ * camelCase keys and nothing else. So a PascalCase key like `PreToolUse` never
+ * registers → the hook NEVER FIRES. We therefore key the file by the camelCase
+ * WIRE name, NOT the PascalCase HookEventName.
+ *
+ * Two mappings are NOT a naive lowercase-first-letter: Claude's `Stop` is the
+ * CLI's `agentStop`, and `UserPromptSubmit` is `userPromptSubmitted`. The rest
+ * are first-letter-lowercased. (PascalCase aliases are documented for a newer
+ * CLI that selects the snake_case payload dialect, but they are unknown to the
+ * loader in 1.0.63 and dropped — camelCase is the only safe wire form here.)
+ *
+ * Only events Copilot CLI's loader actually accepts appear here. Events the
+ * installed loader has no file-hook key for (Notification, PermissionRequest,
+ * SubagentStart, PostToolUseFailure) are demoted on `capabilities` and warn-skip
+ * at install — they are NOT in this map.
  */
-type CopilotHookEvent = HookEventName;
+const EVENT_WIRE_KEY: Partial<Record<HookEventName, string>> = {
+  SessionStart: "sessionStart",
+  SessionEnd: "sessionEnd",
+  UserPromptSubmit: "userPromptSubmitted",
+  PreToolUse: "preToolUse",
+  PostToolUse: "postToolUse",
+  PreCompact: "preCompact",
+  Stop: "agentStop",
+  SubagentStop: "subagentStop",
+};
 
 /**
  * CAPABILITY FILTER for installHooks — maps each canonical HookEventName to the
@@ -208,22 +229,28 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     // Memory surface: AGENTS.md-first managed block (project <projectDir>/AGENTS.md
     // via the base default; user scope → ~/.copilot/copilot-instructions.md below).
     supportsMemory: true,
-    // Copilot CLI delivers the full Claude-compatible lifecycle event set.
+    // Copilot CLI's file-hook loader (1.0.63) accepts exactly these of the
+    // canonical lifecycle events — every one is a member of its hardcoded
+    // camelCase validator Set (see EVENT_WIRE_KEY).
     preToolUse: true,
     postToolUse: true,
     preCompact: true,
     sessionStart: true,
     sessionEnd: true,
-    userPromptSubmit: true,
-    stop: true,
-    notification: true,
-    // Newer events — Copilot CLI has native analogs for all four:
-    // permissionRequest (decision control), postToolUseFailure (recovery
-    // guidance), subagentStart (context-only), subagentStop (blockable).
-    permissionRequest: true,
-    postToolUseFailure: true,
-    subagentStart: true,
+    userPromptSubmit: true, // → wire key userPromptSubmitted
+    stop: true, // → wire key agentStop
     subagentStop: true,
+    // DEMOTED — NOT in the installed CLI 1.0.63 file-hook validator Set, so a
+    // hooks-file key for any of these is silently dropped and never fires:
+    //   notification, permissionRequest, subagentStart, postToolUseFailure.
+    // (The github/docs `main` hooks-reference describes them for a NEWER CLI;
+    // re-promote per-event once a verified bundle ships them in the Set — until
+    // then the fail-safe is false so installHooks warn-skips instead of writing
+    // a dead key.)
+    notification: false,
+    permissionRequest: false,
+    postToolUseFailure: false,
+    subagentStart: false,
     // PreToolUse is fail-closed and can rewrite tool input (updatedInput); a
     // PostToolUse hook cannot rewrite already-emitted tool output.
     canModifyArgs: true,
@@ -238,12 +265,13 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     supportsCommands: false,
     supportsSkills: true,
     supportsSubagents: true,
-    // Native passthrough: Copilot CLI documents an `errorOccurred` lifecycle
-    // event (plus camelCase aliases) with NO canonical HookEventName analog —
-    // below the >=3-host core bar (docs/research/host-specific-hook-events-design.md).
+    // Native passthrough: Copilot CLI has an `errorOccurred` lifecycle event (a
+    // member of the camelCase validator Set) with NO canonical HookEventName
+    // analog — below the >=3-host core bar (docs/research/host-specific-hook-events-design.md).
     // A connector reaches it via platforms["copilot-cli"].nativeHooks; installHooks
-    // files the event-name key VERBATIM with the same home-bin command shape, and
-    // the generic uninstall reverses it.
+    // files the event-name key VERBATIM (the author must supply the CLI's exact
+    // camelCase key, e.g. `errorOccurred` — the loader drops unknown keys) with
+    // the same home-bin command shape, and the generic uninstall reverses it.
     supportsNativeHooks: true,
   };
 
@@ -449,8 +477,22 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         });
         continue;
       }
-      // PascalCase events map 1:1 to Copilot CLI's native event names.
-      const copilotEvent: CopilotHookEvent = event;
+      // Key the hooks file by the CLI's camelCase WIRE name — a PascalCase key
+      // is silently dropped by the loader (see EVENT_WIRE_KEY). The home-bin
+      // command keeps the PascalCase `event` token: that is the AC-internal
+      // router event passed to parseEvent/formatReply, NOT a hooks-file key.
+      const copilotEvent = EVENT_WIRE_KEY[event];
+      if (copilotEvent === undefined) {
+        // Defensive: a capability-flagged event with no wire key would write a
+        // dead PascalCase key. Treat it like an unsupported event (warn-skip).
+        changes.push({
+          platform: this.id,
+          action: "warn",
+          path: hooksPath,
+          detail: `${event} unsupported on copilot-cli — skipped`,
+        });
+        continue;
+      }
       const command = buildHomeBinHookCommand(ctx.homeBinPath, HOST, event, connector.id);
       const matcher = connector.hooks[event]?.matcher ?? "";
       const entry: CopilotHookEntry = {
