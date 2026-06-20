@@ -35,11 +35,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
+  PostToolUseEvent,
   PostToolUseFailureEvent,
   PreToolUseEvent,
   ResolvedConnector,
   SubagentStartEvent,
   SubagentStopEvent,
+  UserPromptSubmitEvent,
 } from "../../src/core/types.js";
 
 import kimiAdapter from "../../src/adapters/kimi/index.js";
@@ -687,6 +689,80 @@ describe("kimi E1 events", () => {
     }) as SubagentStopEvent;
     expect(stop.agentType).toBe("coder");
     expect(stop.lastAssistantMessage).toBe("all green");
+  });
+
+  // Regression: kimi's REAL hook stdin wire contract (source-verified against
+  // MoonshotAI/kimi-code turn/index.ts) — UserPromptSubmit sends prompt as a
+  // ContentPart[] array, PostToolUse(success) sends tool_output (NOT
+  // tool_response), PostToolUseFailure sends error as a KimiErrorPayload object.
+  it("parseEvent wire-shape: UserPromptSubmit ContentPart[] → text; PostToolUse tool_output; PostToolUseFailure error object → message", () => {
+    // UserPromptSubmit: prompt is `readonly ContentPart[]` (turn/index.ts:571),
+    // a text prompt is [{type:'text', text}] (kosong message.ts:3-6).
+    const prompt = kimiAdapter.parseEvent!("UserPromptSubmit", {
+      session_id: "km-1",
+      prompt: [{ type: "text", text: "hi" }],
+      connector: E1_CONNECTOR_ID,
+    }) as UserPromptSubmitEvent;
+    expect(prompt.prompt).toBe("hi");
+
+    // Defensive: a plain string prompt (e.g. SubagentStart) still works.
+    const stringPrompt = kimiAdapter.parseEvent!("UserPromptSubmit", {
+      session_id: "km-1",
+      prompt: "plain",
+    }) as UserPromptSubmitEvent;
+    expect(stringPrompt.prompt).toBe("plain");
+
+    // PostToolUse(success): tool output rides `tool_output` as a string
+    // (turn/index.ts:739) — NOT `tool_response` (0 hits in kimi source).
+    const post = kimiAdapter.parseEvent!("PostToolUse", {
+      session_id: "km-1",
+      tool_name: "Shell",
+      tool_input: { command: "ls" },
+      tool_output: "out",
+      connector: E1_CONNECTOR_ID,
+    }) as PostToolUseEvent;
+    expect(post.toolOutput).toBe("out");
+    expect(post.isError).toBe(false);
+
+    // PostToolUseFailure: error is a KimiErrorPayload OBJECT
+    // {code, message, ...} (turn/index.ts:738) — use its `message`.
+    const fail = kimiAdapter.parseEvent!("PostToolUseFailure", {
+      session_id: "km-1",
+      tool_name: "Shell",
+      tool_input: { command: "make" },
+      error: { code: "E", message: "boom" },
+      connector: E1_CONNECTOR_ID,
+    }) as PostToolUseFailureEvent;
+    expect(fail.error).toBe("boom");
+
+    // Defensive helper branches → "" (never throws; mirrors the parser's
+    // empty-string fallback for every other string field).
+    // Empty content-part array, and a non-text part (image/audio/think):
+    expect(
+      (kimiAdapter.parseEvent!("UserPromptSubmit", { session_id: "km-1", prompt: [] }) as UserPromptSubmitEvent)
+        .prompt,
+    ).toBe("");
+    expect(
+      (
+        kimiAdapter.parseEvent!("UserPromptSubmit", {
+          session_id: "km-1",
+          prompt: [{ type: "image" }],
+        }) as UserPromptSubmitEvent
+      ).prompt,
+    ).toBe("");
+    // null error, and an error object with no `message`:
+    expect(
+      (kimiAdapter.parseEvent!("PostToolUseFailure", { session_id: "km-1", error: null }) as PostToolUseFailureEvent)
+        .error,
+    ).toBe("");
+    expect(
+      (
+        kimiAdapter.parseEvent!("PostToolUseFailure", {
+          session_id: "km-1",
+          error: { code: "E" },
+        }) as PostToolUseFailureEvent
+      ).error,
+    ).toBe("");
   });
 
   it("formatReply: context rides PLAIN stdout on exit 0 (Kimi protocol), deny degrades", () => {
