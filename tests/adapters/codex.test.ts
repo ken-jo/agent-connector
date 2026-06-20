@@ -801,6 +801,35 @@ describe("codex E1 events", () => {
     expect(JSON.stringify(cfg.hooks ?? {})).not.toContain(HOME_BIN);
   });
 
+  it("legacy events with no Codex analog (SessionEnd / Notification) emit a VISIBLE skip, never silent", () => {
+    const legacyDir = freshProject("ac-codex-legacy-");
+    const legacy = defineConnector({
+      id: CONNECTOR_ID,
+      hooks: {
+        PreToolUse: { handler() {} },
+        SessionEnd: { handler() {} },
+        Notification: { handler() {} },
+      },
+    });
+    const changes = codexAdapter.installHooks(buildCtx(legacyDir, legacy));
+
+    for (const event of ["SessionEnd", "Notification"] as const) {
+      const rec = changes.find((c) => c.detail?.startsWith(`${event} `));
+      expect(rec, `expected a visible record for ${event}`).toBeTruthy();
+      // Legacy drop predates the warn convention → reported as `skip` (exit-0
+      // preserving), NOT `warn` (which would flip the install exit code).
+      expect(rec!.action).toBe("skip");
+      expect(rec!.detail).toBe(`${event} has no Codex hook equivalent — skipped`);
+    }
+    // No legacy event starts tripping exit-1 (no `warn` for these two)…
+    expect(changes.some((c) => c.action === "warn")).toBe(false);
+    // …and neither is written into the file (Codex cannot fire them).
+    const cfg = readJson(join(legacyDir, ".codex", "hooks.json"));
+    expect(cfg.hooks?.SessionEnd).toBeUndefined();
+    expect(cfg.hooks?.Notification).toBeUndefined();
+    expect(cfg.hooks?.PreToolUse).toHaveLength(1);
+  });
+
   it("parseEvent: PermissionRequest + SubagentStop (incl. missing-agent_type tolerance)", () => {
     const perm = codexAdapter.parseEvent!("PermissionRequest", {
       session_id: "cx-9",

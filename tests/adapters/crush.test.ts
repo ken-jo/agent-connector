@@ -12,9 +12,10 @@
  *   • Hooks       → the SAME crush.json top-level "hooks" key. Crush honors
  *                   PreToolUse ONLY; every other normalized event has no analog.
  *                   The four newer E1 events (PermissionRequest / PostToolUseFailure
- *                   / SubagentStart / SubagentStop) warn-skip per the registry-wide
- *                   convention, while the LEGACY silent drop of the older unwired
- *                   events (SessionStart, Stop, …) is deliberately preserved.
+ *                   / SubagentStart / SubagentStop) warn-skip (action `warn`, exit-1)
+ *                   per the registry-wide convention; every OTHER unsupported event
+ *                   (SessionStart, Stop, …) reports a VISIBLE `skip` (exit-0
+ *                   preserving) — nothing Crush cannot fire is ever silently dropped.
  *   • Content     → skills only: <projectDir>/.crush/skills/<name>/SKILL.md
  *                   (project) / ~/.config/crush/skills/<name>/SKILL.md (user). Paths
  *                   are HARD-CODED — no crush.json entry is written.
@@ -113,7 +114,7 @@ const wrappedArgs = (host: string): string[] => [
 /**
  * render: a connector with a stdio server (env-ref + cwd) + PreToolUse and
  * SessionStart hooks. The PreToolUse + SessionStart pair lets the deny-only host
- * (crush) register PreToolUse only and proves SessionStart is correctly dropped.
+ * (crush) register PreToolUse only while reporting SessionStart as a visible skip.
  */
 function buildConnector(id = CONNECTOR_ID): ResolvedConnector {
   return defineConnector({
@@ -462,7 +463,7 @@ describe("crush adapter render + round-trip", () => {
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
 
-  it("installHooks writes the top-level 'hooks' key in crush.json; SessionStart dropped (PreToolUse only)", () => {
+  it("installHooks writes the top-level 'hooks' key in crush.json; SessionStart → visible skip (PreToolUse only written)", () => {
     const changes = crushAdapter.installHooks(ctx);
     expect(changes.some((c) => c.action === "create")).toBe(true);
 
@@ -477,7 +478,10 @@ describe("crush adapter render + round-trip", () => {
     expect(pre[0].command).toContain("hook crush PreToolUse");
     expect(pre[0].command).toContain(`--connector ${CONNECTOR_ID}`);
 
-    // Crush honors PreToolUse ONLY — SessionStart must not be registered.
+    // Crush honors PreToolUse ONLY — SessionStart is reported as a visible skip
+    // (never silent) but must NOT be registered into the file.
+    const sess = changes.find((c) => c.detail?.startsWith("SessionStart "));
+    expect(sess?.action).toBe("skip");
     expect(cfg.hooks.SessionStart).toBeUndefined();
   });
 
@@ -559,7 +563,7 @@ describe("crush E1 degradation", () => {
     expect(existsSync(join(projectDir, ".crush.json"))).toBe(false);
   });
 
-  it("legacy silent drop of host-unwired NON-E1 events is preserved (SessionStart)", () => {
+  it("a host-unwired NON-E1 event (SessionStart) emits a VISIBLE skip, never silent", () => {
     const projectDir = freshProject("ac-e1-crush-legacy-");
     const legacy = defineConnector({
       id: CONNECTOR_ID,
@@ -569,8 +573,15 @@ describe("crush E1 degradation", () => {
       },
     });
     const changes = crushAdapter.installHooks!(buildCtx(projectDir, legacy));
-    // SessionStart predates the warn-skip convention: dropped, not warned.
+    // SessionStart has no Crush equivalent → a VISIBLE `skip` record (NOT silent,
+    // NOT a `warn`, so the install exit code is unchanged for the legacy event).
+    const sess = changes.find((c) => c.detail?.startsWith("SessionStart "));
+    expect(sess, "expected a visible record for SessionStart").toBeTruthy();
+    expect(sess!.action).toBe("skip");
+    expect(sess!.detail).toBe("SessionStart has no Crush hook equivalent — skipped");
+    // No `warn` (a legacy drop must not start tripping exit-1)…
     expect(changes.some((c) => c.action === "warn")).toBe(false);
+    // …and PreToolUse is still the only event actually written to the file.
     const cfg = readJson(join(projectDir, ".crush.json"));
     expect(Object.keys(cfg.hooks)).toEqual(["PreToolUse"]);
   });

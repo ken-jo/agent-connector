@@ -92,6 +92,15 @@ export interface HookMergeDescriptor<E> {
   mapEvent?(event: string): string | undefined;
   /** Warn detail for an event mapEvent returns undefined for. Required iff mapEvent can return undefined. */
   unmappedWarnDetail?(event: string): string;
+  /**
+   * Severity of the record emitted for an event mapEvent returns undefined for.
+   * DEFAULT `"warn"` (trips a non-zero install exit) — byte-identical to every
+   * host that omits this. A host may return `"skip"` for an event whose drop
+   * predates the never-silent convention (codex's SessionEnd / Notification), so
+   * the degradation is reported VISIBLY without flipping that legacy event's
+   * historical exit-0. Either way the event is NEVER silently dropped.
+   */
+  unmappedAction?(event: string): "warn" | "skip";
   /** Render one host entry from the event name, declared matcher, and home-bin command. */
   renderEntry(event: string, matcher: string, command: string): E;
   /** Upsert find: does `entry` already carry THIS specific command (idempotency check)? */
@@ -1084,7 +1093,7 @@ export abstract class BaseAdapter implements Adapter {
       if (hostEvent === undefined) {
         changes.push({
           platform: this.id,
-          action: "warn",
+          action: descriptor.unmappedAction ? descriptor.unmappedAction(event) : "warn",
           path: configPath,
           detail: descriptor.unmappedWarnDetail!(event),
         });
