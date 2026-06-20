@@ -489,7 +489,7 @@ export class CodexAdapter extends BaseAdapter {
    * count, the warn wording, and the absent/no-match skips) is carried here so
    * the engine reproduces the prior in-adapter loop byte-for-byte.
    */
-  private hookDescriptor(ctx: InstallContext): HookMergeDescriptor<CodexHookEntry> {
+  private hookDescriptor(_ctx: InstallContext): HookMergeDescriptor<CodexHookEntry> {
     return {
       // Codex's server path coerces a malformed root; the hook path matches it.
       malformedPolicy: "coerce",
