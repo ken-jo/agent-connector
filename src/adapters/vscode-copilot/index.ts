@@ -219,6 +219,10 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     canModifyOutput: false,
     canInjectSessionContext: true,
     transports: ["stdio", "http", "sse"],
+    // Server env/url use VS Code's NATIVE ${env:VAR} interpolation
+    // (rewriteEnvRefs) — the token survives into mcp.json, never a baked
+    // literal — so the installer's unset-env-ref bake warn does not apply here.
+    nativeServerEnvInterpolation: true,
     // Content surfaces: VS Code Copilot authors prompt files, Agent Skills, and
     // chat-mode agent files under the workspace .github/ tree (see content-file
     // path helpers below). All three are supported.

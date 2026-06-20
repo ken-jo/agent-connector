@@ -31,8 +31,10 @@ import type {
   InstallScope,
   PlatformId,
   ResolvedConnector,
+  ServerDef,
 } from "./types.js";
 import type { Adapter, InstallContext } from "../adapters/spi.js";
+import { findUnsetEnvRefs } from "./interpolate.js";
 import { REGISTERED_PLATFORM_IDS, loadAdapter } from "../adapters/registry.js";
 import { detectInstalledPlatforms } from "../adapters/detect.js";
 import {
@@ -188,7 +190,32 @@ export async function installConnector(
     }
 
     runStep(id, "installServer", result, () => {
-      pushAll(result.changes, adapter.installServer(ctx));
+      const serverChanges = adapter.installServer(ctx);
+      pushAll(result.changes, serverChanges);
+      // Silent-empty-secret guard. Hosts WITHOUT native ${env:VAR} interpolation
+      // bake env-refs to literals at install time (resolveEnvRefsDeep); an
+      // unset/defaultless ref therefore bakes "" into the secret-bearing server
+      // fields, producing a broken install that only surfaces as a runtime auth
+      // failure inside the MCP server. Warn at the moment the entry is written —
+      // gated on (a) a host that resolves to literals and (b) a server entry
+      // actually created/updated (so a skipped/unregistrable server never warns).
+      if (!(adapter.capabilities.nativeServerEnvInterpolation ?? false)) {
+        const wroteEntry = serverChanges.some(
+          (c) => c.action === "create" || c.action === "update",
+        );
+        const server = effectiveServerFor(connector, id);
+        if (wroteEntry && server) {
+          for (const name of findUnsetEnvRefs(serverSecretFields(server))) {
+            result.changes.push({
+              platform: id,
+              action: "warn",
+              detail:
+                `${name} is unset — baking an empty value into ${id} config ` +
+                `(export it before install, or give the ref a \${env:${name}:-default})`,
+            });
+          }
+        }
+      }
     });
     runStep(id, "installHooks", result, () => {
       pushAll(result.changes, adapter.installHooks(ctx));
@@ -642,6 +669,41 @@ function buildContext(
     dataRoot: dataRoot(),
     dryRun,
     force,
+  };
+}
+
+/**
+ * The effective server for `id` — the connector's base server with its
+ * `platforms[id].server` override merged in, or undefined when no server is
+ * declared / the override disables it. Mirrors every adapter's `effectiveServer`
+ * (`override === false` → none; an object override → `{ ...base, ...override }`),
+ * so the unset-env-ref guard inspects exactly the fields the adapter resolved.
+ */
+function effectiveServerFor(
+  connector: ResolvedConnector,
+  id: PlatformId,
+): ServerDef | undefined {
+  const override = connector.platforms[id]?.server;
+  if (override === false) return undefined;
+  const base = connector.server;
+  if (!base) return undefined;
+  return override && typeof override === "object" ? { ...base, ...override } : base;
+}
+
+/**
+ * The SECRET-bearing server fields a literal-resolving host bakes into its
+ * config (command/args/env/url/headers). `cwd` is deliberately excluded — it is
+ * a path, not a credential, and is the only field claude-code resolves to a
+ * literal; warning on a baked-empty cwd would be noise outside this guard's
+ * "empty secret" intent. The shape is fed to findUnsetEnvRefs.
+ */
+function serverSecretFields(server: ServerDef): Record<string, unknown> {
+  return {
+    command: server.command,
+    args: server.args,
+    env: server.env,
+    url: server.url,
+    headers: server.headers,
   };
 }
 
