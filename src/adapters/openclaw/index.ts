@@ -195,8 +195,13 @@ interface OpenClawBridgePayload {
   projectDir?: string;
   // UserPromptSubmit (before_prompt_build): the current prompt text.
   prompt?: string;
-  // subagent_spawned / subagent_ended (the generated plugin normalizes the
-  // host's field-name variants before posting; empty strings are omitted).
+  // subagent_spawned / subagent_ended. The generated plugin projects the host's
+  // REAL native fields here (verified against openclaw/openclaw
+  // src/plugins/hook-types.ts): SubagentStart agentId←e.agentId,
+  // agentType←e.label (the host's only descriptor); SubagentStop
+  // agentId←e.targetSessionKey (its ONLY identity). The host emits no agentType
+  // and no result/output on subagent_ended, so those slots are simply omitted —
+  // we never post invented field names. Empty strings are dropped.
   agentId?: string;
   agentType?: string;
   lastAssistantMessage?: string;
@@ -1216,15 +1221,20 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       reg.push(
         "\n" +
           "    // SubagentStart → subagent_spawned: observe-only (OpenClaw exposes no\n" +
-          "    // decision or context-injection payload for subagent launches). Field\n" +
-          "    // names vary across builds, so the common variants are normalized;\n" +
-          "    // empty values are omitted so the dispatcher never matcher-filters on\n" +
-          '    // an empty agent type (fail-open).\n' +
+          "    // decision or context-injection payload for subagent launches).\n" +
+          "    // PRIMARY SOURCE (openclaw/openclaw src/plugins/hook-types.ts:720-806,\n" +
+          "    // PluginHookSubagentSpawnedEvent = PluginHookSubagentSpawnBase): the\n" +
+          "    // native event carries `agentId` (the agent identity) + an OPTIONAL\n" +
+          "    // human `label` — and NO subagentId/subagentType/agent/agentType. So we\n" +
+          "    // read the real e.agentId and surface the real e.label as the type-ish\n" +
+          "    // descriptor; the former subagentId/subagentType/agent reads were\n" +
+          "    // false-friends (host emits none). Empty values are omitted so the\n" +
+          "    // dispatcher never matcher-filters on an empty descriptor (fail-open).\n" +
           '    on("subagent_spawned", async (event) => {\n' +
           "      const e = event || {};\n" +
           "      bridge(\"SubagentStart\", {\n" +
-          "        agentId: e.agentId || e.subagentId || undefined,\n" +
-          "        agentType: e.agentType || e.subagentType || e.agent || undefined,\n" +
+          "        agentId: e.agentId || undefined,\n" +
+          "        agentType: e.label || undefined,\n" +
           "        sessionId: SESSION_ID,\n" +
           "        projectDir: PROJECT_DIR,\n" +
           "      });\n" +
@@ -1239,14 +1249,18 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
           "    // SubagentStop → subagent_ended: observe-only completion. A normalized\n" +
           "    // 'deny' cannot keep the subagent running on OpenClaw, so the bridge\n" +
           "    // reply is intentionally ignored.\n" +
+          "    // PRIMARY SOURCE (openclaw/openclaw src/plugins/hook-types.ts:808-818\n" +
+          "    // PluginHookSubagentEndedEvent + wired-hooks-subagent.test.ts:118-126):\n" +
+          "    // the native event's ONLY identity is `targetSessionKey` — it carries\n" +
+          "    // NO agentId/subagentId, NO agentType/subagentType/agent, and NO\n" +
+          "    // result/output. The old e.agentId||e.subagentId / e.agentType||… /\n" +
+          "    // e.result||e.output reads were ALL false-friends (host emits none →\n" +
+          "    // agentId was always undefined). We read the real e.targetSessionKey as\n" +
+          "    // agentId and omit the type/message slots the host never provides.\n" +
           '    on("subagent_ended", async (event) => {\n' +
           "      const e = event || {};\n" +
-          "      const rawResult = e.result !== undefined ? e.result : e.output;\n" +
           "      bridge(\"SubagentStop\", {\n" +
-          "        agentId: e.agentId || e.subagentId || undefined,\n" +
-          "        agentType: e.agentType || e.subagentType || e.agent || undefined,\n" +
-          "        lastAssistantMessage:\n" +
-          '          typeof rawResult === "string" && rawResult !== "" ? rawResult : undefined,\n' +
+          "        agentId: e.targetSessionKey || undefined,\n" +
           "        sessionId: SESSION_ID,\n" +
           "        projectDir: PROJECT_DIR,\n" +
           "      });\n" +
