@@ -133,20 +133,33 @@ interface VSCodeHttpServer {
   headers?: Record<string, string>;
 }
 
-/** Raw VS Code Copilot hook stdin payload (Claude-compatible snake_case fields). */
+/**
+ * Raw VS Code Copilot hook stdin payload. Field names are PRIMARY-SOURCE
+ * VERIFIED against the official docs (https://code.visualstudio.com/docs/copilot/
+ * customization/hooks — "Hook input and output"). Only fields the host actually
+ * serializes are declared here; the snake_case shape happens to align with the
+ * Claude dialect but the field SET is VS Code's own.
+ *
+ * Common input fields (every event): timestamp, cwd, session_id,
+ * hook_event_name, transcript_path. There is NO `workspace_roots` field — the
+ * old `workspace_roots[0]` projectDir fallback read a host-nonexistent field
+ * (removed; getProjectDir now relies on `cwd` only).
+ */
 interface VSCodeWireInput {
   session_id?: string;
   transcript_path?: string;
   cwd?: string;
-  workspace_roots?: string[];
   hook_event_name?: string;
 
-  // tool events
+  // tool events. PostToolUse fires ONLY after a tool completes SUCCESSFULLY and
+  // sends { tool_name, tool_input, tool_use_id, tool_response } — there is NO
+  // `tool_output` and NO `error_message` field, so the old isError/tool_output/
+  // error_message reads were dead (removed). Primary source: docs "PostToolUse
+  // input" — `tool_response` is the only result field.
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   tool_response?: unknown;
-  tool_output?: string;
-  error_message?: string;
+  tool_use_id?: string;
 
   // SessionStart
   source?: string;
@@ -161,13 +174,12 @@ interface VSCodeWireInput {
   // Notification
   message?: string;
 
-  // SubagentStart / SubagentStop — Claude-compatible snake_case fields.
-  // agent_type is unreliable on SubagentStop; treat both as optional.
+  // SubagentStart / SubagentStop. Per docs "SubagentStart input" /
+  // "SubagentStop input" the payload is EXACTLY { agent_id, agent_type } (+
+  // stop_hook_active on Stop). There is NO `agent_transcript_path` and NO
+  // `last_assistant_message` on this host — those reads were dead (removed).
   agent_id?: string;
   agent_type?: string;
-  // SubagentStop — the subagent's OWN transcript + its final response text.
-  agent_transcript_path?: string;
-  last_assistant_message?: string;
 
   /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
   connector?: string;
@@ -832,16 +844,20 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostToolUse": {
-        const toolOutput =
-          toolResponseToString(input.tool_response) ??
-          input.tool_output ??
-          input.error_message;
+        // PRIMARY SOURCE (docs "PostToolUse input"): VS Code PostToolUse fires
+        // ONLY after a tool completes SUCCESSFULLY and serializes a single
+        // result field, `tool_response`. There is NO `tool_output` and NO
+        // `error_message` field in this dialect, so the old `?? input.tool_output
+        // ?? input.error_message` fallback legs read host-nonexistent fields and
+        // the `error_message`-driven `isError` could never become true. Read only
+        // `tool_response`; a tool-failure event (PostToolUseFailure, field
+        // `error`) is not part of VS Code's eight-event table and is not wired.
+        const toolOutput = toolResponseToString(input.tool_response);
         const ev: PostToolUseEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
           ...(toolOutput !== undefined ? { toolOutput } : {}),
-          ...(input.error_message ? { isError: true } : {}),
         };
         return ev;
       }
@@ -914,19 +930,18 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "SubagentStop": {
-        // agent_id/agent_type stay optional — hosts do not reliably populate
-        // agent_type on SubagentStop (Claude-compatible quirk).
+        // PRIMARY SOURCE (docs "SubagentStop input"): the payload is EXACTLY
+        // { agent_id, agent_type, stop_hook_active }. There is NO
+        // `agent_transcript_path` and NO `last_assistant_message` field on this
+        // host, so agentTranscriptPath / lastAssistantMessage were always
+        // undefined — those reads are removed. (agent_id/agent_type stay optional
+        // defensively; a path consumer should fall back to the common
+        // `transcript_path`, which is the only transcript VS Code provides.)
         const ev: SubagentStopEvent = {
           ...base,
           ...(typeof input.agent_id === "string" ? { agentId: input.agent_id } : {}),
           ...(typeof input.agent_type === "string"
             ? { agentType: input.agent_type }
-            : {}),
-          ...(typeof input.agent_transcript_path === "string"
-            ? { agentTranscriptPath: input.agent_transcript_path }
-            : {}),
-          ...(typeof input.last_assistant_message === "string"
-            ? { lastAssistantMessage: input.last_assistant_message }
             : {}),
           ...(typeof input.stop_hook_active === "boolean"
             ? { stopHookActive: input.stop_hook_active }
@@ -951,9 +966,14 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     }
   }
 
-  /** Resolve the project dir from the wire payload, preferring the explicit cwd. */
+  /**
+   * Resolve the project dir from the wire payload. PRIMARY SOURCE (docs "Common
+   * input fields"): the only working-directory field VS Code sends is `cwd`.
+   * There is no `workspace_roots` field, so the old `?? workspace_roots[0]`
+   * fallback read a host-nonexistent field and is removed.
+   */
   private getProjectDir(input: VSCodeWireInput): string | undefined {
-    return input.cwd ?? input.workspace_roots?.[0] ?? undefined;
+    return typeof input.cwd === "string" ? input.cwd : undefined;
   }
 
   // ── Runtime: normalized response → VS Code Copilot native hook reply ──────
