@@ -172,8 +172,14 @@ interface GeminiWireInput {
   connector?: unknown;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_output?: string;
-  is_error?: boolean;
+  // AfterTool (→ PostToolUse) serializes the tool result under `tool_response`,
+  // an object { llmContent, returnDisplay, error? } — NOT `tool_output`, and there
+  // is no `is_error` on the wire. Source: google-gemini/gemini-cli
+  // packages/core/src/hooks/hookEventHandler.ts:107-111 (fireAfterToolEvent sets
+  // tool_response: toolResponse), types.ts:518-521 (AfterToolInput.tool_response:
+  // Record<string, unknown>), tools.ts:742-768 (ToolResult.{llmContent,returnDisplay,
+  // error?}), docs/hooks/reference.md:114-123.
+  tool_response?: unknown;
   session_id?: string;
   cwd?: string;
   source?: string;
@@ -181,6 +187,32 @@ interface GeminiWireInput {
   reason?: string;
   prompt?: string;
   message?: string;
+}
+
+/**
+ * Normalize gemini-cli's AfterTool `tool_response` into a flat `toolOutput` string.
+ * `tool_response` is a ToolResult-shaped object { llmContent, returnDisplay, error? }
+ * (google-gemini/gemini-cli tools.ts:742-768). Prefer `llmContent` (the content the
+ * model sees), then `returnDisplay`; strings pass through, objects are JSON-stringified.
+ * Returns undefined when no usable output is present.
+ */
+function extractToolOutput(toolResponse: unknown): string | undefined {
+  if (typeof toolResponse === "string") return toolResponse;
+  if (toolResponse === null || typeof toolResponse !== "object") return undefined;
+  const obj = toolResponse as Record<string, unknown>;
+  const value = obj.llmContent ?? obj.returnDisplay;
+  if (value === undefined || value === null) return undefined;
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/**
+ * A gemini-cli AfterTool result is a failure iff `tool_response.error` is present
+ * (google-gemini/gemini-cli tools.ts:765 — "If this property is present, the tool
+ * call is considered a failure."). There is no top-level `is_error` on the wire.
+ */
+function hasToolError(toolResponse: unknown): boolean {
+  if (toolResponse === null || typeof toolResponse !== "object") return false;
+  return (toolResponse as Record<string, unknown>).error != null;
 }
 
 export class GeminiCliAdapter extends BaseAdapter implements Adapter {
@@ -942,12 +974,16 @@ export class GeminiCliAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostToolUse": {
+        // gemini-cli sends the result as `tool_response` (object), not `tool_output`,
+        // and signals failure via `tool_response.error` (no top-level `is_error`).
+        // See GeminiWireInput.tool_response above for the source citations.
+        const toolOutput = extractToolOutput(input.tool_response);
         const ev: PostToolUseEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          ...(input.tool_output !== undefined ? { toolOutput: input.tool_output } : {}),
-          ...(input.is_error === true ? { isError: true } : {}),
+          ...(toolOutput !== undefined ? { toolOutput } : {}),
+          ...(hasToolError(input.tool_response) ? { isError: true } : {}),
         };
         return ev;
       }

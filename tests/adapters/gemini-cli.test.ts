@@ -41,7 +41,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { Adapter, InstallContext } from "../../src/adapters/spi.js";
-import type { ResolvedConnector } from "../../src/core/types.js";
+import type { PostToolUseEvent, ResolvedConnector } from "../../src/core/types.js";
 
 import geminiAdapter from "../../src/adapters/gemini-cli/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
@@ -647,6 +647,59 @@ describe("gemini-cli E1 capability flags stay unset (no native analog)", () => {
     expect(geminiAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
     expect(geminiAdapter.capabilities.subagentStart ?? false).toBe(false);
     expect(geminiAdapter.capabilities.subagentStop ?? false).toBe(false);
+  });
+});
+
+// ── PostToolUse stdin parse: gemini-cli emits `tool_response`, not `tool_output` ──
+// Source: google-gemini/gemini-cli fireAfterToolEvent serializes the result under
+// `tool_response` (object { llmContent, returnDisplay, error? }) — there is no
+// `tool_output` and no `is_error` on the wire (hookEventHandler.ts:107-111,
+// types.ts:518-521, tools.ts:742-768, docs/hooks/reference.md:114-123). Reading the
+// non-existent fields silently dropped all real tool output (the kimi #189 bug class).
+
+describe("gemini-cli PostToolUse parseEvent reads tool_response (not tool_output)", () => {
+  it("lifts tool_response.llmContent into toolOutput", () => {
+    const ev = geminiAdapter.parseEvent("PostToolUse", {
+      tool_name: "Read",
+      tool_input: { path: "a.ts" },
+      tool_response: { llmContent: "out", returnDisplay: "shown" },
+    }) as PostToolUseEvent;
+    expect(ev.toolOutput).toBe("out");
+    expect(ev.isError ?? false).toBe(false);
+  });
+
+  it("falls back to tool_response.returnDisplay when llmContent is absent", () => {
+    const ev = geminiAdapter.parseEvent("PostToolUse", {
+      tool_name: "Read",
+      tool_response: { returnDisplay: "shown" },
+    }) as PostToolUseEvent;
+    expect(ev.toolOutput).toBe("shown");
+  });
+
+  it("JSON-stringifies a non-string llmContent (PartListUnion can be an object/array)", () => {
+    const ev = geminiAdapter.parseEvent("PostToolUse", {
+      tool_name: "Glob",
+      tool_response: { llmContent: [{ text: "x" }] },
+    }) as PostToolUseEvent;
+    expect(ev.toolOutput).toBe(JSON.stringify([{ text: "x" }]));
+  });
+
+  it("derives isError from tool_response.error (no top-level is_error)", () => {
+    const ev = geminiAdapter.parseEvent("PostToolUse", {
+      tool_name: "Read",
+      tool_response: { llmContent: "boom", error: { message: "FILE_NOT_FOUND" } },
+    }) as PostToolUseEvent;
+    expect(ev.isError).toBe(true);
+    expect(ev.toolOutput).toBe("boom");
+  });
+
+  it("leaves toolOutput unset when tool_response carries no usable content", () => {
+    const ev = geminiAdapter.parseEvent("PostToolUse", {
+      tool_name: "Read",
+      tool_response: {},
+    }) as PostToolUseEvent;
+    expect(ev.toolOutput).toBeUndefined();
+    expect(ev.isError ?? false).toBe(false);
   });
 });
 
