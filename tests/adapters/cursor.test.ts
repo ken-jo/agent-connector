@@ -29,7 +29,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
@@ -39,6 +39,7 @@ import type {
   PreCompactEvent,
   ResolvedConnector,
   SessionEndEvent,
+  SessionStartEvent,
   SubagentStartEvent,
   SubagentStopEvent,
   UserPromptSubmitEvent,
@@ -400,8 +401,12 @@ describe("cursor adapter render/round-trip", () => {
   });
 
   it("parseEvent + formatReply round-trip: SessionStart context → additional_context", () => {
+    // Cursor's sessionStart stdin is { session_id, is_background_agent,
+    // composer_mode } with NO source/trigger field (cursor.com/docs/hooks
+    // ~1278-1297), so source always normalizes to its 'startup' default.
     const evt = cursorAdapter.parseEvent!("SessionStart", {
-      source: "startup",
+      composer_mode: "agent",
+      is_background_agent: false,
       cwd: projectDir,
       conversation_id: "cur-2",
     });
@@ -585,21 +590,35 @@ describe("cursor — extended-event parse", () => {
   const COMMON = { conversation_id: "conv-1", cwd: "/home/dev/acme" };
 
   it("PostToolUseFailure maps error_message (Cursor vocabulary) + optional fields", () => {
+    // Cursor's postToolUseFailure carries a BARE `duration` (ms), not duration_ms
+    // (cursor.com/docs/hooks ~904,918).
     const evt = cursorAdapter.parseEvent!("PostToolUseFailure", {
       ...COMMON,
       hook_event_name: "postToolUseFailure",
       tool_name: "Shell",
       tool_input: { command: "make test" },
       error_message: "exit status 2",
-      duration_ms: 450,
+      duration: 42,
     }) as PostToolUseFailureEvent;
 
     expect(evt.hostPlatform).toBe("cursor");
     expect(evt.toolName).toBe("Shell");
     expect(evt.toolInput).toEqual({ command: "make test" });
     expect(evt.error).toBe("exit status 2");
-    expect(evt.durationMs).toBe(450);
+    expect(evt.durationMs).toBe(42);
     expect(evt.projectDir).toBe("/home/dev/acme");
+  });
+
+  it("PostToolUseFailure IGNORES the false-friend duration_ms (Cursor uses bare duration)", () => {
+    // duration_ms is NOT a postToolUseFailure field on Cursor — the old read of it
+    // silently dropped the real value. Confirm reading duration_ms surfaces nothing.
+    const evt = cursorAdapter.parseEvent!("PostToolUseFailure", {
+      ...COMMON,
+      tool_name: "Shell",
+      error_message: "boom",
+      duration_ms: 999,
+    }) as PostToolUseFailureEvent;
+    expect(evt.durationMs).toBeUndefined();
   });
 
   it("PostToolUseFailure falls back to the Claude-compatible `error` field", () => {
@@ -629,16 +648,28 @@ describe("cursor — extended-event parse", () => {
     expect(fallback.agentType).toBe("explore");
   });
 
-  it("SubagentStop maps last_assistant_message/stop_hook_active and tolerates missing agent_type", () => {
+  it("SubagentStop maps summary→lastAssistantMessage/stop_hook_active and tolerates missing agent_type", () => {
+    // Cursor's subagentStop carries the subagent output text under `summary`, NOT
+    // last_assistant_message (cursor.com/docs/hooks ~972,993).
     const evt = cursorAdapter.parseEvent!("SubagentStop", {
       ...COMMON,
-      last_assistant_message: "review complete",
+      summary: "done",
       stop_hook_active: true,
     }) as SubagentStopEvent;
     expect(evt.agentId).toBeUndefined();
     expect(evt.agentType).toBeUndefined();
-    expect(evt.lastAssistantMessage).toBe("review complete");
+    expect(evt.lastAssistantMessage).toBe("done");
     expect(evt.stopHookActive).toBe(true);
+  });
+
+  it("SubagentStop IGNORES the false-friend last_assistant_message (Cursor uses summary)", () => {
+    // last_assistant_message is NOT a Cursor subagentStop field — the old read of
+    // it silently dropped the subagent output. Confirm it no longer surfaces.
+    const evt = cursorAdapter.parseEvent!("SubagentStop", {
+      ...COMMON,
+      last_assistant_message: "review complete",
+    }) as SubagentStopEvent;
+    expect(evt.lastAssistantMessage).toBeUndefined();
   });
 
   it("PermissionRequest throws (no Cursor analog — permission is an output field, not an event)", () => {
@@ -736,6 +767,28 @@ describe("cursor — lifecycle/prompt-event install", () => {
 
 describe("cursor — lifecycle/prompt-event parse", () => {
   const COMMON = { conversation_id: "conv-1", cwd: "/home/dev/acme" };
+
+  it("SessionStart: composer_mode keeps source at 'startup'; false-friend source/trigger never surface", () => {
+    // Cursor's sessionStart stdin is exactly { session_id, is_background_agent,
+    // composer_mode } — composer_mode is the editor MODE, NOT our source enum, and
+    // there is NO source/trigger discriminator (cursor.com/docs/hooks ~1278-1297).
+    const evt = cursorAdapter.parseEvent!("SessionStart", {
+      ...COMMON,
+      composer_mode: "agent",
+      is_background_agent: false,
+    }) as SessionStartEvent;
+    expect(evt.source).toBe("startup");
+
+    // The removed source/trigger reads must NOT influence the normalized source:
+    // a real `resume` source field (Claude's vocabulary) is now ignored, and a
+    // preCompact-style `trigger` no longer leaks into SessionStart.
+    const withSource = cursorAdapter.parseEvent!("SessionStart", {
+      ...COMMON,
+      source: "resume",
+      trigger: "manual",
+    }) as SessionStartEvent;
+    expect(withSource.source).toBe("startup");
+  });
 
   it("SessionEnd maps the documented `reason` enum (session_id folds into base)", () => {
     const evt = cursorAdapter.parseEvent!("SessionEnd", {
