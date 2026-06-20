@@ -42,8 +42,10 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   PermissionRequestEvent,
+  PostToolUseEvent,
   PostToolUseFailureEvent,
   ResolvedConnector,
+  StopEvent,
   SubagentStartEvent,
   SubagentStopEvent,
   Transport,
@@ -552,34 +554,65 @@ describe("copilot-cli — extended-event parse", () => {
     cwd: "/home/dev/acme",
   };
 
-  it("PermissionRequest maps tool_name/tool_input/permission_suggestions", () => {
+  // ── Source: github/docs content/copilot/reference/hooks-reference.md ──
+  // false-friend fixes (kimi #189 class): the VS Code-compatible dialect the
+  // host actually writes carries different field names than the adapter once
+  // read. Each assertion below mirrors the per-event input section cited.
+
+  it("PostToolUse reads tool_result.text_result_for_llm into toolOutput (ref 397-400)", () => {
+    const evt = copilotCliAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      tool_name: "bash",
+      tool_input: { command: "echo hi" },
+      tool_result: { result_type: "success", text_result_for_llm: "out" },
+    }) as PostToolUseEvent;
+    expect(evt.toolName).toBe("bash");
+    expect(evt.toolOutput).toBe("out");
+    // PostToolUse is success-only; failures come via PostToolUseFailure.
+    expect(evt.isError).toBeUndefined();
+  });
+
+  it("PostToolUse ignores the phantom tool_response field (toolOutput stays unset)", () => {
+    const evt = copilotCliAdapter.parseEvent!("PostToolUse", {
+      ...COMMON,
+      tool_name: "bash",
+      tool_input: { command: "echo hi" },
+      // Field the host never emits — must NOT surface as toolOutput.
+      tool_response: "legacy-output",
+    } as Record<string, unknown>) as PostToolUseEvent;
+    expect(evt.toolOutput).toBeUndefined();
+  });
+
+  it("PermissionRequest maps tool_name/tool_input only — no permission_suggestions (ref 218,627-649)", () => {
     const evt = copilotCliAdapter.parseEvent!("PermissionRequest", {
       ...COMMON,
       tool_name: "bash",
       tool_input: { command: "rm -rf /tmp/x" },
+      // Phantom field — the host uses the PreToolUse shape; must be ignored.
       permission_suggestions: [{ behavior: "allow" }],
-    }) as PermissionRequestEvent;
+    } as Record<string, unknown>) as PermissionRequestEvent;
     expect(evt.hostPlatform).toBe("copilot-cli");
     expect(evt.toolName).toBe("bash");
     expect(evt.toolInput).toEqual({ command: "rm -rf /tmp/x" });
-    expect(evt.permissionSuggestions).toEqual([{ behavior: "allow" }]);
+    expect(evt.permissionSuggestions).toBeUndefined();
     expect(evt.sessionId).toBe("0a1b2c3d-0a1b-4c3d-8e5f-0a1b2c3d4e5f");
   });
 
-  it("PostToolUseFailure maps error/tool_use_id/is_interrupt/duration_ms (error defaults to '')", () => {
+  it("PostToolUseFailure maps {tool_name,tool_input,error}; ignores phantom correlation fields (ref 421-430)", () => {
     const evt = copilotCliAdapter.parseEvent!("PostToolUseFailure", {
       ...COMMON,
       tool_name: "bash",
       tool_input: { command: "make test" },
-      tool_use_id: "call_01",
       error: "exit status 2",
+      // None of these are in the host payload — must NOT surface.
+      tool_use_id: "call_01",
       is_interrupt: false,
       duration_ms: 1234,
-    }) as PostToolUseFailureEvent;
+    } as Record<string, unknown>) as PostToolUseFailureEvent;
     expect(evt.error).toBe("exit status 2");
-    expect(evt.toolUseId).toBe("call_01");
-    expect(evt.isInterrupt).toBe(false);
-    expect(evt.durationMs).toBe(1234);
+    expect(evt.toolUseId).toBeUndefined();
+    expect(evt.isInterrupt).toBeUndefined();
+    expect(evt.durationMs).toBeUndefined();
 
     const minimal = copilotCliAdapter.parseEvent!("PostToolUseFailure", {
       tool_name: "write",
@@ -587,26 +620,49 @@ describe("copilot-cli — extended-event parse", () => {
     expect(minimal.error).toBe("");
   });
 
-  it("SubagentStart + SubagentStop map agent fields; SubagentStop tolerates missing agent_type", () => {
+  it("SubagentStart maps agent_name → agentId; no agent_type (ref 467-476)", () => {
     const start = copilotCliAdapter.parseEvent!("SubagentStart", {
       ...COMMON,
+      agent_name: "code-reviewer",
+      agent_display_name: "Code Reviewer",
+      // Phantom legacy fields — must be ignored.
       agent_id: "agent-7",
-      agent_type: "code-reviewer",
-    }) as SubagentStartEvent;
-    expect(start.agentId).toBe("agent-7");
-    expect(start.agentType).toBe("code-reviewer");
+      agent_type: "reviewer",
+    } as Record<string, unknown>) as SubagentStartEvent;
+    expect(start.agentId).toBe("code-reviewer");
+    expect(start.agentType).toBeUndefined();
+  });
 
+  it("SubagentStop maps agent_name → agentId and base transcript_path → agentTranscriptPath; drops phantom reads (ref 497-507)", () => {
     const stop = copilotCliAdapter.parseEvent!("SubagentStop", {
       ...COMMON,
+      agent_name: "code-reviewer",
+      agent_display_name: "Code Reviewer",
+      stop_reason: "end_turn",
+      // Phantom fields the host never emits — must NOT surface.
       agent_id: "agent-7",
+      agent_type: "reviewer",
       agent_transcript_path: "/x/subagents/agent-7.jsonl",
       last_assistant_message: "review complete",
       stop_hook_active: true,
-    }) as SubagentStopEvent;
+    } as Record<string, unknown>) as SubagentStopEvent;
+    expect(stop.agentId).toBe("code-reviewer");
     expect(stop.agentType).toBeUndefined();
-    expect(stop.agentTranscriptPath).toBe("/x/subagents/agent-7.jsonl");
-    expect(stop.lastAssistantMessage).toBe("review complete");
-    expect(stop.stopHookActive).toBe(true);
+    // The subagent transcript is the BASE transcript_path (from COMMON).
+    expect(stop.agentTranscriptPath).toBe(COMMON.transcript_path);
+    expect(stop.lastAssistantMessage).toBeUndefined();
+    expect(stop.stopHookActive).toBeUndefined();
+  });
+
+  it("Stop drops stop_hook_active — host signals via stop_reason (ref 449-457)", () => {
+    const stop = copilotCliAdapter.parseEvent!("Stop", {
+      ...COMMON,
+      stop_reason: "end_turn",
+      // Phantom field — must NOT surface.
+      stop_hook_active: true,
+    } as Record<string, unknown>) as StopEvent;
+    expect(stop.stopHookActive).toBeUndefined();
+    expect(stop.sessionId).toBe("0a1b2c3d-0a1b-4c3d-8e5f-0a1b2c3d4e5f");
   });
 });
 
