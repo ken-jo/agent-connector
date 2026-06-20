@@ -12,6 +12,12 @@
  * The optional `--host` flag carries the install TARGET platform id so the proxy
  * stamps hostPlatform correctly under a headless spawn; absent configs fall back
  * to runtime env detection.
+ * The optional `--data-dir` flag pins the framework data-root the child must use
+ * to resolve the connector record (and write telemetry). It is written by the
+ * wrapper only for a NON-DEFAULT root, because some hosts (codex) strip the MCP
+ * child's environment and would otherwise not propagate AGENT_CONNECTOR_DATA_DIR
+ * — the child would then resolve the default root and fail "Connector not
+ * registered". Absent configs resolve the data-root the usual way.
  * runServe stands up the per-session telemetry context and proxies bytes both
  * ways, resolving with the child's exit code.
  */
@@ -29,7 +35,7 @@ export async function run(argv: string[]): Promise<number> {
   const sepIndex = argv.indexOf("--");
   if (sepIndex === -1) {
     return fail(
-      "usage: agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] -- <command> [args...]",
+      "usage: agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] [--data-dir <path>] -- <command> [args...]",
     );
   }
   const flagArgs = argv.slice(0, sepIndex);
@@ -38,7 +44,7 @@ export async function run(argv: string[]): Promise<number> {
   // strict:false so an unknown FUTURE flag before `--` (written by a newer host
   // config) is ignored instead of throwing — a parse throw here would prevent the
   // real MCP server from ever spawning and wedge the host's tool call. We only
-  // read the two flags we understand; everything else is tolerated.
+  // read the flags we understand; everything else is tolerated.
   const { values } = parseArgs({
     args: flagArgs,
     options: {
@@ -48,6 +54,11 @@ export async function run(argv: string[]): Promise<number> {
       // so the proxy stamps hostPlatform correctly under a headless spawn (where
       // runtime env markers are absent). Optional + tolerated (strict:false).
       host: { type: "string" },
+      // `--data-dir <path>` pins the framework data-root for the child (connector
+      // record + telemetry). Written only for a NON-DEFAULT root, so the child
+      // never depends on inheriting AGENT_CONNECTOR_DATA_DIR (codex strips it).
+      // Optional + tolerated (strict:false).
+      "data-dir": { type: "string" },
     },
     allowPositionals: true,
     strict: false,
@@ -73,6 +84,15 @@ export async function run(argv: string[]): Promise<number> {
   const hostPlatformOverride =
     typeof values.host === "string" ? (values.host as PlatformId) : undefined;
 
+  // `--data-dir` pins the framework data-root (string only). When present and
+  // non-empty, runServe makes the WHOLE child resolve this root — connector
+  // record lookup AND telemetry store — so the wrap is independent of the child
+  // env that codex strips. Absent → resolve the data-root the usual way.
+  const dataDir =
+    typeof values["data-dir"] === "string" && values["data-dir"].trim() !== ""
+      ? values["data-dir"]
+      : undefined;
+
   const serverCommand = serverInvocation[0];
   if (!serverCommand) {
     return fail("serve requires a command after `--`");
@@ -85,6 +105,7 @@ export async function run(argv: string[]): Promise<number> {
     serverArgs,
     installScope,
     hostPlatformOverride,
+    dataDir,
   });
   process.exit(code);
 }

@@ -333,6 +333,41 @@ describe("codex adapter render/round-trip", () => {
     expect(entry.env[ENV_VAR]).not.toContain("${");
   });
 
+  it("bakes --data-dir into the serve-wrap when the framework data-root is NON-DEFAULT (codex strips the child env)", () => {
+    // Override the data-root to a path OUTSIDE ~/.agent-connector. Codex does not
+    // propagate AGENT_CONNECTOR_DATA_DIR to the MCP child, so the wrap must carry
+    // the root explicitly or the spawned `serve` resolves the default root and
+    // dies "Connector not registered".
+    const overriddenRoot = join(projectDir, "custom-data-root");
+    const overriddenCtx = buildCtx(projectDir, buildRenderConnector(), {
+      scope: "project",
+      dataRoot: overriddenRoot,
+    });
+    const changes = codexAdapter.installServer(overriddenCtx);
+    expect(changes[0]?.action).toBe("create");
+
+    const cfg = TOML.parse(
+      readFileSync(join(projectDir, ".codex", "config.toml"), "utf8"),
+    ) as any;
+    const entry = cfg.mcp_servers[CONNECTOR_ID];
+    expect(entry.command).toBe(HOME_BIN);
+    expect(entry.args).toEqual([
+      "serve",
+      "--connector",
+      CONNECTOR_ID,
+      "--scope",
+      "project",
+      "--host",
+      "codex",
+      "--data-dir",
+      overriddenRoot,
+      "--",
+      "npx",
+      "-y",
+      "@x/y",
+    ]);
+  });
+
   it("installServer warn-skips a symlinked config.toml without touching the target", () => {
     const tomlPath = join(projectDir, ".codex", "config.toml");
     const outside = join(projectDir, "outside-config.toml");

@@ -233,9 +233,11 @@ function buildMcpConnector(): ResolvedConnector {
 /**
  * The serve-wrapper args bake the install TARGET platform as `--host <id>`
  * (before the `--` separator) so the proxy stamps hostPlatform correctly under a
- * headless spawn.
+ * headless spawn. When the ctx uses a NON-DEFAULT data-root (the render fixture
+ * sets `dataRoot: projectDir`), the wrap also bakes `--data-dir <root>` so an
+ * env-stripping host (codex) resolves the connector record from the right root.
  */
-const wrappedArgs = (host: string): string[] => [
+const wrappedArgs = (host: string, dataDir: string): string[] => [
   "serve",
   "--connector",
   MCP_CONNECTOR_ID,
@@ -243,6 +245,8 @@ const wrappedArgs = (host: string): string[] => [
   "project",
   "--host",
   host,
+  "--data-dir",
+  dataDir,
   "--",
   "npx",
   "-y",
@@ -279,7 +283,7 @@ describe("mux adapter render/round-trip", () => {
 
     // The command routes through the home-bin serve wrapper:
     //   "<homeBin> serve --connector <id> -- npx -y @x/y"
-    expect(entry).toBe([HOME_BIN, ...wrappedArgs("mux")].join(" "));
+    expect(entry).toBe([HOME_BIN, ...wrappedArgs("mux", projectDir)].join(" "));
     expect(entry.startsWith(HOME_BIN)).toBe(true);
     expect(entry).toContain("serve --connector acme-db --scope project --");
   });

@@ -182,8 +182,11 @@ function freshRenderProject(prefix: string): string {
 }
 
 // The serve-wrapper tail also bakes the install TARGET platform as `--host <id>`
-// (before `--`) so the proxy stamps hostPlatform under a headless spawn.
-const wrappedTail = (host: string): string[] => [
+// (before `--`) so the proxy stamps hostPlatform under a headless spawn. When the
+// ctx uses a NON-DEFAULT data-root (the render fixture sets `dataRoot:
+// projectDir`), the wrap also bakes `--data-dir <root>` so an env-stripping host
+// (codex) resolves the connector record from the right root.
+const wrappedTail = (host: string, dataDir: string): string[] => [
   "serve",
   "--connector",
   CONNECTOR_ID,
@@ -191,6 +194,8 @@ const wrappedTail = (host: string): string[] => [
   "project",
   "--host",
   host,
+  "--data-dir",
+  dataDir,
   "--",
   "npx",
   "-y",
@@ -487,7 +492,7 @@ describe("opencode adapter (ts-plugin) render", () => {
     expect(entry).toBeTruthy();
     expect(entry.type).toBe("local");
     expect(Array.isArray(entry.command)).toBe(true);
-    expect(entry.command).toEqual([HOME_BIN, ...wrappedTail("opencode")]);
+    expect(entry.command).toEqual([HOME_BIN, ...wrappedTail("opencode", projectDir)]);
 
     // No native interpolation token → env resolves to a LITERAL value.
     expect(entry.environment[ENV_VAR]).toBe(ENV_LITERAL);

@@ -49,6 +49,17 @@ export interface RunServeOptions {
    * otherwise mis-attributes). Absent/unrecognized → fall back to detection.
    */
   hostPlatformOverride?: PlatformId;
+  /**
+   * Framework data-root from `--data-dir <path>` (baked into the wrapper at
+   * install time, only for a NON-DEFAULT root). OPTIONAL: when present, it pins
+   * the data-root the WHOLE child resolves — connector record lookup AND the
+   * telemetry store — by populating AGENT_CONNECTOR_DATA_DIR before anything
+   * reads it. This is the env-independent path for hosts (codex) that strip the
+   * MCP child's environment and would otherwise drop the override, leaving the
+   * child to resolve the default `~/.agent-connector` and fail "not registered".
+   * Absent → resolve the data-root the usual way (env or default).
+   */
+  dataDir?: string;
 }
 
 /**
@@ -78,8 +89,23 @@ function resolveSessionId(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export async function runServe(opts: RunServeOptions): Promise<number> {
-  const { connectorId, serverCommand, serverArgs, installScope, hostPlatformOverride } =
-    opts;
+  const {
+    connectorId,
+    serverCommand,
+    serverArgs,
+    installScope,
+    hostPlatformOverride,
+    dataDir,
+  } = opts;
+
+  // Pin the data-root BEFORE anything resolves it (the connector record lookup
+  // below and openStore later both read dataRoot()). The wrapper passes
+  // --data-dir only for a non-default root on a host that may strip the child
+  // env (codex) — populating AGENT_CONNECTOR_DATA_DIR here makes the whole child
+  // resolve that root regardless of whether the host propagated the env var.
+  if (dataDir !== undefined && dataDir.trim() !== "") {
+    process.env.AGENT_CONNECTOR_DATA_DIR = dataDir;
+  }
 
   const connector = await loadRegisteredConnector(connectorId);
 

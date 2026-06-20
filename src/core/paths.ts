@@ -25,11 +25,31 @@ import { basename, isAbsolute, join, parse, relative, resolve, sep } from "node:
 
 import { assertConnectorId } from "./ids.js";
 
+/** The built-in default framework data-root (`~/.agent-connector`), ignoring
+ *  any AGENT_CONNECTOR_DATA_DIR override. */
+export function defaultDataRoot(): string {
+  return join(homedir(), ".agent-connector");
+}
+
 /** Framework data-root: AGENT_CONNECTOR_DATA_DIR || ~/.agent-connector. */
 export function dataRoot(): string {
   const override = process.env.AGENT_CONNECTOR_DATA_DIR;
   if (override && override.trim() !== "") return resolve(override);
-  return join(homedir(), ".agent-connector");
+  return defaultDataRoot();
+}
+
+/**
+ * True when `root` is a NON-DEFAULT data root — i.e. it differs from the
+ * built-in `~/.agent-connector`. Compared after `resolve()` so two spellings of
+ * the same dir read as equal. Used at install time to decide whether the
+ * telemetry serve-wrap must carry an explicit `--data-dir` flag: a default-root
+ * install relies on the (correct) fallback and stays flag-free, but an overridden
+ * root must be passed explicitly because some hosts (codex) strip the child env,
+ * so the spawned `serve` would otherwise resolve the default root and fail to
+ * find the connector record written under the overridden one.
+ */
+export function isNonDefaultDataRoot(root: string): boolean {
+  return resolve(root) !== resolve(defaultDataRoot());
 }
 
 export function connectorsDir(): string {
