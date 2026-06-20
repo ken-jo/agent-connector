@@ -29,10 +29,15 @@ import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   ConnectorConfig,
+  PostToolUseEvent,
   PostToolUseFailureEvent,
   PreToolUseEvent,
   ResolvedConnector,
+  SessionEndEvent,
+  SessionStartEvent,
+  StopEvent,
   Transport,
+  UserPromptSubmitEvent,
 } from "../../src/core/types.js";
 
 import gooseAdapter from "../../src/adapters/goose/index.js";
@@ -656,12 +661,20 @@ describe("goose — extended-event install", () => {
 });
 
 describe("goose — extended-event parse + replies", () => {
-  it("PostToolUseFailure maps error/tool_use_id/is_interrupt/duration_ms (+ working_dir → projectDir)", () => {
+  // SOURCE-VERIFIED (kimi #189 false-friend class): goose builds the failure
+  // HookContext with ONLY with_tool + with_working_dir (agent.rs:526-537); its
+  // struct (hooks/mod.rs:162-176) has no error/tool_use_id/is_interrupt/
+  // duration_ms field, so NONE of those are on the wire. The adapter no longer
+  // reads them — even a synthetic payload that (wrongly) includes them must not
+  // surface them on the normalized event, and `error` is always "" (host gap).
+  it("PostToolUseFailure: maps tool_name/tool_input + working_dir→projectDir; error always '' and no phantom failure fields", () => {
     const evt = gooseAdapter.parseEvent!("PostToolUseFailure", {
       session_id: "sess-1",
       working_dir: "/home/dev/acme",
       tool_name: "shell",
       tool_input: { command: "make test" },
+      // Fields goose NEVER serializes — present here only to prove the adapter
+      // ignores them (false-friend reads removed).
       tool_use_id: "call_01",
       error: "exit status 2",
       is_interrupt: false,
@@ -670,16 +683,21 @@ describe("goose — extended-event parse + replies", () => {
     expect(evt.hostPlatform).toBe("goose");
     expect(evt.toolName).toBe("shell");
     expect(evt.toolInput).toEqual({ command: "make test" });
-    expect(evt.error).toBe("exit status 2");
-    expect(evt.toolUseId).toBe("call_01");
-    expect(evt.isInterrupt).toBe(false);
-    expect(evt.durationMs).toBe(450);
     expect(evt.projectDir).toBe("/home/dev/acme");
+    // error is a HOST GAP — goose carries no failure text on stdin → always "".
+    expect(evt.error).toBe("");
+    // The removed false-friend reads must not resurface from a stray payload.
+    expect(evt.toolUseId).toBeUndefined();
+    expect(evt.isInterrupt).toBeUndefined();
+    expect(evt.durationMs).toBeUndefined();
 
+    // A bare failure ctx (what goose actually sends) parses without throwing and
+    // still yields error === "".
     const minimal = gooseAdapter.parseEvent!("PostToolUseFailure", {
       tool_name: "write",
     }) as PostToolUseFailureEvent;
     expect(minimal.error).toBe("");
+    expect(minimal.toolUseId).toBeUndefined();
   });
 
   it("PermissionRequest / SubagentStart / SubagentStop throw (no Goose analog)", () => {
@@ -717,6 +735,97 @@ describe("goose — extended-event parse + replies", () => {
       gooseAdapter.formatReply!("PreToolUse", { decision: "deny", reason: "nope" }).stdout!,
     );
     expect(reply).toEqual({ decision: "block", reason: "nope" });
+  });
+});
+
+// ── wire false-friend fixes (kimi #189 class — read fields goose ACTUALLY emits) ─
+//
+// goose's stdin payload is the serialized `HookContext` struct
+// (crates/goose/src/hooks/mod.rs:162-176): ONLY event/session_id/matcher_context/
+// tool_name?/tool_input?/tool_output?/message?/working_dir?. The adapter formerly
+// read Claude-style fields goose never sends (prompt, tool_response, is_error,
+// source, reason, stop_hook_active, error, tool_use_id, is_interrupt,
+// duration_ms). These assert the corrected reads + that the dead-read removals
+// don't crash on a bare/real-shaped payload.
+describe("goose — wire false-friend fixes (HookContext struct)", () => {
+  it("UserPromptSubmit: reads the prompt from `message` (goose has no `prompt` field) → prompt === 'hi'", () => {
+    const ev = gooseAdapter.parseEvent!("UserPromptSubmit", {
+      session_id: "sess-9",
+      working_dir: "/work/proj",
+      message: "hi",
+      connector: CONNECTOR_ID,
+    }) as UserPromptSubmitEvent;
+    expect(ev.hostPlatform).toBe("goose");
+    expect(ev.prompt).toBe("hi");
+
+    // The OLD wire field `prompt` is a false friend — it must be ignored now.
+    const stray = gooseAdapter.parseEvent!("UserPromptSubmit", {
+      prompt: "should-be-ignored",
+    }) as UserPromptSubmitEvent;
+    expect(stray.prompt).toBe("");
+  });
+
+  it("PostToolUse: reads `tool_output` (NOT `tool_response`) and never emits isError", () => {
+    const ev = gooseAdapter.parseEvent!("PostToolUse", {
+      tool_name: "shell",
+      tool_input: { command: "ls" },
+      tool_output: "file-a\nfile-b",
+    }) as PostToolUseEvent;
+    expect(ev.toolName).toBe("shell");
+    expect(ev.toolOutput).toBe("file-a\nfile-b");
+    // No `is_error` field exists on HookContext → isError is never set.
+    expect(ev.isError).toBeUndefined();
+
+    // The OLD `tool_response` field is a false friend — ignored now.
+    const stray = gooseAdapter.parseEvent!("PostToolUse", {
+      tool_name: "shell",
+      tool_input: {},
+      tool_response: "should-be-ignored",
+      is_error: true,
+    }) as PostToolUseEvent;
+    expect(stray.toolOutput).toBeUndefined();
+    expect(stray.isError).toBeUndefined();
+  });
+
+  it("SessionStart: bare HookContext has no source → defaults to 'startup' (any stray source ignored)", () => {
+    const ev = gooseAdapter.parseEvent!("SessionStart", {
+      session_id: "sess-2",
+    }) as SessionStartEvent;
+    expect(ev.source).toBe("startup");
+
+    // goose has no `source` field; a stray one must NOT change the result.
+    const stray = gooseAdapter.parseEvent!("SessionStart", {
+      source: "resume",
+    }) as SessionStartEvent;
+    expect(stray.source).toBe("startup");
+  });
+
+  it("SessionEnd: dead-read `reason` removed → bare payload parses, no reason surfaced", () => {
+    const ev = gooseAdapter.parseEvent!("SessionEnd", {
+      session_id: "sess-3",
+    }) as SessionEndEvent;
+    expect(ev.hostPlatform).toBe("goose");
+    expect(ev.reason).toBeUndefined();
+
+    // goose has no `reason` field on input; a stray one is ignored.
+    const stray = gooseAdapter.parseEvent!("SessionEnd", {
+      reason: "should-be-ignored",
+    }) as SessionEndEvent;
+    expect(stray.reason).toBeUndefined();
+  });
+
+  it("Stop: dead-read `stop_hook_active` removed → bare payload parses, no stopHookActive surfaced", () => {
+    const ev = gooseAdapter.parseEvent!("Stop", {
+      session_id: "sess-4",
+    }) as StopEvent;
+    expect(ev.hostPlatform).toBe("goose");
+    expect(ev.stopHookActive).toBeUndefined();
+
+    // goose has no `stop_hook_active` field; a stray one is ignored.
+    const stray = gooseAdapter.parseEvent!("Stop", {
+      stop_hook_active: true,
+    }) as StopEvent;
+    expect(stray.stopHookActive).toBeUndefined();
   });
 });
 

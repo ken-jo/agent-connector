@@ -160,7 +160,18 @@ interface GooseHooksFile {
   hooks: Record<string, GooseHookRule[]>;
 }
 
-/** Raw Goose hook stdin payload (Claude-compatible JSON). */
+/**
+ * Raw Goose hook stdin payload — the serialized `HookContext` struct
+ * (crates/goose/src/hooks/mod.rs:162-176). Goose's HookContext carries ONLY:
+ *   event, session_id, matcher_context, tool_name?, tool_input?, tool_output?,
+ *   message?, working_dir?
+ * It is NOT Claude-compatible: there is no `prompt`, `tool_response`, `error`,
+ * `is_error`, `source`, `reason`, `stop_hook_active`, `tool_use_id`,
+ * `is_interrupt`, or `duration_ms` field on the wire — reading any of those
+ * (kimi #189 false-friend class) yields undefined for every event. The prompt
+ * rides on `message` (`.with_message`, agent.rs:1505-1509); the tool result
+ * rides on `tool_output` (NOT `tool_response`).
+ */
 interface GooseWireInput {
   session_id?: string;
   /** Goose names the working directory `working_dir`; `cwd` is a fallback. */
@@ -169,19 +180,14 @@ interface GooseWireInput {
   hook_event_name?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  tool_response?: unknown;
-  // PostToolUseFailure (Claude-compatible failure fields)
-  tool_use_id?: string;
-  error?: string;
-  is_interrupt?: boolean;
-  duration_ms?: number;
-  source?: string;
-  reason?: string;
-  prompt?: string;
-  trigger?: string;
-  stop_hook_active?: boolean;
+  /** PostToolUse result field is `tool_output` (NOT Claude's `tool_response`);
+   * goose's PostToolUse ctx never calls with_tool_output, so it is absent on the
+   * wire — kept for forward-compat (agent.rs:534-536, hooks/mod.rs:171,200-203). */
+  tool_output?: unknown;
+  /** UserPromptSubmit prompt text lives here via `.with_message`
+   * (agent.rs:1505-1509); goose has NO `prompt` field. */
   message?: string;
-  is_error?: boolean;
+  trigger?: string;
   /** Injected by the entrypoint so the runtime knows which connector to dispatch. */
   connector?: string;
 }
@@ -711,32 +717,49 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostToolUse": {
+        // SOURCE (hooks/mod.rs:171, agent.rs:534-536): the result field is
+        // `tool_output` (NOT `tool_response`), AND goose's PostToolUse ctx is
+        // built with only with_tool + with_working_dir — it never calls
+        // with_tool_output — so no output is on the wire today. The read is kept
+        // for forward-compat (if goose later populates tool_output it maps here).
+        // There is NO `is_error` field on HookContext: goose signals failure by
+        // emitting PostToolUseFailure as a DISTINCT event (agent.rs:526-531),
+        // not via a boolean — so isError is never set here.
         const ev: PostToolUseEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          ...(toolResponseToString(input.tool_response) !== undefined
-            ? { toolOutput: toolResponseToString(input.tool_response) }
+          ...(toolOutputToString(input.tool_output) !== undefined
+            ? { toolOutput: toolOutputToString(input.tool_output) }
             : {}),
-          ...(typeof input.is_error === "boolean" ? { isError: input.is_error } : {}),
         };
         return ev;
       }
       case "SessionStart": {
-        const ev: SessionStartEvent = { ...base, source: normalizeSessionSource(input.source) };
+        // SOURCE (agent.rs:409-416 emit_hook + hooks/mod.rs:736-737 test): goose
+        // emits SessionStart as a BARE HookContext::new with no builders — its
+        // struct has no `source` discriminator, so there is no field to read.
+        // normalizeSessionSource(undefined) → 'startup'; that is the only honest
+        // value goose can supply. If goose later adds a start-reason field, map
+        // it here.
+        const ev: SessionStartEvent = { ...base, source: normalizeSessionSource(undefined) };
         return ev;
       }
       case "SessionEnd": {
-        const ev: SessionEndEvent = {
-          ...base,
-          ...(typeof input.reason === "string" ? { reason: input.reason } : {}),
-        };
+        // SOURCE (agent.rs:409-416 emit_hook): SessionEnd is also a bare
+        // HookContext with no `reason` field on the struct — goose provides no
+        // end-reason on stdin (the hooks/mod.rs `reason` is the hook→host deny
+        // REPLY direction, not input). The optional normalized reason is omitted.
+        const ev: SessionEndEvent = { ...base };
         return ev;
       }
       case "UserPromptSubmit": {
+        // SOURCE (agent.rs:1505-1509 .with_message + hooks/mod.rs:173): goose has
+        // NO `prompt` field; the prompt text is carried on `message`. Reading
+        // input.prompt always dropped the whole prompt — read input.message.
         const ev: UserPromptSubmitEvent = {
           ...base,
-          prompt: typeof input.prompt === "string" ? input.prompt : "",
+          prompt: typeof input.message === "string" ? input.message : "",
         };
         return ev;
       }
@@ -750,12 +773,11 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "Stop": {
-        const ev: StopEvent = {
-          ...base,
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
-            : {}),
-        };
+        // SOURCE (agent.rs:1851-1854, 2536-2539, 2575 emit_hook + hooks/mod.rs
+        // :162-176): every Stop emit site constructs a bare HookContext::new
+        // (Stop); the struct has no `stop_hook_active` field, so the optional
+        // stopHookActive is omitted (goose emits no such boolean).
+        const ev: StopEvent = { ...base };
         return ev;
       }
       case "Notification": {
@@ -766,20 +788,19 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "PostToolUseFailure": {
+        // SOURCE (agent.rs:526-537 + hooks/mod.rs:162-176): goose builds the
+        // failure HookContext with ONLY with_tool + with_working_dir. The struct
+        // carries no `error` text on the wire — HOST GAP: the failure message is
+        // genuinely never serialized on stdin (the hooks/mod.rs `reason` is the
+        // hook→host deny REPLY, not input), so the REQUIRED normalized `error`
+        // stays "". There is also no `tool_use_id`, `is_interrupt`, or
+        // `duration_ms` field on HookContext — those optional fields are omitted
+        // (no correlation id / interrupt flag / duration is delivered).
         const ev: PostToolUseFailureEvent = {
           ...base,
           toolName: input.tool_name ?? "",
           toolInput: input.tool_input ?? {},
-          error: typeof input.error === "string" ? input.error : "",
-          ...(typeof input.tool_use_id === "string"
-            ? { toolUseId: input.tool_use_id }
-            : {}),
-          ...(typeof input.is_interrupt === "boolean"
-            ? { isInterrupt: input.is_interrupt }
-            : {}),
-          ...(typeof input.duration_ms === "number"
-            ? { durationMs: input.duration_ms }
-            : {}),
+          error: "",
         };
         return ev;
       }
@@ -860,8 +881,8 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
   }
 }
 
-/** Coerce a Goose PostToolUse `tool_response` into a string. */
-function toolResponseToString(value: unknown): string | undefined {
+/** Coerce a Goose PostToolUse `tool_output` (hooks/mod.rs:171) into a string. */
+function toolOutputToString(value: unknown): string | undefined {
   if (value == null) return undefined;
   if (typeof value === "string") return value;
   try {
