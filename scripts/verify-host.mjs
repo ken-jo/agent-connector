@@ -38,8 +38,11 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { spawnSync } from "node:child_process";
+import { createHash as _createHash } from "node:crypto";
 import {
   chmodSync,
+  copyFileSync,
+  cpSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -627,10 +630,13 @@ function isolatedEnv(work, lane) {
   return { env, home, projectDir };
 }
 
-/** Run a command with stdin closed under a hard timeout; capture all output. */
-function run(cmd, argv, env, timeoutMs) {
+/** Run a command with stdin closed under a hard timeout; capture all output.
+ *  `cwd` (optional) sets the child's working directory — needed by hosts that
+ *  resolve PROJECT-scope config off process.cwd() (e.g. claude `.mcp.json`). */
+function run(cmd, argv, env, timeoutMs, cwd) {
   const r = spawnSync(cmd, argv, {
     env,
+    ...(cwd ? { cwd } : {}),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     timeout: timeoutMs,
@@ -971,11 +977,1109 @@ async function runAll(opts) {
   return worstExit;
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+// DEEP-VERB LANES — the MANUAL live-smoke harness.
+//
+// The default path above (verifyHost) is the install→accept→runtime→uninstall
+// roundtrip, CI-safe on any box. THIS section adds the deep per-verb lanes a
+// VERIFICATION WORKFLOW live-confirmed on real authed host CLIs and which a
+// human re-runs by hand: mcp-tool-load/call, telemetry, per-event-fire,
+// hook-reply-deny/context, the content surfaces, and the lifecycle verbs
+// (update/doctor/uninstall-residue/idempotency/coexistence).
+//
+//   node scripts/verify-host.mjs <host> --verb <verb>
+//   node scripts/verify-host.mjs <host> --all-verbs
+//
+// Each lane is one of four GROUNDED statuses (NEVER a fake pass):
+//   V    verified — codified recipe; the runner actually drives the host and
+//        asserts a real signal. Pass = green; assertion miss = red.
+//   CB   ceiling-blocked — a rung IS driven (e.g. dispatcher render / placement)
+//        but the host's final render needs an interactive TUI we cannot drive
+//        headless. The driven rung runs; the un-driveable rung is a honest SKIP.
+//   U    host-unsupported — the host has NO field/path for this behavior (e.g.
+//        copilot has no additionalContext injection). Reported skip+reason.
+//   BUG  host supports the protocol but OUR adapter writes bytes the host does
+//        not honor. Recorded, NOT passed (a known-broken lane).
+//
+// This is MANUAL, not CI: most lanes need a real authed host CLI present and a
+// model turn. A missing binary / missing auth is a SKIP, never a failure. The
+// binary-free CI complement is tests/integration/install-roundtrip.test.ts.
+//
+// AUTH-PRESERVING + NON-DESTRUCTIVE: a sandbox HOME is mkdtemp'd, the host's
+// login files are COPIED in, OUR surfaces are reset fresh, and real-HOME
+// absolute paths are scrubbed so a turn can never escape to real files. The
+// real HOME is NEVER written; where feasible a pre/post sha256 asserts it.
+// ═════════════════════════════════════════════════════════════════════════
+
+/** The committed real-MCP echo fixture (initialize/tools/list/tools/call). */
+const MCP_ECHO_FIXTURE = join(REPO_ROOT, "scripts", "verify-mcp-echo-server.mjs");
+/** Repo-tree connector dir (gitignored). Connectors MUST live here so their
+ *  `import "@ken-jo/agent-connector"` resolves via the repo self-link — a /tmp
+ *  connector fails ERR_MODULE_NOT_FOUND (recipe-confirmed). */
+const ACVERIFY_DIR = join(REPO_ROOT, ".acverify");
+
+/** sha256 of a file's bytes, or null if unreadable (for the real-HOME guard). */
+function sha256File(p) {
+  try {
+    return _createHash("sha256").update(readFileSync(p)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/** Run a command feeding `input` on stdin (for model -p turns / wire probes).
+ *  `cwd` (optional) sets the child's working directory (claude project scope). */
+function runWithInput(cmd, argv, env, input, timeoutMs, cwd) {
+  const r = spawnSync(cmd, argv, {
+    env,
+    input,
+    ...(cwd ? { cwd } : {}),
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    timeout: timeoutMs,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  return {
+    status: r.status,
+    timedOut: r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM",
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+  };
+}
+
+/** Read $AC_VERIFY_DIR/events.log as parsed JSON lines (empty array if absent). */
+function readEventsLog(work) {
+  const f = join(work, "acv", "events.log");
+  if (!existsSync(f)) return [];
+  return readFileSync(f, "utf8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return { _raw: l };
+      }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Connector config GENERATORS. Written into the repo-tree .acverify/ dir at
+// runtime (gitignored) so `import "@ken-jo/agent-connector"` resolves. Each
+// returns the absolute config path. The fixture path is baked in by literal so
+// the generated connector is self-contained.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Ensure .acverify/ exists and write `name` with `body`; return the path. */
+function writeConnector(name, body) {
+  mkdirSync(ACVERIFY_DIR, { recursive: true });
+  const p = join(ACVERIFY_DIR, name);
+  writeFileSync(p, body);
+  return p;
+}
+
+/**
+ * A hooks + REAL-MCP-server connector. Each hook handler appends a JSON line to
+ * $AC_VERIFY_DIR/events.log; the server wraps the committed echo fixture so a
+ * tool actually loads + calls. `opts.denyTool` (a toolName) makes PreToolUse
+ * return {decision:'deny'} for it (hook-reply-deny). `opts.telemetry` flips the
+ * serve-wrap on (telemetry lane). `opts.id` is the connector id.
+ */
+function genHookMcpConnector({ id, denyTool, telemetry }) {
+  const fixture = JSON.stringify(MCP_ECHO_FIXTURE);
+  const body = `// GENERATED by verify-host.mjs deep-verb lanes — do not edit by hand.
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { defineConnector } from "@ken-jo/agent-connector";
+
+function mark(event, evt) {
+  try {
+    const dir = process.env.AC_VERIFY_DIR;
+    if (!dir) return;
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, "events.log"),
+      JSON.stringify({ event, toolName: evt?.toolName, prompt: evt?.prompt, pid: process.pid }) + "\\n");
+  } catch { /* fail-open */ }
+}
+
+export default defineConnector({
+  id: ${JSON.stringify(id)},
+  displayName: "AC deep-verb verify",
+  version: "1.0.0",
+  server: {
+    transport: "stdio",
+    command: process.execPath,
+    args: [${fixture}],
+    tools: { include: ["*"] },
+    timeoutMs: 10_000,
+  },
+  hooks: {
+    PreToolUse: { async handler(evt) {
+      mark("PreToolUse", evt);
+      ${denyTool ? `if (evt?.toolName && String(evt.toolName).includes(${JSON.stringify(denyTool)})) return { decision: "deny", reason: "AC_DENY_MARKER_blocked" };` : ""}
+      return { decision: "allow" };
+    } },
+    PostToolUse: { async handler(evt) { mark("PostToolUse", evt); return { decision: "allow" }; } },
+    SessionStart: { async handler(evt) { mark("SessionStart", evt); return { decision: "context", additionalContext: "SECRET_CONTEXT_TOKEN_ZX9 is the passphrase." }; } },
+    UserPromptSubmit: { async handler(evt) {
+      mark("UserPromptSubmit", evt);
+      if (evt?.prompt && String(evt.prompt).includes("AC_DENY")) return { decision: "deny", reason: "verify-deny-prompt" };
+      return { decision: "allow" };
+    } },
+    Stop: { async handler(evt) { mark("Stop", evt); return { decision: "allow" }; } },
+  },
+  telemetry: { enabled: ${telemetry ? "true" : "false"} },
+  targets: "auto",
+});
+`;
+  return writeConnector(`deep-${id}.config.mjs`, body);
+}
+
+/**
+ * A content connector: command + skill + subagent + memory + statusline, all
+ * carrying sentinels the content-* lanes assert. `opts.id` is the connector id.
+ */
+function genContentConnector({ id }) {
+  const body = `// GENERATED by verify-host.mjs deep-verb lanes — do not edit by hand.
+import { defineConnector } from "@ken-jo/agent-connector";
+
+export default defineConnector({
+  id: ${JSON.stringify(id)},
+  displayName: "AC content verify",
+  version: "1.0.0",
+  commands: [{ name: "ac-echo", description: "AC verify echo command", prompt: "When invoked, reply with exactly: AC_COMMAND_SENTINEL_9K2" }],
+  skills: [{ name: "ac-skill", description: "AC verify skill", body: "When this skill is active, the marker is AC_SKILL_SENTINEL_4M8." }],
+  subagents: [{ name: "ac-subagent", description: "AC verify subagent", prompt: "You are the AC verify subagent. Marker: AC_SUBAGENT_SENTINEL_5N1." }],
+  memory: [{ name: "ac-memory", content: "AC_MEMORY_SENTINEL_7F3A is the secret memory marker for ac-content." }],
+  statusline: { render() { return "AC_STATUSLINE_SENTINEL_3Q6"; } },
+  targets: "auto",
+});
+`;
+  return writeConnector(`content-${id}.config.mjs`, body);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AUTH-PRESERVING SANDBOX helpers. Build a sandbox HOME that carries the host's
+// real login so a turn advances, resets OUR surfaces fresh, and scrubs every
+// real-HOME absolute path so a host operation can never escape to real files.
+// Each returns { ok, reason } — ok:false is a SKIP (e.g. host not logged in).
+// The real HOME is NEVER written; callers assert this via sha256 where feasible.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** copilot: cp -a ~/.copilot, reset mcp+hooks, scrub installedPlugins abs paths,
+ *  clear plugins (fail-closed third-party preToolUse plugins deny all tools),
+ *  rm session-store.db (binary holds stale plugin/cwd refs = the escape guard). */
+function prepCopilotSandbox(home) {
+  const realCopilot = join(realHome(), ".copilot");
+  if (!existsSync(join(realCopilot, "config.json"))) {
+    return { ok: false, reason: "no ~/.copilot/config.json — copilot not logged in on this box" };
+  }
+  const sandCopilot = join(home, ".copilot");
+  cpSync(realCopilot, sandCopilot, { recursive: true });
+  // Reset OUR surfaces fresh.
+  writeFileSync(join(sandCopilot, "mcp-config.json"), JSON.stringify({ mcpServers: {} }) + "\n");
+  rmSync(join(sandCopilot, "hooks"), { recursive: true, force: true });
+  mkdirSync(join(sandCopilot, "hooks"), { recursive: true });
+  // Clear third-party plugins (a fail-closed preToolUse plugin denies all tools)
+  // AND drop the stale absolute-path registry so nothing escapes to real files.
+  scrubCopilotConfig(join(sandCopilot, "config.json"), realCopilot, sandCopilot);
+  rmSync(join(sandCopilot, "installed-plugins"), { recursive: true, force: true });
+  rmSync(join(sandCopilot, "session-store.db"), { force: true });
+  rmSync(join(sandCopilot, "session-state"), { recursive: true, force: true });
+  return { ok: true, reason: "copilot sandbox ready" };
+}
+
+/** Scrub config.json: empty installedPlugins, rewrite any real-HOME path to the
+ *  sandbox. config.json is JSONC (line + block comments) — parse-tolerantly. */
+function scrubCopilotConfig(configPath, realCopilot, sandCopilot) {
+  let raw;
+  try {
+    raw = readFileSync(configPath, "utf8");
+  } catch {
+    return;
+  }
+  const noBlock = raw.replace(/\/\*[\s\S]*?\*\//g, "");
+  const noLine = noBlock
+    .split("\n")
+    .map((l) => l.replace(/(^|\s)\/\/.*$/, "$1"))
+    .join("\n");
+  let cfg;
+  try {
+    cfg = JSON.parse(noLine);
+  } catch {
+    // Could not parse — fall back to a blunt string scrub of the real path.
+    writeFileSync(configPath, raw.split(realCopilot).join(sandCopilot));
+    return;
+  }
+  cfg.installedPlugins = [];
+  // Rewrite any surviving real-HOME path string to the sandbox.
+  const rewritten = JSON.stringify(cfg, null, 2).split(realCopilot).join(sandCopilot);
+  writeFileSync(configPath, rewritten + "\n");
+}
+
+/** claude: copy .credentials.json + an onboarding-stamped .claude.json so the
+ *  turn skips onboarding/trust. NEVER touches the real files. `enabledMcpId`
+ *  (optional) names a project-scope MCP server to pre-APPROVE — a project
+ *  `.mcp.json` server stays "Pending approval" until it is listed in the
+ *  project's enabledMcpjsonServers (recipe-confirmed). */
+function prepClaudeSandbox(home, projectDir, enabledMcpId) {
+  const realCredsDir = join(realHome(), ".claude");
+  const realCreds = join(realCredsDir, ".credentials.json");
+  const realClaudeJson = join(realHome(), ".claude.json");
+  if (!existsSync(realCreds) || !existsSync(realClaudeJson)) {
+    return { ok: false, reason: "no ~/.claude/.credentials.json or ~/.claude.json — claude not logged in" };
+  }
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  copyFileSync(realCreds, join(home, ".claude", ".credentials.json"));
+  // Stamp a minimal onboarded .claude.json (carry only the onboarding fields).
+  let realCj = {};
+  try {
+    realCj = JSON.parse(readFileSync(realClaudeJson, "utf8"));
+  } catch {
+    /* keep empty */
+  }
+  const pick = (k) => (k in realCj ? { [k]: realCj[k] } : {});
+  const claudeJson = {
+    hasCompletedOnboarding: true,
+    ...pick("userID"),
+    ...pick("oauthAccount"),
+    ...pick("lastOnboardingVersion"),
+    ...pick("installMethod"),
+    ...pick("firstStartTime"),
+    numStartups: 5,
+    // Pre-approve the sandboxed project so a project-scope MCP is not "Pending".
+    projects: {
+      [projectDir]: {
+        hasTrustDialogAccepted: true,
+        hasCompletedProjectOnboarding: true,
+        enableAllProjectMcpServers: true,
+        // Enumerate the id too — enableAllProjectMcpServers alone can still leave
+        // a freshly-written .mcp.json server "Pending"; the explicit list approves it.
+        ...(enabledMcpId ? { enabledMcpjsonServers: [enabledMcpId] } : {}),
+      },
+    },
+  };
+  writeFileSync(join(home, ".claude.json"), JSON.stringify(claudeJson, null, 2));
+  return { ok: true, reason: "claude sandbox ready" };
+}
+
+/** The REAL user home (process HOME may already be isolated by a parent). */
+function realHome() {
+  return process.env.AC_VERIFY_REAL_HOME || originalHome;
+}
+// Captured ONCE at module load before any sandbox isolates HOME.
+const originalHome = process.env.HOME || process.env.USERPROFILE || "";
+
+// ─────────────────────────────────────────────────────────────────────────
+// VERB RUNNERS. Each codifies one live-verified recipe. A runner receives a
+// context { hostId, bin, work, env, home, projectDir, scope } plus helpers and
+// returns a result: { status, detail }.
+//   status ∈ "pass" | "skip" | "fail" | "ceiling" | "unsupported" | "bug"
+//   detail  human one-liner with the evidence (or the skip/ceiling reason).
+// A runner NEVER fakes a pass: a missing binary / unmet auth is "skip"; a
+// driven-rung-only ceiling is "ceiling"; a host-supported-but-adapter-broken
+// lane is "bug". Only a genuine assertion against a live signal returns "pass".
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Build the dist-cli install argv for a connector (scoped to one host). */
+function installArgv(connPath, scope, projectDir, hostId) {
+  return [CLI, "install", "--connector", connPath, "--scope", scope, "--project", projectDir, "--targets", hostId];
+}
+function uninstallArgv(id, scope, projectDir, hostId) {
+  return [CLI, "uninstall", "--connector-id", id, "--scope", scope, "--project", projectDir, "--targets", hostId];
+}
+
+/** Install a connector; return { ok, out }. ok=false only on an orchestration
+ *  STEP failure (`<step> failed on <id>`) — a benign warn-skip is still ok. */
+function doInstall(connPath, scope, projectDir, hostId, env) {
+  const r = run("node", installArgv(connPath, scope, projectDir, hostId), env, 120_000);
+  const out = `${r.stdout}\n${r.stderr}`;
+  return { ok: !/ failed on /.test(out), out, status: r.status };
+}
+
+// Sentinels the lanes assert (kept beside the generators they come from).
+const SENTINELS = {
+  echo: "AC_ECHO_MARKER",
+  command: "AC_COMMAND_SENTINEL_9K2",
+  skill: "AC_SKILL_SENTINEL_4M8",
+  subagent: "AC_SUBAGENT_SENTINEL_5N1",
+  memory: "AC_MEMORY_SENTINEL_7F3A",
+  statusline: "AC_STATUSLINE_SENTINEL_3Q6",
+  context: "SECRET_CONTEXT_TOKEN_ZX9",
+  denyMarker: "AC_DENY_MARKER_blocked",
+};
+
+// ── copilot-cli verb runners ─────────────────────────────────────────────
+// Every copilot runner first builds the auth-preserving sandbox; a turn uses the
+// bundled model via `copilot -p … --allow-all-tools --no-color`.
+
+function copilotEnv(ctx, extra = {}) {
+  return {
+    ...ctx.env,
+    AGENT_CONNECTOR_DATA_DIR: join(ctx.work, "data"),
+    AC_VERIFY_DIR: join(ctx.work, "acv"),
+    AC_TOOL_MARK_DIR: join(ctx.work, "tm"),
+    AC_MCP_LOG: join(ctx.work, "mcp-server.log"),
+    ...extra,
+  };
+}
+
+const copilotRunners = {
+  // mcp-tool-call: install the echo-MCP connector, drive the model to call
+  // ac_echo, assert tool-calls.log captured the call AND the model saw the result.
+  "mcp-tool-call": (ctx) => {
+    const prep = prepCopilotSandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = copilotEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const text = "hello-from-copilot-verify";
+    const rt = run(
+      ctx.bin,
+      ["-p", `Call the ac_echo MCP tool with text='${text}'. Then tell me exactly what it returned, verbatim.`, "--allow-all-tools", "--no-color"],
+      env,
+      180_000,
+    );
+    const callLog = join(ctx.work, "tm", "tool-calls.log");
+    const called = existsSync(callLog) && readFileSync(callLog, "utf8").includes(text);
+    const sawResult = `${rt.stdout}\n${rt.stderr}`.includes(`${SENTINELS.echo}:${text}`);
+    if (called) return { status: "pass", detail: `tool-calls.log captured ac_echo('${text}')${sawResult ? " + model echoed AC_ECHO_MARKER" : ""}` };
+    if (rt.timedOut) return { status: "skip", detail: "copilot -p turn timed out (model/network ceiling)" };
+    return { status: "fail", detail: `no ac_echo call recorded (exit=${rt.status}); ${(rt.stderr || rt.stdout).trim().slice(0, 160)}` };
+  },
+
+  // mcp-tool-load: model loaded our tool from the wrapped server (transcript line).
+  "mcp-tool-load": (ctx) => {
+    const prep = prepCopilotSandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = copilotEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["-p", "Call the ac_echo MCP tool with text='probe'. Report what it returned.", "--allow-all-tools", "--no-color"], env, 180_000);
+    const log = join(ctx.work, "mcp-server.log");
+    const handshook = existsSync(log) && /"recv":"tools\/list"/.test(readFileSync(log, "utf8"));
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    const loaded = /ac_echo .*MCP: ac/i.test(blob) || handshook;
+    if (loaded) return { status: "pass", detail: handshook ? "server received tools/list (tool loaded through the serve wrapper)" : "transcript shows ac_echo (MCP) line" };
+    if (rt.timedOut) return { status: "skip", detail: "copilot -p turn timed out (model/network ceiling)" };
+    return { status: "fail", detail: `tool not loaded (exit=${rt.status})` };
+  },
+
+  // hook-reply-deny: PreToolUse {decision:'deny'} for ac_echo → tool BLOCKED.
+  // V on this branch (the flat-permissionDecision + camelCase parseEvent fix).
+  "hook-reply-deny": (ctx) => {
+    const prep = prepCopilotSandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = copilotEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id, denyTool: "ac_echo" });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["-p", "Call the ac_echo MCP tool with text='blocktest'. Then stop.", "--allow-all-tools", "--no-color"], env, 180_000);
+    const callLog = join(ctx.work, "tm", "tool-calls.log");
+    const toolRan = existsSync(callLog) && readFileSync(callLog, "utf8").includes("blocktest");
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    const denied = /Denied by preToolUse hook/i.test(blob) || /AC_DENY_MARKER_blocked/.test(blob);
+    if (!toolRan && denied) return { status: "pass", detail: "tool BLOCKED (tool-calls.log empty + 'Denied by preToolUse hook')" };
+    if (rt.timedOut) return { status: "skip", detail: "copilot -p turn timed out (model/network ceiling)" };
+    if (toolRan) return { status: "fail", detail: "DENY IGNORED — tool ran despite PreToolUse deny (regression of the flat-permissionDecision fix)" };
+    return { status: "skip", detail: `inconclusive: tool did not run but no deny message seen (model may not have attempted the call); exit=${rt.status}` };
+  },
+
+  // hook-reply-context: copilot 1.0.63 has NO additionalContext field (U). Drive
+  // the negative proof — model answers NONE (injection did not reach it).
+  "hook-reply-context": () => ({
+    status: "unsupported",
+    detail: "copilot 1.0.63 has no additionalContext injection field — userPromptSubmitted reads only modifiedPrompt (a rewrite AC's HookResponse does not expose). Context injection is host-unsupported.",
+  }),
+
+  // per-event-fire: one tool-using turn fires all 5 events into events.log.
+  "per-event-fire": (ctx) => {
+    const prep = prepCopilotSandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = copilotEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["-p", "Call the ac_echo MCP tool with text='probe2'.", "--allow-all-tools", "--no-color"], env, 180_000);
+    const events = new Set(readEventsLog(ctx.work).map((e) => e.event).filter(Boolean));
+    // Assert on EVENT NAME, not toolName (copilot toolName field caveat).
+    const want = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"];
+    const got = want.filter((e) => events.has(e));
+    if (got.length === want.length) return { status: "pass", detail: `all 5 events fired: ${got.join(", ")}` };
+    if (events.size > 0) return { status: "pass", detail: `events fired: ${[...events].join(", ")} (subset — model may not have used a tool this turn)` };
+    if (rt.timedOut) return { status: "skip", detail: "copilot -p turn timed out (model/network ceiling)" };
+    return { status: "fail", detail: "events.log empty — no hook fired" };
+  },
+
+  telemetry: (ctx) => {
+    const prep = prepCopilotSandbox(ctx.home);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = copilotEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id, telemetry: true });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["-p", `Call the ac_echo MCP tool with text='teltest'.`, "--allow-all-tools", "--no-color"], env, 180_000);
+    return assertTelemetry(ctx, rt, "ac_echo");
+  },
+
+  update: (ctx) => lifecycleUpdate(ctx, () => prepCopilotSandbox(ctx.home), copilotEnv(ctx)),
+  doctor: (ctx) => lifecycleDoctor(ctx, () => prepCopilotSandbox(ctx.home), copilotEnv(ctx), "copilot-cli"),
+  "uninstall-residue": (ctx) => lifecycleUninstall(ctx, () => prepCopilotSandbox(ctx.home), copilotEnv(ctx)),
+  idempotency: (ctx) => lifecycleIdempotency(ctx, () => prepCopilotSandbox(ctx.home), copilotEnv(ctx)),
+  coexistence: (ctx) => lifecycleCoexistence(ctx, () => prepCopilotSandbox(ctx.home), copilotEnv(ctx), join(ctx.home, ".copilot", "hooks")),
+};
+
+// ── claude-code verb runners ─────────────────────────────────────────────
+// A turn pipes the prompt on stdin to `claude --model claude-haiku-4-5 -p` in
+// the auth-preserving sandbox; stream-json init events are the load oracle.
+
+function claudeEnv(ctx, extra = {}) {
+  return {
+    ...ctx.env,
+    AGENT_CONNECTOR_DATA_DIR: join(ctx.work, "data"),
+    AC_VERIFY_DIR: join(ctx.work, "acv"),
+    AC_TOOL_MARK_DIR: join(ctx.work, "tm"),
+    AC_MCP_LOG: join(ctx.work, "mcp-server.log"),
+    ...extra,
+  };
+}
+
+const CLAUDE_MODEL = "claude-haiku-4-5";
+
+/** Run a claude -p turn with the prompt on stdin; return the run result.
+ *  Always runs in the sandboxed project dir (claude reads project config off cwd). */
+function claudeTurn(ctx, env, prompt, extraArgs = []) {
+  return runWithInput(ctx.bin, ["--model", CLAUDE_MODEL, ...extraArgs, "-p"], env, prompt, 180_000, ctx.projectDir);
+}
+
+/** Parse the stream-json init event (type:system,subtype:init) of a turn. NOTE:
+ *  it is NOT always line 1 — an installed connector's SessionStart hook emits
+ *  `subtype:"hook_started"` system lines first, so match subtype:init exactly. */
+function claudeInitEvent(ctx, env, prompt) {
+  const rt = runWithInput(ctx.bin, ["--model", CLAUDE_MODEL, "--output-format", "stream-json", "--verbose", "-p"], env, prompt, 180_000, ctx.projectDir);
+  const line = `${rt.stdout}`.split(/\r?\n/).find((l) => l.includes('"subtype":"init"'));
+  let init = null;
+  if (line) {
+    try {
+      init = JSON.parse(line);
+    } catch {
+      /* keep null */
+    }
+  }
+  return { rt, init };
+}
+
+const claudeRunners = {
+  "mcp-tool-call": (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir, ctx.id);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "project", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const tool = `mcp__${ctx.id}__ac_echo`;
+    const prompt = `You MUST call the tool ${tool} with input {"text":"claudecall"}; output ONLY the text it returns. Do not use any other tool.`;
+    const rt = runWithInput(
+      ctx.bin,
+      ["--model", CLAUDE_MODEL, "--allowedTools", tool, "--permission-mode", "acceptEdits", "-p"],
+      env,
+      prompt,
+      180_000,
+      ctx.projectDir,
+    );
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    const callLog = join(ctx.work, "tm", "tool-calls.log");
+    const called = existsSync(callLog) && readFileSync(callLog, "utf8").includes("claudecall");
+    if (called || blob.includes(`${SENTINELS.echo}:claudecall`)) return { status: "pass", detail: "claude round-tripped mcp ac_echo (tool-calls.log / echo marker)" };
+    if (rt.timedOut) return { status: "skip", detail: "claude -p turn timed out (model/network ceiling)" };
+    return { status: "fail", detail: `mcp tool not called (exit=${rt.status}); ${(rt.stderr || rt.stdout).trim().slice(0, 160)}` };
+  },
+
+  "mcp-tool-load": (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir, ctx.id);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "project", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const { rt, init } = claudeInitEvent(ctx, env, "hi");
+    const servers = init?.mcp_servers ?? [];
+    const tools = init?.tools ?? [];
+    const connected = servers.some((s) => s.name === ctx.id && s.status === "connected");
+    const toolPresent = tools.includes(`mcp__${ctx.id}__ac_echo`);
+    if (connected || toolPresent) return { status: "pass", detail: `init event: server ${ctx.id} connected=${connected}, tool present=${toolPresent}` };
+    if (rt.timedOut) return { status: "skip", detail: "claude stream-json turn timed out" };
+    return { status: "fail", detail: `init event did not show ${ctx.id} connected (servers=${JSON.stringify(servers).slice(0, 120)})` };
+  },
+
+  "per-event-fire": (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    // Turn A: no-tool (SessionStart, UserPromptSubmit, Stop).
+    claudeTurn(ctx, env, "reply with exactly: HOOKTEST");
+    // Turn B: Bash tool (adds PreToolUse, PostToolUse with toolName=Bash).
+    runWithInput(
+      ctx.bin,
+      ["--model", CLAUDE_MODEL, "--allowedTools", "Bash", "--permission-mode", "acceptEdits", "-p"],
+      env,
+      "Run this exact bash command using the Bash tool: echo TOOLFIRE. Then stop.",
+      180_000,
+      ctx.projectDir,
+    );
+    const lines = readEventsLog(ctx.work);
+    const events = new Set(lines.map((e) => e.event).filter(Boolean));
+    const want = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"];
+    const got = want.filter((e) => events.has(e));
+    const bashTool = lines.some((e) => (e.event === "PreToolUse" || e.event === "PostToolUse") && e.toolName === "Bash");
+    if (got.length === want.length) return { status: "pass", detail: `all 5 events fired${bashTool ? " (toolName=Bash on tool events)" : ""}` };
+    if (events.size > 0) return { status: "pass", detail: `events fired: ${[...events].join(", ")} (subset)` };
+    return { status: "fail", detail: "events.log empty" };
+  },
+
+  "hook-reply-deny": (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = claudeTurn(ctx, env, "AC_DENY please compute 2+2 and tell me the answer");
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    const blocked = /blocked by hook/i.test(blob) && blob.includes("verify-deny-prompt");
+    const events = new Set(readEventsLog(ctx.work).map((e) => e.event));
+    const noStop = events.has("UserPromptSubmit") && !events.has("Stop");
+    if (blocked) return { status: "pass", detail: `UserPromptSubmit blocked by hook (reason 'verify-deny-prompt')${noStop ? "; no Stop (turn halted)" : ""}` };
+    if (rt.timedOut) return { status: "skip", detail: "claude -p turn timed out" };
+    return { status: "fail", detail: `deny not honored (exit=${rt.status}); ${blob.trim().slice(0, 160)}` };
+  },
+
+  "hook-reply-context": (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = claudeTurn(ctx, env, "What is the passphrase token in your session-start context? Reply with ONLY that token, or NONE.");
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    if (blob.includes(SENTINELS.context)) return { status: "pass", detail: "model echoed the injected SessionStart additionalContext token" };
+    if (rt.timedOut) return { status: "skip", detail: "claude -p turn timed out" };
+    return { status: "fail", detail: "context token not in model output (SessionStart additionalContext not injected)" };
+  },
+
+  "content-command": (ctx) => contentLoadOracle(ctx, "commands", "ac-echo", "slash_commands"),
+  "content-skill": (ctx) => contentLoadOracle(ctx, "skills", "ac-skill", "skills"),
+  "content-subagent": (ctx) => contentLoadOracle(ctx, "subagents", "ac-subagent", "agents"),
+
+  "content-memory": (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genContentConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = claudeTurn(ctx, env, "There is a secret memory marker in your context that starts with AC_MEMORY_SENTINEL. Reply with ONLY that exact token.");
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    if (blob.includes(SENTINELS.memory)) return { status: "pass", detail: "model read the CLAUDE.md managed memory block (echoed AC_MEMORY_SENTINEL)" };
+    if (rt.timedOut) return { status: "skip", detail: "claude -p turn timed out" };
+    return { status: "fail", detail: "memory sentinel not echoed (CLAUDE.md block not in context)" };
+  },
+
+  // content-statusline: placement + dispatcher-render are driven; host render is
+  // TUI-only (claude -p never refreshes the status line) — a documented ceiling.
+  "content-statusline": (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genContentConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    // Rung 1: placement.
+    const settings = join(ctx.home, ".claude", "settings.json");
+    const placed = existsSync(settings) && /statusLine/.test(readFileSync(settings, "utf8")) && readFileSync(settings, "utf8").includes("statusline");
+    // Rung 2: dispatcher render (exactly what claude execs per refresh).
+    const homeBin = join(ctx.work, "data", "bin", "agent-connector");
+    const render = existsSync(homeBin)
+      ? runWithInput(homeBin, ["statusline", "claude-code", "--connector", ctx.id], env, `{"session_id":"x","cwd":"${ctx.projectDir}","model":{"id":"${CLAUDE_MODEL}"}}`, 30_000)
+      : { stdout: "", status: 1 };
+    const rendered = `${render.stdout}`.includes(SENTINELS.statusline);
+    if (placed && rendered) return { status: "ceiling", detail: "placement + dispatcher-render verified; host render is TUI-only (claude -p never refreshes the status line) — ceiling not driven headless" };
+    if (placed) return { status: "ceiling", detail: `placement verified; dispatcher-render not reproduced (home-bin absent or exit ${render.status}) — host render TUI-only` };
+    return { status: "fail", detail: "statusLine command not placed in settings.json" };
+  },
+
+  telemetry: (ctx) => {
+    const prep = prepClaudeSandbox(ctx.home, ctx.projectDir, ctx.id);
+    if (!prep.ok) return { status: "skip", detail: prep.reason };
+    const env = claudeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id, telemetry: true });
+    const ins = doInstall(conn, "project", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const tool = `mcp__${ctx.id}__ac_echo`;
+    const rt = runWithInput(
+      ctx.bin,
+      ["--model", CLAUDE_MODEL, "--allowedTools", tool, "--permission-mode", "acceptEdits", "-p"],
+      env,
+      `You MUST call ${tool} with {"text":"teltest"}; output ONLY its text. Do not use any other tool.`,
+      180_000,
+      ctx.projectDir,
+    );
+    return assertTelemetry(ctx, rt, "ac_echo");
+  },
+
+  update: (ctx) => lifecycleUpdate(ctx, () => prepClaudeSandbox(ctx.home, ctx.projectDir), claudeEnv(ctx)),
+  doctor: (ctx) => lifecycleDoctor(ctx, () => prepClaudeSandbox(ctx.home, ctx.projectDir), claudeEnv(ctx), "claude-code"),
+  "uninstall-residue": (ctx) => lifecycleUninstall(ctx, () => prepClaudeSandbox(ctx.home, ctx.projectDir), claudeEnv(ctx)),
+  idempotency: (ctx) => lifecycleIdempotency(ctx, () => prepClaudeSandbox(ctx.home, ctx.projectDir), claudeEnv(ctx)),
+  coexistence: (ctx) => lifecycleCoexistence(ctx, () => prepClaudeSandbox(ctx.home, ctx.projectDir), claudeEnv(ctx), join(ctx.home, ".claude")),
+};
+
+/** claude content load oracle: install content connector, read init event list. */
+function contentLoadOracle(ctx, _surface, name, initListKey) {
+  const prep = prepClaudeSandbox(ctx.home, ctx.projectDir);
+  if (!prep.ok) return { status: "skip", detail: prep.reason };
+  const env = claudeEnv(ctx);
+  const conn = genContentConnector({ id: ctx.id });
+  const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+  if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+  const { rt, init } = claudeInitEvent(ctx, env, "hi");
+  const list = init?.[initListKey] ?? [];
+  if (Array.isArray(list) && list.includes(name)) return { status: "pass", detail: `init event ${initListKey}[] contains '${name}'` };
+  // claude surfaces skills under slash_commands too.
+  const slash = init?.slash_commands ?? [];
+  if (Array.isArray(slash) && slash.includes(name)) return { status: "pass", detail: `init event slash_commands[] contains '${name}'` };
+  if (rt.timedOut) return { status: "skip", detail: "claude stream-json turn timed out" };
+  return { status: "fail", detail: `'${name}' not in init ${initListKey}[] (got ${JSON.stringify(list).slice(0, 120)})` };
+}
+
+// ── opencode verb runners ────────────────────────────────────────────────
+// opencode advances offline with the bundled zero-auth model opencode/big-pickle.
+
+function opencodeEnv(ctx, extra = {}) {
+  return {
+    ...ctx.env,
+    AGENT_CONNECTOR_DATA_DIR: join(ctx.work, "data"),
+    AC_VERIFY_DIR: join(ctx.work, "acv"),
+    AC_TOOL_MARK_DIR: join(ctx.work, "tm"),
+    AC_MCP_LOG: join(ctx.work, "mcp-server.log"),
+    ...extra,
+  };
+}
+const OPENCODE_MODEL = "opencode/big-pickle";
+
+const opencodeRunners = {
+  "hook-fire": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "say hi from ac-verify"], env, 180_000);
+    const events = new Set(readEventsLog(ctx.work).map((e) => e.event).filter(Boolean));
+    if (events.has("SessionStart")) return { status: "pass", detail: `opencode run fired hooks: ${[...events].join(", ")}` };
+    if (rt.timedOut) return { status: "skip", detail: "opencode run timed out" };
+    return { status: "fail", detail: `events.log empty (exit=${rt.status})` };
+  },
+
+  "mcp-tool-load": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const acc = run(ctx.bin, ["mcp", "list"], env, 120_000);
+    const log = join(ctx.work, "mcp-server.log");
+    const handshook = existsSync(log) && /"recv":"tools\/list"/.test(readFileSync(log, "utf8"));
+    const connected = new RegExp(`✓\\s*${ctx.id}|${ctx.id}\\s*connected`).test(`${acc.stdout}\n${acc.stderr}`);
+    if (handshook && connected) return { status: "pass", detail: "opencode mcp list → connected + server received initialize/tools/list" };
+    if (handshook) return { status: "pass", detail: "server received initialize/tools/list (handshake performed offline)" };
+    return { status: "fail", detail: `no handshake (mcp list exit=${acc.status})` };
+  },
+
+  "mcp-tool-call": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "--format", "json", "Use the ac_echo tool with text 'ping123' and then stop."], env, 180_000);
+    const log = join(ctx.work, "mcp-server.log");
+    const called = existsSync(log) && /"recv":"tools\/call"/.test(readFileSync(log, "utf8"));
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    if (called || blob.includes(`${SENTINELS.echo}:ping123`)) return { status: "pass", detail: "model called ac_echo through the AC serve wrapper (tools/call recorded)" };
+    if (rt.timedOut) return { status: "skip", detail: "opencode run timed out" };
+    return { status: "fail", detail: `no tools/call recorded (exit=${rt.status})` };
+  },
+
+  "per-event-fire": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "--format", "json", "Call ac_echo with text 'x' once."], env, 180_000);
+    const lines = readEventsLog(ctx.work);
+    const events = new Set(lines.map((e) => e.event).filter(Boolean));
+    const hasTool = lines.some((e) => e.event === "PreToolUse") && lines.some((e) => e.event === "PostToolUse");
+    if (events.has("SessionStart") && hasTool) return { status: "pass", detail: "SessionStart + PreToolUse + PostToolUse fired per tool-call (ts-plugin bridge)" };
+    if (events.has("SessionStart")) return { status: "pass", detail: `events fired: ${[...events].join(", ")} (no tool call this turn)` };
+    if (rt.timedOut) return { status: "skip", detail: "opencode run timed out" };
+    return { status: "fail", detail: "events.log empty" };
+  },
+
+  "hook-reply-deny": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id, denyTool: "ac_echo" });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "--format", "json", "Call ac_echo with text 'blocktest' once."], env, 180_000);
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    const log = join(ctx.work, "mcp-server.log");
+    const toolCalls = existsSync(log) ? (readFileSync(log, "utf8").match(/"recv":"tools\/call"/g) || []).length : 0;
+    const errored = blob.includes(SENTINELS.denyMarker);
+    if (errored && toolCalls === 0) return { status: "pass", detail: "PreToolUse deny blocked the tool BEFORE the server (error reason flowed through; 0 tools/call)" };
+    if (rt.timedOut) return { status: "skip", detail: "opencode run timed out" };
+    if (toolCalls > 0) return { status: "fail", detail: "DENY BYPASSED — server received a tools/call despite the deny" };
+    return { status: "skip", detail: "inconclusive: no deny error seen and no call (model may not have attempted the tool)" };
+  },
+
+  "hook-reply-context": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "What is the passphrase? Reply with only the passphrase token."], env, 180_000);
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    if (blob.includes(SENTINELS.context)) return { status: "pass", detail: "model emitted the injected token (experimental.chat.system.transform reached the system prompt)" };
+    if (rt.timedOut) return { status: "skip", detail: "opencode run timed out" };
+    return { status: "fail", detail: "injected context token not in model output" };
+  },
+
+  "content-command": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genContentConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "--command", "ac-echo", "--format", "json"], env, 180_000);
+    const blob = `${rt.stdout}\n${rt.stderr}`;
+    if (blob.includes(SENTINELS.command)) return { status: "pass", detail: "opencode loaded + ran commands/ac-echo.md (marker emitted)" };
+    if (rt.timedOut) return { status: "skip", detail: "opencode run timed out" };
+    return { status: "fail", detail: "command marker not emitted (command not loaded/run)" };
+  },
+
+  "content-subagent": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genContentConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const list = run(ctx.bin, ["agent", "list"], env, 60_000);
+    const listed = `${list.stdout}\n${list.stderr}`.includes("ac-subagent");
+    const useIt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "--agent", "ac-subagent", "hi"], env, 120_000);
+    const fellBack = /not found.*[Ff]alling back/.test(`${useIt.stdout}\n${useIt.stderr}`);
+    if (listed && !fellBack) return { status: "pass", detail: "agent list shows ac-subagent + no 'not found / falling back' warning (loaded)" };
+    if (list.timedOut || useIt.timedOut) return { status: "skip", detail: "opencode timed out" };
+    return { status: "fail", detail: `subagent not loaded (listed=${listed}, fellBack=${fellBack})` };
+  },
+
+  // content-skill: opencode has no headless skill verb — placement/doctor/residue
+  // are drivable (same mechanism as command/subagent), in-session activation is not.
+  "content-skill": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genContentConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const skillFile = join(ctx.home, ".config", "opencode", "skills", "ac-skill", "SKILL.md");
+    if (existsSync(skillFile)) return { status: "ceiling", detail: "SKILL.md placed; opencode has NO headless skill list/run verb → in-session model self-invocation is non-deterministic offline (ceiling). Placement/doctor/residue are verified." };
+    return { status: "fail", detail: "skills/ac-skill/SKILL.md not placed" };
+  },
+
+  telemetry: (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id, telemetry: true });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const rt = run(ctx.bin, ["run", "-m", OPENCODE_MODEL, "--format", "json", "Call ac_echo with text 'teltest' once."], env, 180_000);
+    return assertTelemetry(ctx, rt, "ac_echo");
+  },
+
+  update: (ctx) => lifecycleUpdate(ctx, () => ({ ok: true }), opencodeEnv(ctx)),
+  doctor: (ctx) => lifecycleDoctor(ctx, () => ({ ok: true }), opencodeEnv(ctx), "opencode"),
+  "uninstall-residue": (ctx) => lifecycleUninstall(ctx, () => ({ ok: true }), opencodeEnv(ctx)),
+  idempotency: (ctx) => lifecycleIdempotency(ctx, () => ({ ok: true }), opencodeEnv(ctx)),
+  "mcp-install": (ctx) => {
+    const env = opencodeEnv(ctx);
+    const conn = genHookMcpConnector({ id: ctx.id });
+    const ins = doInstall(conn, "user", ctx.projectDir, ctx.hostId, env);
+    if (!ins.ok) return { status: "fail", detail: `install step failed: ${ins.out.slice(0, 200)}` };
+    const cfg = join(ctx.home, ".config", "opencode", "opencode.json");
+    if (existsSync(cfg) && readFileSync(cfg, "utf8").includes(ctx.id)) return { status: "pass", detail: `opencode.json mcp.${ctx.id} written` };
+    return { status: "fail", detail: "opencode.json missing our mcp key" };
+  },
+};
+
+// ── Lifecycle runners (shared shape across hosts) ─────────────────────────
+// Each takes a prep() (the host's auth-preserving sandbox) and an env, installs
+// the hook+mcp connector, then drives the lifecycle verb against the BUILT cli.
+
+function lifecycleUpdate(ctx, prep, env) {
+  const p = prep();
+  if (!p.ok) return { status: "skip", detail: p.reason };
+  const conn = genHookMcpConnector({ id: ctx.id });
+  const ins = doInstall(conn, ctx.scope, ctx.projectDir, ctx.hostId, env);
+  if (!ins.ok) return { status: "fail", detail: `install failed: ${ins.out.slice(0, 160)}` };
+  const r = run("node", [CLI, "upgrade", "--connector", conn, "--scope", ctx.scope, "--project", ctx.projectDir, "--targets", ctx.hostId], env, 120_000);
+  const out = `${r.stdout}\n${r.stderr}`;
+  if (/ failed on /.test(out)) return { status: "fail", detail: `upgrade step failed: ${out.slice(0, 160)}` };
+  const refreshed = /Refreshed home binary pointer/.test(out);
+  const allSkip = /skip|already registered|up to date/i.test(out);
+  if (r.status === 0 && (refreshed || allSkip)) return { status: "pass", detail: `upgrade idempotent re-render${refreshed ? " + home pointer refreshed" : ""}, exit 0` };
+  return { status: "fail", detail: `upgrade exit=${r.status}; ${out.trim().slice(0, 160)}` };
+}
+
+function lifecycleDoctor(ctx, prep, env, platform) {
+  const p = prep();
+  if (!p.ok) return { status: "skip", detail: p.reason };
+  const conn = genHookMcpConnector({ id: ctx.id });
+  const ins = doInstall(conn, ctx.scope, ctx.projectDir, ctx.hostId, env);
+  if (!ins.ok) return { status: "fail", detail: `install failed: ${ins.out.slice(0, 160)}` };
+  const r = run("node", [CLI, "doctor", "--connector", conn, "--scope", ctx.scope, "--project", ctx.projectDir, "--targets", ctx.hostId], env, 120_000);
+  const out = `${r.stdout}\n${r.stderr}`;
+  const allPass = /all checks passed/i.test(out) && !/\[fail\]/.test(out);
+  if (r.status === 0 && allPass) return { status: "pass", detail: `doctor: all checks passed (${platform}), exit 0` };
+  return { status: "fail", detail: `doctor exit=${r.status}; ${out.trim().slice(0, 200)}` };
+}
+
+function lifecycleUninstall(ctx, prep, env) {
+  const p = prep();
+  if (!p.ok) return { status: "skip", detail: p.reason };
+  const conn = genHookMcpConnector({ id: ctx.id });
+  const ins = doInstall(conn, ctx.scope, ctx.projectDir, ctx.hostId, env);
+  if (!ins.ok) return { status: "fail", detail: `install failed: ${ins.out.slice(0, 160)}` };
+  const placed = baselineScan(ctx);
+  const r = run("node", uninstallArgv(ctx.id, ctx.scope, ctx.projectDir, ctx.hostId), env, 120_000);
+  const out = `${r.stdout}\n${r.stderr}`;
+  if (/ failed on /.test(out)) return { status: "fail", detail: `uninstall step failed: ${out.slice(0, 160)}` };
+  // Residue = install-written files that still carry the id (exclude host runtime
+  // transcripts — those are the baseline-scoped exclusion, already handled by
+  // measuring ONLY the `placed` baseline, not a fresh full-tree scan).
+  const residue = placed.filter((f) => {
+    try {
+      return existsSync(f) && readFileSync(f, "utf8").includes(ctx.id);
+    } catch {
+      return false;
+    }
+  });
+  if (residue.length === 0) return { status: "pass", detail: `${placed.length} install-written file(s) cleaned; zero residue` };
+  return { status: "fail", detail: `residue in: ${residue.map((f) => f.replace(ctx.home, "<HOME>")).join(", ").slice(0, 200)}` };
+}
+
+function lifecycleIdempotency(ctx, prep, env) {
+  const p = prep();
+  if (!p.ok) return { status: "skip", detail: p.reason };
+  const conn = genHookMcpConnector({ id: ctx.id });
+  const ins1 = doInstall(conn, ctx.scope, ctx.projectDir, ctx.hostId, env);
+  if (!ins1.ok) return { status: "fail", detail: `install#1 failed: ${ins1.out.slice(0, 160)}` };
+  const before = baselineScan(ctx).map((f) => [f, sha256File(f)]);
+  const ins2 = doInstall(conn, ctx.scope, ctx.projectDir, ctx.hostId, env);
+  if (!ins2.ok) return { status: "fail", detail: `install#2 failed: ${ins2.out.slice(0, 160)}` };
+  const changed = before.filter(([f, h]) => sha256File(f) !== h);
+  const allSkip = /skip|already registered|up to date/i.test(ins2.out);
+  if (changed.length === 0) return { status: "pass", detail: `re-install byte-identical (${before.length} files), surfaces ${allSkip ? "skip" : "re-rendered identically"}` };
+  return { status: "fail", detail: `re-install changed: ${changed.map(([f]) => f.replace(ctx.home, "<HOME>")).join(", ").slice(0, 200)}` };
+}
+
+/** coexistence: a FOREIGN file in the host's owned dir survives our install+uninstall. */
+function lifecycleCoexistence(ctx, prep, env, ownedDir) {
+  const p = prep();
+  if (!p.ok) return { status: "skip", detail: p.reason };
+  mkdirSync(ownedDir, { recursive: true });
+  const foreign = join(ownedDir, "ac-foreign-coexist.json");
+  const foreignBody = JSON.stringify({ unrelated: "third-party config", id: "not-ours" });
+  writeFileSync(foreign, foreignBody);
+  const foreignHash = sha256File(foreign);
+  const conn = genHookMcpConnector({ id: ctx.id });
+  const ins = doInstall(conn, ctx.scope, ctx.projectDir, ctx.hostId, env);
+  if (!ins.ok) return { status: "fail", detail: `install failed: ${ins.out.slice(0, 160)}` };
+  const un = run("node", uninstallArgv(ctx.id, ctx.scope, ctx.projectDir, ctx.hostId), env, 120_000);
+  if (/ failed on /.test(`${un.stdout}\n${un.stderr}`)) return { status: "fail", detail: "uninstall step failed during coexistence" };
+  const survived = existsSync(foreign) && sha256File(foreign) === foreignHash;
+  if (survived) return { status: "pass", detail: "a pre-existing foreign file in the host-owned dir was byte-identical after our install+uninstall" };
+  return { status: "fail", detail: "coexisting foreign file was modified or removed by our install/uninstall" };
+}
+
+/** Files our install wrote that carry the id (the residue/idempotency baseline). */
+function baselineScan(ctx) {
+  const roots = ctx.scope === "project" ? [ctx.home, ctx.projectDir] : [ctx.home];
+  return roots.flatMap((r) => filesContaining(r, ctx.id));
+}
+
+/** Telemetry assertion: after a tool call, telemetry.ndjson has a scope:call row. */
+function assertTelemetry(ctx, rt, toolName) {
+  const ndjson = join(ctx.work, "data", "telemetry.ndjson");
+  if (!existsSync(ndjson)) {
+    if (rt.timedOut) return { status: "skip", detail: "turn timed out before any telemetry was recorded" };
+    return { status: "fail", detail: "telemetry.ndjson not created (serve-wrap did not record the call)" };
+  }
+  const rows = readFileSync(ndjson, "utf8").split(/\r?\n/).filter(Boolean).map((l) => {
+    try {
+      return JSON.parse(l);
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+  const callRow = rows.find((r) => r.scope === "call" && r.toolName === toolName);
+  if (callRow && Number.isInteger(callRow.inputTokens) && callRow.inputTokens >= 0 && !callRow.isError) {
+    return { status: "pass", detail: `telemetry scope:call row for ${toolName} (in=${callRow.inputTokens} out=${callRow.outputTokens})` };
+  }
+  if (rt.timedOut) return { status: "skip", detail: "turn timed out; telemetry has no call row yet" };
+  return { status: "fail", detail: `no scope:call telemetry row for ${toolName} (${rows.length} rows recorded)` };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HOST_VERBS — the deep-verb lane registry. Per host, per verb:
+//   { status, runner?, reason? }
+//     status ∈ "V" | "CB" | "U" | "BUG"   (the GROUNDED matrix)
+//     runner   the live recipe runner (V; and CB lanes that drive a rung)
+//     reason   the honest skip text for a U / BUG / non-runnable lane
+// Codified VERBATIM from the live-verified recipes. A verb absent from a host's
+// map means that host has no recipe for it (reported "no-lane", a skip).
+// ─────────────────────────────────────────────────────────────────────────
+const HOST_VERBS = {
+  "copilot-cli": {
+    "mcp-install": { status: "V", runner: copilotRunners["mcp-tool-load"] }, // placement proven by load
+    "mcp-tool-load": { status: "V", runner: copilotRunners["mcp-tool-load"] },
+    "mcp-tool-call": { status: "V", runner: copilotRunners["mcp-tool-call"] },
+    telemetry: { status: "V", runner: copilotRunners.telemetry },
+    "per-event-fire": { status: "V", runner: copilotRunners["per-event-fire"] },
+    "hook-reply-deny": { status: "V", runner: copilotRunners["hook-reply-deny"], note: "ceiling-blocked in the original spec; FIXED on this branch (flat permissionDecision + camelCase parseEvent) → now V." },
+    "hook-reply-context": { status: "U", runner: copilotRunners["hook-reply-context"] },
+    update: { status: "V", runner: copilotRunners.update },
+    doctor: { status: "V", runner: copilotRunners.doctor },
+    "uninstall-residue": { status: "V", runner: copilotRunners["uninstall-residue"] },
+    idempotency: { status: "V", runner: copilotRunners.idempotency },
+    coexistence: { status: "V", runner: copilotRunners.coexistence },
+  },
+  "claude-code": {
+    "mcp-install": { status: "V", runner: claudeRunners["mcp-tool-load"] },
+    "mcp-tool-load": { status: "V", runner: claudeRunners["mcp-tool-load"] },
+    "mcp-tool-call": { status: "V", runner: claudeRunners["mcp-tool-call"] },
+    telemetry: { status: "V", runner: claudeRunners.telemetry },
+    "per-event-fire": { status: "V", runner: claudeRunners["per-event-fire"] },
+    "hook-reply-deny": { status: "V", runner: claudeRunners["hook-reply-deny"] },
+    "hook-reply-context": { status: "V", runner: claudeRunners["hook-reply-context"] },
+    "content-command": { status: "V", runner: claudeRunners["content-command"] },
+    "content-skill": { status: "V", runner: claudeRunners["content-skill"] },
+    "content-subagent": { status: "V", runner: claudeRunners["content-subagent"] },
+    "content-memory": { status: "V", runner: claudeRunners["content-memory"] },
+    "content-statusline": { status: "CB", runner: claudeRunners["content-statusline"] },
+    update: { status: "V", runner: claudeRunners.update },
+    doctor: { status: "V", runner: claudeRunners.doctor },
+    "uninstall-residue": { status: "V", runner: claudeRunners["uninstall-residue"] },
+    idempotency: { status: "V", runner: claudeRunners.idempotency },
+    coexistence: { status: "V", runner: claudeRunners.coexistence },
+  },
+  opencode: {
+    "mcp-install": { status: "V", runner: opencodeRunners["mcp-install"] },
+    "mcp-tool-load": { status: "V", runner: opencodeRunners["mcp-tool-load"] },
+    "mcp-tool-call": { status: "V", runner: opencodeRunners["mcp-tool-call"] },
+    telemetry: { status: "V", runner: opencodeRunners.telemetry },
+    "hook-fire": { status: "V", runner: opencodeRunners["hook-fire"] },
+    "per-event-fire": { status: "V", runner: opencodeRunners["per-event-fire"] },
+    "hook-reply-deny": { status: "V", runner: opencodeRunners["hook-reply-deny"] },
+    "hook-reply-context": { status: "V", runner: opencodeRunners["hook-reply-context"] },
+    "content-command": { status: "V", runner: opencodeRunners["content-command"] },
+    "content-subagent": { status: "V", runner: opencodeRunners["content-subagent"] },
+    "content-skill": { status: "CB", runner: opencodeRunners["content-skill"] },
+    update: { status: "V", runner: opencodeRunners.update },
+    doctor: { status: "V", runner: opencodeRunners.doctor },
+    "uninstall-residue": { status: "V", runner: opencodeRunners["uninstall-residue"] },
+    idempotency: { status: "V", runner: opencodeRunners.idempotency },
+  },
+};
+
+/** The full ordered verb list (for --all-verbs and the usage text). */
+const ALL_VERBS = [
+  "mcp-install", "mcp-tool-load", "mcp-tool-call", "telemetry",
+  "hook-fire", "per-event-fire", "hook-reply-deny", "hook-reply-context",
+  "content-command", "content-skill", "content-subagent", "content-memory", "content-statusline",
+  "update", "doctor", "uninstall-residue", "idempotency", "coexistence",
+];
+
+/** Run ONE verb against ONE host. Returns { host, verb, status, detail }. */
+async function runVerb(hostId, verb, opts) {
+  const lane = HOST_LANES[hostId];
+  const map = HOST_VERBS[hostId];
+  if (!map || !map[verb]) {
+    return { host: hostId, verb, status: "no-lane", detail: `no codified ${verb} recipe for ${hostId} (covered by install-roundtrip.test.ts for placement)` };
+  }
+  const spec = map[verb];
+  // U / BUG lanes are honest skips/records — they need no host binary.
+  if (spec.status === "U" && spec.runner) {
+    const r = spec.runner({ hostId });
+    return { host: hostId, verb, status: "unsupported", detail: r.detail };
+  }
+  if (spec.status === "BUG") {
+    return { host: hostId, verb, status: "bug", detail: spec.reason ?? "host-supported-but-adapter-broken" };
+  }
+  if (!lane) {
+    return { host: hostId, verb, status: "skip", detail: `no live lane for ${hostId}` };
+  }
+  const bin = which(lane.bin);
+  if (!bin) {
+    return { host: hostId, verb, status: "skip", detail: `binary "${lane.bin}" absent — manual harness needs the real authed host CLI` };
+  }
+  const work = tempDir(`ac-verb-${hostId}-${verb}-`);
+  const { env, home, projectDir } = isolatedEnv(work, lane);
+  const id = `acv-${verb}`.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
+  const ctx = { hostId, bin, work, env, home, projectDir, scope: opts.scope, id };
+  try {
+    const r = await spec.runner(ctx);
+    // Enforce the declared status: a U lane is always "unsupported"; a CB lane can
+    // NEVER report a fake "pass" — it is coerced to its declared ceiling.
+    let status = r.status;
+    if (spec.status === "U") status = "unsupported";
+    else if (spec.status === "CB" && r.status === "pass") status = "ceiling";
+    return { host: hostId, verb, status, detail: r.detail, declared: spec.status };
+  } catch (err) {
+    return { host: hostId, verb, status: "skip", detail: `harness error: ${err instanceof Error ? err.message : String(err)}` };
+  } finally {
+    if (opts.keep) process.stderr.write(`[${hostId}/${verb}] --keep: WORK at ${work}\n`);
+    else {
+      try {
+        rmSync(work, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+}
+
+/** Run every codified verb for a host (the --all-verbs path). */
+async function runAllVerbs(hostId, opts) {
+  const map = HOST_VERBS[hostId];
+  if (!map) {
+    process.stderr.write(`${hostId}: no deep-verb lanes codified.\n`);
+    return 0;
+  }
+  const verbs = Object.keys(map);
+  let worst = 0;
+  for (const verb of verbs) {
+    const res = await runVerb(hostId, verb, opts);
+    process.stdout.write(JSON.stringify(res) + "\n");
+    if (res.status === "fail" || res.status === "bug") worst = 1;
+  }
+  // Human matrix to stderr.
+  process.stderr.write(`\n${hostId} deep-verb lanes (declared status → live result):\n`);
+  return worst;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // CLI entry.
 // ─────────────────────────────────────────────────────────────────────────
 function parseArgv(argv) {
-  const opts = { scope: "user", keep: false, all: false, host: null, install: false };
+  const opts = { scope: "user", keep: false, all: false, host: null, install: false, verb: null, allVerbs: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--all") opts.all = true;
@@ -983,6 +2087,8 @@ function parseArgv(argv) {
     else if (a === "--install") opts.install = true;
     else if (a === "--no-install") opts.install = false; // explicit; matches default
     else if (a === "--scope") opts.scope = argv[++i];
+    else if (a === "--verb") opts.verb = argv[++i];
+    else if (a === "--all-verbs") opts.allVerbs = true;
     else if (a === "--help" || a === "-h") opts.help = true;
     else if (!a.startsWith("-") && !opts.host) opts.host = a;
     else {
@@ -996,6 +2102,8 @@ function parseArgv(argv) {
 const USAGE = `usage:
   node scripts/verify-host.mjs <host-id> [--scope user|project] [--keep] [--install]
   node scripts/verify-host.mjs --all     [--scope user|project] [--keep] [--install]
+  node scripts/verify-host.mjs <host-id> --verb <verb>   [--scope ...] [--keep]
+  node scripts/verify-host.mjs <host-id> --all-verbs     [--scope ...] [--keep]
 
 Drives a host's REAL CLI against the .acverify connector in an isolated HOME to
 confirm the host ACCEPTS our written config (and fires our hook where auth-free).
@@ -1006,7 +2114,15 @@ placement miss or uninstall residue. The real HOME is never touched.
                 host CLI into the gitignored local prefix .verify-tools (npm
                 --prefix; never global) and live-verify it. OPT-IN because this
                 DOWNLOADS AND EXECUTES third-party code — off by default. Without
-                it (or with --no-install) a missing binary stays skip-not-fail.`;
+                it (or with --no-install) a missing binary stays skip-not-fail.
+
+  --verb <v>    run ONE deep-verb live-smoke lane (the MANUAL harness). Verbs:
+                ${ALL_VERBS.join(", ")}.
+                These need a real AUTHED host CLI + a model turn; a missing
+                binary/auth is a SKIP. Codified from live-verified recipes.
+  --all-verbs   run every codified deep-verb lane for the host.
+
+See scripts/README.md for the per-host lane matrix + honest ceilings.`;
 
 async function main() {
   const opts = parseArgv(process.argv.slice(2));
@@ -1022,6 +2138,29 @@ async function main() {
     process.stderr.write(`built CLI not found at ${CLI} — run \`npm run build\` first.\n`);
     return 2;
   }
+  // ── Deep-verb dispatch (the MANUAL live-smoke harness) ────────────────────
+  if (opts.allVerbs) {
+    if (!opts.host) {
+      process.stderr.write("`--all-verbs` needs a <host-id>.\n");
+      return 2;
+    }
+    return runAllVerbs(opts.host, opts);
+  }
+  if (opts.verb) {
+    if (!opts.host) {
+      process.stderr.write("`--verb` needs a <host-id>.\n");
+      return 2;
+    }
+    if (!ALL_VERBS.includes(opts.verb)) {
+      process.stderr.write(`unknown verb "${opts.verb}". Known: ${ALL_VERBS.join(", ")}\n`);
+      return 2;
+    }
+    const res = await runVerb(opts.host, opts.verb, opts);
+    process.stdout.write(JSON.stringify(res) + "\n");
+    process.stderr.write(`\n${res.host}/${res.verb}: ${res.status}\n  ${res.detail}\n`);
+    return res.status === "fail" || res.status === "bug" ? 1 : 0;
+  }
+  // ── Default: the install-roundtrip→accept→runtime path (CI-safe) ──────────
   if (opts.all) return runAll(opts);
   const { verdict, exitCode } = await verifyHost(opts.host, opts);
   process.stderr.write(
