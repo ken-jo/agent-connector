@@ -345,6 +345,9 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const entry = this.renderExtension(ctx, server);
 
     // Merge into existing YAML, preserving every other config key + extension.
@@ -365,6 +368,9 @@ export class GooseAdapter extends BaseAdapter implements Adapter {
   override uninstallServer(ctx: InstallContext): ChangeRecord[] {
     const { connector, dryRun } = ctx;
     const path = this.getServerConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     return [
       removeFromObjectMap({
         codec: yamlObjectMapCodec(),

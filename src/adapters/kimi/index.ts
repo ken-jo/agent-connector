@@ -559,6 +559,9 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
       ];
     }
 
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const cfg = this.readToml(path);
     // Kimi's `hooks` is an ARRAY-of-tables ([[hooks]]); the BaseAdapter object-map
     // guard would mis-flag it. Inverse guard: a present-but-non-array `hooks`
@@ -634,6 +637,9 @@ export class KimiAdapter extends BaseAdapter implements Adapter {
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
     const path = this.getHookConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     if (!existsSync(path)) {
       return [{ platform: this.id, action: "skip", path, detail: "no config.toml" }];
     }

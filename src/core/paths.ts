@@ -93,6 +93,13 @@ export function firstSymlinkInPath(path: string): string | null {
   return null;
 }
 
+export function assertNoSymlinkInPath(path: string): void {
+  const symlink = firstSymlinkInPath(path);
+  if (symlink !== null) {
+    throw new Error(`${basename(path)} skipped: symbolic link in path (${symlink})`);
+  }
+}
+
 /**
  * Write a stable launcher at homeBinPath() that execs the real CLI entry.
  * Avoids symlinks (Windows constraint) and versioned paths. Idempotent.
@@ -103,6 +110,7 @@ export function firstSymlinkInPath(path: string): string | null {
  */
 export function ensureHomeBin(cliEntry: string, nodePath: string = process.execPath): string {
   const binPath = homeBinPath();
+  assertNoSymlinkInPath(binPath);
   ensureDir(join(dataRoot(), "bin"));
   const node = nodePath.replace(/\\/g, "/");
   const cli = cliEntry.replace(/\\/g, "/");

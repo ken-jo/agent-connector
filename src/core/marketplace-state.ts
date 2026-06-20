@@ -39,7 +39,13 @@ import TOML from "@iarna/toml";
 
 import type { InstallScope, PlatformId } from "./types.js";
 import type { PackageFormat } from "./package.js";
-import { connectorDir, connectorsDir, dataRoot, ensureDir } from "./paths.js";
+import {
+  assertNoSymlinkInPath,
+  connectorDir,
+  connectorsDir,
+  dataRoot,
+  ensureDir,
+} from "./paths.js";
 import { codexConfigHome, xdgConfigHome } from "./host-paths.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -97,6 +103,7 @@ export function writeMarketplaceInstalls(
   installs: MarketplaceInstalls,
 ): void {
   const path = marketplaceInstallsPath(connectorId);
+  assertNoSymlinkInPath(path);
   if (Object.keys(installs).length === 0) {
     rmSync(path, { force: true });
     return;

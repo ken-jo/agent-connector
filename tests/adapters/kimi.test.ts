@@ -26,7 +26,7 @@
  * readJson.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import TOML from "@iarna/toml";
@@ -340,6 +340,22 @@ describe("kimi adapter render + round-trip", () => {
     expect(pre.command).toContain("hook kimi PreToolUse");
     expect(pre.command).toContain(`--connector ${CONNECTOR_ID}`);
     expect((byEvent.get("SessionStart") as any)?.command).toContain("hook kimi SessionStart");
+  });
+
+  it("installHooks warn-skips a symlinked config.toml without touching the target", () => {
+    const hookPath = join(projectDir, ".kimi-code", "config.toml");
+    const outside = join(projectDir, "outside-kimi.toml");
+    const before = "[outside]\nkeep = true\n";
+    mkdirSync(dirname(hookPath), { recursive: true });
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, hookPath);
+
+    const changes = kimiAdapter.installHooks(ctx);
+
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(hookPath);
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
   });
 
   it("installHooks is idempotent (skip on second run); uninstallHooks removes the [[hooks]] table", () => {

@@ -94,14 +94,7 @@
  *   no blocking ability, so userPromptSubmit is context-injection-only.
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -717,23 +710,9 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
 
     // 1. Write the synthesized plugin module(s).
     for (const file of this.synthesizePlugin(ctx)) {
-      const before = existsSync(file.path) ? this.safeRead(file.path) : undefined;
-      let action: ChangeRecord["action"];
-      if (before === undefined) action = "create";
-      else if (before === file.contents) action = "skip";
-      else action = "update";
-
-      if (action !== "skip" && !ctx.dryRun) {
-        ensureDir(dirname(file.path));
-        writeFileSync(file.path, file.contents, "utf8");
-        chmodSync(file.path, file.executable ? 0o755 : 0o644);
-      }
-      changes.push({
-        platform: this.id,
-        action,
-        path: file.path,
-        detail: moduleDetail,
-      });
+      changes.push(
+        this.writeManagedFile(file.path, file.contents, ctx.dryRun, moduleDetail, file.executable),
+      );
     }
 
     // 2. DUAL REGISTRATION half (a): enable plugins.entries.<id> AND add the
@@ -796,8 +775,7 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
       [manifestPath, "openclaw plugin manifest"],
     ] as const) {
       if (existsSync(path)) {
-        if (!ctx.dryRun) rmSync(path, { force: true });
-        changes.push({ platform: this.id, action: "remove", path, detail: label });
+        changes.push(this.removeManagedFile(path, ctx.dryRun, label, `no ${label} present`));
       } else {
         changes.push({
           platform: this.id,
@@ -1650,14 +1628,6 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     return id in (servers as Record<string, unknown>);
   }
 
-  /** Read a file, returning undefined on any error (idempotency compare). */
-  private safeRead(path: string): string | undefined {
-    try {
-      return readFileSync(path, "utf8");
-    } catch {
-      return undefined;
-    }
-  }
 }
 
 /**
@@ -1672,11 +1642,6 @@ function resolveOpenClawConfigPath(env: NodeJS.ProcessEnv = process.env): string
     ? resolve(env.OPENCLAW_STATE_DIR)
     : resolve(homedir(), ".openclaw");
   return resolve(stateDir, "openclaw.json");
-}
-
-/** Create a directory (recursive) if it does not already exist. */
-function ensureDir(dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 /** Narrow to a non-empty string (the bridge omits empties, but stay defensive). */

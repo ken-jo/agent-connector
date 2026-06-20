@@ -69,16 +69,9 @@
  *     with the reason) in tool.execute.before — the safe direction.
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import { renderCommandMd, renderSkillMd } from "../claude-code/render.js";
@@ -431,23 +424,15 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
 
     // 1. Write the synthesized plugin module.
     for (const file of this.synthesizePlugin(ctx)) {
-      const before = existsSync(file.path) ? this.safeRead(file.path) : undefined;
-      let action: ChangeRecord["action"];
-      if (before === undefined) action = "create";
-      else if (before === file.contents) action = "skip";
-      else action = "update";
-
-      if (action !== "skip" && !ctx.dryRun) {
-        ensureDir(dirname(file.path));
-        writeFileSync(file.path, file.contents, "utf8");
-        chmodSync(file.path, file.executable ? 0o755 : 0o644);
-      }
-      changes.push({
-        platform: this.id,
-        action,
-        path: file.path,
-        detail: `kilo plugin module (${this.hookDetail(ctx)})`,
-      });
+      changes.push(
+        this.writeManagedFile(
+          file.path,
+          file.contents,
+          ctx.dryRun,
+          `kilo plugin module (${this.hookDetail(ctx)})`,
+          file.executable,
+        ),
+      );
     }
 
     // 2. Register the module path in kilo.jsonc's `plugin` array (the fork does
@@ -482,22 +467,9 @@ export class KiloCliAdapter extends BaseAdapter implements Adapter {
     changes.push(this.removePluginFromArray(configPath, pluginPath, ctx.dryRun));
 
     // 2. Remove the plugin module on disk.
-    if (existsSync(pluginPath)) {
-      if (!ctx.dryRun) rmSync(pluginPath, { force: true });
-      changes.push({
-        platform: this.id,
-        action: "remove",
-        path: pluginPath,
-        detail: "kilo plugin module",
-      });
-    } else {
-      changes.push({
-        platform: this.id,
-        action: "skip",
-        path: pluginPath,
-        detail: "no kilo plugin module present",
-      });
-    }
+    changes.push(
+      this.removeManagedFile(pluginPath, ctx.dryRun, "kilo plugin module", "no kilo plugin module present"),
+    );
 
     // 3. Drop the now-empty plugin dir (only if WE own its full contents).
     changes.push(this.removeDirIfEmpty(this.pluginDir(ctx), ctx.dryRun));
@@ -1092,18 +1064,6 @@ export default plugin;
   }
 
   /** Read a file, returning undefined on any error (idempotency compare). */
-  private safeRead(path: string): string | undefined {
-    try {
-      return readFileSync(path, "utf8");
-    } catch {
-      return undefined;
-    }
-  }
-}
-
-/** Create a directory (recursive) if it does not already exist. */
-function ensureDir(dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 export const adapter = new KiloCliAdapter();

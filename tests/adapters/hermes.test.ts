@@ -27,6 +27,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -324,6 +325,22 @@ describe("hermes adapter render + round-trip", () => {
     expect(entry.args).toEqual(wrappedArgs("hermes"));
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
+  });
+
+  it("installServer warn-skips a symlinked config.yaml without touching the target", () => {
+    const serverPath = join(projectDir, ".hermes", "config.yaml");
+    const outside = join(projectDir, "outside-hermes.yaml");
+    const before = "outside: true\n";
+    mkdirSync(dirname(serverPath), { recursive: true });
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, serverPath);
+
+    const changes = hermesAdapter.installServer(ctx);
+
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(serverPath);
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
   });
 
   it('installHooks writes the top-level "hooks" map into the SAME config.yaml (YAML, {matcher,command,timeout})', () => {

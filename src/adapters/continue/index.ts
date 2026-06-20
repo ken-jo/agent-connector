@@ -409,6 +409,8 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     }
 
     const entry = this.renderServerEntry(ctx, server);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
 
     // Merge into existing YAML, preserving every other config key + sibling
     // mcpServers entry. mcpServers is a YAML ARRAY; we key on `name`.
@@ -420,6 +422,7 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
     if (existingRoot !== undefined && !Array.isArray(existingRoot)) {
       return [{ platform: this.id, action: "skip", path, detail: `${MCP_ROOT_KEY} is not a YAML array — left untouched (manual fix needed)` }];
     }
+
     const list = this.serverArray(cfg);
     const idx = list.findIndex((e) => this.entryName(e) === connector.id);
 
@@ -444,6 +447,9 @@ export class ContinueAdapter extends BaseAdapter implements Adapter {
   override uninstallServer(ctx: InstallContext): ChangeRecord[] {
     const { connector, dryRun } = ctx;
     const path = this.getServerConfigPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
     const cfg = readYaml<Record<string, unknown>>(path);
     const rawList = cfg?.[MCP_ROOT_KEY];
     if (!cfg || !Array.isArray(rawList)) {

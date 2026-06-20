@@ -21,7 +21,14 @@
  * (tests/support/env + adapter-suite + fs) per tests/README.md — ONE file per host.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -622,6 +629,23 @@ describe("droid — actions emitter", () => {
     }
     // NO .md extension is written (it would collide with the command surface).
     expect(existsSync(`${filePath("deploy")}.md`)).toBe(false);
+  });
+
+  it("installActions warn-skips a symlinked exec-file without touching the target", () => {
+    const ctx = buildCtx(projectDir, actionsConnector([DEPLOY]), "project");
+    const path = filePath("deploy");
+    const outside = join(projectDir, "outside-action.sh");
+    const before = "#!/usr/bin/env sh\necho outside\n";
+    mkdirSync(join(projectDir, ".factory", "commands"), { recursive: true });
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, path);
+
+    const changes = droidAdapter.installActions!(ctx);
+
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(path);
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
   });
 
   it("is idempotent (second install → skip, bytes unchanged)", () => {

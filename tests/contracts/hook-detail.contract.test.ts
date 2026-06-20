@@ -18,6 +18,9 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
 import { ADAPTER_REGISTRY } from "../../src/adapters/registry.js";
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { ConnectorConfig } from "../../src/core/types.js";
@@ -101,6 +104,29 @@ describe("ts-plugin installHooks detail reports MAPPED events only (every ts-plu
       const detail = moduleDetail(adapter.installHooks!(ctx));
       expect(detail).not.toContain("unsupported here");
       for (const e of fully) expect(detail).toContain(e);
+    });
+
+    it("warn-skips a symlinked generated plugin module without touching the target", () => {
+      const projectDir = freshProject();
+      const ctx = buildCtx(projectDir, connectorDeclaring(["SessionStart", "PreToolUse", "PostToolUse"]));
+      const pluginPath = adapter.getHookConfigPath(ctx);
+      mkdirSync(dirname(pluginPath), { recursive: true });
+      const outside = join(projectDir, `${adapter.id}-outside-plugin.js`);
+      const before = "outside plugin target\n";
+      writeFileSync(outside, before, "utf8");
+      symlinkSync(outside, pluginPath);
+
+      const changes = adapter.installHooks!(ctx);
+
+      expect(
+        changes.some(
+          (c) =>
+            c.action === "warn" &&
+            c.path === pluginPath &&
+            /symbolic link/i.test(c.detail ?? ""),
+        ),
+      ).toBe(true);
+      expect(readFileSync(outside, "utf8")).toBe(before);
     });
   });
 });

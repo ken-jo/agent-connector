@@ -67,16 +67,9 @@
  * helper rather than reusing getConfigDir.
  */
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
 import type {
@@ -488,25 +481,15 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
 
     for (const file of files) {
-      // Idempotent: compare existing contents before writing.
-      const before = existsSync(file.path) ? this.safeRead(file.path) : undefined;
-      let action: ChangeRecord["action"];
-      if (before === undefined) action = "create";
-      else if (before === file.contents) action = "skip";
-      else action = "update";
-
-      if (action !== "skip" && !ctx.dryRun) {
-        ensureDir(dirname(file.path));
-        writeFileSync(file.path, file.contents, "utf8");
-        chmodSync(file.path, file.executable ? 0o755 : 0o644);
-      }
-
-      changes.push({
-        platform: this.id,
-        action,
-        path: file.path,
-        detail: `amp plugin module (${this.hookDetail(ctx)})`,
-      });
+      changes.push(
+        this.writeManagedFile(
+          file.path,
+          file.contents,
+          ctx.dryRun,
+          `amp plugin module (${this.hookDetail(ctx)})`,
+          file.executable,
+        ),
+      );
     }
 
     return changes;
@@ -514,24 +497,8 @@ export class AmpAdapter extends BaseAdapter implements Adapter {
 
   uninstallHooks(ctx: InstallContext): ChangeRecord[] {
     const pluginPath = this.getHookConfigPath(ctx);
-    if (!existsSync(pluginPath)) {
-      return [
-        {
-          platform: this.id,
-          action: "skip",
-          path: pluginPath,
-          detail: "no amp plugin module present",
-        },
-      ];
-    }
-    if (!ctx.dryRun) rmSync(pluginPath, { force: true });
     return [
-      {
-        platform: this.id,
-        action: "remove",
-        path: pluginPath,
-        detail: "amp plugin module",
-      },
+      this.removeManagedFile(pluginPath, ctx.dryRun, "amp plugin module", "no amp plugin module present"),
     ];
   }
 
@@ -864,18 +831,6 @@ ${handlers.join("\n\n")}
   }
 
   /** Read a file, returning undefined on any error (idempotency compare). */
-  private safeRead(path: string): string | undefined {
-    try {
-      return readFileSync(path, "utf8");
-    } catch {
-      return undefined;
-    }
-  }
-}
-
-/** Create a directory (recursive) if it does not already exist. */
-function ensureDir(dir: string): void {
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
 /**

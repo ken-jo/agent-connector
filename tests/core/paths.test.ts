@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, statSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  statSync,
+  readFileSync,
+  symlinkSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import {
@@ -138,6 +147,16 @@ describe("ensureHomeBin", () => {
     const contents = readFileSync(written, "utf8");
     expect(contents).toContain("C:/Apps/dist/cli.js");
     expect(contents).not.toContain("C:\\Apps");
+  });
+
+  it("rejects a symlinked bin directory before writing the launcher", () => {
+    process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
+    const outside = join(tmpData, "outside-bin");
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(tmpData, "bin"), "dir");
+
+    expect(() => ensureHomeBin("/opt/cli.js", "/usr/bin/node")).toThrow(/symbolic link/i);
+    expect(existsSync(join(outside, "agent-connector"))).toBe(false);
   });
 });
 

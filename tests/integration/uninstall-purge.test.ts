@@ -19,7 +19,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -274,6 +281,31 @@ describe("uninstall --purge deregisters the connector record + home-bin", () => 
       expect(result.warnings[0]).toContain("invalid connector id");
     } finally {
       rmSync(victim, { recursive: true, force: true });
+    }
+  });
+
+  it("warn-skips a symlinked connector record directory during purge", () => {
+    const outside = mkdtempSync(join(tmpdir(), "ac-purge-link-target-"));
+    try {
+      mkdirSync(join(tmpData, "connectors"), { recursive: true });
+      writeFileSync(join(outside, "keep.txt"), "keep\n", "utf8");
+      symlinkSync(outside, join(tmpData, "connectors", CONNECTOR_ID), "dir");
+
+      const result: InstallResult = {
+        connectorId: CONNECTOR_ID,
+        dryRun: false,
+        changes: [],
+        warnings: [],
+      };
+      purgeFrameworkState(CONNECTOR_ID, false, result);
+
+      expect(existsSync(join(outside, "keep.txt"))).toBe(true);
+      expect(result.changes).toHaveLength(1);
+      expect(result.changes[0]?.action).toBe("warn");
+      expect(result.changes[0]?.detail).toContain("symbolic link");
+      expect(result.warnings[0]).toContain("symbolic link");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 });

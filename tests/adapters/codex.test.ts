@@ -36,7 +36,7 @@
  * source's choice — readJson is JSON only); JSON files use readJson.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import TOML from "@iarna/toml";
@@ -330,6 +330,22 @@ describe("codex adapter render/round-trip", () => {
     // TOML cannot interpolate → the env-ref is resolved to a LITERAL value.
     expect(entry.env[ENV_VAR]).toBe(ENV_LITERAL);
     expect(entry.env[ENV_VAR]).not.toContain("${");
+  });
+
+  it("installServer warn-skips a symlinked config.toml without touching the target", () => {
+    const tomlPath = join(projectDir, ".codex", "config.toml");
+    const outside = join(projectDir, "outside-config.toml");
+    const before = "[outside]\nkeep = true\n";
+    mkdirSync(join(projectDir, ".codex"), { recursive: true });
+    writeFileSync(outside, before, "utf8");
+    symlinkSync(outside, tomlPath);
+
+    const changes = codexAdapter.installServer(ctx);
+
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.path).toBe(tomlPath);
+    expect(changes[0]?.detail).toMatch(/symbolic link/i);
+    expect(readFileSync(outside, "utf8")).toBe(before);
   });
 
   it("installHooks writes hooks.json entries referencing the home binary + codex platform token", () => {
