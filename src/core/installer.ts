@@ -216,6 +216,33 @@ export async function installConnector(
           }
         }
       }
+
+      // Remote-transport telemetry visibility note. Per-tool telemetry capture
+      // requires stdio transport (the proxy wraps the subprocess). A remote
+      // (http/sse/ws) server is registered as-is and telemetry is never captured,
+      // which is expected and documented — but the dev only discovers it via an
+      // empty telemetry report. Emit a visible install-time note so the gap is
+      // surfaced immediately. Gated on: (a) remote transport, (b) telemetry on
+      // (default), and (c) a server entry actually created/updated (so a
+      // skipped/unregistrable server never notes).
+      {
+        const wroteEntry = serverChanges.some(
+          (c) => c.action === "create" || c.action === "update",
+        );
+        const server = effectiveServerFor(connector, id);
+        if (
+          wroteEntry &&
+          server &&
+          server.transport !== "stdio" &&
+          connector.telemetry.enabled === true
+        ) {
+          const detail =
+            `telemetry not captured for ${connector.id} on ${id} — ` +
+            `remote (${server.transport}) transport; per-tool telemetry is stdio-only`;
+          result.changes.push({ platform: id, action: "warn", detail });
+          result.warnings.push(detail);
+        }
+      }
     });
     runStep(id, "installHooks", result, () => {
       pushAll(result.changes, adapter.installHooks(ctx));
