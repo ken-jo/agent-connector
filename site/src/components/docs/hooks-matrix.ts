@@ -270,7 +270,10 @@ export const platforms: PlatformHookEntry[] = [
     capabilities: {
       canModifyArgs: true,
       canModifyOutput: false,
-      canInjectSessionContext: true,
+      // 1.0.63 has NO additionalContext mechanism (zero occurrences in app.js),
+      // so context injection is a silent no-op — fail-safe false (mirrors the
+      // copilot-cli adapter capability literal).
+      canInjectSessionContext: false,
     },
     events: {
       SessionStart: "sessionStart",
@@ -288,7 +291,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "8 of the 13 canonical events map to the CLI's file-hook loader (verified validator Set in GitHub Copilot CLI 1.0.63 app.js): sessionStart, sessionEnd, userPromptSubmitted, preToolUse, postToolUse, preCompact, agentStop (Stop), subagentStop. Event KEYS are lowerCamelCase via EVENT_WIRE_KEY (Stop->agentStop, UserPromptSubmit->userPromptSubmitted; the rest first-letter-lowercased) — the loader SILENTLY DROPS any other key (PascalCase included), so a PascalCase key would NEVER fire. Notification/PermissionRequest/SubagentStart/PostToolUseFailure are NOT in the installed 1.0.63 Set (the github/docs main reference describes them for a newer CLI) — demoted to warn-skip until a verified bundle ships them. PostCompact unsupported. User/global only (no project scope). MCP in ~/.copilot/mcp-config.json (stdio written as type 'local' + tools:['*']). Nested { matcher, hooks:[{type,command}] }; the home-bin command token stays the PascalCase AC router event. Reply (stdout exit 0): hookSpecificOutput{ permissionDecision deny|ask + reason; updatedInput (PreToolUse); additionalContext }. SubagentStop deny -> TOP-LEVEL { decision:'block', reason }. canModifyOutput false.",
+      "8 of the 13 canonical events map to the CLI's file-hook loader (verified validator Set in GitHub Copilot CLI 1.0.63 app.js): sessionStart, sessionEnd, userPromptSubmitted, preToolUse, postToolUse, preCompact, agentStop (Stop), subagentStop. Event KEYS are lowerCamelCase via EVENT_WIRE_KEY (Stop->agentStop, UserPromptSubmit->userPromptSubmitted; the rest first-letter-lowercased) — the loader SILENTLY DROPS any other key (PascalCase included), so a PascalCase key would NEVER fire. Notification/PermissionRequest/SubagentStart/PostToolUseFailure are NOT in the installed 1.0.63 Set (the github/docs main reference describes them for a newer CLI) — demoted to warn-skip until a verified bundle ships them. PostCompact unsupported. User/global only (no project scope). MCP in ~/.copilot/mcp-config.json (stdio written as type 'local' + tools:['*']). Nested { matcher, hooks:[{type,command}] }; the home-bin command token stays the PascalCase AC router event. Reply (stdout exit 0): 1.0.63 reads the PreToolUse permission decision FLAT at the TOP LEVEL — { permissionDecision deny|ask + permissionDecisionReason; modifiedArgs (PreToolUse modify) } — there is NO hookSpecificOutput wrapper in 1.0.63 (verified: zero occurrences in app.js) and PreToolUse is the only event whose reply the host reads. The host has no additionalContext mechanism, so context injection is a no-op (canInjectSessionContext false). SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (kept for forward-compat; unread on 1.0.63). canModifyOutput false.",
   },
   {
     platform: "gemini-cli",

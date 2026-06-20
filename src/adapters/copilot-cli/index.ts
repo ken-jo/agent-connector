@@ -18,10 +18,15 @@
  *     hook files and removal is a clean, scoped operation. Each event maps to an
  *     array of flat command entries `{ matcher?, hooks: [{ type:"command", command }] }`
  *     keyed by the CLI's lowerCamelCase wire name (EVENT_WIRE_KEY).
- *   - Reply: a `hookSpecificOutput` object keyed by `hookEventName` carrying
- *     `permissionDecision` (allow|deny|ask) + `permissionDecisionReason`,
- *     `additionalContext`, and (PreToolUse) `updatedInput`. PreToolUse is
- *     fail-closed on the host side; exit 0 + JSON refines the decision.
+ *   - Reply: the installed CLI 1.0.63 reads the PreToolUse permission decision
+ *     FLAT at the TOP LEVEL of the hook's stdout JSON — `{ permissionDecision
+ *     (allow|deny|ask), permissionDecisionReason, modifiedArgs? }` — there is NO
+ *     `hookSpecificOutput` wrapper in 1.0.63 (verified: the token appears zero
+ *     times in app.js), and PreToolUse is the ONLY event whose reply the host
+ *     reads. PreToolUse is fail-closed; exit 0 + the flat JSON refines the
+ *     decision. The host has no additionalContext mechanism, so context
+ *     injection is a no-op on this version. (PermissionRequest/SubagentStop keep
+ *     their Claude-shaped envelopes for forward-compat; they are unread on 1.0.63.)
  *
  * Env handling: the host is not documented to support `${env:VAR}` interpolation
  * inside mcp-config.json, so env/header/url refs are resolved to literals at
@@ -192,20 +197,37 @@ interface CopilotHttpServer {
   tools: string[];
 }
 
-/** Raw Copilot CLI hook stdin payload (Claude-style: PascalCase event, snake_case fields). */
+/** Raw Copilot CLI hook stdin payload.
+ *
+ * The installed CLI 1.0.63 bundle (app.js) builds tool-event stdin in
+ * lowerCamelCase via a single shared getter, NOT the Claude-style snake_case
+ * this adapter once assumed:
+ *   PreToolUse  → { sessionId, timestamp, cwd, toolName, toolArgs }
+ *   PostToolUse → { sessionId, timestamp, cwd, toolName, toolArgs,
+ *                   toolResult: { resultType, textResultForLlm } }
+ * where `toolArgs` is a JSON-**string** (the writer does
+ * `toolArgs: JSON.stringify(t.toolArgs, null, 2)`). The snake_case fields are
+ * retained as a tolerant fallback so a future/alternate dialect still parses,
+ * but camelCase is the live wire form on 1.0.63. */
 interface CopilotWireInput {
   connector?: unknown;
+  // session id: camelCase on the live wire; snake_case kept as a fallback.
+  sessionId?: string;
   session_id?: string;
   transcript_path?: string;
   cwd?: string;
   hook_event_name?: string;
 
-  // tool events
+  // tool events — camelCase is the live 1.0.63 wire form; `toolArgs` is a
+  // JSON-STRING. snake_case retained as a tolerant fallback.
+  toolName?: string;
+  toolArgs?: unknown;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
-  // PostToolUse (VS Code-compatible dialect): the tool result rides under
-  // `tool_result`, NOT `tool_response`. PostToolUse fires success-only, so
-  // result_type is always "success" (hooks-reference.md:397-400).
+  // PostToolUse: the live bundle ships the result under camelCase
+  // `toolResult.{resultType,textResultForLlm}`; the snake_case `tool_result`
+  // form is kept as a fallback. PostToolUse fires success-only.
+  toolResult?: { resultType?: string; textResultForLlm?: string };
   tool_result?: { result_type?: string; text_result_for_llm?: string };
 
   // SessionStart
@@ -261,11 +283,17 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
     permissionRequest: false,
     postToolUseFailure: false,
     subagentStart: false,
-    // PreToolUse is fail-closed and can rewrite tool input (updatedInput); a
-    // PostToolUse hook cannot rewrite already-emitted tool output.
+    // PreToolUse is fail-closed and can rewrite tool input (the host reads a
+    // flat top-level `modifiedArgs`); a PostToolUse hook cannot rewrite
+    // already-emitted tool output.
     canModifyArgs: true,
     canModifyOutput: false,
-    canInjectSessionContext: true,
+    // DEMOTED to false (fail-safe): the installed CLI 1.0.63 bundle has NO
+    // additionalContext mechanism — the token appears zero times in app.js, so a
+    // context-injection reply (SessionStart/PreCompact/etc.) is a silent no-op.
+    // Claiming the capability would advertise an injection path the host never
+    // honors; re-promote once a verified bundle ships an additionalContext reader.
+    canInjectSessionContext: false,
     // Copilot CLI's mcp-config.json `type` accepts stdio (written "local"),
     // http (Streamable HTTP), and sse (legacy) — per GitHub's add-mcp-servers docs.
     transports: ["stdio", "http", "sse"],
@@ -875,23 +903,27 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
 
     switch (event) {
       case "PreToolUse": {
+        // Live 1.0.63 wire: camelCase `toolName` + `toolArgs` (a JSON-STRING).
+        // snake_case `tool_name`/`tool_input` are tolerant fallbacks.
         const ev: PreToolUseEvent = {
           ...base,
-          toolName: input.tool_name ?? "",
-          toolInput: input.tool_input ?? {},
+          toolName: toolNameOf(input),
+          toolInput: toolInputOf(input),
         };
         return ev;
       }
       case "PostToolUse": {
-        // PostToolUse fires success-only and carries the result under
-        // `tool_result.text_result_for_llm` (VS Code dialect). Failures arrive
-        // via the separate PostToolUseFailure event, so isError is never set
-        // here (hooks-reference.md:219,397-400).
-        const toolOutput = input.tool_result?.text_result_for_llm;
+        // PostToolUse fires success-only. The live 1.0.63 wire carries the
+        // result under camelCase `toolResult.textResultForLlm`; the snake_case
+        // `tool_result.text_result_for_llm` form is a tolerant fallback. Failures
+        // arrive via the separate PostToolUseFailure event, so isError is never
+        // set here.
+        const toolOutput =
+          input.toolResult?.textResultForLlm ?? input.tool_result?.text_result_for_llm;
         const ev: PostToolUseEvent = {
           ...base,
-          toolName: input.tool_name ?? "",
-          toolInput: input.tool_input ?? {},
+          toolName: toolNameOf(input),
+          toolInput: toolInputOf(input),
           ...(typeof toolOutput === "string" ? { toolOutput } : {}),
         };
         return ev;
@@ -958,19 +990,20 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
         // (hooks-reference.md:218,627-649).
         const ev: PermissionRequestEvent = {
           ...base,
-          toolName: input.tool_name ?? "",
-          toolInput: input.tool_input ?? {},
+          toolName: toolNameOf(input),
+          toolInput: toolInputOf(input),
         };
         return ev;
       }
       case "PostToolUseFailure": {
-        // Host payload is {tool_name, tool_input, error} + base; it carries no
-        // tool_use_id / is_interrupt / duration_ms correlation fields
-        // (hooks-reference.md:421-430).
+        // Host payload is the tool-event shape + `error`; it carries no
+        // tool_use_id / is_interrupt / duration_ms correlation fields. (Demoted
+        // on capabilities — below the live-fire bar — but parsed consistently
+        // with the live camelCase tool dialect.)
         const ev: PostToolUseFailureEvent = {
           ...base,
-          toolName: input.tool_name ?? "",
-          toolInput: input.tool_input ?? {},
+          toolName: toolNameOf(input),
+          toolInput: toolInputOf(input),
           error: typeof input.error === "string" ? input.error : "",
         };
         return ev;
@@ -1075,11 +1108,53 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
       return { exitCode: 0 };
     }
 
+    // PreToolUse — the ONLY event whose reply the installed CLI 1.0.63 actually
+    // reads, and it reads the permission decision FLAT at the TOP LEVEL of the
+    // hook's stdout JSON (VERIFIED in app.js):
+    //   a => ({ permissionDecision: a?.permissionDecision,
+    //           permissionDecisionReason: a?.permissionDecisionReason,
+    //           modifiedArgs: a?.modifiedArgs })
+    // There is NO `hookSpecificOutput` wrapper in 1.0.63 (the token appears zero
+    // times in the bundle), so a nested reply leaves `a.permissionDecision`
+    // undefined and the deny is SILENTLY IGNORED — the tool runs anyway. We
+    // therefore emit the flat keys the host honors:
+    //   deny   → { permissionDecision:"deny", permissionDecisionReason }
+    //            → host prints `Denied by preToolUse hook: <reason>`
+    //   ask    → { permissionDecision:"ask", permissionDecisionReason }
+    //   modify → { modifiedArgs } (the host accepts a string or an object and
+    //            stringifies an object itself; we pass updatedInput as-is)
+    //   context/additionalContext → NO-OP on 1.0.63 (the bundle has no
+    //            additionalContext mechanism), so it degrades to exit 0.
+    if (event === "PreToolUse") {
+      if (decision === "deny") {
+        return this.stdout({
+          permissionDecision: "deny",
+          permissionDecisionReason: response.reason ?? "Blocked by hook",
+        });
+      }
+      if (decision === "ask") {
+        return this.stdout({
+          permissionDecision: "ask",
+          permissionDecisionReason: response.reason ?? "Confirmation required by hook",
+        });
+      }
+      if (decision === "modify" && response.updatedInput) {
+        return this.stdout({ modifiedArgs: response.updatedInput });
+      }
+      // allow / context / void → pass through (no honored reply on 1.0.63).
+      return { exitCode: 0 };
+    }
+
     // deny → block the action with a reason (exit 0; JSON carries the decision).
     // SubagentStop is the Stop-semantics exception: like Claude, the block is
     // the TOP-LEVEL {"decision":"block","reason"} — it keeps the subagent
     // running with `reason` as its next instruction (the host "can block and
     // force continuation").
+    //
+    // NOTE: for every OTHER event, the installed CLI 1.0.63 attaches NO reply
+    // reader (the bundle's args getter is `a => {}`), so what we emit below is a
+    // no-op on this version; it is retained for forward-compatibility with a
+    // CLI that does consume these decisions.
     if (decision === "deny") {
       if (event === "SubagentStop") {
         return this.stdout({
@@ -1107,15 +1182,9 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
       });
     }
 
-    // modify → rewrite PreToolUse input (only where Copilot CLI supports it).
-    if (decision === "modify") {
-      if (event === "PreToolUse" && response.updatedInput) {
-        return this.stdout({
-          hookSpecificOutput: { hookEventName, updatedInput: response.updatedInput },
-        });
-      }
-      // Output rewrite is unsupported on Copilot CLI; fall through to allow.
-    }
+    // modify is a PreToolUse-only capability and is handled in the flat-reply
+    // PreToolUse branch above; for every other event it falls through to allow
+    // (output rewrite is unsupported on Copilot CLI).
 
     // context → inject soft guidance (also the SessionStart context path).
     if (decision === "context" && response.additionalContext) {
@@ -1135,17 +1204,58 @@ export class CopilotCliAdapter extends BaseAdapter implements Adapter {
 
 /**
  * Extract a stable session id from a Copilot CLI wire payload.
- * Priority mirrors the Claude wire protocol: transcript UUID > session_id > "".
+ * Priority mirrors the Claude wire protocol: transcript UUID > sessionId > "".
+ * The live 1.0.63 wire sends `sessionId` (camelCase); `session_id` is kept as a
+ * tolerant fallback.
  */
 function extractSessionId(input: CopilotWireInput): string {
   if (typeof input.transcript_path === "string") {
     const m = input.transcript_path.match(/([a-f0-9-]{36})\.jsonl$/);
     if (m && m[1]) return m[1];
   }
+  if (typeof input.sessionId === "string" && input.sessionId !== "") {
+    return input.sessionId;
+  }
   if (typeof input.session_id === "string" && input.session_id !== "") {
     return input.session_id;
   }
   return "";
+}
+
+/**
+ * Resolve the tool name from a tool-event payload — camelCase `toolName` (the
+ * live 1.0.63 wire) with a snake_case `tool_name` fallback.
+ */
+function toolNameOf(input: CopilotWireInput): string {
+  if (typeof input.toolName === "string") return input.toolName;
+  if (typeof input.tool_name === "string") return input.tool_name;
+  return "";
+}
+
+/**
+ * Resolve the tool input object from a tool-event payload. The live 1.0.63 wire
+ * sends `toolArgs` as a JSON-STRING (`JSON.stringify(t.toolArgs,null,2)`), so we
+ * parse it into an object; an already-object `toolArgs` is accepted as-is, and
+ * the snake_case `tool_input` (already an object) is the fallback.
+ */
+function toolInputOf(input: CopilotWireInput): Record<string, unknown> {
+  const raw = input.toolArgs;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Non-JSON string → fall through to the other shapes / empty object.
+    }
+  } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (input.tool_input && typeof input.tool_input === "object") {
+    return input.tool_input;
+  }
+  return {};
 }
 
 export const adapter = new CopilotCliAdapter();
