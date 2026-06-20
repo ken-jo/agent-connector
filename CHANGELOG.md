@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.4.75 — 2026-06-20
+
+The **DX-honesty** release: the framework now surfaces a visible signal everywhere a
+host can't honor a declared surface — no more silent failures — plus a committed live-smoke
+harness and a real copilot-cli hook-reply fix. (8 PRs; **35 platforms, 3003 tests.**)
+
+### Fixed
+
+- **copilot-cli — a PreToolUse `deny` now actually blocks the tool.** `formatReply` emitted
+  a nested `hookSpecificOutput` shape, but Copilot CLI 1.0.63 reads the decision FLAT at the
+  top level (`{permissionDecision, permissionDecisionReason, modifiedArgs?}`); and parseEvent
+  read snake_case PreToolUse input while the host sends camelCase (`toolName`, JSON-string
+  `toolArgs`). Both fixed and live-verified (the deny now blocks). `canInjectSessionContext`
+  demoted to false (1.0.63 has no `additionalContext`). (#220)
+- **Hooks — a declared event a host can't fire is never silently dropped.** It now surfaces a
+  visible `skip` ChangeRecord (exit-0-preserving) instead of vanishing at install, centralized
+  via a default-preserving `unmappedAction` seam; the never-silent invariant is enforced
+  fleet-wide over all 13 events. (#224)
+- **install — warns when an unset `${env:VAR}` would bake an empty secret** into a
+  literal-resolving host config (gated by a new `nativeServerEnvInterpolation` capability on the
+  5 native-interpolation hosts). (#225)
+- **doctor — `doctor --connector <bad-path>` now errors loudly** (exit 2) instead of silently
+  reporting on the registered connectors; the implicit auto-discovery fallback is preserved. (#227)
+
+### Added
+
+- **`agent-connector doctor --explain`** — a per-`(host, event)` honored/degraded/dropped
+  diagnostic (simulate()-backed), with scope-aware exit semantics (a healthy `targets:auto`
+  hooks connector exits 0; an explicitly-targeted *degraded* host exits non-zero). Also fixes
+  `explain()`'s hooks **false-green** (it judged the surface by an OR across all events; now
+  per-declared-event via `hostCanFireEvent`, which also fixed a latent `postCompact` omission). (#226)
+- **`scripts/verify-host.mjs` deep-verb live-smoke lanes** — a committed, repeatable, MANUAL
+  (not-CI) harness that drives real authed host CLIs to OBSERVE behavior: mcp tool-load/tool-call,
+  per-tool telemetry capture, hook fire + reply-honored, content surfaces, and the full
+  install/update/doctor/uninstall lifecycle — with an auth-preserving sandbox + a zero-dep MCP
+  echo fixture. (#221)
+
+### Docs
+
+- Runnable `examples/acme-db` (real stub server + package.json), removed the fictional
+  `@acme/db-mcp` reference, added a "write your MCP server" on-ramp + the context-mode dogfood
+  evidence (~20,322 → ~76 LOC), fixed the version pin. (#222)
+- Site: responsive "Two audiences, two tracks" / WHO IT'S FOR section on mobile. (#223)
+
 ## 0.4.67 — 2026-06-20
 
 ### Fixed
