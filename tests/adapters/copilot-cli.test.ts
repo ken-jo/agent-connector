@@ -48,6 +48,7 @@ import type {
   PermissionRequestEvent,
   PostToolUseEvent,
   PostToolUseFailureEvent,
+  PreToolUseEvent,
   ResolvedConnector,
   StopEvent,
   SubagentStartEvent,
@@ -936,6 +937,161 @@ describe("copilot-cli — extended-event replies", () => {
       copilotCliAdapter.formatReply!("Stop", { decision: "deny", reason: "halt" }),
     );
     expect(stop.hookSpecificOutput.permissionDecision).toBe("deny");
+  });
+});
+
+// ── PreToolUse: FLAT permission reply + camelCase stdin (live 1.0.63 wire) ────
+// Two LIVE-VERIFIED bugs on GitHub Copilot CLI 1.0.63 (deep hook-reply verify):
+//   1. formatReply emitted a NESTED hookSpecificOutput.permissionDecision, but
+//      the bundle (app.js) reads the decision FLAT at the TOP LEVEL — there is
+//      NO hookSpecificOutput wrapper in 1.0.63 — so the deny was SILENTLY
+//      IGNORED and the tool ran. The fix emits the flat shape the host honors.
+//   2. parseEvent read snake_case tool_name/tool_input/session_id, but the
+//      PreToolUse stdin is camelCase { sessionId, cwd, toolName, toolArgs } where
+//      toolArgs is a JSON-STRING. The fix parses the camelCase wire.
+// These tests are the byte oracle pinning both fixes against regression.
+
+describe("copilot-cli — PreToolUse FLAT permission reply (1.0.63 bug-1 regression)", () => {
+  it("deny → FLAT { permissionDecision:'deny', permissionDecisionReason } (NO hookSpecificOutput wrapper)", () => {
+    const reply = parseStdout(
+      copilotCliAdapter.formatReply!("PreToolUse", {
+        decision: "deny",
+        reason: "blocked tool",
+      }),
+    );
+    // FLAT top-level keys — exactly what the bundle's reply reader consumes.
+    expect(reply).toEqual({
+      permissionDecision: "deny",
+      permissionDecisionReason: "blocked tool",
+    });
+    // The nested wrapper that 1.0.63 ignores must be ABSENT.
+    expect(reply.hookSpecificOutput).toBeUndefined();
+  });
+
+  it("deny with no reason → FLAT deny with a default reason (still top-level)", () => {
+    const reply = parseStdout(
+      copilotCliAdapter.formatReply!("PreToolUse", { decision: "deny" }),
+    );
+    expect(reply.permissionDecision).toBe("deny");
+    expect(typeof reply.permissionDecisionReason).toBe("string");
+    expect(reply.permissionDecisionReason.length).toBeGreaterThan(0);
+    expect(reply.hookSpecificOutput).toBeUndefined();
+  });
+
+  it("ask → FLAT { permissionDecision:'ask', permissionDecisionReason }", () => {
+    const reply = parseStdout(
+      copilotCliAdapter.formatReply!("PreToolUse", {
+        decision: "ask",
+        reason: "confirm please",
+      }),
+    );
+    expect(reply).toEqual({
+      permissionDecision: "ask",
+      permissionDecisionReason: "confirm please",
+    });
+    expect(reply.hookSpecificOutput).toBeUndefined();
+  });
+
+  it("modify → FLAT { modifiedArgs } (the host reads top-level modifiedArgs, not updatedInput)", () => {
+    const reply = parseStdout(
+      copilotCliAdapter.formatReply!("PreToolUse", {
+        decision: "modify",
+        updatedInput: { command: "ls -la" },
+      }),
+    );
+    expect(reply).toEqual({ modifiedArgs: { command: "ls -la" } });
+    expect(reply.hookSpecificOutput).toBeUndefined();
+    // The old nested updatedInput key must NOT be emitted.
+    expect(reply.updatedInput).toBeUndefined();
+  });
+
+  it("allow / void / context → pass through with exit 0 (no honored reply on 1.0.63)", () => {
+    expect(copilotCliAdapter.formatReply!("PreToolUse", { decision: "allow" })).toEqual({
+      exitCode: 0,
+    });
+    expect(copilotCliAdapter.formatReply!("PreToolUse", {})).toEqual({ exitCode: 0 });
+    // context has no additionalContext mechanism on 1.0.63 → no-op, exit 0.
+    expect(
+      copilotCliAdapter.formatReply!("PreToolUse", {
+        decision: "context",
+        additionalContext: "hint",
+      }),
+    ).toEqual({ exitCode: 0 });
+  });
+});
+
+describe("copilot-cli — PreToolUse camelCase stdin (1.0.63 bug-2 regression)", () => {
+  it("reads camelCase toolName + toolArgs (JSON-STRING) into toolName/toolInput", () => {
+    const evt = copilotCliAdapter.parseEvent!("PreToolUse", {
+      sessionId: "sess-camel",
+      cwd: "/home/dev/acme",
+      toolName: "bash",
+      // The live wire serializes toolArgs as a JSON STRING.
+      toolArgs: JSON.stringify({ command: "rm -rf /tmp/x" }),
+    }) as PreToolUseEvent;
+    expect(evt.toolName).toBe("bash");
+    expect(evt.toolInput).toEqual({ command: "rm -rf /tmp/x" });
+    // sessionId (camelCase) flows through (no transcript_path here).
+    expect(evt.sessionId).toBe("sess-camel");
+    expect(evt.projectDir).toBe("/home/dev/acme");
+  });
+
+  it("accepts an already-object toolArgs as-is", () => {
+    const evt = copilotCliAdapter.parseEvent!("PreToolUse", {
+      toolName: "write",
+      toolArgs: { path: "/a", content: "x" },
+    }) as PreToolUseEvent;
+    expect(evt.toolName).toBe("write");
+    expect(evt.toolInput).toEqual({ path: "/a", content: "x" });
+  });
+
+  it("a non-JSON toolArgs string degrades to an empty tool input (no throw)", () => {
+    const evt = copilotCliAdapter.parseEvent!("PreToolUse", {
+      toolName: "bash",
+      toolArgs: "not json",
+    }) as PreToolUseEvent;
+    expect(evt.toolName).toBe("bash");
+    expect(evt.toolInput).toEqual({});
+  });
+
+  it("snake_case tool_name/tool_input remain a tolerant fallback (no regression)", () => {
+    const evt = copilotCliAdapter.parseEvent!("PreToolUse", {
+      session_id: "sess-snake",
+      tool_name: "grep",
+      tool_input: { pattern: "TODO" },
+    }) as PreToolUseEvent;
+    expect(evt.toolName).toBe("grep");
+    expect(evt.toolInput).toEqual({ pattern: "TODO" });
+    expect(evt.sessionId).toBe("sess-snake");
+  });
+
+  it("PostToolUse reads camelCase toolResult.textResultForLlm (live wire) + keeps snake_case fallback", () => {
+    // Live 1.0.63 camelCase dialect.
+    const camel = copilotCliAdapter.parseEvent!("PostToolUse", {
+      sessionId: "s",
+      toolName: "bash",
+      toolArgs: JSON.stringify({ command: "echo hi" }),
+      toolResult: { resultType: "success", textResultForLlm: "out-camel" },
+    }) as PostToolUseEvent;
+    expect(camel.toolName).toBe("bash");
+    expect(camel.toolInput).toEqual({ command: "echo hi" });
+    expect(camel.toolOutput).toBe("out-camel");
+
+    // snake_case fallback still parses (prior PRs' fixture shape).
+    const snake = copilotCliAdapter.parseEvent!("PostToolUse", {
+      tool_name: "bash",
+      tool_input: { command: "echo hi" },
+      tool_result: { result_type: "success", text_result_for_llm: "out-snake" },
+    }) as PostToolUseEvent;
+    expect(snake.toolOutput).toBe("out-snake");
+  });
+});
+
+// ── capability: no additionalContext mechanism on 1.0.63 ──────────────────────
+
+describe("copilot-cli — canInjectSessionContext demoted (no additionalContext on 1.0.63)", () => {
+  it("declares canInjectSessionContext false (fail-safe; bundle has no additionalContext)", () => {
+    expect(copilotCliAdapter.capabilities.canInjectSessionContext).toBe(false);
   });
 });
 
