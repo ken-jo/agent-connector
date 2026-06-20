@@ -151,11 +151,19 @@ interface CursorWireInput {
   conversation_id?: string;
   session_id?: string;
   generation_id?: string;
-  source?: string;
   trigger?: string;
   status?: string;
   loop_count?: number;
   stop_hook_active?: boolean;
+
+  // sessionStart — Cursor's stdin is EXACTLY { session_id, is_background_agent,
+  // composer_mode } (cursor.com/docs/hooks ~1278-1297): there is NO source/trigger
+  // start-source discriminator. composer_mode is the editor MODE (agent|ask|edit),
+  // NOT our normalized SessionStart.source enum (startup|compact|resume|clear), so
+  // it does not map; surfaced here only so the host shape is documented (no
+  // normalized field exists for either — see core/types.ts SessionStartEvent).
+  is_background_agent?: boolean;
+  composer_mode?: string;
 
   // beforeSubmitPrompt (UserPromptSubmit) — the submitted prompt text.
   // sessionEnd — the documented end reason. Both field names are taken
@@ -168,6 +176,10 @@ interface CursorWireInput {
   error?: string;
   tool_use_id?: string;
   is_interrupt?: boolean;
+  // postToolUse / postToolUseFailure carry a BARE `duration` (ms), not
+  // `duration_ms` (cursor.com/docs/hooks ~870,883,904,918). `duration_ms` is the
+  // distinct field on sessionEnd (~1315) and subagentStop (~973,994), kept below.
+  duration?: number;
   duration_ms?: number;
 
   // subagentStart / subagentStop (Task-tool lifecycle). Both name families are
@@ -176,7 +188,10 @@ interface CursorWireInput {
   agent_type?: string;
   subagent_id?: string;
   subagent_type?: string;
-  last_assistant_message?: string;
+  // subagentStop carries the subagent's output text under `summary`, NOT
+  // last_assistant_message (cursor.com/docs/hooks ~972,993). This is read into
+  // the normalized lastAssistantMessage.
+  summary?: string;
 }
 
 export class CursorAdapter extends BaseAdapter implements Adapter {
@@ -721,9 +736,17 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "SessionStart": {
+        // Cursor's sessionStart stdin is exactly { session_id, is_background_agent,
+        // composer_mode } — there is NO source/trigger start-source discriminator
+        // (cursor.com/docs/hooks ~1278-1297). composer_mode is the editor MODE
+        // (agent|ask|edit), a different concept from our normalized source enum
+        // (startup|compact|resume|clear), so it does NOT map. With no discriminator
+        // available, the normalized source stays at its 'startup' default (via
+        // normalizeSessionSource(undefined)). is_background_agent / composer_mode
+        // ride along on base.raw; there is no normalized field for either.
         const ev: SessionStartEvent = {
           ...base,
-          source: normalizeSessionSource(input.source ?? input.trigger),
+          source: normalizeSessionSource(undefined),
         };
         return ev;
       }
@@ -781,8 +804,11 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
           ...(typeof input.is_interrupt === "boolean"
             ? { isInterrupt: input.is_interrupt }
             : {}),
-          ...(typeof input.duration_ms === "number"
-            ? { durationMs: input.duration_ms }
+          // postToolUseFailure reports a BARE `duration` (ms), not `duration_ms`
+          // (cursor.com/docs/hooks ~904,918). duration_ms only exists on
+          // sessionEnd/subagentStop.
+          ...(typeof input.duration === "number"
+            ? { durationMs: input.duration }
             : {}),
         };
         return ev;
@@ -804,8 +830,10 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
           ...base,
           ...(typeof agentId === "string" ? { agentId } : {}),
           ...(typeof agentType === "string" ? { agentType } : {}),
-          ...(typeof input.last_assistant_message === "string"
-            ? { lastAssistantMessage: input.last_assistant_message }
+          // Cursor's subagentStop carries the subagent's output text under
+          // `summary`, NOT last_assistant_message (cursor.com/docs/hooks ~972,993).
+          ...(typeof input.summary === "string"
+            ? { lastAssistantMessage: input.summary }
             : {}),
           ...(typeof input.stop_hook_active === "boolean"
             ? { stopHookActive: input.stop_hook_active }
