@@ -497,7 +497,7 @@ Marker + edit-detection semantics:
   matches); stray lone markers are recovered (backup + strip the marker line
   only), and duplicate pairs from past bugs collapse into one on every upsert.
 
-**AGENTS.md-first policy (where the block goes).** 29 of the 35 registered
+**AGENTS.md-first policy (where the block goes).** 29 of the 36 registered
 hosts read the open AGENTS.md standard (https://agents.md — plain-markdown "README
 for agents", stewarded by the Agentic AI Foundation under the Linux Foundation),
 so the default target is the standard file. Project scope →
@@ -1275,17 +1275,18 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 
 ---
 
-## 6. Supported platforms (35, by hook paradigm)
+## 6. Supported platforms (37, by hook paradigm)
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
-### `json-stdio` — full hook dispatch (19)
+### `json-stdio` — full hook dispatch (20)
 One universal hook entrypoint binary handles all of them.
 
 | Platform | id | MCP native target (root key / file) |
 |---|---|---|
 | Claude Code | `claude-code` | `~/.claude.json` / `.mcp.json` → `mcpServers` (hooks in `settings.json`) |
+| CodeBuddy (Tencent) | `codebuddy` | `~/.codebuddy.json` / `.mcp.json` → `mcpServers` (Claude Code fork: hooks in `.codebuddy/settings.json`, memory in `CODEBUDDY.md`) |
 | Codex CLI | `codex` | `~/.codex/config.toml` → `[mcp_servers.*]` (hooks in `hooks.json`) |
 | Cursor | `cursor` | `.cursor/mcp.json` → `mcpServers` (hooks in `hooks.json`) |
 | VS Code Copilot | `vscode-copilot` | `.vscode/mcp.json` → `servers` |

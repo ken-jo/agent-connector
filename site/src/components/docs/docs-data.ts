@@ -1002,7 +1002,7 @@ export const platformOverrideFields: FieldRow[] = [
     name: "nativeHooks",
     type: "Record<string, NativeHookDef>",
     notes:
-      "Native passthrough — wire ANY host hook event outside the 13 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). Honored by the 14 adapters that set supportsNativeHooks; the rest skip-warn.",
+      "Native passthrough — wire ANY host hook event outside the 13 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). Honored by the 15 adapters that set supportsNativeHooks; the rest skip-warn.",
   },
   {
     name: "configPatch",
@@ -1258,6 +1258,11 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     name: "Claude Code",
     id: "claude-code",
     target: "~/.claude.json / .mcp.json → mcpServers (hooks in settings.json)",
+  },
+  {
+    name: "CodeBuddy",
+    id: "codebuddy",
+    target: "~/.codebuddy.json / .mcp.json → mcpServers (Claude Code fork; hooks in .codebuddy/settings.json)",
   },
   {
     name: "Codex CLI",

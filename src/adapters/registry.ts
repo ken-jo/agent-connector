@@ -33,6 +33,14 @@ import type { Adapter, AdapterFactory } from "./spi.js";
  * (default-exporting an `Adapter`) and add one entry here.
  */
 export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
+  // codebuddy (Tencent CodeBuddy) is a Claude Code fork that ALSO exports
+  // CLAUDE_SESSION_ID at runtime (its bundle sets both CODEBUDDY_SESSION_ID and
+  // CLAUDE_SESSION_ID), so it must precede claude-code: the fork's exclusive
+  // runtime markers are checked first during host detection (fork-before-parent).
+  {
+    id: "codebuddy",
+    load: () => import("./codebuddy/index.js").then((m) => m.default),
+  },
   {
     id: "claude-code",
     load: () => import("./claude-code/index.js").then((m) => m.default),

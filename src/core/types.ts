@@ -30,6 +30,7 @@
  */
 export type PlatformId =
   | "claude-code"
+  | "codebuddy"
   | "codex"
   | "cursor"
   | "vscode-copilot"
@@ -72,11 +73,12 @@ export type PlatformId =
  * Hook I/O paradigm — the deepest cross-platform divergence (report §4).
  * Canonical shipped sets (keep in sync with src/adapters/registry.ts — this
  * comment once drifted and seeded a docs-wide misclassification):
- *   - "json-stdio" (18): host pipes JSON to a command on stdin, reads
- *     JSON/exit-code back — Claude Code, Codex, Cursor, VS Code/JetBrains
- *     Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose, Hermes,
- *     Droid (Factory), Antigravity (+ the agy CLI), Continue, Amazon Q. One
- *     universal entrypoint binary handles all of them.
+ *   - "json-stdio" (19): host pipes JSON to a command on stdin, reads
+ *     JSON/exit-code back — Claude Code, CodeBuddy (Tencent, a Claude Code
+ *     fork), Codex, Cursor, VS Code/JetBrains Copilot, Copilot CLI, Gemini CLI,
+ *     Qwen, Kiro, Kimi, Crush, Goose, Hermes, Droid (Factory), Antigravity (+
+ *     the agy CLI), Continue, Amazon Q. One universal entrypoint binary handles
+ *     all of them.
  *   - "ts-plugin" (8): host loads a JS/TS module exporting lifecycle functions
  *     — OpenCode, MiMoCode (an OpenCode fork), Kilo CLI, Kilo, OMP, OpenClaw,
  *     NemoClaw (an OpenClaw wrapper/fork), Amp (.amp/plugins/*.ts). Framework
