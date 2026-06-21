@@ -688,6 +688,27 @@ export const platforms: Platform[] = [
     // than guess — an honest CEILING / host-gap, not a host limitation.
     hostNative: s(true, true, true, true, true, true, false, false),
   },
+  {
+    id: "junie",
+    name: "Junie",
+    paradigm: "mcp-only",
+    surfaces: s(true, false, false, false, false, true, false, false),
+    // Junie is JetBrains' OWN LLM-agnostic coding agent (the `junie` CLI, npm
+    // @jetbrains/junie, github.com/JetBrains/junie) — DISTINCT from
+    // jetbrains-copilot (GitHub Copilot in JetBrains IDEs). mcp-only: AC installs
+    // MCP + the AGENTS.md memory base default. MCP config is BYTE-CONFIRMED from
+    // junie.jetbrains.com/docs/junie-cli-mcp-configuration.html — object map
+    // "mcpServers" at <projectDir>/.junie/mcp/mcp.json (project) and
+    // ~/.junie/mcp/mcp.json (user; the CLI uses the SAME MCP JSON as Junie in
+    // JetBrains IDEs); stdio { command, args?, env? }, remote { url, headers? }
+    // (`url`, not `serverUrl`; no type/disabled).
+    // hostNative commands + skills + subagents = true: Junie documents custom
+    // slash commands, Agent Skills, and subagents, but those content surfaces
+    // are NOT wired by this adapter (initial scope = MCP-only) — an honest
+    // CEILING, not a host gap. hooks: Junie documents NO user-installable
+    // lifecycle hook surface → hostNative.hooks stays false (no host hook layer).
+    hostNative: s(true, false, true, true, true, true, false, false),
+  },
 ];
 
 export const platformCount = platforms.length;
@@ -708,7 +729,7 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
     "claude-code", "codebuddy", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
     "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
     "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
-    "kimi", "pi", "antigravity-cli", "grok-cli", "devin", "open-interpreter",
+    "kimi", "pi", "antigravity-cli", "grok-cli", "devin", "open-interpreter", "junie",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],

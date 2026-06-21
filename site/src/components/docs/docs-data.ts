@@ -1372,6 +1372,12 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     target:
       "~/.openinterpreter/config.toml ($INTERPRETER_HOME) → [mcp_servers.<id>] TOML table (a Codex fork)",
   },
+  {
+    name: "Junie",
+    id: "junie",
+    target:
+      "~/.junie/mcp/mcp.json (user) / .junie/mcp/mcp.json (project) → mcpServers (JetBrains' own agent; object map; remote keyed by url)",
+  },
 ];
 
 export const tsPluginPlatforms: PlatformEntry[] = [

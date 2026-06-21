@@ -69,6 +69,7 @@ export type PlatformId =
   | "grok-cli"
   | "devin"
   | "open-interpreter"
+  | "junie"
   | "synthetic"
   | "unknown";
 

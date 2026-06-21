@@ -299,6 +299,18 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "open-interpreter",
     load: () => import("./open-interpreter/index.js").then((m) => m.default),
   },
+  // Junie (JetBrains' OWN LLM-agnostic coding agent — DISTINCT from
+  // jetbrains-copilot, which is GitHub Copilot in JetBrains IDEs) — mcp-only.
+  // The `junie` CLI (npm @jetbrains/junie, github.com/JetBrains/junie) shares its
+  // MCP JSON config with Junie in JetBrains IDEs: object map "mcpServers" at
+  // <projectDir>/.junie/mcp/mcp.json (project) and ~/.junie/mcp/mcp.json (user);
+  // stdio { command, args?, env? }, remote { url, headers? }. No documented
+  // user-installable hook surface → mcp-only. Distinct ~/.junie marker — no
+  // fork-ordering constraint vs any sibling.
+  {
+    id: "junie",
+    load: () => import("./junie/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
