@@ -43,6 +43,18 @@
  * so env/header/url refs are resolved to literals at install time via
  * resolveEnvRefsDeep — the safe default matching the Gemini/Codex adapters.
  *
+ * Actions surface: Kiro reads `.kiro/hooks/<id>.kiro.hook` files (JSON) where a
+ * `{ when:{ type:"manual" } }` Manual-Trigger paired with a
+ * `{ then:{ type:"runCommand", command } }` Shell-Command action runs a local
+ * shell command (NO LLM) and is user-invokable from the Agent Hooks panel /
+ * Command Palette (kiro.dev/docs/hooks — "Run Command" action; verified against
+ * real `.kiro.hook` files in the wild). For each AC action we write ONE fully
+ * owned `.kiro/hooks/<id>.kiro.hook` that execs `<homeBin> action kiro <id>
+ * --connector <id>`. CONSTRAINT (verified): Kiro discovers hooks ONLY from the
+ * WORKSPACE `.kiro/hooks/` dir — `~/.kiro/hooks/` is NOT scanned — so actions
+ * install at PROJECT scope only and warn-skip at user scope (mirrors warp's
+ * project-only skills/actions precedent).
+ *
  * Grounded in context-mode's proven Kiro adapter (src/adapters/kiro/*).
  */
 
@@ -211,6 +223,12 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
     // Skills: Kiro reads SKILL.md from .kiro/skills/<name>/SKILL.md (project)
     // and ~/.kiro/skills/<name>/SKILL.md (user).
     supportsSkills: true,
+    // Actions: Kiro reads `.kiro/hooks/<id>.kiro.hook` Manual-Trigger +
+    // Shell-Command hooks (when.type "manual" + then.type "runCommand"),
+    // user-invokable from the Agent Hooks panel / Command Palette. WORKSPACE
+    // (project) scope ONLY — Kiro does not scan ~/.kiro/hooks/ — so user scope
+    // warn-skips (see installActions).
+    supportsActions: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -442,6 +460,82 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
 
   private renderSkill(skill: SkillDef): string {
     return renderSkillMd(skill);
+  }
+
+  // ── Action surface (one owned .kiro.hook per action; PROJECT scope only) ──
+  // Kiro reads `<projectDir>/.kiro/hooks/<id>.kiro.hook` (JSON): a Manual-Trigger
+  // (`when.type "manual"`) + Shell-Command (`then.type "runCommand"`, `command`)
+  // hook, user-invokable from the Agent Hooks panel / Command Palette
+  // (kiro.dev/docs/hooks). The command execs `<homeBin> action kiro <id>
+  // --connector <id>`. Each file is FULLY OWNED → uninstall removes it.
+  // SCOPE: Kiro discovers hooks ONLY from the workspace `.kiro/hooks/` dir
+  // (~/.kiro/hooks/ is NOT scanned), so user scope warn-skips (mirrors warp's
+  // project-only precedent) rather than writing a file Kiro would never load.
+
+  private actionHookPath(ctx: InstallContext, id: string): string {
+    return join(ctx.projectDir, ".kiro", "hooks", `${id}.kiro.hook`);
+  }
+
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.actions === false) {
+      return [{ platform: this.id, action: "skip", detail: "actions disabled for kiro" }];
+    }
+    const triggers = this.actionTriggers(ctx);
+    if (triggers.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+    if (ctx.scope !== "project") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail: `kiro actions are project-scoped only (Kiro does not scan ~/.kiro/hooks/); ${triggers.length} skipped`,
+        },
+      ];
+    }
+    return triggers.map((trigger) =>
+      this.writeContentFile(
+        this.actionHookPath(ctx, trigger.id),
+        this.renderActionHook(trigger.label, trigger.description, trigger.command),
+        ctx.dryRun,
+      ),
+    );
+  }
+
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.actions.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+    if (ctx.scope !== "project") {
+      return [{ platform: this.id, action: "skip", detail: "kiro actions are project-scoped only" }];
+    }
+    return connector.actions.map((action) =>
+      this.removeContentFile(this.actionHookPath(ctx, action.id), ctx.dryRun),
+    );
+  }
+
+  /**
+   * Render a Kiro `.kiro.hook` JSON: a Manual-Trigger (`when.type "manual"`) +
+   * Shell-Command (`then.type "runCommand"`) hook. The key order matches the
+   * files Kiro itself emits (enabled, name, description, version, when, then).
+   */
+  private renderActionHook(name: string, description: string, command: string): string {
+    return (
+      JSON.stringify(
+        {
+          enabled: true,
+          name,
+          description,
+          version: "1",
+          when: { type: "manual" },
+          then: { type: "runCommand", command },
+        },
+        null,
+        2,
+      ) + "\n"
+    );
   }
 
   // ── Hook install / uninstall (merge into the agent file) ─────────────────
