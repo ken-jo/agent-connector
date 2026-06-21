@@ -458,9 +458,11 @@ export const platforms: Platform[] = [
     id: "kiro",
     name: "Kiro",
     paradigm: "json-stdio",
-    surfaces: s(true, true, false, true, false, true, false, false),
+    surfaces: s(true, true, false, true, false, true, false, true),
     // skills now wired (.kiro/skills project, ~/.kiro/skills user).
-    hostNative: s(true, true, false, true, false, true, false, false),
+    // actions now wired (.kiro/hooks/<id>.kiro.hook Manual-Trigger + Shell-Command,
+    // project scope only — Kiro does not scan ~/.kiro/hooks/).
+    hostNative: s(true, true, false, true, false, true, false, true),
   },
   {
     id: "kimi",

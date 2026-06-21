@@ -47,6 +47,7 @@ describe("hostsSupporting", () => {
     expect(await hostsSupporting("actions")).toEqual([
       "droid",
       "hermes",
+      "kiro",
       "nemoclaw",
       "omp",
       "openclaw",

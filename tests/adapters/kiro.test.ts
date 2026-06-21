@@ -42,14 +42,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { Adapter, InstallContext } from "../../src/adapters/spi.js";
 import type {
+  ActionDef,
   ConnectorConfig,
   PreToolUseEvent,
   ResolvedConnector,
   StopEvent,
 } from "../../src/core/types.js";
+import { buildHomeBinActionCommand } from "../../src/core/spawn.js";
 
 import kiroAdapter from "../../src/adapters/kiro/index.js";
-import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
+import { buildCtx, freshHomeProject, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { readJson, splitFrontmatter } from "../support/fs.js";
 
@@ -582,5 +584,133 @@ describe("kiro E1 degradation", () => {
     for (const token of FORBIDDEN_NATIVE_TOKENS) {
       expect(text).not.toContain(token);
     }
+  });
+});
+
+// ── actions emitter (one OWNED .kiro.hook per action; PROJECT scope only) ─────
+// Kiro reads <projectDir>/.kiro/hooks/<id>.kiro.hook: a Manual-Trigger
+// (when.type "manual") + Shell-Command (then.type "runCommand", command) hook,
+// user-invokable from the Agent Hooks panel / Command Palette. Kiro does NOT scan
+// ~/.kiro/hooks/, so user scope warn-skips. HOME-distinct-from-project layout so a
+// (never-written) user-scope file could not coincide with the project path.
+
+const ACTIONS_HOME_BIN = "/fake/home/.agent-connector/bin/agent-connector";
+const ACTIONS_CONNECTOR_ID = "acme";
+
+function actionsConnector(
+  actions: ActionDef[],
+  platforms: ResolvedConnector["platforms"] = {},
+): ResolvedConnector {
+  return defineConnector({ id: ACTIONS_CONNECTOR_ID, actions, platforms });
+}
+
+const DEPLOY: ActionDef = {
+  id: "deploy",
+  description: "Deploy the app.",
+  run: () => ({ message: "deployed" }),
+};
+const ROLLBACK: ActionDef = { id: "rollback", run: () => undefined };
+
+function actionVerb(id: string): string {
+  return buildHomeBinActionCommand(ACTIONS_HOME_BIN, "kiro", id, ACTIONS_CONNECTOR_ID);
+}
+
+describe("kiro — actions emitter", () => {
+  let home: string;
+  let projectDir: string;
+
+  beforeEach(() => {
+    ({ home, projectDir } = freshHomeProject("ac-actemit-kiro-"));
+  });
+
+  function actionsCtx(connector: ResolvedConnector, scope: "project" | "user"): InstallContext {
+    return buildCtx(projectDir, connector, {
+      scope,
+      homeBinPath: ACTIONS_HOME_BIN,
+      dataRoot: join(home, ".agent-connector"),
+    });
+  }
+
+  const hookPath = (id: string) => join(projectDir, ".kiro", "hooks", `${id}.kiro.hook`);
+
+  it("advertises supportsActions", () => {
+    expect(kiroAdapter.capabilities.supportsActions).toBe(true);
+  });
+
+  it("installActions (project scope) writes one .kiro.hook per action with the Manual-Trigger + Shell-Command schema", () => {
+    const ctx = actionsCtx(actionsConnector([DEPLOY, ROLLBACK]), "project");
+    const changes = kiroAdapter.installActions!(ctx);
+    expect(changes.every((c) => c.platform === "kiro")).toBe(true);
+    expect(changes.map((c) => c.action)).toEqual(["create", "create"]);
+
+    // deploy: description present → name/description carry it.
+    const deploy = readJson(hookPath("deploy"));
+    expect(deploy).toEqual({
+      enabled: true,
+      name: "Deploy the app.",
+      description: "Deploy the app.",
+      version: "1",
+      when: { type: "manual" },
+      then: { type: "runCommand", command: actionVerb("deploy") },
+    });
+    // rollback: no description → label/description fall back to the id.
+    const rollback = readJson(hookPath("rollback"));
+    expect(rollback).toEqual({
+      enabled: true,
+      name: "rollback",
+      description: "rollback",
+      version: "1",
+      when: { type: "manual" },
+      then: { type: "runCommand", command: actionVerb("rollback") },
+    });
+  });
+
+  it("user scope warn-skips (Kiro does not scan ~/.kiro/hooks/) and writes nothing", () => {
+    const ctx = actionsCtx(actionsConnector([DEPLOY]), "user");
+    const changes = kiroAdapter.installActions!(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("warn");
+    expect(changes[0]!.detail).toContain("project-scoped only");
+    // No file under the project dir AND none under the home dir.
+    expect(existsSync(hookPath("deploy"))).toBe(false);
+    expect(existsSync(join(home, ".kiro", "hooks", "deploy.kiro.hook"))).toBe(false);
+  });
+
+  it("is idempotent (second install → skip, bytes unchanged)", () => {
+    const ctx = actionsCtx(actionsConnector([DEPLOY]), "project");
+    kiroAdapter.installActions!(ctx);
+    const before = readFileSync(hookPath("deploy"), "utf8");
+    const changes = kiroAdapter.installActions!(ctx);
+    expect(changes[0]!.action).toBe("skip");
+    expect(readFileSync(hookPath("deploy"), "utf8")).toBe(before);
+  });
+
+  it("uninstallActions removes the owned file", () => {
+    const ctx = actionsCtx(actionsConnector([DEPLOY]), "project");
+    kiroAdapter.installActions!(ctx);
+    expect(existsSync(hookPath("deploy"))).toBe(true);
+    const changes = kiroAdapter.uninstallActions!(ctx);
+    expect(changes[0]!.action).toBe("remove");
+    expect(existsSync(hookPath("deploy"))).toBe(false);
+  });
+
+  it("honors platforms.kiro.actions === false (opt-out)", () => {
+    const ctx = actionsCtx(actionsConnector([DEPLOY], { kiro: { actions: false } }), "project");
+    const changes = kiroAdapter.installActions!(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("disabled for kiro");
+    expect(existsSync(hookPath("deploy"))).toBe(false);
+  });
+
+  it("skips silently when no actions are declared", () => {
+    const ctx = actionsCtx(
+      defineConnector({ id: ACTIONS_CONNECTOR_ID, skills: [{ name: "s", description: "d", body: "b" }] }),
+      "project",
+    );
+    const changes = kiroAdapter.installActions!(ctx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("declares no actions");
   });
 });
