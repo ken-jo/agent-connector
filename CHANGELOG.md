@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.79 — 2026-06-21
+
+Follow-up to the DX-honesty release — a codex telemetry fix, a remote-transport
+telemetry signal, and live-smoke harness expansion. (4 PRs; **35 platforms, 3018 tests.**)
+
+### Fixed
+
+- **codex telemetry under an overridden data root.** codex strips the environment of MCP
+  server children, so the telemetry serve-wrap's `agent-connector serve` child didn't inherit
+  `AGENT_CONNECTOR_DATA_DIR` and died "Connector not registered" when the data root was
+  overridden. The wrap now passes `serve --data-dir <root>` explicitly (gated on a non-default
+  root, so default installs stay byte-identical); host-agnostic. Live-verified before/after on
+  codex-cli 0.141.0. (#231)
+
+### Added
+
+- **install — note when a remote-transport server skips per-tool telemetry.** A remote
+  (http/sse/ws) MCP server registered with telemetry enabled now emits an install-time `warn`
+  ("telemetry not captured — stdio-only") instead of silently producing an empty ndjson. (#230)
+- **`scripts/verify-host.mjs` — antigravity-cli (agy) + codex deep-verb live-smoke lanes.**
+  Two more authed-runtime lanes for the MANUAL harness, each live-verified: agy fires
+  PreToolUse/PostToolUse; codex fires all 5 events (via `--dangerously-bypass-hook-trust` —
+  codex requires persisted hook trust). Not wired into CI. (#229, #232)
+
 ## 0.4.75 — 2026-06-20
 
 The **DX-honesty** release: the framework now surfaces a visible signal everywhere a
