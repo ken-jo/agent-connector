@@ -415,3 +415,173 @@ describe("overwrite guard: present, non-empty, TRULY-malformed settings file", (
     expect(readFileSync(settingsPath, "utf8")).toBe(malformed);
   });
 });
+
+// ── Actions surface (tasks.json exec tasks) ──────────────────────────────────
+// Zed reads tasks.json (a JSON ARRAY of { label, command, args? }) spawned in
+// its integrated terminal (zed.dev/docs/tasks). Each AC action → one owned task
+// whose `command` execs the home-bin action verb. ARRAY-MERGE with ownership:
+// set-if-absent, idempotent, uninstall removes ONLY ours (foreign tasks survive).
+
+const ACT_CONNECTOR_ID = "acme-actions";
+
+/** Connector declaring two actions (descriptions → task labels). */
+function buildActionsConnector(
+  overrides: Partial<Parameters<typeof defineConnector>[0]> = {},
+): ResolvedConnector {
+  return defineConnector({
+    id: ACT_CONNECTOR_ID,
+    displayName: "Acme Actions",
+    version: "1.0.0",
+    actions: [
+      { id: "sync-db", description: "Sync the local DB", run: () => ({ message: "synced" }) },
+      { id: "clear-cache", run: () => undefined },
+    ],
+    ...overrides,
+  });
+}
+
+/** The home-bin action command for an action id (mirrors buildHomeBinActionCommand). */
+const actionCmd = (id: string, connectorId = ACT_CONNECTOR_ID): string =>
+  `"${HOME_BIN}" action zed ${id} --connector ${connectorId}`;
+
+describe("zed adapter — actions surface (tasks.json)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-zed-actions-");
+    ctx = buildCtx(projectDir, buildActionsConnector());
+  });
+
+  it("declares supportsActions true", () => {
+    expect(zedAdapter.capabilities.supportsActions).toBe(true);
+  });
+
+  it("installActions writes one owned task per action into .zed/tasks.json", () => {
+    const changes = zedAdapter.installActions!(ctx);
+    expect(changes.every((c) => c.action === "create")).toBe(true);
+
+    const tasksPath = join(projectDir, ".zed", "tasks.json");
+    expect(existsSync(tasksPath)).toBe(true);
+
+    const tasks = readJson(tasksPath) as Array<{ label: string; command: string }>;
+    expect(Array.isArray(tasks)).toBe(true);
+    expect(tasks).toHaveLength(2);
+
+    const syncTask = tasks.find((t) => t.command === actionCmd("sync-db"));
+    expect(syncTask).toBeTruthy();
+    // label falls back to action.description, then action.id.
+    expect(syncTask!.label).toBe("Sync the local DB");
+    expect(syncTask!.command).toBe(actionCmd("sync-db"));
+
+    const clearTask = tasks.find((t) => t.command === actionCmd("clear-cache"));
+    expect(clearTask).toBeTruthy();
+    expect(clearTask!.label).toBe("clear-cache"); // no description → id
+  });
+
+  it("installActions array-merges into a tasks.json with FOREIGN tasks (no clobber)", () => {
+    const tasksPath = join(projectDir, ".zed", "tasks.json");
+    ensureDir(join(projectDir, ".zed"));
+    // A user's hand-written task that must SURVIVE untouched.
+    const foreign = { label: "Run tests", command: "cargo test", env: { CI: "1" } };
+    writeFileSync(tasksPath, `${JSON.stringify([foreign], null, 2)}\n`, "utf8");
+
+    zedAdapter.installActions!(ctx);
+
+    const tasks = readJson(tasksPath) as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(3); // 1 foreign + 2 ours
+    // The foreign task is byte-identical (every key, including env, preserved).
+    expect(tasks.find((t) => t.command === "cargo test")).toEqual(foreign);
+    // Ours were appended.
+    expect(tasks.some((t) => t.command === actionCmd("sync-db"))).toBe(true);
+    expect(tasks.some((t) => t.command === actionCmd("clear-cache"))).toBe(true);
+  });
+
+  it("installActions is idempotent — second call yields skip, no duplicates", () => {
+    zedAdapter.installActions!(ctx);
+    const second = zedAdapter.installActions!(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+
+    const tasks = readJson(join(projectDir, ".zed", "tasks.json")) as unknown[];
+    expect(tasks).toHaveLength(2); // not 4
+  });
+
+  it("uninstallActions removes ONLY our tasks, leaving foreign tasks intact", () => {
+    const tasksPath = join(projectDir, ".zed", "tasks.json");
+    ensureDir(join(projectDir, ".zed"));
+    const foreign = { label: "Run tests", command: "cargo test" };
+    writeFileSync(tasksPath, `${JSON.stringify([foreign], null, 2)}\n`, "utf8");
+
+    zedAdapter.installActions!(ctx);
+    const removed = zedAdapter.uninstallActions!(ctx);
+    expect(removed[0]?.action).toBe("remove");
+
+    const tasks = readJson(tasksPath) as Array<{ command: string }>;
+    // Only the foreign task remains; both of ours are gone.
+    expect(tasks).toEqual([foreign]);
+  });
+
+  it("uninstallActions on a tasks.json with no owned tasks is a skip", () => {
+    const tasksPath = join(projectDir, ".zed", "tasks.json");
+    ensureDir(join(projectDir, ".zed"));
+    const foreign = { label: "Run tests", command: "cargo test" };
+    writeFileSync(tasksPath, `${JSON.stringify([foreign], null, 2)}\n`, "utf8");
+
+    const changes = zedAdapter.uninstallActions!(ctx);
+    expect(changes[0]?.action).toBe("skip");
+    // The foreign task is untouched.
+    expect(readJson(tasksPath)).toEqual([foreign]);
+  });
+
+  it("does NOT remove another connector's owned tasks (anchored ownership)", () => {
+    const tasksPath = join(projectDir, ".zed", "tasks.json");
+    ensureDir(join(projectDir, ".zed"));
+    // A SIBLING connector's task — same verb shape, DIFFERENT connector id.
+    const sibling = { label: "Other", command: actionCmd("sync-db", "other-connector") };
+    writeFileSync(tasksPath, `${JSON.stringify([sibling], null, 2)}\n`, "utf8");
+
+    zedAdapter.installActions!(ctx);
+    zedAdapter.uninstallActions!(ctx);
+
+    const tasks = readJson(tasksPath) as Array<{ command: string }>;
+    // The sibling connector's task survives our uninstall.
+    expect(tasks).toEqual([sibling]);
+  });
+
+  it("honors platforms['zed'].actions === false", () => {
+    const disabled = buildActionsConnector({ platforms: { zed: { actions: false } } });
+    const c2 = buildCtx(projectDir, disabled);
+    const changes = zedAdapter.installActions!(c2);
+    expect(changes[0]?.action).toBe("skip");
+    expect(existsSync(join(projectDir, ".zed", "tasks.json"))).toBe(false);
+  });
+
+  it("no actions declared → skip", () => {
+    const none = defineConnector({ id: ACT_CONNECTOR_ID, memory: [{ content: "x" }] });
+    const c2 = buildCtx(projectDir, none);
+    expect(zedAdapter.installActions!(c2)[0]?.action).toBe("skip");
+  });
+
+  it("present-but-unparseable tasks.json is left untouched (overwrite guard)", () => {
+    const tasksPath = join(projectDir, ".zed", "tasks.json");
+    ensureDir(join(projectDir, ".zed"));
+    const malformed = `[ { "label": "x" broken <<<< not json`;
+    writeFileSync(tasksPath, malformed, "utf8");
+
+    const changes = zedAdapter.installActions!(ctx);
+    expect(changes[0]?.action).toBe("warn");
+    expect(readFileSync(tasksPath, "utf8")).toBe(malformed);
+  });
+
+  it("a non-array tasks.json (wrong shape) warns rather than clobbering", () => {
+    const tasksPath = join(projectDir, ".zed", "tasks.json");
+    ensureDir(join(projectDir, ".zed"));
+    const wrongShape = `{ "label": "not an array" }`;
+    writeFileSync(tasksPath, wrongShape, "utf8");
+
+    const changes = zedAdapter.installActions!(ctx);
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.detail).toContain("not a JSON array");
+    expect(readFileSync(tasksPath, "utf8")).toBe(wrongShape);
+  });
+});

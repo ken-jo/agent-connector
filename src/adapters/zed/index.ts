@@ -35,13 +35,27 @@
  * Skills surface: Zed reads SKILL.md files from:
  *   project scope → <projectDir>/.agents/skills/<name>/SKILL.md
  *   user scope    → ~/.agents/skills/<name>/SKILL.md
+ *
+ * Actions surface: Zed reads `tasks.json` — a JSON ARRAY of tasks
+ * `{ label, command, args?, … }` spawned in its integrated terminal and surfaced
+ * in the command palette (`task: spawn`) / bindable (zed.dev/docs/tasks):
+ *   user scope    → ~/.config/zed/tasks.json (%APPDATA%\Zed on Windows — the
+ *                   SAME OS-native config dir as settings.json)
+ *   project scope → <projectDir>/.zed/tasks.json
+ * For each AC action we add ONE owned task whose `command` execs the home-bin
+ * action verb. Zed runs `command` in a shell ("tasks act just like your shell"),
+ * so the full `<homeBin> action zed <id> --connector <id>` line is a HEADLESS
+ * exec (unlike Warp's paste-into-input semantics). tasks.json is a user-owned
+ * ARRAY, so we array-merge: set-if-absent, keyed on OUR action command (the
+ * isHomeBinActionCommand ownership predicate), idempotent, and uninstall removes
+ * ONLY our entries — every foreign task survives.
  */
 
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { BaseAdapter } from "../base.js";
+import { BaseAdapter, type ActionTrigger } from "../base.js";
 import type { Adapter, InstallContext, MemoryTarget } from "../spi.js";
 import type {
   ChangeRecord,
@@ -58,6 +72,7 @@ import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import { roamingAppData } from "../../core/host-paths.js";
 import {
   buildWrappedStdio,
+  isHomeBinActionCommand,
 } from "../../core/spawn.js";
 import { renderSkillMd } from "../claude-code/render.js";
 
@@ -77,6 +92,17 @@ interface ZedStdioServer {
 interface ZedHttpServer {
   url: string;
   headers?: Record<string, string>;
+}
+
+/**
+ * One Zed task entry in tasks.json (zed.dev/docs/tasks). Zed accepts many
+ * optional keys (env, cwd, reveal, …); we write only the minimal owned trio
+ * { label, command } and preserve every key on FOREIGN entries untouched.
+ */
+interface ZedTask {
+  label: string;
+  command: string;
+  [key: string]: unknown;
 }
 
 export class ZedAdapter extends BaseAdapter implements Adapter {
@@ -107,6 +133,12 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
     // Skills: Zed reads SKILL.md from .agents/skills/<name>/SKILL.md (project)
     // and ~/.agents/skills/<name>/SKILL.md (user).
     supportsSkills: true,
+    // Actions: Zed reads tasks.json (a JSON ARRAY of { label, command, args? })
+    // spawned in its integrated terminal + surfaced in the command palette
+    // (zed.dev/docs/tasks). Each AC action becomes one owned task whose `command`
+    // execs the home-bin action verb — a headless exec (zed runs it in a shell).
+    // user → ~/.config/zed/tasks.json; project → <projectDir>/.zed/tasks.json.
+    supportsActions: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -368,6 +400,136 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
 
   private renderSkill(skill: SkillDef): string {
     return renderSkillMd(skill);
+  }
+
+  // ── Action surface (owned entries array-merged into tasks.json) ───────────
+  // Zed reads tasks.json (zed.dev/docs/tasks): a JSON ARRAY of tasks
+  // `{ label, command, args? }` spawned in the integrated terminal + invocable
+  // from the command palette (`task: spawn`). Per AC action we add ONE task
+  // whose `command` execs the home-bin action verb. Zed runs `command` in a
+  // shell, so this is a HEADLESS exec (not Warp's paste-into-input).
+  //
+  // OWNERSHIP: tasks.json is a USER-OWNED array, so we never clobber it. We
+  // read the whole array, upsert only OUR tasks (identity = isHomeBinActionCommand
+  // on `command`, anchored to this connector id so a sibling connector's tasks
+  // are foreign), and write back. Idempotent (byte-identical entry → skip).
+  // Uninstall filters out ONLY our entries, leaving every foreign task intact.
+
+  /** tasks.json path: <configDir>/tasks.json (~/.config/zed | <projectDir>/.zed). */
+  private tasksPath(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "tasks.json");
+  }
+
+  /** Render the owned task entry: minimal { label, command }. */
+  private renderTask(trigger: ActionTrigger): ZedTask {
+    return { label: trigger.label, command: trigger.command };
+  }
+
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector, dryRun } = ctx;
+    if (connector.platforms[HOST]?.actions === false) {
+      return [{ platform: this.id, action: "skip", detail: "actions disabled for zed" }];
+    }
+    const triggers = this.actionTriggers(ctx);
+    if (triggers.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+
+    const path = this.tasksPath(ctx);
+    const symlink = this.symlinkPathWarning(path);
+    if (symlink) return [symlink];
+
+    // Overwrite guard: a present-but-unparseable tasks.json must never be blanked
+    // (symmetric with the settings.json merge contract — see review-fixes tests).
+    if (this.isPresentButUnparseable(path)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path,
+          detail: `${path} is present but not parseable as JSON; left untouched (fix it, then re-run)`,
+        },
+      ];
+    }
+
+    // tasks.json IS a top-level array. A null parse means "absent" (create
+    // fresh); a present non-array value was hand-edited to the wrong shape, so
+    // warn-skip rather than clobber it (mirrors continue's mcpServers guard).
+    const raw = this.readJson<unknown>(path);
+    if (raw !== null && !Array.isArray(raw)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path,
+          detail: `${path} is not a JSON array of tasks; left untouched (fix it, then re-run)`,
+        },
+      ];
+    }
+    const list = (raw ?? []) as ZedTask[];
+
+    const changes: ChangeRecord[] = [];
+    let mutated = false;
+    for (const trigger of triggers) {
+      const entry = this.renderTask(trigger);
+      // Identity is OUR action command (anchored to this connector id), NOT the
+      // label — a user could relabel. Match the SPECIFIC action by its command,
+      // which is unique per action id (one slot per action).
+      const slot = list.findIndex(
+        (t) => this.isOurTask(t, ctx) && t.command === entry.command,
+      );
+      if (slot < 0) {
+        list.push(entry);
+        mutated = true;
+        changes.push({ platform: this.id, action: "create", path, detail: `tasks.json [${trigger.id}]` });
+      } else if (JSON.stringify(list[slot]) === JSON.stringify(entry)) {
+        changes.push({ platform: this.id, action: "skip", path, detail: `tasks.json [${trigger.id}]` });
+      } else {
+        list[slot] = entry;
+        mutated = true;
+        changes.push({ platform: this.id, action: "update", path, detail: `tasks.json [${trigger.id}]` });
+      }
+    }
+
+    if (mutated && !dryRun) this.writeJson(path, list);
+    return changes;
+  }
+
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    const { connector, dryRun } = ctx;
+    if (connector.actions.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no actions" }];
+    }
+
+    const path = this.tasksPath(ctx);
+    const raw = this.readJson<unknown>(path);
+    if (raw === null || !Array.isArray(raw)) {
+      return [{ platform: this.id, action: "skip", detail: "tasks.json absent or not an array" }];
+    }
+
+    const list = raw as ZedTask[];
+    const kept = list.filter((t) => !this.isOurTask(t, ctx));
+    if (kept.length === list.length) {
+      return [{ platform: this.id, action: "skip", detail: "no owned tasks in tasks.json" }];
+    }
+    if (!dryRun) this.writeJson(path, kept);
+    return [
+      {
+        platform: this.id,
+        action: "remove",
+        path,
+        detail: `tasks.json (${list.length - kept.length} owned task(s) removed)`,
+      },
+    ];
+  }
+
+  /**
+   * True when a task entry is OURS — its `command` is the home-bin action verb
+   * for exactly this connector id (anchored so a shared-prefix id can't collide,
+   * and the ` action ` verb so a future hook/serve task is never misread).
+   */
+  private isOurTask(task: ZedTask | undefined, ctx: InstallContext): boolean {
+    return isHomeBinActionCommand(task?.command, ctx.homeBinPath, ctx.connector.id);
   }
 
   // ── Hooks (unavailable — Zed is mcp-only) ────────────────────────────────
