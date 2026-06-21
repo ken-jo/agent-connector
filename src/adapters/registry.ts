@@ -311,6 +311,16 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "junie",
     load: () => import("./junie/index.js").then((m) => m.default),
   },
+  // mistral-vibe is Mistral's coding-agent CLI — an mcp-only host. MCP config is
+  // TOML at <projectDir>/.vibe/config.toml (project, precedence) → ~/.vibe/
+  // config.toml (user); root key `mcp_servers` is a TOML ARRAY-OF-TABLES
+  // ([[mcp_servers]], each entry carries a `name` short alias — distinct from
+  // codex's table-keyed [mcp_servers.<name>]). Distinct ~/.vibe / .vibe marker —
+  // no fork-ordering constraint.
+  {
+    id: "mistral-vibe",
+    load: () => import("./mistral-vibe/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */

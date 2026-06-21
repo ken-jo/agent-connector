@@ -1327,6 +1327,35 @@ export const platforms: PlatformHookEntry[] = [
     notes:
       "Junie (JetBrains' OWN LLM-agnostic coding agent — the `junie` CLI, npm @jetbrains/junie, github.com/JetBrains/junie). DISTINCT from jetbrains-copilot (GitHub Copilot in JetBrains IDEs). mcp-only: the first-party docs (junie.jetbrains.com/docs) document NO user-installable lifecycle hook/event-callback surface; installHooks 'skip' ('hooks unavailable (Junie is mcp-only)'); all events null. MCP config is BYTE-CONFIRMED from junie.jetbrains.com/docs/junie-cli-mcp-configuration.html ('Junie CLI uses the same MCP JSON configuration as Junie in JetBrains IDEs'): project scope <projectDir>/.junie/mcp/mcp.json, user scope ~/.junie/mcp/mcp.json. Root key 'mcpServers' is an OBJECT map keyed by server name (like cursor) — set-if-absent by connector id, siblings preserved, malformed-non-object skip-warn. stdio entry { command, args?, env? }; remote entry { url, headers? } (the documented `url`, NOT `serverUrl`; NO type/disabled keys). Content surfaces (custom slash commands, Agent Skills, subagents, guidelines/memory) exist natively but are not wired (mcp-only scope; AGENTS.md memory via the base default). All hook capabilities false.",
   },
+  {
+    platform: "mistral-vibe",
+    displayName: "Mistral Vibe",
+    paradigm: "mcp-only",
+    hasHooks: false,
+    configPath: "—",
+    capabilities: {
+      canModifyArgs: false,
+      canModifyOutput: false,
+      canInjectSessionContext: false,
+    },
+    events: {
+      SessionStart: null,
+      SessionEnd: null,
+      UserPromptSubmit: null,
+      PreToolUse: null,
+      PostToolUse: null,
+      PreCompact: null,
+      Stop: null,
+      Notification: null,
+      PermissionRequest: null,
+      PostToolUseFailure: null,
+      SubagentStart: null,
+      SubagentStop: null,
+      PostCompact: null,
+    },
+    notes:
+      "Mistral Vibe (Mistral's coding-agent CLI). mcp-only HONEST CEILING: Vibe ships only an experimental hook surface with no byte-confirmed format/event-name contract, so AC wires no hooks; installHooks 'skip' ('hooks unavailable (Mistral Vibe is mcp-only)'); all events null, all hook capabilities false. MCP config is TOML at <projectDir>/.vibe/config.toml (project, precedence) → ~/.vibe/config.toml (user); root key 'mcp_servers' is a TOML ARRAY-OF-TABLES ([[mcp_servers]], each entry carries a `name` short alias = the connector id — distinct from codex's table-keyed [mcp_servers.<name>]) — set-if-absent by name, siblings preserved, malformed-non-array skip-warn. stdio { name, transport:'stdio', command, args?, env? }; remote { name, transport:'http'|'streamable-http', url, headers? }. TOML has no native interpolation token → ${env:VAR} resolved to literals at install time. Byte-confirmed from github.com/mistralai/mistral-vibe README + docs.mistral.ai/vibe.",
+  },
 ];
 
 export const hooksMatrix: HooksMatrix = { canonicalEvents, platforms };

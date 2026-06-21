@@ -74,6 +74,7 @@ const ALL_PLATFORM_IDS_MAP: Record<PlatformId, true> = {
   devin: true,
   "open-interpreter": true,
   junie: true,
+  "mistral-vibe": true,
   synthetic: true,
   unknown: true,
 };

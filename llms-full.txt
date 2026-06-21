@@ -1275,7 +1275,7 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 
 ---
 
-## 6. Supported platforms (41, by hook paradigm)
+## 6. Supported platforms (42, by hook paradigm)
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
@@ -1308,7 +1308,7 @@ One universal hook entrypoint binary handles all of them.
 | Grok CLI | `grok-cli` | `~/.grok/user-settings.json` → `mcp.servers` (JSON ARRAY, keyed by `id`); hooks in the SAME file under top-level `hooks` (Claude nested-rule shape). USER-SCOPE ONLY — community superagent-ai/grok-cli (npm `grok-dev`, bin `grok`) |
 | Devin CLI (Cognition) | `devin` | `~/.config/devin/config.json` (user; `%APPDATA%\devin\config.json` on Windows) / `.devin/config.json` (project) → `mcpServers` (object map; native `${env:VAR}`); hooks under the SAME file's `hooks` key (Claude-compatible NESTED-rule shape; reply is the simple top-level `{decision:"approve"\|"block"\|"deny", reason}`, exit 2 blocks) |
 
-### `mcp-only` — MCP registration only, no hook layer (11)
+### `mcp-only` — MCP registration only, no hook layer (12)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
@@ -1324,6 +1324,7 @@ Detection surfaces "hooks unavailable here."
 | Windsurf | `windsurf` | `~/.codeium/windsurf/mcp_config.json` (user/global ONLY) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ serverUrl, headers? }` — `serverUrl` not `url`) |
 | Open Interpreter | `open-interpreter` | `~/.openinterpreter/config.toml` (`$INTERPRETER_HOME`; NOT `$CODEX_HOME`) → `[mcp_servers.*]` TOML table (stdio `{ command, args, env }`, streamable-HTTP `{ url, bearer_token_env_var?, http_headers? }`). The new Rust `interpreter`/`i` CLI — a fork of OpenAI's Codex |
 | Junie | `junie` | JetBrains' OWN agent (distinct from jetbrains-copilot) — `~/.junie/mcp/mcp.json` (user) / `.junie/mcp/mcp.json` (project) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ url, headers? }` — `url` not `serverUrl`; no type/disabled) |
+| Mistral Vibe | `mistral-vibe` | `.vibe/config.toml` (project, precedence) / `~/.vibe/config.toml` (user) → `[[mcp_servers]]` (TOML ARRAY-OF-TABLES, keyed by `name`; stdio `{ name, transport:"stdio", command, args?, env? }`, remote `{ name, transport:"http"\|"streamable-http", url, headers? }` — distinct from codex's table-keyed `[mcp_servers.<name>]`) |
 
 ### `ts-plugin` — framework-generated bridge module (8)
 

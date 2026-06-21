@@ -239,7 +239,7 @@ export const sectionDescription: Record<string, string> = {
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
   platforms:
-    "The 36 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
+    "The 40 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
   "add-a-platform":
     "Adding a platform is one registry entry plus one adapter — the framework's core design guarantee.",
   "operating-model":
@@ -1244,7 +1244,7 @@ export const sharedFlags: { flag: string; desc: string }[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (36, by paradigm — llms-full §6)                           */
+/* Platforms (40, by paradigm — llms-full §6)                           */
 /* ------------------------------------------------------------------ */
 
 export interface PlatformEntry {
@@ -1377,6 +1377,12 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     id: "junie",
     target:
       "~/.junie/mcp/mcp.json (user) / .junie/mcp/mcp.json (project) → mcpServers (JetBrains' own agent; object map; remote keyed by url)",
+  },
+  {
+    name: "Mistral Vibe",
+    id: "mistral-vibe",
+    target:
+      ".vibe/config.toml (project) / ~/.vibe/config.toml (user) → [[mcp_servers]] (TOML ARRAY-OF-TABLES, keyed by name)",
   },
 ];
 
