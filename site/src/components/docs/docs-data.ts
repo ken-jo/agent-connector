@@ -1330,6 +1330,12 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     target:
       "~/.grok/user-settings.json → mcp.servers (JSON ARRAY, keyed by id; hooks in the SAME file under top-level hooks, user-scope only)",
   },
+  {
+    name: "Devin CLI (Cognition)",
+    id: "devin",
+    target:
+      "~/.config/devin/config.json (user) / .devin/config.json (project) → mcpServers (hooks under the same file's \"hooks\" key, Claude-compatible)",
+  },
 ];
 
 export const mcpOnlyPlatforms: PlatformEntry[] = [

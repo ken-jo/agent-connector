@@ -1239,6 +1239,36 @@ export const platforms: PlatformHookEntry[] = [
     notes:
       "Community superagent-ai/grok-cli (npm grok-dev, bin grok). USER-SCOPE only: hooks live under top-level 'hooks' in ~/.grok/user-settings.json (project .grok/settings.json hooks are excluded by Grok for security). Claude NESTED-rule shape { matcher?, hooks:[{type:'command',command,timeout?}] }. 12 of 13 canonical events map 1:1 (PascalCase); no PermissionRequest event (cell null, capability unset). Grok ALSO fires host-only events StopFailure/TaskCreated/TaskCompleted/InstructionsLoaded/CwdChanged (no canonical analog → nativeHooks passthrough). Stdin wire false-friends vs Claude: UserPromptSubmit carries `user_prompt` (NOT `prompt`), PostToolUse carries `tool_output` (NOT `tool_response`); PostToolUseFailure carries `error`; SubagentStart/Stop carry `agent_type`. Reply (aggregateHookResults): stdout JSON parsed when it starts with '{' — deny → { decision:'block', reason }, context → { additionalContext } (exit 0); block also fires on exit code 2. No ask/modify reply path (canModifyArgs/Output false; both degrade to exit-0 passthrough).",
   },
+  {
+    platform: "devin",
+    displayName: "Devin CLI (Cognition)",
+    paradigm: "json-stdio",
+    hasHooks: true,
+    configPath:
+      "~/.config/devin/config.json (user; %APPDATA%\\devin\\config.json on Windows) / .devin/config.json (project) — hooks under the same file's `hooks` key",
+    capabilities: {
+      canModifyArgs: false,
+      canModifyOutput: false,
+      canInjectSessionContext: false,
+    },
+    events: {
+      SessionStart: "SessionStart",
+      SessionEnd: "SessionEnd",
+      UserPromptSubmit: "UserPromptSubmit",
+      PreToolUse: "PreToolUse",
+      PostToolUse: "PostToolUse",
+      PreCompact: null,
+      Stop: "Stop",
+      Notification: null,
+      PermissionRequest: "PermissionRequest",
+      PostToolUseFailure: null,
+      SubagentStart: null,
+      SubagentStop: null,
+      PostCompact: "PostCompaction",
+    },
+    notes:
+      "Devin CLI (Cognition). json-stdio: a Claude-Code-COMPATIBLE hooks system (docs.devin.ai/cli/extensibility/hooks). SUPPORTED_EVENTS = PreToolUse, PostToolUse, PermissionRequest, UserPromptSubmit, Stop, PostCompaction (canonical PostCompact — Devin's on-wire name is PostCompaction, remapped by mapEvent/parseEvent), SessionStart, SessionEnd (lifecycle-hooks doc). No Notification / PreCompact / SubagentStart / SubagentStop / PostToolUseFailure → those warn-skip (null). Hooks live under the `hooks` key in the SAME config.json the MCP servers use (the first-party-documented config-file hook location; the alternative standalone .devin/hooks.v1.json — event map = whole file, NO wrapper — is NOT engine-compatible). NESTED-rule shape { matcher, hooks:[{type:'command',command,timeout?}] }, matcher = regex on tool_name. Reply is the SIMPLE top-level { decision:'approve'|'block'|'deny', reason } (NOT Claude's hookSpecificOutput envelope); exit 0 = allow, exit 2 = block. PermissionRequest: explicit allow → {decision:'approve'} (active grant), deny → {decision:'deny'}; PreToolUse/Stop deny → {decision:'block'}; ask/context/modify degrade to allow (Devin has no rewrite/inject reply channel — canModifyArgs/Output/canInjectSessionContext all false). MCP: root 'mcpServers' OBJECT map; stdio { command, args?, env? } (no type/disabled), remote { url, transport?('http'|'sse'), headers?, oauthClientId?, oauthClientSecret? }; native ${env:VAR} / ${file:} interpolation (token passed through, never baked).",
+  },
 ];
 
 export const hooksMatrix: HooksMatrix = { canonicalEvents, platforms };

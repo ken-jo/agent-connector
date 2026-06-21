@@ -111,9 +111,9 @@ Validation: throws `ConnectorConfigError` on bad id, non-function handler, missi
 - `leaderboard` — unified: 🔌 per-MCP (needs connector + serve traffic) · 🖥️ host/user (the only board with no setup) · 🛰️ live host-native turns (needs the opt-in usage hook, installed only by Gemini-CLI / Antigravity); never summed across boards.
 - `hook`, `serve`, `usage-event`, `statusline`, `action` — internal entrypoints hosts point at.
 
-## Supported platforms by paradigm (38)
+## Supported platforms by paradigm (39)
 
-- `json-stdio` (full hook dispatch, 21): codebuddy, claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, droid, openhands, antigravity, antigravity-cli, continue, amazon-q, grok-cli.
+- `json-stdio` (full hook dispatch, 22): codebuddy, claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, droid, openhands, antigravity, antigravity-cli, continue, amazon-q, grok-cli, devin.
 - `mcp-only` (MCP registration only, 9): warp, roo-code, cline, trae, zed, codebuff, mux, pi, windsurf.
 - `ts-plugin` (generated bridge module, 8): opencode, mimo-code, kilo-cli, kilo, omp, nemoclaw, openclaw, amp.
 

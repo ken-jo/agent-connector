@@ -643,6 +643,30 @@ export const platforms: Platform[] = [
     // statusline / actions absent.
     hostNative: s(true, true, false, false, false, true, false, false),
   },
+  {
+    id: "devin",
+    name: "Devin CLI (Cognition)",
+    paradigm: "json-stdio",
+    surfaces: s(true, true, false, true, false, true, false, false),
+    // json-stdio: AC installs MCP + hooks + skills + memory, all byte-confirmed
+    // from first-party docs (docs.devin.ai/cli/extensibility). MCP + hooks share
+    // ONE config.json per scope (user ~/.config/devin/config.json,
+    // %APPDATA%\devin\config.json on Windows; project .devin/config.json). MCP
+    // root key "mcpServers" (object map; stdio { command, args?, env? }, remote
+    // { url, transport?, headers? }; native ${env:VAR}). Hooks under the same
+    // file's "hooks" key (Claude-compatible NESTED-rule shape; simple top-level
+    // {decision:"approve"|"block"|"deny", reason} reply; exit 2 blocks) —
+    // docs.devin.ai/cli/extensibility/hooks. memory WIRED: AGENTS.md (project
+    // root) + user ~/.config/devin/AGENTS.md (docs.devin.ai/cli/extensibility/
+    // rules). skills WIRED: <configDir>/skills/<name>/SKILL.md
+    // (docs.devin.ai/cli/extensibility/skills).
+    // hostNative commands + subagents = true: Devin documents native slash
+    // commands (/cli/reference/commands) + subagents (/cli/subagents), but their
+    // on-disk dir names aren't byte-confirmed from a first-party config
+    // reference, so AC leaves them unwired (surfaces=false) rather than guess a
+    // path — an honest CEILING, not a host gap.
+    hostNative: s(true, true, true, true, true, true, false, false),
+  },
 ];
 
 export const platformCount = platforms.length;
@@ -663,7 +687,7 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
     "claude-code", "codebuddy", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
     "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
     "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
-    "kimi", "pi", "antigravity-cli", "grok-cli",
+    "kimi", "pi", "antigravity-cli", "grok-cli", "devin",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],

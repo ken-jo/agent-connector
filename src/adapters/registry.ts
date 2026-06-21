@@ -270,6 +270,19 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "grok-cli",
     load: () => import("./grok-cli/index.js").then((m) => m.default),
   },
+  // Devin CLI (Cognition) — json-stdio. A Rust binary (`devin`, installed via
+  // `curl cli.devin.ai/install.sh` → ~/.local/bin/devin). MCP + hooks live in
+  // ONE config.json per scope: user ~/.config/devin/config.json
+  // (%APPDATA%\devin\config.json on Windows) / project <projectDir>/.devin/
+  // config.json. MCP root key "mcpServers" (object map; stdio { command, args?,
+  // env? }, remote { url, transport?, headers? }; native ${env:VAR}). Hooks
+  // under the same file's "hooks" key (Claude-compatible NESTED-rule shape; reply
+  // is the SIMPLE top-level {decision:"approve"|"block"|"deny", reason}). Distinct
+  // ~/.config/devin / .devin marker — no fork-ordering constraint.
+  {
+    id: "devin",
+    load: () => import("./devin/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */

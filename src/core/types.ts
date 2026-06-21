@@ -67,6 +67,7 @@ export type PlatformId =
   | "continue"
   | "windsurf"
   | "grok-cli"
+  | "devin"
   | "synthetic"
   | "unknown";
 
