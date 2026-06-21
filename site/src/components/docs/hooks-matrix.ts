@@ -1298,6 +1298,35 @@ export const platforms: PlatformHookEntry[] = [
     notes:
       "Open Interpreter — the new Rust `interpreter`/`i` CLI, a FORK of OpenAI's Codex (README: \"Open Interpreter is a fork of OpenAI's Codex\"). mcp-only here: installHooks 'skip' ('hooks unavailable (Open Interpreter is mcp-only)'); all events null. The Codex hook subsystem (codex-rs/hooks) is present in the fork, but the `interpreter` product's live hook wire contract is not first-party verified, so AC does NOT claim hooks (MCP-only-unless-byte-confirmed rule). MCP config is Codex's: TOML config.toml at ~/.openinterpreter ($INTERPRETER_HOME — the binary deliberately does NOT honor $CODEX_HOME, codex-rs/utils/home-dir/src/lib.rs; default ~/.openinterpreter), root key 'mcp_servers' as a [mcp_servers.<id>] TABLE (object-map coerce engine, shared @iarna/toml codec) — stdio { command, args, env } / streamable-HTTP { url, bearer_token_env_var?, http_headers? } (transport inferred from url, codex-rs/config/src/mcp_{edit,types}.rs). TOML has no native interpolation, so ${env:VAR} resolves to literals at install time. All hook capabilities false.",
   },
+  {
+    platform: "junie",
+    displayName: "Junie",
+    paradigm: "mcp-only",
+    hasHooks: false,
+    configPath: "—",
+    capabilities: {
+      canModifyArgs: false,
+      canModifyOutput: false,
+      canInjectSessionContext: false,
+    },
+    events: {
+      SessionStart: null,
+      SessionEnd: null,
+      UserPromptSubmit: null,
+      PreToolUse: null,
+      PostToolUse: null,
+      PreCompact: null,
+      Stop: null,
+      Notification: null,
+      PermissionRequest: null,
+      PostToolUseFailure: null,
+      SubagentStart: null,
+      SubagentStop: null,
+      PostCompact: null,
+    },
+    notes:
+      "Junie (JetBrains' OWN LLM-agnostic coding agent — the `junie` CLI, npm @jetbrains/junie, github.com/JetBrains/junie). DISTINCT from jetbrains-copilot (GitHub Copilot in JetBrains IDEs). mcp-only: the first-party docs (junie.jetbrains.com/docs) document NO user-installable lifecycle hook/event-callback surface; installHooks 'skip' ('hooks unavailable (Junie is mcp-only)'); all events null. MCP config is BYTE-CONFIRMED from junie.jetbrains.com/docs/junie-cli-mcp-configuration.html ('Junie CLI uses the same MCP JSON configuration as Junie in JetBrains IDEs'): project scope <projectDir>/.junie/mcp/mcp.json, user scope ~/.junie/mcp/mcp.json. Root key 'mcpServers' is an OBJECT map keyed by server name (like cursor) — set-if-absent by connector id, siblings preserved, malformed-non-object skip-warn. stdio entry { command, args?, env? }; remote entry { url, headers? } (the documented `url`, NOT `serverUrl`; NO type/disabled keys). Content surfaces (custom slash commands, Agent Skills, subagents, guidelines/memory) exist natively but are not wired (mcp-only scope; AGENTS.md memory via the base default). All hook capabilities false.",
+  },
 ];
 
 export const hooksMatrix: HooksMatrix = { canonicalEvents, platforms };
