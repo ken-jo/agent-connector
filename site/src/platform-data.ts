@@ -628,6 +628,21 @@ export const platforms: Platform[] = [
     // N/A wired: subagents (no AC-wired user-authored dir).
     hostNative: s(true, false, true, true, false, true, false, false),
   },
+  {
+    id: "grok-cli",
+    name: "Grok CLI",
+    paradigm: "json-stdio",
+    surfaces: s(true, true, false, false, false, true, false, false),
+    // Community superagent-ai/grok-cli (npm grok-dev, bin grok). USER-SCOPE only:
+    // MCP servers (nested mcp.servers JSON ARRAY, keyed by id) AND hooks
+    // (top-level hooks, Claude nested-rule shape) both live in
+    // ~/.grok/user-settings.json. memory WIRED: AGENTS.md ("merged from git root
+    // down; AGENTS.override.md wins per directory" — README). N/A: commands /
+    // skills / subagents have no documented user-authored FILE surface (Grok's
+    // sub-agents are JSON config + a /agents TUI flow, not a markdown dir);
+    // statusline / actions absent.
+    hostNative: s(true, true, false, false, false, true, false, false),
+  },
 ];
 
 export const platformCount = platforms.length;
@@ -648,7 +663,7 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
     "claude-code", "codebuddy", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
     "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
     "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
-    "kimi", "pi", "antigravity-cli",
+    "kimi", "pi", "antigravity-cli", "grok-cli",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],

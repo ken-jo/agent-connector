@@ -66,6 +66,7 @@ export type PlatformId =
   | "amazon-q"
   | "continue"
   | "windsurf"
+  | "grok-cli"
   | "synthetic"
   | "unknown";
 

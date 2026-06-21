@@ -258,6 +258,18 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "windsurf",
     load: () => import("./windsurf/index.js").then((m) => m.default),
   },
+  // Grok CLI (the community superagent-ai/grok-cli, npm `grok-dev`, bin `grok`,
+  // MIT) — json-stdio. Id is `grok-cli` (NOT `grok`) to stay distinct from xAI's
+  // separate "Grok Build" product. USER-SCOPE ONLY: both MCP servers (nested
+  // `mcp.servers` JSON ARRAY, keyed by `id`) and hooks (top-level `hooks`,
+  // Claude nested-rule shape) live in ~/.grok/user-settings.json (project
+  // .grok/settings.json holds neither — Grok excludes project hooks for
+  // security). Distinct ~/.grok marker — no fork-ordering constraint vs any
+  // sibling.
+  {
+    id: "grok-cli",
+    load: () => import("./grok-cli/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */

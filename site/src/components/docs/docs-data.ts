@@ -1002,7 +1002,7 @@ export const platformOverrideFields: FieldRow[] = [
     name: "nativeHooks",
     type: "Record<string, NativeHookDef>",
     notes:
-      "Native passthrough — wire ANY host hook event outside the 13 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). Honored by the 15 adapters that set supportsNativeHooks; the rest skip-warn.",
+      "Native passthrough — wire ANY host hook event outside the 13 normalized ones, keyed by the host's event name verbatim. Raw payload in, verbatim JSON reply out (exit 0 only). Honored by the 16 adapters that set supportsNativeHooks; the rest skip-warn.",
   },
   {
     name: "configPatch",
@@ -1323,6 +1323,12 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     id: "amazon-q",
     target:
       "~/.aws/amazonq/mcp.json (user) / .amazonq/mcp.json (project) → mcpServers (hooks in cli-agents/q_cli_default.json; subagents as cli-agents/<name>.json)",
+  },
+  {
+    name: "Grok CLI",
+    id: "grok-cli",
+    target:
+      "~/.grok/user-settings.json → mcp.servers (JSON ARRAY, keyed by id; hooks in the SAME file under top-level hooks, user-scope only)",
   },
 ];
 
