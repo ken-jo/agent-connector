@@ -20,21 +20,45 @@
  *   8. installServer / installHooks always skip (no MCP config, no hook layer).
  *   9. Content-surface round-trip slice (absorbed from the former
  *      tests/adapters/surfaces-s2.test.ts — pi was its last remaining host).
+ *  10. Action surface: a generated pi.registerCommand extension module
+ *      (.pi/extensions/<id>/index.js project, ~/.pi/agent/extensions/ user) that
+ *      shells out to `action pi <id>` — mirrors the OMP fork's action emitter.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js";
 import piAdapter from "../../src/adapters/pi/index.js";
 
-import { buildCtx, freshProject, isolateEnv } from "../support/env.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { splitFrontmatter } from "../support/fs.js";
+
+// ─────────────────────────────────────────────────────────────────────────
+// node:child_process mock — hoisted above every import by vitest.
+//
+// The pi action surface emits a self-contained ESM extension module that
+// imports execFileSync (POSIX) / execSync (Windows) at top-level; the
+// registerCommand tests dynamically import the freshly-written module and fire
+// its handlers, so the mock must be in place before that module resolves
+// node:child_process. Each test reprograms what the mock returns via
+// execFileSyncImpl. (Idiom carried verbatim from the omp suite — pi mirrors
+// omp's emitter.)
+// ─────────────────────────────────────────────────────────────────────────
+
+let execFileSyncImpl: (...args: any[]) => string = () => "";
+const execFileSyncMock = vi.fn((...args: any[]) => execFileSyncImpl(...args));
+
+vi.mock("node:child_process", () => ({
+  execFileSync: execFileSyncMock,
+  execSync: execFileSyncMock,
+}));
 
 const CONNECTOR_ID = "acme-pi";
 
@@ -520,5 +544,186 @@ describe("pi adapter — content surfaces", () => {
     const c2 = buildCtx(projectDir, disabled);
     expect(piAdapter.installSkills!(c2)[0]?.action).toBe("skip");
     expect(existsSync(join(projectDir, ".pi", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 10. Action surface — slash commands in a generated extension module.
+//
+// Pi loads TS extension modules that call pi.registerCommand(name, { handler });
+// AC binds each declared action to a handler that execs `action pi <id>`. The
+// emitter is the OMP adapter's near-verbatim (omp wraps pi; its action support
+// was inferred FROM pi). UNLIKE omp the module is actions-only (no hook handlers,
+// Pi has no hook layer) and uninstallActions owns the teardown directly. These
+// tests guard the load-bearing risks: the registerCommand block is present and
+// the `action pi <id>` token is host-correct; a description containing a `"` is
+// JSON-escaped so the module still PARSES; the handler shells out to the home bin
+// (live, child_process mocked); install is idempotent; uninstall removes the
+// module; opt-out and empty-actions skip honestly; the scope split is correct.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** A connector with ONLY actions (no commands, no skills) — drives installActions. */
+function actionsOnlyConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme Pi",
+    version: "1.0.0",
+    actions: [
+      { id: "reindex", description: "Rebuild the search index.", run: () => undefined },
+      // A description with an embedded double-quote — must be JSON-escaped so the
+      // generated module still parses (a raw " would take the whole plugin down).
+      { id: "purge", description: 'Purge the "stale" cache.', run: () => undefined },
+    ],
+  });
+}
+
+describe("pi adapter — action surface (slash commands in a generated extension module)", () => {
+  let projectDir: string;
+  let ctx: InstallContext;
+
+  // Pin process.platform to a POSIX value for this block so the generated
+  // command handler takes its execFileSync(HOME_BIN, [args]) path (on Windows it
+  // would use execSync(one quoted string) — correct in production, mirrored from
+  // omp/openclaw, but it would not match the execFileSync(bin, argv) call-shape
+  // assertion below). node:path is bound at import and os.homedir() is native, so
+  // neither the path nor the user-scope assertions are affected by this string
+  // override. Restored in afterEach so the rest of the suite sees the real OS.
+  const REAL_PLATFORM = process.platform;
+  beforeEach(() => {
+    projectDir = freshProject("ac-pi-act-");
+    ctx = buildCtx(projectDir, actionsOnlyConnector());
+    execFileSyncMock.mockClear();
+    execFileSyncImpl = () => "";
+    Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, "platform", { value: REAL_PLATFORM, configurable: true });
+  });
+
+  it("advertises supportsActions", () => {
+    expect(piAdapter.capabilities.supportsActions).toBe(true);
+  });
+
+  it("installActions writes the extension whose source embeds pi.registerCommand running `action pi <id>` and NO hook handlers", () => {
+    const changes = piAdapter.installActions!(ctx);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+    expect(changes.every((c) => c.platform === "pi")).toBe(true);
+
+    const entryPath = join(projectDir, ".pi", "extensions", CONNECTOR_ID, "index.js");
+    expect(changes.some((c) => c.path === entryPath)).toBe(true);
+    expect(existsSync(entryPath)).toBe(true);
+    const src = readFileSync(entryPath, "utf8");
+
+    // The registerCommand block, host token literal "pi", both action ids.
+    expect(src).toContain("pi.registerCommand(");
+    expect(src).toContain('["action", "pi", "reindex", "--connector", CONNECTOR_ID]');
+    expect(src).toContain('["action", "pi", "purge", "--connector", CONNECTOR_ID]');
+    // Actions-only → NO hook handler is wired (Pi has no hook layer).
+    expect(src).not.toContain("pi.on(");
+    // The factory is still a valid module with the default export.
+    expect(src).toContain("export default function");
+    // Cross-platform spawn (parity with omp/openclaw, Windows-tested): the win32
+    // branch routes through execSync(one quoted command line) because Node cannot
+    // execFile a .cmd launcher (EINVAL); POSIX keeps execFileSync(bin, argv).
+    expect(src).toContain('import { execFileSync, execSync } from "node:child_process"');
+    expect(src).toContain('process.platform === "win32"');
+    expect(src).toContain('execSync([HOME_BIN, ...args].map((a) => \'"\' + a + \'"\').join(" ")');
+    expect(src).toContain("execFileSync(HOME_BIN, args, { stdio: \"inherit\" })");
+  });
+
+  it("JSON-escapes a description containing a double-quote (the module still parses)", async () => {
+    piAdapter.installActions!(ctx);
+    const entryPath = join(projectDir, ".pi", "extensions", CONNECTOR_ID, "index.js");
+    const src = readFileSync(entryPath, "utf8");
+    // The raw quote is escaped, never emitted bare.
+    expect(src).toContain('description: "Purge the \\"stale\\" cache."');
+    // The proof it parses: dynamically import the freshly-written module.
+    const mod = await import(`${pathToFileURL(entryPath).href}?actesc=${Date.now()}`);
+    expect(typeof mod.default).toBe("function");
+  });
+
+  it("the registerCommand handler shells out to the home bin (live, child_process mocked)", async () => {
+    piAdapter.installActions!(ctx);
+    const entryPath = join(projectDir, ".pi", "extensions", CONNECTOR_ID, "index.js");
+    const mod = await import(`${pathToFileURL(entryPath).href}?actrun=${Date.now()}`);
+
+    // Capture the registered commands by passing a fake `pi`.
+    const registered: Record<string, any> = {};
+    mod.default({ registerCommand: (name: string, def: any) => { registered[name] = def; } });
+    expect(Object.keys(registered).sort()).toEqual(["purge", "reindex"]);
+
+    execFileSyncImpl = () => "";
+    await registered.reindex.handler({}, {});
+    const call = execFileSyncMock.mock.calls.at(-1)!;
+    expect(call[0]).toBe(HOME_BIN);
+    expect(call[1]).toEqual(["action", "pi", "reindex", "--connector", CONNECTOR_ID]);
+  });
+
+  it("installActions is idempotent — a second call yields skip for every file", () => {
+    piAdapter.installActions!(ctx);
+    const second = piAdapter.installActions!(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+  });
+
+  it("uninstallActions removes the extension module (and the now-empty dir)", () => {
+    piAdapter.installActions!(ctx);
+    const entryPath = join(projectDir, ".pi", "extensions", CONNECTOR_ID, "index.js");
+    expect(existsSync(entryPath)).toBe(true);
+
+    const changes = piAdapter.uninstallActions!(ctx);
+    expect(changes.some((c) => c.action === "remove")).toBe(true);
+    expect(existsSync(entryPath)).toBe(false);
+    // The per-connector dir is owned by us and now empty → removed.
+    expect(existsSync(join(projectDir, ".pi", "extensions", CONNECTOR_ID))).toBe(false);
+  });
+
+  it("uninstallActions is an honest skip when nothing was installed", () => {
+    const changes = piAdapter.uninstallActions!(ctx);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toContain("no pi extension present");
+  });
+
+  it("honors platforms.pi.actions === false (opt-out, never writes)", () => {
+    const ctxOff = buildCtx(
+      projectDir,
+      defineConnector({
+        id: CONNECTOR_ID,
+        actions: [{ id: "reindex", run: () => undefined }],
+        platforms: { pi: { actions: false } },
+      }),
+    );
+    const changes = piAdapter.installActions!(ctxOff);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toContain("disabled for pi");
+    expect(existsSync(join(projectDir, ".pi", "extensions", CONNECTOR_ID, "index.js"))).toBe(false);
+  });
+
+  it("skips honestly when the connector declares no actions", () => {
+    const ctxNone = buildCtx(projectDir, buildConnector({ skills: true }));
+    const changes = piAdapter.installActions!(ctxNone);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("skip");
+    expect(changes[0]?.detail).toContain("no actions");
+  });
+
+  it("user-scope action extension lands under ~/.pi/agent/extensions/ (NOT ~/.pi/extensions/)", () => {
+    const userCtx = buildCtx(projectDir, actionsOnlyConnector(), "user");
+    const changes = piAdapter.installActions!(userCtx);
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+
+    // HOME is redirected to projectDir, so ~/.pi === projectDir/.pi
+    const expectedPath = join(projectDir, ".pi", "agent", "extensions", CONNECTOR_ID, "index.js");
+    expect(existsSync(expectedPath)).toBe(true);
+    // Must NOT write to the project-scope path.
+    expect(existsSync(join(projectDir, ".pi", "extensions", CONNECTOR_ID, "index.js"))).toBe(false);
+  });
+
+  it("getHealthChecks for an actions connector asserts the extension module is present", () => {
+    piAdapter.installActions!(ctx);
+    const ext = piAdapter
+      .getHealthChecks!(ctx)
+      .find((c) => /action extension present/.test(c.name))!;
+    expect(ext.check().status).toBe("OK");
   });
 });

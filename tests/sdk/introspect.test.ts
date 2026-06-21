@@ -50,6 +50,7 @@ describe("hostsSupporting", () => {
       "nemoclaw",
       "omp",
       "openclaw",
+      "pi",
       "warp",
     ]);
   });

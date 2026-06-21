@@ -424,16 +424,20 @@ export const platforms: Platform[] = [
     // match ^[a-z0-9]+(?:-[a-z0-9]+)*$ (1–64 chars) — mux.coder.com docs).
     hostNative: s(true, false, false, true, false, true, false, false),
   },
-  // pi has NO writable MCP config (transports: []) — commands + skills + memory.
+  // pi has NO writable MCP config (transports: []) — commands + skills + memory
+  // + actions.
   {
     id: "pi",
     name: "Pi",
     paradigm: "mcp-only",
-    surfaces: s(false, false, true, true, false, true, false, false),
+    surfaces: s(false, false, true, true, false, true, false, true),
     // mcp: N/A — pi offers no MCP surface at all (deliberate host design).
     // commands now wired (prompt templates: .pi/prompts/ project,
     // ~/.pi/agent/prompts/ user); skills fixed to ~/.pi/agent/skills/ (user).
-    hostNative: s(false, false, true, true, false, true, false, false),
+    // actions wired via a generated pi.registerCommand extension module
+    // (.pi/extensions/ project, ~/.pi/agent/extensions/ user) — the OMP fork's
+    // action surface was inferred FROM pi, so hostNative.actions is true.
+    hostNative: s(false, false, true, true, false, true, false, true),
   },
   {
     id: "jetbrains-copilot",

@@ -1152,7 +1152,7 @@ the content-surface flags `supportsCommands` / `supportsSkills` /
 `supportsSubagents` / `supportsMemory`, and the handler/escape-hatch surface
 flags `supportsStatusline` / `supportsConfigPatch` / `supportsNativeHooks` /
 `supportsActions` (current counts: statusline 2, configPatch 1, nativeHooks 14,
-actions 6; unsupported adapters skip-warn).
+actions 7; unsupported adapters skip-warn).
 
 `InstallScope` is the normalized, low→high-precedence enum
 `{ system, user, project, profile, managed }`; each adapter maps it to a concrete
