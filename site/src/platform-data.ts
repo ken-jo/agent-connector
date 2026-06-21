@@ -369,9 +369,12 @@ export const platforms: Platform[] = [
     id: "antigravity-cli",
     name: "Antigravity CLI",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, false, true, false, false),
+    surfaces: s(true, true, true, true, false, true, true, false),
     // subagents: N/A — plugin-bundle-only, no user surface (matches the IDE).
-    hostNative: s(true, true, true, true, false, true, false, false),
+    // statusline: the `agy` CLI's first-party custom status line (live-verified
+    // v1.0.10 — settings.json `statusLine` { enabled, command }); CLI-only (the
+    // IDE app's status payload is unverified, so the antigravity row stays false).
+    hostNative: s(true, true, true, true, false, true, true, false),
   },
   {
     id: "antigravity",

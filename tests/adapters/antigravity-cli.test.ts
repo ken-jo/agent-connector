@@ -32,8 +32,14 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/core/define-connector.js";
+import { buildHomeBinStatuslineCommand } from "../../src/core/spawn.js";
+import { loadConfigPatchLedger } from "../../src/core/config-patch-ledger.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
-import type { PreToolUseEvent, ResolvedConnector } from "../../src/core/types.js";
+import type {
+  PreToolUseEvent,
+  ResolvedConnector,
+  StatuslineDef,
+} from "../../src/core/types.js";
 
 import antigravityAdapter, {
   AntigravityAdapter,
@@ -41,8 +47,9 @@ import antigravityAdapter, {
 import antigravityCliAdapter, {
   AntigravityCliAdapter,
 } from "../../src/adapters/antigravity-cli/index.js";
-import { buildCtx, freshProject, isolateEnv } from "../support/env.js";
+import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
+import { readJson } from "../support/fs.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -97,6 +104,11 @@ function surfaceConnector(): ResolvedConnector {
       { name: "acme-agent", description: "Acme agent.", prompt: "You are Acme." },
     ],
   });
+}
+
+/** statusline: a connector whose only payload is a status line. */
+function statuslineConnector(id: string, def: StatuslineDef): ResolvedConnector {
+  return defineConnector({ id, statusline: def });
 }
 
 // ── E1 extension-event fixtures (absorbed from extended-events-degrade) ──────────
@@ -253,9 +265,16 @@ describe("antigravity-cli content surfaces (inherited from the IDE)", () => {
 
 describe("antigravity-cli E1 extension-event degradation", () => {
   it("INHERITS the IDE adapter's capability surface (all four E1 flags falsy)", () => {
-    // The class field initializer gives each instance its own object — assert
-    // structural identity (the CLI adapter declares no capabilities of its own).
-    expect(antigravityCliAdapter.capabilities).toStrictEqual(antigravityAdapter.capabilities);
+    // The CLI fork diverges from the IDE adapter in EXACTLY one capability:
+    // supportsStatusline (the `agy` custom status line, CLI-only). Assert the
+    // surfaces are otherwise structurally identical by overlaying that one flag.
+    expect(antigravityCliAdapter.capabilities).toStrictEqual({
+      ...antigravityAdapter.capabilities,
+      supportsStatusline: true,
+    });
+    // statusline is the SOLE divergence — the IDE app does not advertise it.
+    expect(antigravityCliAdapter.capabilities.supportsStatusline).toBe(true);
+    expect(antigravityAdapter.capabilities.supportsStatusline ?? false).toBe(false);
     expect(antigravityCliAdapter.capabilities.permissionRequest ?? false).toBe(false);
     expect(antigravityCliAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
     expect(antigravityCliAdapter.capabilities.subagentStart ?? false).toBe(false);
@@ -300,5 +319,212 @@ describe("antigravity-cli adapter identity + paradigm", () => {
     expect(antigravityCliAdapter.paradigm).toBe(antigravityAdapter.paradigm);
     // Sanity: the CLI resolves a user config path (exercises the ctx fixture).
     expect(antigravityCliAdapter.getServerConfigPath(ctx)).toContain("mcp_config.json");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 5. Statusline surface — the `agy` custom status line (CLI-only, live-verified)
+//    settings.json top-level `statusLine` { enabled, command } via the ownership
+//    ledger; the IDE adapter has NO statusline (its payload is unverified).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("antigravity-cli adapter — statusline", () => {
+  let home: string;
+  let dataRoot: string;
+
+  beforeEach(() => {
+    home = freshProject("ac-agysl-");
+    dataRoot = join(home, ".agent-connector-sl");
+  });
+
+  /** statusline ctx with an isolated data root for the ledger. */
+  function slCtx(connector: ResolvedConnector): InstallContext {
+    return buildCtx(home, connector, { scope: "user", dataRoot });
+  }
+
+  /** agy's GLOBAL statusLine settings.json (HOME-based, scope-independent). */
+  function settingsPath(): string {
+    return join(home, ".gemini", "antigravity-cli", "settings.json");
+  }
+
+  function readSettings(): Record<string, any> {
+    return readJson(settingsPath());
+  }
+
+  function writeSettings(data: unknown): void {
+    mkdirSync(join(home, ".gemini", "antigravity-cli"), { recursive: true });
+    writeFileSync(settingsPath(), `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  }
+
+  it("advertises supportsStatusline === true (CLI-only — the IDE app does not)", () => {
+    expect(antigravityCliAdapter.capabilities.supportsStatusline).toBe(true);
+    expect(antigravityAdapter.capabilities.supportsStatusline ?? false).toBe(false);
+  });
+
+  it("installs the ownership-tracked statusLine { enabled, command } (ledger row, prior absent)", () => {
+    const connector = statuslineConnector("sl-install", { render: () => "x" });
+    const changes = antigravityCliAdapter.installStatusline!(slCtx(connector));
+    expect(changes.some((c) => c.action === "create")).toBe(true);
+
+    // Top-level `statusLine` with agy's { enabled, command } shape + OUR home-bin command.
+    const settings = readSettings();
+    expect(settings.statusLine).toEqual({
+      enabled: true,
+      command: buildHomeBinStatuslineCommand(HOME_BIN, "antigravity-cli", "sl-install"),
+    });
+
+    // The ledger has a refcounted ownership row keyed on the top-level leaf.
+    const ledger = loadConfigPatchLedger(dataRoot);
+    const entry = ledger.entries.find(
+      (e) => e.platform === "antigravity-cli" && e.key === "statusLine",
+    );
+    expect(entry).toBeTruthy();
+    expect(entry!.prior).toEqual({ present: false });
+    expect(entry!.owners.map((o) => o.connectorId)).toContain("sl-install");
+  });
+
+  it("creates the settings.json when absent (set-if-absent)", () => {
+    const connector = statuslineConnector("sl-mkdir", { render: () => "x" });
+    antigravityCliAdapter.installStatusline!(slCtx(connector));
+    const settings = readSettings();
+    expect(settings.statusLine.enabled).toBe(true);
+    expect(typeof settings.statusLine.command).toBe("string");
+  });
+
+  it("preserves sibling user keys at top level", () => {
+    writeSettings({ colorScheme: "dark", notifications: true });
+    const connector = statuslineConnector("sl-merge", { render: () => "x" });
+    antigravityCliAdapter.installStatusline!(slCtx(connector));
+    const settings = readSettings();
+    expect(settings.colorScheme).toBe("dark");
+    expect(settings.notifications).toBe(true);
+    expect(settings.statusLine.enabled).toBe(true);
+  });
+
+  it("is idempotent on re-install (skip, no duplicate)", () => {
+    const connector = statuslineConnector("sl-idem", { render: () => "x" });
+    antigravityCliAdapter.installStatusline!(slCtx(connector));
+    const second = antigravityCliAdapter.installStatusline!(slCtx(connector));
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+  });
+
+  it("uninstall reverses (removes the key + drops the ledger row)", () => {
+    const connector = statuslineConnector("sl-uninstall", { render: () => "x" });
+    antigravityCliAdapter.installStatusline!(slCtx(connector));
+    expect(readSettings().statusLine).toBeTruthy();
+
+    const changes = antigravityCliAdapter.uninstallStatusline!(slCtx(connector));
+    expect(changes.some((c) => c.action === "remove")).toBe(true);
+    expect(readSettings().statusLine).toBeUndefined();
+
+    const ledger = loadConfigPatchLedger(dataRoot);
+    expect(ledger.entries.find((e) => e.key === "statusLine")).toBeUndefined();
+  });
+
+  it("NEVER clobbers a pre-existing non-AC statusLine (skip-warn)", () => {
+    writeSettings({ statusLine: { enabled: true, command: "my-own.sh" } });
+    const connector = statuslineConnector("sl-conflict", { render: () => "x" });
+    const changes = antigravityCliAdapter.installStatusline!(slCtx(connector));
+
+    expect(changes.some((c) => c.action === "warn")).toBe(true);
+    // The user's statusLine is untouched.
+    expect(readSettings().statusLine).toEqual({ enabled: true, command: "my-own.sh" });
+    // No ownership was taken on a key we did not create.
+    const ledger = loadConfigPatchLedger(dataRoot);
+    expect(ledger.entries.find((e) => e.key === "statusLine")).toBeUndefined();
+  });
+
+  it("uninstall never deletes a non-AC statusLine (no ownership recorded → skip)", () => {
+    writeSettings({ statusLine: { enabled: true, command: "my-own.sh" } });
+    const connector = statuslineConnector("sl-conflict2", { render: () => "x" });
+    antigravityCliAdapter.installStatusline!(slCtx(connector)); // skip-warn (not ours)
+    const changes = antigravityCliAdapter.uninstallStatusline!(slCtx(connector));
+    expect(changes.every((c) => c.action === "skip")).toBe(true);
+    expect(readSettings().statusLine).toEqual({ enabled: true, command: "my-own.sh" });
+  });
+
+  it("per-platform statusline:false skips the install entirely", () => {
+    const connector = defineConnector({
+      id: "sl-disabled",
+      statusline: { render: () => "x" },
+      platforms: { "antigravity-cli": { statusline: false } },
+    });
+    const changes = antigravityCliAdapter.installStatusline!(slCtx(connector));
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(existsSync(settingsPath())).toBe(false);
+  });
+
+  it("skips silently when no statusline is declared", () => {
+    const connector = defineConnector({
+      id: "sl-none",
+      commands: [{ name: "noop", prompt: "p" }],
+    });
+    const changes = antigravityCliAdapter.installStatusline!(slCtx(connector));
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.action).toBe("skip");
+    expect(changes[0]!.detail).toContain("no statusline");
+  });
+});
+
+describe("antigravity-cli adapter — statusline parse/format", () => {
+  it("parseStatusInput maps agy's LIVE-CAPTURED statusLine stdin JSON (agy v1.0.10)", () => {
+    // The exact payload captured from a real headless `agy -p` turn (2026-06-21).
+    const raw = {
+      cwd: "/home/dev/acme",
+      session_id: "a850e668-0e08-408c-8195-c8c44c0944f1",
+      conversation_id: "a850e668-0e08-408c-8195-c8c44c0944f1",
+      transcript_path: "/home/dev/.gemini/antigravity/brain/x/transcript.jsonl",
+      model: { id: "Gemini 3.5 Flash (High)", display_name: "Gemini 3.5 Flash (High)" },
+      workspace: { current_dir: "/home/dev/acme", project_dir: "/home/dev/acme" },
+      version: "1.0.10",
+      context_window: {
+        total_input_tokens: 150,
+        total_output_tokens: 42,
+        context_window_size: 1048576,
+        used_percentage: 0.0143,
+        remaining_percentage: 99.98,
+        current_usage: { input_tokens: 18592, output_tokens: 38 },
+      },
+      agent_state: "working",
+      vcs: { type: "git" },
+      plan_tier: "Google AI Pro",
+      terminal_width: 80,
+    };
+    const ctx = antigravityCliAdapter.parseStatusInput!(raw);
+    expect(ctx.host).toBe("antigravity-cli");
+    // conversation_id wins as the stable session id.
+    expect(ctx.sessionId).toBe("a850e668-0e08-408c-8195-c8c44c0944f1");
+    expect(ctx.cwd).toBe("/home/dev/acme");
+    expect(ctx.transcriptPath).toBe(raw.transcript_path);
+    expect(ctx.model).toEqual({
+      id: "Gemini 3.5 Flash (High)",
+      displayName: "Gemini 3.5 Flash (High)",
+    });
+    // maxTokens = context_window_size; usedTokens = total_input + total_output
+    // (NOT current_usage, which is an OBJECT on agy); percent = used_percentage.
+    expect(ctx.context).toEqual({ maxTokens: 1048576, usedTokens: 192, percent: 0.0143 });
+    // agy has no cost analog.
+    expect(ctx.cost).toBeUndefined();
+    // The verbatim payload survives on `raw` (agent_state/vcs/plan_tier/version/…).
+    expect(ctx.raw).toBe(raw);
+  });
+
+  it("falls back to session_id when conversation_id is absent; tolerates empties", () => {
+    const ctx = antigravityCliAdapter.parseStatusInput!({ session_id: "s-only" });
+    expect(ctx.sessionId).toBe("s-only");
+    // Empty payload → only host/capabilities/raw, no fabricated fields.
+    const empty = antigravityCliAdapter.parseStatusInput!({});
+    expect(empty.host).toBe("antigravity-cli");
+    expect(empty.sessionId).toBeUndefined();
+    expect(empty.context).toBeUndefined();
+    expect(empty.model).toBeUndefined();
+  });
+
+  it("formatStatusOutput emits the rendered line on stdout with exit 0", () => {
+    expect(antigravityCliAdapter.formatStatusOutput!("hello")).toEqual({
+      exitCode: 0,
+      stdout: "hello",
+    });
   });
 });

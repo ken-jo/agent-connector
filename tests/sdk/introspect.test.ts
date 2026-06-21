@@ -3,7 +3,7 @@
  *
  * Asserts the surface predicates resolve against REAL adapter capabilities:
  *   • capabilitiesOf — known host vs unknown id;
- *   • hostsSupporting — configPatch is v1 claude-code-only; statusline is claude-code + qwen-code;
+ *   • hostsSupporting — configPatch is v1 claude-code-only; statusline is claude-code + qwen-code + antigravity-cli;
  *     actions is the emitter set (droid + hermes + warp + the ts-plugin slash-command
  *     hosts nemoclaw/omp/openclaw); memory is broad (the AGENTS.md-first surface),
  *     and the result is sorted;
@@ -35,8 +35,12 @@ describe("capabilitiesOf", () => {
 });
 
 describe("hostsSupporting", () => {
-  it("statusline v1 hosts are claude-code + qwen-code", async () => {
-    expect(await hostsSupporting("statusline")).toEqual(["claude-code", "qwen-code"]);
+  it("statusline hosts are claude-code + qwen-code + antigravity-cli (sorted)", async () => {
+    expect(await hostsSupporting("statusline")).toEqual([
+      "antigravity-cli",
+      "claude-code",
+      "qwen-code",
+    ]);
   });
 
   it("actions emitter hosts include the ts-plugin slash-command hosts (sorted)", async () => {
