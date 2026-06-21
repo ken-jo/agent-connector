@@ -13,6 +13,14 @@
  *   - skills    → write <piSkillsDir>/<name>/SKILL.md (+ declared resources).
  *                   project scope → <projectDir>/.pi/skills/<name>/SKILL.md
  *                   user scope    → ~/.pi/agent/skills/<name>/SKILL.md
+ *   - actions   → write a self-contained TS extension module that calls
+ *                   pi.registerCommand(<action.id>, { handler }) once per action.
+ *                   project scope → <projectDir>/.pi/extensions/<id>/index.js
+ *                   user scope    → ~/.pi/agent/extensions/<id>/index.js
+ *                 Each handler shells out to the home-bin `action pi <id>` verb
+ *                 (the SAME mechanism the OMP fork — which wraps Pi — uses for its
+ *                 action surface). Unlike OMP this module wires NO hook handlers:
+ *                 Pi has no lifecycle hook layer here, so it is actions-only.
  *   - subagents → unsupported (BaseAdapter skip/warn).
  *
  * Ground-truth refs (docs/research/kilo-pi-ground-truth.md):
@@ -21,6 +29,9 @@
  *   - global skills: ~/.pi/agent/skills/<n>/SKILL.md (NOT ~/.pi/skills/).
  *   - project skills: .pi/skills/<n>/SKILL.md (unchanged).
  *   - allowed-tools: space-delimited (NOT comma-delimited).
+ *   - extensions: Pi loads TS extension modules that call pi.registerCommand(...);
+ *     the OMP adapter (Oh My Pi, a Pi fork) proved this exact mechanism — its
+ *     supportsActions emission was inferred FROM Pi. We mirror omp's emitter.
  */
 
 import { existsSync } from "node:fs";
@@ -28,7 +39,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseAdapter } from "../base.js";
-import type { Adapter, InstallContext } from "../spi.js";
+import type { Adapter, GeneratedPluginFile, InstallContext } from "../spi.js";
 import type {
   ChangeRecord,
   CommandDef,
@@ -39,6 +50,7 @@ import type {
   PlatformId,
   SkillDef,
 } from "../../core/types.js";
+import { renderBridgePrelude } from "../../core/ts-plugin-bridge.js";
 
 const HOST: PlatformId = "pi";
 
@@ -75,6 +87,12 @@ export class PiAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: false,
+    // Action surface: each declared action becomes a user-invokable command
+    // registered INSIDE a generated TS extension module (pi.registerCommand),
+    // shelling out to the home-bin `action` verb — the SAME mechanism the omp
+    // fork uses (omp's action support was inferred FROM pi). supportsActions →
+    // the installActions/uninstallActions overrides below.
+    supportsActions: true,
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
@@ -156,6 +174,26 @@ export class PiAdapter extends BaseAdapter implements Adapter {
   /** Native skill dir: <skillsDir>/<name>. */
   private skillDir(ctx: InstallContext, name: string): string {
     return join(this.skillsDir(ctx), name);
+  }
+
+  /**
+   * Extension package dir Pi loads the action module from, per scope:
+   *   project scope → <projectDir>/.pi/extensions/<id>/
+   *   user scope    → ~/.pi/agent/extensions/<id>/
+   * (mirrors the prompts/skills scope split; the OMP fork uses the analogous
+   * <agentDir>/extensions/<id>/ path.)
+   */
+  private extensionDir(ctx: InstallContext): string {
+    const base =
+      ctx.scope === "project"
+        ? join(ctx.projectDir, ".pi")
+        : join(homedir(), ".pi", "agent");
+    return join(base, "extensions", ctx.connector.id);
+  }
+
+  /** The generated action extension entry module: <extensionDir>/index.js. */
+  private actionEntryPath(ctx: InstallContext): string {
+    return join(this.extensionDir(ctx), "index.js");
   }
 
   // ── MCP server (unavailable — Pi has no writable MCP config) ─────────────
@@ -332,6 +370,126 @@ export class PiAdapter extends BaseAdapter implements Adapter {
     return this.renderFrontmatterMd(frontmatter, skill.body);
   }
 
+  // ── Action surface (slash commands in a generated extension module) ───────
+  // Each declared action becomes a pi.registerCommand(...) inside a generated,
+  // self-contained TS extension module (<extensionDir>/index.js). This mirrors
+  // the OMP adapter's emitter near-verbatim (omp wraps Pi; its action support was
+  // inferred FROM Pi). UNLIKE omp the module is NOT shared with a hook surface —
+  // Pi has no lifecycle hook layer here — so it is actions-only AND
+  // uninstallActions owns the teardown directly (no uninstallHooks to delegate to).
+  // Idempotent (byte-identical → skip) via writeManagedFile; honors
+  // platforms["pi"].actions === false and the empty-actions skip.
+
+  override installActions(ctx: InstallContext): ChangeRecord[] {
+    const entryPath = this.actionEntryPath(ctx);
+    if (ctx.connector.platforms[HOST]?.actions === false) {
+      return [{ platform: this.id, action: "skip", path: entryPath, detail: "actions disabled for pi" }];
+    }
+    if (this.actionTriggers(ctx).length === 0) {
+      return [{ platform: this.id, action: "skip", path: entryPath, detail: "connector declares no actions" }];
+    }
+    return this.synthesizeExtension(ctx).map((file) =>
+      this.writeManagedFile(
+        file.path,
+        file.contents,
+        ctx.dryRun,
+        "pi extension module (action commands)",
+        file.executable,
+      ),
+    );
+  }
+
+  override uninstallActions(ctx: InstallContext): ChangeRecord[] {
+    const entryPath = this.actionEntryPath(ctx);
+    if (!existsSync(entryPath)) {
+      return [{ platform: this.id, action: "skip", path: entryPath, detail: "no pi extension present" }];
+    }
+    const changes: ChangeRecord[] = [
+      this.removeManagedFile(entryPath, ctx.dryRun, "pi extension module", "no pi extension module present"),
+    ];
+    // Only remove the extension dir when we own its full contents (we write a
+    // single index.js into a per-connector dir, so this is normally now empty).
+    changes.push(this.removeDirIfEmpty(this.extensionDir(ctx), ctx.dryRun));
+    return changes;
+  }
+
+  /**
+   * Build the Pi action extension: a single self-contained ESM module
+   * (<extensionDir>/index.js) whose default export is the Pi plugin factory
+   * `(pi) => void`. It imports nothing from agent-connector. For each declared
+   * action it calls `pi.registerCommand(action.id, { handler })`; the handler
+   * shells out to the stable home binary's `action pi <id>` verb over
+   * child_process (fail-open). Mirrors the OMP adapter's registerCommand emission
+   * (the shared renderBridgePrelude head + the per-action block), minus the hook
+   * handlers Pi has no surface for.
+   */
+  private synthesizeExtension(ctx: InstallContext): GeneratedPluginFile[] {
+    return [
+      {
+        path: this.actionEntryPath(ctx),
+        contents: this.buildExtensionSource(ctx),
+        executable: false,
+      },
+    ];
+  }
+
+  /** Compose the generated extension source with plain string concatenation. */
+  private buildExtensionSource(ctx: InstallContext): string {
+    const header = `/**
+ * AUTO-GENERATED by agent-connector — DO NOT EDIT.
+ *
+ * Self-contained Pi extension for connector ${ctx.connector.id}. It imports
+ * nothing from agent-connector: each registered command shells out to the stable
+ * home binary's universal action entrypoint. Fail-open: any launcher error
+ * degrades to a no-op (never wedges Pi).
+ *
+ * Pi loads this module and calls its DEFAULT export, the plugin factory
+ * (pi) => void, once at load time; each pi.registerCommand(...) wires one
+ * user-invokable command.
+ */
+import { execFileSync, execSync } from "node:child_process";
+
+${renderBridgePrelude({
+  homeBin: ctx.homeBinPath,
+  connectorId: ctx.connector.id,
+  hookSlug: "pi",
+  payloadNoun: "Pi",
+  failOpenComment: "Fail-open — never break a Pi command invocation.",
+})}
+`;
+
+    // Action surface: one pi.registerCommand per declared action. The command
+    // shells out to the home-bin `action` verb (host token literal "pi"). Both id
+    // AND description are JSON.stringify'd — descriptions are free-form connector
+    // text, so a raw " / backtick would break the module.
+    const actionHandlers: string[] = [];
+    for (const action of this.actionTriggers(ctx)) {
+      const id = JSON.stringify(action.id);
+      const description = JSON.stringify(action.description);
+      actionHandlers.push(`  // Action /${action.id} → run the home-bin action verb directly.
+  pi.registerCommand(${id}, {
+    description: ${description},
+    handler: async (_args, _ctx) => {
+      try {
+        const args = ["action", "pi", ${id}, "--connector", CONNECTOR_ID];
+        process.platform === "win32"
+          ? execSync([HOME_BIN, ...args].map((a) => '"' + a + '"').join(" "), { stdio: "inherit" })
+          : execFileSync(HOME_BIN, args, { stdio: "inherit" });
+      } catch { /* fail-open */ }
+      return undefined;
+    },
+  });`);
+    }
+
+    const factory = `
+export default function plugin(pi) {
+${actionHandlers.join("\n\n")}
+}
+`;
+
+    return header + factory;
+  }
+
   // ── Diagnostics ──────────────────────────────────────────────────────────
 
   override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
@@ -354,6 +512,22 @@ export class PiAdapter extends BaseAdapter implements Adapter {
       const p = join(this.skillDir(ctx, skill.name), "SKILL.md");
       checks.push({
         name: `${this.name}: skill ${skill.name} present`,
+        check: () =>
+          existsSync(p)
+            ? { status: "OK", detail: p }
+            : { status: "FAIL", detail: `not found: ${p}` },
+      });
+    }
+
+    // Action-surface check: the generated extension module carries every action,
+    // so a connector declaring actions must have written it (unless opted out).
+    if (
+      this.actionTriggers(ctx).length > 0 &&
+      ctx.connector.platforms[HOST]?.actions !== false
+    ) {
+      const p = this.actionEntryPath(ctx);
+      checks.push({
+        name: `${this.name}: action extension present`,
         check: () =>
           existsSync(p)
             ? { status: "OK", detail: p }

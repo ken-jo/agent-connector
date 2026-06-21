@@ -889,8 +889,9 @@ export interface StatuslineDef {
 // SURFACED (exit 1 + stderr), never failed silently. The dispatch backbone
 // shipped first; the affordance EMITTERS (binding a host slash command / palette
 // workflow / exec-file to the verb) now ship per-host: droid + hermes + warp plus
-// the ts-plugin slash-command hosts omp + openclaw (and the nemoclaw fork, which
-// inherits) set supportsActions and override installActions/uninstallActions.
+// the registerCommand-style hosts omp + openclaw (and the nemoclaw fork, which
+// inherits) + pi (the omp progenitor — same pi.registerCommand extension module)
+// set supportsActions and override installActions/uninstallActions.
 // Hosts with no verifiable emission target leave supportsActions unset
 // (BaseAdapter skip-warn).
 // ─────────────────────────────────────────────────────────────────────────
