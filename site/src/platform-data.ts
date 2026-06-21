@@ -120,10 +120,11 @@ const s = (
  * uncertain cells default to matching our support — no guessed gaps.
  *
  * Cross-cutting facts:
- *   - memory: ALL 36 hosts natively read a rules/memory file (AGENTS.md or a
- *     host-specific equivalent — Amazon Q reads .amazonq/rules, Continue reads
- *     .continue Rules, Windsurf reads .windsurfrules/global rules).
- *     hostNative.memory=true everywhere.
+ *   - memory: 41 of the 42 hosts natively read a rules/memory file (AGENTS.md
+ *     or a host-specific equivalent — Amazon Q reads .amazonq/rules, Continue
+ *     reads .continue Rules, Windsurf reads .windsurfrules/global rules).
+ *     hostNative.memory=true everywhere except mistral-vibe (MCP-only, no
+ *     rules/memory surface byte-confirmed).
  *   - hooks: the 25 json-stdio/ts-plugin hosts all expose a native hook or
  *     plugin layer (hook survey + Continue's PR #11029 Claude-compatible hooks,
  *     which promoted it out of mcp-only; Amp's .amp/plugins/*.ts TS-plugin API

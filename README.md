@@ -11,7 +11,7 @@
 ![platforms](https://img.shields.io/badge/platforms-42-2563eb)
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
-![install verified](https://img.shields.io/badge/install%20verified-35%2F35-22c55e)
+![install verified](https://img.shields.io/badge/install%20verified-42%2F42-22c55e)
 ![headless runtime](https://img.shields.io/badge/headless%20runtime-20%20CLIs%20activated-22c55e)
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
 ![tests](https://img.shields.io/badge/tests-passing-22c55e)
@@ -57,7 +57,7 @@ agent-connector is the middleware that does it for you:
    registered but **not wrapped** (the proxy cannot intercept remote transports),
    so they yield no per-tool telemetry.
 
-> Status: **35 platforms, all 3 hook paradigms** (exceeds the
+> Status: **42 platforms, all 3 hook paradigms** (exceeds the
 > [tokscale](https://github.com/junhoyeo/tokscale) token-leaderboard coverage).
 >
 > | Paradigm | Platforms |
@@ -76,11 +76,11 @@ The full single-API contract is **install-verified across the platform set**. A
 sample connector declaring **all four launch surfaces** — MCP server **+**
 lifecycle hooks **+** slash commands **+** tools (skills + subagents) — was
 installed into an isolated environment for every adapter and inspected on disk
-(the full 35-platform sweep below — now locked by a committed registry-driven
+(the full 42-platform sweep below — now locked by a committed registry-driven
 install-roundtrip harness that, for every adapter, drives the real install →
 uninstall into an isolated HOME and asserts on-disk placement + zero residue):
 
-- **35 / 35 platforms — zero missing, zero failed surfaces.** Each surface is
+- **42 / 42 platforms — zero missing, zero failed surfaces.** Each surface is
   written where the host supports it and gracefully *skip-warned* (never silently
   dropped) where it does not, across all three hook paradigms — JSON/TOML/YAML
   hook entries (`json-stdio`), synthesized + registered plugin modules
@@ -112,7 +112,7 @@ uninstall into an isolated HOME and asserts on-disk placement + zero residue):
   no headless CLI) stay covered by the install-roundtrip harness above.
 - **Clean uninstall + `--purge`.** Every installed surface reverses; `--purge`
   deregisters the connector record and tears down the home binary when no
-  connectors remain (35 / 35).
+  connectors remain (42 / 42).
 - **Full `npm test` suite passing** · `tsc` clean · build green.
 
 The 0.2.0 additions — the `memory` surface, the `nativeHooks` passthrough, and
@@ -217,7 +217,7 @@ npx @ken-jo/agent-connector install
 
 > `install` targets only the hosts actually **detected** on this machine (or an
 > explicit `--targets` / `connector.targets` list), intersected with the
-> 35-adapter registry — there is no "install to all 35 unconditionally" path.
+> 42-adapter registry — there is no "install to all 42 unconditionally" path.
 
 > **Optional convenience.** A global `npm i -g @ken-jo/agent-connector` is **not**
 > required for the flow above — `npx @ken-jo/agent-connector …` runs it straight from
@@ -485,7 +485,7 @@ memory: [
 ```
 
 **Write the guidance once — it lands in the standard
-[AGENTS.md](https://agents.md) on 29 of the 35 hosts** (the open, Linux
+[AGENTS.md](https://agents.md) on 33 of the 42 hosts** (the open, Linux
 Foundation-stewarded "README for agents" format): project scope targets
 `<projectDir>/AGENTS.md` — and where a host resolves its rules file
 exclusively, the target is *probed* so the block lands in the file the host
