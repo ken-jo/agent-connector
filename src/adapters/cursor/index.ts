@@ -152,9 +152,13 @@ interface CursorWireInput {
   session_id?: string;
   generation_id?: string;
   trigger?: string;
+  // stop / subagentStop. Cursor's Stop input is { status, loop_count, ... }
+  // (cursor.com/docs/hooks) — there is NO `stop_hook_active` field (that is a
+  // Claude-specific field absent on this host). The old `stop_hook_active` read
+  // was always-undefined → the boolean guard never fired → dead. Field removed;
+  // getProjectDir and the Stop/SubagentStop parse cases drop the dead guard.
   status?: string;
   loop_count?: number;
-  stop_hook_active?: boolean;
 
   // sessionStart — Cursor's stdin is EXACTLY { session_id, is_background_agent,
   // composer_mode } (cursor.com/docs/hooks ~1278-1297): there is NO source/trigger
@@ -755,12 +759,10 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
         return ev;
       }
       case "Stop": {
-        const ev: StopEvent = {
-          ...base,
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
-            : {}),
-        };
+        // Cursor's Stop input is { status, loop_count, ... } — there is NO
+        // `stop_hook_active` field (Claude-specific; absent on this host).
+        // stopHookActive is not set on this event.
+        const ev: StopEvent = { ...base };
         return ev;
       }
       case "SessionEnd": {
@@ -839,9 +841,8 @@ export class CursorAdapter extends BaseAdapter implements Adapter {
           ...(typeof input.summary === "string"
             ? { lastAssistantMessage: input.summary }
             : {}),
-          ...(typeof input.stop_hook_active === "boolean"
-            ? { stopHookActive: input.stop_hook_active }
-            : {}),
+          // stop_hook_active is absent on this host (Claude-specific field;
+          // cursor.com/docs/hooks SubagentStop has no such field) — removed.
         };
         return ev;
       }
