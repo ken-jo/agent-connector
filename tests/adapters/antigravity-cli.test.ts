@@ -264,17 +264,23 @@ describe("antigravity-cli content surfaces (inherited from the IDE)", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("antigravity-cli E1 extension-event degradation", () => {
-  it("INHERITS the IDE adapter's capability surface (all four E1 flags falsy)", () => {
-    // The CLI fork diverges from the IDE adapter in EXACTLY one capability:
-    // supportsStatusline (the `agy` custom status line, CLI-only). Assert the
-    // surfaces are otherwise structurally identical by overlaying that one flag.
+  it("INHERITS the IDE adapter's capability surface except the TWO CLI divergences", () => {
+    // The CLI fork diverges from the IDE adapter in EXACTLY two capabilities:
+    //   • supportsStatusline (the `agy` custom status line, CLI-only ADD), and
+    //   • sessionStart: false (the `agy` CLI does NOT recognize a SessionStart
+    //     hook — live-verified; the IDE app keeps sessionStart: true).
+    // Assert the surfaces are otherwise structurally identical by overlaying just
+    // those two flags.
     expect(antigravityCliAdapter.capabilities).toStrictEqual({
       ...antigravityAdapter.capabilities,
       supportsStatusline: true,
+      sessionStart: false,
     });
-    // statusline is the SOLE divergence — the IDE app does not advertise it.
+    // statusline is a CLI-only ADD; sessionStart is a CLI-only DROP.
     expect(antigravityCliAdapter.capabilities.supportsStatusline).toBe(true);
     expect(antigravityAdapter.capabilities.supportsStatusline ?? false).toBe(false);
+    expect(antigravityCliAdapter.capabilities.sessionStart ?? false).toBe(false);
+    expect(antigravityAdapter.capabilities.sessionStart).toBe(true);
     expect(antigravityCliAdapter.capabilities.permissionRequest ?? false).toBe(false);
     expect(antigravityCliAdapter.capabilities.postToolUseFailure ?? false).toBe(false);
     expect(antigravityCliAdapter.capabilities.subagentStart ?? false).toBe(false);
@@ -294,6 +300,55 @@ describe("antigravity-cli E1 extension-event degradation", () => {
       expect(warn!.detail).toBe(`${event} has no Antigravity hook equivalent — skipped`);
     }
     expect(warns).toHaveLength(E1_EVENTS.length);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 4b. SessionStart is DROPPED on the CLI (agy does NOT recognize it) while the
+//     other agy-supported events (PreToolUse/PostToolUse/Stop) still install.
+//     LIVE-VERIFIED: agy's hook events are exactly PreToolUse/PostToolUse/
+//     PreInvocation/PostInvocation/Stop — a SessionStart hook would otherwise be
+//     written inert (never loads / never fires / never shows in `/hooks`).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("antigravity-cli SessionStart drop (agy CLI does not recognize SessionStart)", () => {
+  it("warn-skips SessionStart but still installs PreToolUse/PostToolUse/Stop", () => {
+    const projectDir = freshProject("ac-agy-nosess-");
+    // stdioConnector declares PreToolUse + PostToolUse + SessionStart + Stop
+    // (+ an unsupported UserPromptSubmit). On the agy CLI, SessionStart must
+    // warn-skip and NEVER be written into hooks.json.
+    const ctx = buildCtx(projectDir, stdioConnector(), "project");
+
+    const changes = antigravityCliAdapter.installHooks!(ctx);
+
+    // SessionStart is surfaced as a visible warn-skip under the CLI's id —
+    // never a silent inert write.
+    const sessionWarn = changes.find((c) => c.detail?.startsWith("SessionStart "));
+    expect(sessionWarn, "expected a warn-skip record for SessionStart").toBeTruthy();
+    expect(sessionWarn!.action).toBe("warn");
+    expect(sessionWarn!.platform).toBe("antigravity-cli");
+    // It is NEVER wired as a create/update.
+    const sessionWired = changes.filter(
+      (c) =>
+        (c.action === "create" || c.action === "update") &&
+        c.detail?.includes("SessionStart"),
+    );
+    expect(sessionWired).toHaveLength(0);
+
+    // The agy-supported events ARE wired (create), in canonical order.
+    for (const event of ["PreToolUse", "PostToolUse", "Stop"] as const) {
+      const wired = changes.find((c) => c.action === "create" && c.detail === `hooks.${event}`);
+      expect(wired, `expected ${event} to be wired`).toBeTruthy();
+      expect(wired!.platform).toBe("antigravity-cli");
+    }
+
+    // And the written hooks.json carries the three supported events but NOT
+    // SessionStart (the inert-entry bug class).
+    const hooksFile = readJson(join(projectDir, ".agents", "hooks.json"));
+    expect(Object.keys(hooksFile.hooks).sort()).toEqual(
+      ["PostToolUse", "PreToolUse", "Stop"].sort(),
+    );
+    expect(hooksFile.hooks.SessionStart).toBeUndefined();
   });
 });
 

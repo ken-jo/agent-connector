@@ -88,6 +88,7 @@ import type {
   ChangeRecord,
   DetectedPlatform,
   HealthCheck,
+  HookEventName,
   JsonValue,
   PlatformCapabilities,
   PlatformId,
@@ -165,19 +166,53 @@ export class AntigravityCliAdapter extends AntigravityAdapter implements Adapter
   override readonly name = "Antigravity CLI";
 
   /**
-   * Capabilities = the inherited IDE surface PLUS the CLI-only statusline (the
-   * `agy` custom status line, live-verified above). The IDE app does NOT advertise
-   * statusline (its payload is unverified), so this is the ONE capability that
-   * differs from the parent — everything else is spread from the IDE adapter's own
-   * capabilities so the two surfaces stay in lock-step (a parent field added later
-   * flows in automatically). `super.capabilities` is unusable here: the parent's
-   * `capabilities` is an instance FIELD (not on the prototype), so it resolves to
-   * undefined in a subclass field initializer — spread the IDE singleton instead.
+   * Capabilities = the inherited IDE surface, with the two CLI-specific
+   * divergences applied on top:
+   *
+   *   - `supportsStatusline: true` — the `agy` custom status line, live-verified
+   *     above (the IDE app does NOT advertise statusline; its payload is unverified).
+   *   - `sessionStart: false` — the `agy` CLI does NOT recognize a SessionStart
+   *     hook. LIVE-VERIFIED (agy): the binary's recognized hook events are exactly
+   *     PreToolUse / PostToolUse / PreInvocation / PostInvocation / Stop — the
+   *     `/hooks` UI lists only those five and writing both SessionStart + PreToolUse
+   *     into hooks.json loads ONLY PreToolUse. Declaring SessionStart on the IDE
+   *     `antigravity` adapter is left UNCHANGED (this finding is agy-CLI-specific
+   *     and was NOT verified for the IDE app). This flag is the source of truth for
+   *     the docs hooks-matrix + the fleet-wide never-silent-drop contract; the
+   *     matching install-time warn-skip is driven by {@link supportedHookEvents}.
+   *
+   * Everything else is spread from the IDE adapter's own capabilities so the two
+   * surfaces stay in lock-step (a parent field added later flows in automatically).
+   * `super.capabilities` is unusable here: the parent's `capabilities` is an
+   * instance FIELD (not on the prototype), so it resolves to undefined in a
+   * subclass field initializer — spread the IDE singleton instead.
    */
   override readonly capabilities: PlatformCapabilities = {
     ...antigravityIdeAdapter.capabilities,
     supportsStatusline: true,
+    sessionStart: false,
   };
+
+  /**
+   * The hook events the `agy` CLI actually recognizes. LIVE-VERIFIED: agy's hook
+   * event tokens are exactly PreToolUse / PostToolUse / PreInvocation /
+   * PostInvocation / Stop — confirmed by the `/hooks` UI listing only those five,
+   * by the binary's hook-event tokens, and by agy loading ONLY PreToolUse when
+   * both SessionStart + PreToolUse are written into hooks.json. SessionStart is
+   * therefore DROPPED: a declared SessionStart hook warn-skips at install rather
+   * than writing an inert hooks.json entry that never loads / never fires / never
+   * shows in `/hooks`. NOTE: PreInvocation / PostInvocation are agy-only events
+   * with no canonical AC analog — left unmapped here (a possible future
+   * nativeHooks enhancement, NOT this fix). This narrows the IDE's
+   * {@link AntigravityAdapter.supportedHookEvents} (which still includes
+   * SessionStart for the IDE app, where this finding was not verified).
+   */
+  private static readonly CLI_SUPPORTED_EVENTS: ReadonlySet<HookEventName> =
+    new Set<HookEventName>(["PreToolUse", "PostToolUse", "Stop"]);
+
+  protected override supportedHookEvents(): ReadonlySet<HookEventName> {
+    return AntigravityCliAdapter.CLI_SUPPORTED_EVENTS;
+  }
 
   // ── Detection ────────────────────────────────────────────────────────────
 
