@@ -98,12 +98,19 @@ interface JetBrainsHooksFile {
   hooks?: Record<string, JetBrainsHookEntry[]>;
 }
 
-/** Raw JetBrains Copilot hook stdin payload (Claude-compatible snake_case fields). */
+/**
+ * Raw JetBrains Copilot hook stdin payload (Claude-compatible snake_case fields).
+ *
+ * Common input fields (every event): session_id, transcript_path, cwd,
+ * hook_event_name. There is NO `workspace_roots` field — JetBrains aliases the
+ * VS Code `.github/hooks` surface which sends only `cwd` (workspace_roots was a
+ * dead fallback; removed — getProjectDir now relies on `cwd` only, matching
+ * vscode-copilot #211).
+ */
 interface JetBrainsWireInput {
   session_id?: string;
   transcript_path?: string;
   cwd?: string;
-  workspace_roots?: string[];
   hook_event_name?: string;
 
   // tool events. PostToolUse fires ONLY after a tool completes SUCCESSFULLY and
@@ -860,9 +867,15 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     }
   }
 
-  /** Resolve the project dir from the wire payload, preferring the explicit cwd. */
+  /**
+   * Resolve the project dir from the wire payload. PRIMARY SOURCE (VS Code
+   * `.github/hooks` dialect this host aliases): the only working-directory field
+   * sent is `cwd`. There is no `workspace_roots` field — the old
+   * `?? workspace_roots[0]` fallback read a host-nonexistent field and is removed
+   * (parity with vscode-copilot #211).
+   */
   private getProjectDir(input: JetBrainsWireInput): string | undefined {
-    return input.cwd ?? input.workspace_roots?.[0] ?? undefined;
+    return typeof input.cwd === "string" ? input.cwd : undefined;
   }
 
   // ── Runtime: normalized response → JetBrains Copilot native hook reply ────
