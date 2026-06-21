@@ -1275,12 +1275,12 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 
 ---
 
-## 6. Supported platforms (38, by hook paradigm)
+## 6. Supported platforms (39, by hook paradigm)
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
-### `json-stdio` — full hook dispatch (21)
+### `json-stdio` — full hook dispatch (22)
 One universal hook entrypoint binary handles all of them.
 
 | Platform | id | MCP native target (root key / file) |
@@ -1306,6 +1306,7 @@ One universal hook entrypoint binary handles all of them.
 | Continue | `continue` | `~/.continue/config.yaml` → `mcpServers` (YAML ARRAY, keyed by `name`); hooks in a separate `settings.json` (honors `CONTINUE_GLOBAL_DIR`) |
 | Amazon Q Developer CLI | `amazon-q` | `~/.aws/amazonq/mcp.json` (user) / `.amazonq/mcp.json` (project) → `mcpServers` (hooks in the built-in default agent file `cli-agents/q_cli_default.json` — a bare `default.json` would be an inactive custom agent: trigger-keyed `hooks` object, entries `{ command, matcher? }`; subagents as per-agent JSON `cli-agents/<name>.json` where the filename is the agent name) |
 | Grok CLI | `grok-cli` | `~/.grok/user-settings.json` → `mcp.servers` (JSON ARRAY, keyed by `id`); hooks in the SAME file under top-level `hooks` (Claude nested-rule shape). USER-SCOPE ONLY — community superagent-ai/grok-cli (npm `grok-dev`, bin `grok`) |
+| Devin CLI (Cognition) | `devin` | `~/.config/devin/config.json` (user; `%APPDATA%\devin\config.json` on Windows) / `.devin/config.json` (project) → `mcpServers` (object map; native `${env:VAR}`); hooks under the SAME file's `hooks` key (Claude-compatible NESTED-rule shape; reply is the simple top-level `{decision:"approve"\|"block"\|"deny", reason}`, exit 2 blocks) |
 
 ### `mcp-only` — MCP registration only, no hook layer (9)
 Detection surfaces "hooks unavailable here."
