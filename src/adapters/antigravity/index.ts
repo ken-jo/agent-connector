@@ -268,6 +268,19 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
     };
   }
 
+  /**
+   * The lifecycle hook events this host actually writes; every other normalized
+   * event warn-skips at install time. Defaults to the IDE's
+   * {@link SUPPORTED_EVENTS}. Overridable by forks whose underlying binary
+   * recognizes a DIFFERENT event set (e.g. the `agy` CLI, which does NOT
+   * recognize SessionStart). Kept in lock-step with the per-event capability
+   * flags so the docs hooks-matrix and the fleet-wide never-silent-drop contract
+   * stay consistent.
+   */
+  protected supportedHookEvents(): ReadonlySet<HookEventName> {
+    return SUPPORTED_EVENTS;
+  }
+
   // ── Native paths ─────────────────────────────────────────────────────────
 
   getConfigDir(ctx: InstallContext): string {
@@ -472,8 +485,9 @@ export class AntigravityAdapter extends BaseAdapter implements Adapter {
     const changes: ChangeRecord[] = [];
     let mutated = false;
 
+    const supportedEvents = this.supportedHookEvents();
     for (const event of connector.hookEvents) {
-      if (!SUPPORTED_EVENTS.has(event)) {
+      if (!supportedEvents.has(event)) {
         // No Antigravity equivalent for this normalized event — report.
         changes.push({
           platform: this.id,

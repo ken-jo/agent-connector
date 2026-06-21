@@ -572,7 +572,7 @@ export const platforms: PlatformHookEntry[] = [
       canInjectSessionContext: true,
     },
     events: {
-      SessionStart: "SessionStart",
+      SessionStart: null,
       SessionEnd: null,
       UserPromptSubmit: null,
       PreToolUse: "PreToolUse",
@@ -587,7 +587,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "Thin subclass of AntigravityAdapter — REUSES all hook install/parse/format logic unchanged; only id ('antigravity-cli'), name, detection (probes ~/.local/bin/agy), and userConfigCandidates differ (CLI prefers ~/.gemini/config/mcp_config.json for MCP). Therefore the event map, reply shape, and capabilities are IDENTICAL to antigravity: PreToolUse/PostToolUse/SessionStart/Stop supported (PascalCase 1:1); PreCompact/SessionEnd/UserPromptSubmit/Notification and all four newer events null. Same separate hooks.json, same camelCase wire, same { decision:'deny' } / { updatedInput }/{ updatedOutput } / { additionalContext } replies.",
+      "Thin subclass of AntigravityAdapter — REUSES all hook install/parse/format logic unchanged; only id ('antigravity-cli'), name, detection (probes ~/.local/bin/agy), userConfigCandidates (CLI prefers ~/.gemini/config/mcp_config.json for MCP), and the supported-event set differ. LIVE-VERIFIED: the `agy` CLI recognizes EXACTLY PreToolUse/PostToolUse/PreInvocation/PostInvocation/Stop — it does NOT recognize SessionStart (the `/hooks` UI lists only those five; writing both SessionStart + PreToolUse loads only PreToolUse). So SessionStart is DROPPED here (warn-skip at install, never an inert hooks.json entry) — unlike the IDE antigravity adapter, which keeps SessionStart (unverified for the desktop app). PreInvocation/PostInvocation are agy-only with no canonical AC analog (future nativeHooks work). PreCompact/SessionEnd/UserPromptSubmit/Notification and all four newer events null. Same separate hooks.json, same camelCase wire, same { decision:'deny' } / { updatedInput }/{ updatedOutput } / { additionalContext } replies.",
   },
   {
     platform: "droid",
