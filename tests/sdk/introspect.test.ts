@@ -52,6 +52,7 @@ describe("hostsSupporting", () => {
       "openclaw",
       "pi",
       "warp",
+      "zed",
     ]);
   });
 

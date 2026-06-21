@@ -387,10 +387,10 @@ export const platforms: Platform[] = [
     id: "zed",
     name: "Zed",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, true, false, true, false, false),
-    // skills now wired (.agents/skills project, ~/.agents/skills user).
-    // N/A: hooks, commands, subagents.
-    hostNative: s(true, false, false, true, false, true, false, false),
+    surfaces: s(true, false, false, true, false, true, false, true),
+    // skills wired (.agents/skills project, ~/.agents/skills user); actions wired
+    // via tasks.json exec tasks (zed.dev/docs/tasks). N/A: hooks, commands, subagents.
+    hostNative: s(true, false, false, true, false, true, false, true),
   },
   {
     id: "amp",
