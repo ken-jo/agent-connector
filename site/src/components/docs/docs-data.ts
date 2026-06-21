@@ -239,7 +239,7 @@ export const sectionDescription: Record<string, string> = {
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
   platforms:
-    "The 35 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
+    "The 36 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
   "add-a-platform":
     "Adding a platform is one registry entry plus one adapter — the framework's core design guarantee.",
   "operating-model":
@@ -1244,7 +1244,7 @@ export const sharedFlags: { flag: string; desc: string }[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (35, by paradigm — llms-full §6)                           */
+/* Platforms (36, by paradigm — llms-full §6)                           */
 /* ------------------------------------------------------------------ */
 
 export interface PlatformEntry {
@@ -1291,6 +1291,11 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     name: "Droid (Factory)",
     id: "droid",
     target: "~/.factory/mcp.json → mcpServers (hooks in ~/.factory/hooks.json)",
+  },
+  {
+    name: "OpenHands",
+    id: "openhands",
+    target: "~/.openhands/mcp.json → mcpServers (hooks in a separate .openhands/hooks.json)",
   },
   {
     name: "Antigravity (IDE)",

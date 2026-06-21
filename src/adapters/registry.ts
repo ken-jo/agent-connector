@@ -92,6 +92,15 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "droid",
     load: () => import("./droid/index.js").then((m) => m.default),
   },
+  // openhands is the All-Hands-AI OpenHands CLI (`openhands`, ex-OpenDevin) —
+  // a standalone json-stdio host: MCP at ~/.openhands/mcp.json ("mcpServers",
+  // FastMCP entry shape) + a SEPARATE .openhands/hooks.json carrying the
+  // Claude-Code-plugin-compatible nested-rule hooks (6 events). Its persistence
+  // dir (~/.openhands) is distinct, so there is no fork-ordering constraint.
+  {
+    id: "openhands",
+    load: () => import("./openhands/index.js").then((m) => m.default),
+  },
   {
     id: "roo-code",
     load: () => import("./roo-code/index.js").then((m) => m.default),

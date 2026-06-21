@@ -1280,7 +1280,7 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
-### `json-stdio` — full hook dispatch (18)
+### `json-stdio` — full hook dispatch (19)
 One universal hook entrypoint binary handles all of them.
 
 | Platform | id | MCP native target (root key / file) |
@@ -1299,6 +1299,7 @@ One universal hook entrypoint binary handles all of them.
 | Goose | `goose` | host config |
 | Hermes | `hermes` | host config |
 | Droid (Factory) | `droid` | `~/.factory/mcp.json` → `mcpServers` (hooks in separate `~/.factory/hooks.json`) |
+| OpenHands | `openhands` | `~/.openhands/mcp.json` → `mcpServers` (FastMCP entry shape; `$OPENHANDS_PERSISTENCE_DIR`); hooks in a separate Claude-Code-plugin-compatible `.openhands/hooks.json` (6 events) |
 | Antigravity (IDE) | `antigravity` | `~/.gemini/antigravity/mcp_config.json` → `mcpServers` (hooks.json) |
 | Antigravity CLI (`agy`) | `antigravity-cli` | shares `~/.gemini/antigravity/` |
 | Continue | `continue` | `~/.continue/config.yaml` → `mcpServers` (YAML ARRAY, keyed by `name`); hooks in a separate `settings.json` (honors `CONTINUE_GLOBAL_DIR`) |

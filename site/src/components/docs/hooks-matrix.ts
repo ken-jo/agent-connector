@@ -591,6 +591,36 @@ export const platforms: PlatformHookEntry[] = [
       "SUPPORTED_EVENTS = PreToolUse, PostToolUse, UserPromptSubmit, Stop, SubagentStop, Notification, PreCompact, SessionStart, SessionEnd (Claude-identical PascalCase 1:1 per docs.factory.ai/reference/hooks-reference — Droid is a STOP-ONLY subagent host: no SubagentStart). PermissionRequest/PostToolUseFailure/SubagentStart have no Droid analog -> warn-skip. MCP in ~/.factory/mcp.json (type 'stdio'|'http' + disabled flag); hooks in a SEPARATE ~/.factory/hooks.json, Claude-shaped nested { matcher, hooks:[{type,command}] }. Reply (Claude-shaped, stdout exit 0): deny/ask -> hookSpecificOutput{ permissionDecision + reason }; context -> { additionalContext }; SubagentStop deny -> TOP-LEVEL { decision:'block', reason } (Stop semantics — NOT the permissionDecision envelope). Notification/PreCompact/SessionEnd are observe-only (Decision Control N/A) -> passthrough exit 0; SessionStart honors hookSpecificOutput.additionalContext (context-injection). canModifyArgs/Output false (modify degrades to allow).",
   },
   {
+    platform: "openhands",
+    displayName: "OpenHands",
+    paradigm: "json-stdio",
+    hasHooks: true,
+    configPath:
+      ".openhands/hooks.json (separate from ~/.openhands/mcp.json; HookConfig.load searches <projectDir>/.openhands then ~/.openhands)",
+    capabilities: {
+      canModifyArgs: false,
+      canModifyOutput: false,
+      canInjectSessionContext: true,
+    },
+    events: {
+      SessionStart: "SessionStart",
+      SessionEnd: "SessionEnd",
+      UserPromptSubmit: "UserPromptSubmit",
+      PreToolUse: "PreToolUse",
+      PostToolUse: "PostToolUse",
+      PreCompact: null,
+      Stop: "Stop",
+      Notification: null,
+      PermissionRequest: null,
+      PostToolUseFailure: null,
+      SubagentStart: null,
+      SubagentStop: null,
+      PostCompact: null,
+    },
+    notes:
+      "HookEventType (openhands-sdk hooks/types.py) = exactly SIX events: PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, SessionEnd, Stop (Claude-identical PascalCase). No Notification/PreCompact/SubagentStop/PermissionRequest/PostToolUseFailure/SubagentStart -> warn-skip. MCP in ~/.openhands/mcp.json (FastMCP { command, args, env, transport }; $OPENHANDS_PERSISTENCE_DIR overrides the dir); hooks in a SEPARATE .openhands/hooks.json carrying the Claude-Code-plugin-compatible wrapped nested shape { hooks: { <Event>: [{ matcher, hooks:[{type,command}] }] } } (config.py _normalize_hooks_input explicitly accepts 'Claude Code plugin hook files'). Wire DIVERGES from Claude: stdin fields are event_type / tool_name / tool_input / tool_response(dict) / message(the prompt, NOT 'prompt') / session_id / working_dir(NOT 'cwd') / metadata. Reply is FLAT stdout JSON (NO hookSpecificOutput, NO 'ask'): deny -> { decision:'deny', reason } (ask degrades to a deny-style block); context -> { additionalContext }; allow/SessionEnd -> exit 0 passthrough. Exit 2 also blocks (hooks/executor.py). canModifyArgs/Output false; additionalContext honored (canInjectSessionContext).",
+  },
+  {
     platform: "opencode",
     displayName: "OpenCode",
     paradigm: "ts-plugin",
