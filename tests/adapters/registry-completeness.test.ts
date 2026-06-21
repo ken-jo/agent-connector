@@ -72,6 +72,7 @@ const ALL_PLATFORM_IDS_MAP: Record<PlatformId, true> = {
   windsurf: true,
   "grok-cli": true,
   devin: true,
+  "open-interpreter": true,
   synthetic: true,
   unknown: true,
 };

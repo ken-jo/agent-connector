@@ -283,6 +283,22 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "devin",
     load: () => import("./devin/index.js").then((m) => m.default),
   },
+  // Open Interpreter (the new Rust `interpreter` / `i` CLI) — mcp-only. It is a
+  // FORK of OpenAI's Codex (README: "Open Interpreter is a fork of OpenAI's
+  // Codex"), so its native config is Codex's: a TOML `config.toml` carrying
+  // `[mcp_servers.<id>]` tables (command/args/env stdio; url/bearer_token_env_var/
+  // http_headers streamable-HTTP). The config home is DELIBERATELY isolated from
+  // Codex — the `interpreter` binary honors ONLY `$INTERPRETER_HOME` (NOT
+  // `$CODEX_HOME`, which it explicitly ignores) and defaults to ~/.openinterpreter
+  // (codex-rs/utils/home-dir/src/lib.rs). That distinct dir means there is NO
+  // fork-ordering constraint vs codex — the two never target the same file — so
+  // it simply sits at the end of the registry. Kept mcp-only (the codex hook
+  // subsystem is present in the fork, but the `interpreter` product's live hook
+  // wire contract is not first-party-verified, so hooks are not claimed).
+  {
+    id: "open-interpreter",
+    load: () => import("./open-interpreter/index.js").then((m) => m.default),
+  },
 ];
 
 /** O(1) lookup index, built once at module-load time. */
