@@ -34,6 +34,7 @@ import type { PlatformId } from "../../src/core/types.js";
  */
 const ALL_PLATFORM_IDS_MAP: Record<PlatformId, true> = {
   "claude-code": true,
+  codebuddy: true,
   codex: true,
   cursor: true,
   "vscode-copilot": true,

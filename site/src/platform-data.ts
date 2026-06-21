@@ -229,6 +229,17 @@ const s = (
  */
 export const platforms: Platform[] = [
   {
+    id: "codebuddy",
+    name: "CodeBuddy",
+    paradigm: "json-stdio",
+    // Tencent CodeBuddy is a Claude Code fork (~/.codebuddy.json / .mcp.json →
+    // mcpServers; settings.json hooks; .codebuddy/{commands,skills,agents};
+    // CODEBUDDY.md memory). statusline: host HAS a statusLine key (bundle-
+    // confirmed) but AC does not wire it yet (Claude-v1-only surface) → gap.
+    surfaces: s(true, true, true, true, true, true, false, false),
+    hostNative: s(true, true, true, true, true, true, true, false),
+  },
+  {
     id: "claude-code",
     name: "Claude Code",
     paradigm: "json-stdio",
@@ -634,7 +645,7 @@ export type FormFactorId = "cli" | "extension" | "app";
 export const formFactorIds: Record<FormFactorId, readonly string[]> = {
   // Terminal-native agent CLIs.
   cli: [
-    "claude-code", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
+    "claude-code", "codebuddy", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
     "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
     "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
     "kimi", "pi", "antigravity-cli",

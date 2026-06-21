@@ -79,6 +79,11 @@ interface RuntimeSignalRule {
  * VS Code-derived shell is not misclassified). Markers are verified against
  * each host's source:
  *
+ *   - codebuddy:   CODEBUDDY_SESSION_ID / CODEBUDDY_PROJECT_DIR / CODEBUDDY_PLUGIN_ROOT
+ *     are CodeBuddy-exclusive (verified in @tencent-ai/codebuddy-code@2.109.0).
+ *     CodeBuddy is a Claude Code fork that ALSO exports CLAUDE_SESSION_ID
+ *     (its bundle sets both), so it MUST precede claude-code or a CodeBuddy
+ *     session would be misclassified as Claude Code (fork-before-parent).
  *   - claude-code: CLAUDE_CODE_ENTRYPOINT is set on every Claude Code session;
  *     CLAUDE_PLUGIN_ROOT is set when a plugin is loaded. Both are CC-exclusive
  *     and serve as the disambiguators when CC runs inside another IDE's shell.
@@ -89,6 +94,11 @@ interface RuntimeSignalRule {
  *     documented workspace var.
  */
 const RUNTIME_SIGNALS: readonly RuntimeSignalRule[] = [
+  {
+    platform: "codebuddy",
+    vars: ["CODEBUDDY_SESSION_ID", "CODEBUDDY_PROJECT_DIR", "CODEBUDDY_PLUGIN_ROOT"],
+    note: "CodeBuddy env marker set",
+  },
   {
     platform: "claude-code",
     vars: ["CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PROJECT_DIR", "CLAUDE_SESSION_ID"],

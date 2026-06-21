@@ -650,8 +650,8 @@ export function HooksSection() {
         <strong>not modeled</strong> in v1 — JSON-on-exit-0 decision control
         covers Claude Code&apos;s events. Declaring one of the 13 normalized
         event names here is a <C>ConnectorConfigError</C> (use <C>hooks</C> for
-        those). 14 adapters set <C>supportsNativeHooks</C> today (claude-code,
-        opencode, cursor, gemini-cli, qwen-code, amp, kimi, omp, hermes,
+        those). 15 adapters set <C>supportsNativeHooks</C> today (claude-code,
+        codebuddy, opencode, cursor, gemini-cli, qwen-code, amp, kimi, omp, hermes,
         jetbrains-copilot, copilot-cli, continue, nemoclaw, openclaw); adapters
         that leave it unset skip-warn, never silently. An event is promoted into the
         normalized union once ≥3 hosts ship a native analog —{" "}
