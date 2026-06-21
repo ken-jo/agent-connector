@@ -53,6 +53,7 @@ export type PlatformId =
   | "pi"
   | "omp"
   | "droid"
+  | "openhands"
   | "roo-code"
   | "cline"
   | "trae"

@@ -120,7 +120,7 @@ const s = (
  * uncertain cells default to matching our support — no guessed gaps.
  *
  * Cross-cutting facts:
- *   - memory: ALL 35 hosts natively read a rules/memory file (AGENTS.md or a
+ *   - memory: ALL 36 hosts natively read a rules/memory file (AGENTS.md or a
  *     host-specific equivalent — Amazon Q reads .amazonq/rules, Continue reads
  *     .continue Rules, Windsurf reads .windsurfrules/global rules).
  *     hostNative.memory=true everywhere.
@@ -319,6 +319,19 @@ export const platforms: Platform[] = [
     // All six wired: commands (.factory/commands), skills (.factory/skills),
     // subagents (.factory/droids/<name>.md — markdown). docs.factory.ai/cli.
     hostNative: s(true, true, true, true, true, true, false, true),
+  },
+  {
+    id: "openhands",
+    name: "OpenHands",
+    paradigm: "json-stdio",
+    surfaces: s(true, true, false, false, false, true, false, false),
+    // MCP at ~/.openhands/mcp.json ("mcpServers", FastMCP entry shape) + a
+    // SEPARATE .openhands/hooks.json carrying the Claude-Code-plugin-compatible
+    // nested-rule hooks (6 events: PreToolUse/PostToolUse/UserPromptSubmit/
+    // SessionStart/SessionEnd/Stop). memory = AGENTS.md (BaseAdapter default).
+    // commands/skills/subagents/statusline/actions: no first-party file layout
+    // byte-confirmed (CEILING), so left false in BOTH columns — no guessed gap.
+    hostNative: s(true, true, false, false, false, true, false, false),
   },
   {
     id: "roo-code",
@@ -622,9 +635,9 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
   // Terminal-native agent CLIs.
   cli: [
     "claude-code", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
-    "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "opencode",
-    "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code", "kimi",
-    "pi", "antigravity-cli",
+    "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
+    "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
+    "kimi", "pi", "antigravity-cli",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],
