@@ -667,6 +667,27 @@ export const platforms: Platform[] = [
     // path — an honest CEILING, not a host gap.
     hostNative: s(true, true, true, true, true, true, false, false),
   },
+  {
+    id: "open-interpreter",
+    name: "Open Interpreter",
+    paradigm: "mcp-only",
+    surfaces: s(true, false, false, false, false, false, false, false),
+    // mcp-only here: AC installs MCP only. Open Interpreter is the new Rust
+    // `interpreter`/`i` CLI and is a FORK of OpenAI's Codex (README: "Open
+    // Interpreter is a fork of OpenAI's Codex"), so its native config is Codex's:
+    // a TOML config.toml carrying [mcp_servers.<id>] tables (stdio { command,
+    // args, env } / streamable-HTTP { url, bearer_token_env_var?, http_headers? }
+    // — codex-rs/config/src/mcp_{edit,types}.rs). The config home is isolated from
+    // Codex: the binary honors ONLY $INTERPRETER_HOME (NOT $CODEX_HOME) and
+    // defaults to ~/.openinterpreter (codex-rs/utils/home-dir/src/lib.rs); install
+    // script sets CODEX_COMMAND_NAME=interpreter, CODEX_HOME=$INTERPRETER_HOME.
+    // hostNative hooks/commands/skills/subagents/memory = true: as a Codex fork it
+    // inherits Codex's hook subsystem + content surfaces + AGENTS.md memory, but
+    // the `interpreter` PRODUCT's live wire contract / on-disk dirs are not
+    // first-party verified here, so AC leaves them UNWIRED (surfaces=false) rather
+    // than guess — an honest CEILING / host-gap, not a host limitation.
+    hostNative: s(true, true, true, true, true, true, false, false),
+  },
 ];
 
 export const platformCount = platforms.length;
@@ -687,7 +708,7 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
     "claude-code", "codebuddy", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
     "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
     "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
-    "kimi", "pi", "antigravity-cli", "grok-cli", "devin",
+    "kimi", "pi", "antigravity-cli", "grok-cli", "devin", "open-interpreter",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],

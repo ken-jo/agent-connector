@@ -68,6 +68,7 @@ export type PlatformId =
   | "windsurf"
   | "grok-cli"
   | "devin"
+  | "open-interpreter"
   | "synthetic"
   | "unknown";
 

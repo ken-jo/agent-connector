@@ -1366,6 +1366,12 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     target:
       "~/.codeium/windsurf/mcp_config.json (user/global ONLY) → mcpServers (object map; remote keyed by serverUrl)",
   },
+  {
+    name: "Open Interpreter",
+    id: "open-interpreter",
+    target:
+      "~/.openinterpreter/config.toml ($INTERPRETER_HOME) → [mcp_servers.<id>] TOML table (a Codex fork)",
+  },
 ];
 
 export const tsPluginPlatforms: PlatformEntry[] = [
