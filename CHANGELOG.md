@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.91 — 2026-06-21
+
+The **surface-broadening** release: **7 new host platforms (35 → 42)** plus wider coverage of
+the statusline and actions surfaces. Every new host was verify-first (MCP path / root key / hook
+format byte-confirmed from the host's official repo/docs); auth-gated hosts ship at the honest
+placement ceiling. (12 PRs; **42 platforms, 3273 tests.**)
+
+### Added — 7 new platforms
+
+- **OpenHands** (All-Hands-AI) — MCP (`~/.openhands/mcp.json`) + Claude-compatible `.openhands/hooks.json` hooks. (#240)
+- **Tencent CodeBuddy** — Claude Code fork; MCP + Claude-shaped hooks (byte-confirmed from the shipped bundle). (#241)
+- **Grok CLI** (community `grok-dev`) — MCP (`~/.grok/user-settings.json`, nested `mcp.servers`) + Claude-shaped hooks. (#242)
+- **Devin CLI** (Cognition) — MCP (`~/.config/devin/config.json`) + Claude-compatible hooks. (#243)
+- **Open Interpreter** — Codex-fork; TOML MCP (`~/.openinterpreter/config.toml`, mcp-only). (#244)
+- **JetBrains Junie** — MCP (`~/.junie/mcp/mcp.json`), mcp-only; distinct from `jetbrains-copilot`. (#245)
+- **Mistral Vibe** — TOML `[[mcp_servers]]` array-of-tables MCP (`~/.vibe/config.toml`), mcp-only. (#246)
+
+### Added — surface coverage
+
+- **statusline** now covers **antigravity-cli** (agy) — first-party documented payload, live-verified against a real `agy` session (2 → 3 hosts). (#236)
+- **actions** now covers **pi** (`pi.registerCommand` extension), **zed** (`tasks.json` exec tasks), and **kiro** (`.kiro/hooks` Manual-Trigger shell commands, project-scope) (5 → 8 hosts). (#237, #238, #239)
+
+### Changed
+
+- jetbrains-copilot: dropped the dead `workspace_roots` hook-input fallback (the VS Code `.github/hooks` surface sends only `cwd`; parity with vscode-copilot). (#234)
+
 ## 0.4.79 — 2026-06-21
 
 Follow-up to the DX-honesty release — a codex telemetry fix, a remote-transport
