@@ -1210,6 +1210,35 @@ export const platforms: PlatformHookEntry[] = [
     notes:
       "Windsurf (Codeium / Cognition's Cascade agent). mcp-only: GUI editor with no user-installable hook/plugin layer; installHooks 'skip' ('hooks unavailable (Windsurf is mcp-only)'); all events null. MCP config is USER/GLOBAL scope ONLY — JSON at ~/.codeium/windsurf/mcp_config.json (the docs document no project/workspace path; a project-scope install returns 'skip'). Root key 'mcpServers' is a Claude-Desktop-style OBJECT map keyed by server name (like cursor) — set-if-absent by connector id, siblings preserved, malformed-non-object skip-warn. stdio entry { command, args?, env? }; remote entry { serverUrl, headers? } (the documented `serverUrl`, NOT `url`; NO type/disabled keys). The .windsurfrules / global-rules memory surface is a not-yet-wired host-gap. All hook capabilities false.",
   },
+  {
+    platform: "grok-cli",
+    displayName: "Grok CLI",
+    paradigm: "json-stdio",
+    hasHooks: true,
+    configPath: '~/.grok/user-settings.json (under top-level "hooks"; user scope only)',
+    capabilities: {
+      canModifyArgs: false,
+      canModifyOutput: false,
+      canInjectSessionContext: true,
+    },
+    events: {
+      SessionStart: "SessionStart",
+      SessionEnd: "SessionEnd",
+      UserPromptSubmit: "UserPromptSubmit",
+      PreToolUse: "PreToolUse",
+      PostToolUse: "PostToolUse",
+      PreCompact: "PreCompact",
+      Stop: "Stop",
+      Notification: "Notification",
+      PermissionRequest: null,
+      PostToolUseFailure: "PostToolUseFailure",
+      SubagentStart: "SubagentStart",
+      SubagentStop: "SubagentStop",
+      PostCompact: "PostCompact",
+    },
+    notes:
+      "Community superagent-ai/grok-cli (npm grok-dev, bin grok). USER-SCOPE only: hooks live under top-level 'hooks' in ~/.grok/user-settings.json (project .grok/settings.json hooks are excluded by Grok for security). Claude NESTED-rule shape { matcher?, hooks:[{type:'command',command,timeout?}] }. 12 of 13 canonical events map 1:1 (PascalCase); no PermissionRequest event (cell null, capability unset). Grok ALSO fires host-only events StopFailure/TaskCreated/TaskCompleted/InstructionsLoaded/CwdChanged (no canonical analog → nativeHooks passthrough). Stdin wire false-friends vs Claude: UserPromptSubmit carries `user_prompt` (NOT `prompt`), PostToolUse carries `tool_output` (NOT `tool_response`); PostToolUseFailure carries `error`; SubagentStart/Stop carry `agent_type`. Reply (aggregateHookResults): stdout JSON parsed when it starts with '{' — deny → { decision:'block', reason }, context → { additionalContext } (exit 0); block also fires on exit code 2. No ask/modify reply path (canModifyArgs/Output false; both degrade to exit-0 passthrough).",
+  },
 ];
 
 export const hooksMatrix: HooksMatrix = { canonicalEvents, platforms };
