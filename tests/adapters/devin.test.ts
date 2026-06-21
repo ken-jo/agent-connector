@@ -160,10 +160,15 @@ describe("devin adapter — MCP server render", () => {
     expect(JSON.stringify(entry.env)).toContain(`\${env:${ENV_VAR}}`);
   });
 
-  it("installServer (user scope) targets ~/.config/devin/config.json", () => {
+  it("installServer (user scope) targets the adapter's user config.json (~/.config/devin on POSIX, %APPDATA%\\devin on Windows)", () => {
     const userCtx = buildCtx(projectDir, buildRenderConnector(), "user");
     devinAdapter.installServer(userCtx);
-    const cfgPath = join(projectDir, ".config", "devin", "config.json");
+    // Assert against the adapter's OWN per-platform resolution (path-agnostic,
+    // mirrors windsurf/amazon-q user-scope tests) — hardcoding the POSIX
+    // ~/.config/devin path would fail on the Windows runner, where the adapter
+    // correctly writes to %APPDATA%\devin\config.json.
+    const cfgPath = devinAdapter.getServerConfigPath(userCtx);
+    expect(cfgPath).toBe(join(devinAdapter.getConfigDir(userCtx), "config.json"));
     expect(existsSync(cfgPath)).toBe(true);
     const cfg = readJson(cfgPath);
     expect(cfg.mcpServers[CONNECTOR_ID].args).toEqual(wrappedArgs("user"));
@@ -294,13 +299,13 @@ describe("devin adapter — skills", () => {
   });
 });
 
-// ── memory — user-scope ~/.config/devin/AGENTS.md ─────────────────────────────
+// ── memory — user-scope AGENTS.md (~/.config/devin on POSIX, %APPDATA%\devin on Windows) ──
 
 describe("devin adapter — memory", () => {
   isolateEnv();
 
-  it("user scope upserts a managed block into ~/.config/devin/AGENTS.md", () => {
-    const { home, projectDir } = freshHomeProject();
+  it("user scope upserts a managed block into the user-config AGENTS.md", () => {
+    const { projectDir } = freshHomeProject();
     const connector = defineConnector({
       id: CONNECTOR_ID,
       memory: [{ content: "Always run the lint task before committing." }],
@@ -309,7 +314,11 @@ describe("devin adapter — memory", () => {
     const changes = devinAdapter.installMemory!(ctx);
     expect(changes.every((c) => c.action !== "warn")).toBe(true);
 
-    const agentsMd = join(home, ".config", "devin", "AGENTS.md");
+    // The user-scope memory target lives beside the user config dir
+    // (devinUserConfigDir()), which getConfigDir resolves per-platform — so
+    // derive the expected path from the adapter rather than hardcoding the
+    // POSIX ~/.config/devin path (it would miss %APPDATA%\devin on Windows).
+    const agentsMd = join(devinAdapter.getConfigDir(ctx), "AGENTS.md");
     expect(existsSync(agentsMd)).toBe(true);
     const text = readFileSync(agentsMd, "utf8");
     expect(text).toContain("Always run the lint task before committing.");
