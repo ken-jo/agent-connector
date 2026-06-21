@@ -709,6 +709,24 @@ export const platforms: Platform[] = [
     // lifecycle hook surface → hostNative.hooks stays false (no host hook layer).
     hostNative: s(true, false, true, true, true, true, false, false),
   },
+  {
+    id: "mistral-vibe",
+    name: "Mistral Vibe",
+    paradigm: "mcp-only",
+    surfaces: s(true, false, false, false, false, false, false, false),
+    // mcp-only: AC installs the MCP server only. MCP config is TOML at
+    // <projectDir>/.vibe/config.toml (project, precedence) → ~/.vibe/config.toml
+    // (user); root key `mcp_servers` is a TOML ARRAY-OF-TABLES ([[mcp_servers]],
+    // each entry carries a `name` short alias — distinct from codex's table-keyed
+    // [mcp_servers.<name>]). stdio { name, transport:"stdio", command, args?, env? };
+    // remote { name, transport:"http"|"streamable-http", url, headers? }. Byte-
+    // confirmed from github.com/mistralai/mistral-vibe README + docs.mistral.ai/
+    // vibe. hooks: Vibe ships only an experimental hook surface with no byte-
+    // confirmed contract → hostNative.hooks stays false (honest CEILING, not a
+    // promised gap). memory/commands/skills/subagents: no AC-wired surface
+    // confirmed — left matching our support (no guessed gap).
+    hostNative: s(true, false, false, false, false, false, false, false),
+  },
 ];
 
 export const platformCount = platforms.length;
@@ -729,7 +747,7 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
     "claude-code", "codebuddy", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
     "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
     "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
-    "kimi", "pi", "antigravity-cli", "grok-cli", "devin", "open-interpreter", "junie",
+    "kimi", "pi", "antigravity-cli", "grok-cli", "devin", "open-interpreter", "junie", "mistral-vibe",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],
