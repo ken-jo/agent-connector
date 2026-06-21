@@ -151,7 +151,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `skills` | `SkillDef[]` | `[]` | Agent Skills → native content files. |
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
 | `memory` | `MemoryDef[]` | `[]` | Standing guidance → marker-fenced MANAGED BLOCKS in each host's memory/rules file (AGENTS.md-first; see §2.4). |
-| `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` function; deploys on claude-code and qwen-code today; other hosts skip-warn. See §2.5. |
+| `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` function; deploys on claude-code, qwen-code and antigravity-cli today; other hosts skip-warn. See §2.5. |
 | `actions` | `ActionDef[]` | `[]` | Named actions the connector exposes for user-triggered dispatch. See §2.6. |
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
