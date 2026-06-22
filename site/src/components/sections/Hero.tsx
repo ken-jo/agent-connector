@@ -82,6 +82,32 @@ export function Hero() {
             </Button>
           </div>
 
+          {/* Showcase demo (vhs recording). Below the CTA + lazy-loaded with
+              explicit dimensions so the ~1.3MB GIF never blocks LCP or shifts
+              layout. Links to the reproducible build in the repo. */}
+          <a
+            href={`${REPO_URL}/tree/main/examples/showcase-demo`}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="animate-fade-up group mt-12 w-full max-w-3xl"
+          >
+            <figure className="overflow-hidden rounded-xl border border-border bg-card/70 shadow-sm backdrop-blur transition-colors group-hover:border-indigo-500/50">
+              <img
+                src="/demo.gif"
+                alt="agent-connector showcase: define a connector once, ship it as your own branded CLI, install it via each host's native marketplace, then drive every CLI with one command."
+                width={1600}
+                height={860}
+                loading="lazy"
+                decoding="async"
+                className="h-auto w-full"
+              />
+              <figcaption className="border-t border-border/70 px-4 py-2 text-left text-xs text-muted-foreground">
+                Define once → ship it as your own branded CLI → users install via
+                their host&apos;s native marketplace → one command drives every CLI.
+              </figcaption>
+            </figure>
+          </a>
+
           <p className="animate-fade-up mt-5 text-xs text-muted-foreground">
             Apache-2.0 licensed · local-first telemetry · marketplace install supported · opt-out anytime
           </p>

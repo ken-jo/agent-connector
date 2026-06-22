@@ -16,6 +16,18 @@
 ![marketplace](https://img.shields.io/badge/package-9%20marketplace%20formats-2563eb)
 ![tests](https://img.shields.io/badge/tests-passing-22c55e)
 
+<p align="center">
+  <a href="examples/showcase-demo/">
+    <img src="examples/showcase-demo/demo.gif" width="820"
+         alt="agent-connector showcase: define a connector once, ship it as your own branded CLI, install it via each host's native marketplace, and drive every CLI with one command." />
+  </a>
+</p>
+
+<p align="center"><sub>
+  Define once → ship it as your own branded CLI → users install via their host's native marketplace → one command drives every CLI.
+  <a href="examples/showcase-demo/">Regenerate this demo.</a>
+</sub></p>
+
 ## Who this is for
 
 agent-connector serves **two distinct audiences** — pick your track:
