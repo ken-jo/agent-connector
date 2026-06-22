@@ -8,15 +8,15 @@
  *   renderBrandBanner(name, { color, columns })  → the banner string
  *   shouldShowBanner({ isTTY, noColor, json, quiet }) → whether to show it
  *
- * The art is a compact, dependency-free 5-row SOLID-block font (filled `█`
- * blocks, bold strokes, no 3D outline) over [A-Za-z0-9 ._-] — the connector-id
- * charset. Each glyph is 4 columns + a 1-column gap (~5 cols/char), so the full
- * 15-char "agent-connector" fits on ONE line within an 80-column terminal (no
- * stacking, no wrap). Coloring is PER-LETTER: each whole glyph gets one bright
- * color from a curated vivid palette (cycled so adjacent letters pop), with a
- * bright-white highlight on each glyph's top row for a glossy "shine". Only a
- * single token genuinely too wide for the terminal falls back to a one-line
- * styled `» name` degrade.
+ * The art is a compact, dependency-free 3-row SOLID-block font (filled `█` plus
+ * the half-blocks `▀`/`▄`, no 3D outline) over [A-Za-z0-9 ._-] — the
+ * connector-id charset — a modest ~1.3× text-height banner. Glyphs are mostly 3
+ * columns wide (M/N/W wider so they stay distinct), so the full 15-char
+ * "agent-connector" fits on ONE line within an 80-column terminal (no stacking,
+ * no wrap). Coloring is PER-LETTER: each whole glyph gets one solid SOFT-PASTEL
+ * color from a curated muted palette (cycled so adjacent letters stay
+ * distinguishable while the banner reads calm, not neon). Only a single token
+ * genuinely too wide for the terminal degrades to a one-line styled `» name`.
  */
 
 /** Color capability the host terminal advertises, highest → lowest. */
@@ -74,57 +74,64 @@ export function resolveColorMode(env: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Compact solid-block font: 5 rows × 4 columns per glyph, filled `█` with bold
-// strokes (no outline). Each glyph's 5 rows are exactly 4 chars wide so columns
-// align when concatenated with a single-column gap. Covers [A-Za-z0-9 ._-]
-// (uppercased; lowercase reuses caps). Unknown chars fall back to the blank.
+// Compact solid-block font: 3 rows per glyph (a modest ~1.3× text-height
+// banner), built from `█` plus the half-blocks `▀`/`▄`, no outline. Glyphs are
+// variable width (mostly 3 cols; M/N/W wider so they stay distinct), padded to
+// their own max so columns align when concatenated with a single-column gap.
+// Covers [A-Za-z0-9 ._-] (uppercased; lowercase reuses caps). The 15-char
+// "agent-connector" fits one line under 80 cols. Unknown chars → the blank.
 // ─────────────────────────────────────────────────────────────────────────
 
-const GLYPH_ROWS = 5;
-const GLYPH_COLS = 4;
+const GLYPH_ROWS = 3;
 
-/** Glyph map: char → 5 rows of 4-wide solid-block art (bold, no outline). */
+/**
+ * Glyph map: char → 3 rows of compact solid-block art (full `█` blocks plus the
+ * upper-/lower-half blocks `▀`/`▄` for stroke detail, no outline). Most glyphs
+ * are 3 columns wide (narrow ones less), so the full 15-char "agent-connector"
+ * fits one line under 80 cols. Covers [A-Za-z0-9 ._-] (uppercased; lowercase
+ * reuses caps). M/N/W are drawn distinctly. Unknown chars → the blank glyph.
+ */
 const FONT: Record<string, readonly string[]> = {
-  A: ["████", "█  █", "████", "█  █", "█  █"],
-  B: ["███ ", "█  █", "███ ", "█  █", "███ "],
-  C: ["████", "█   ", "█   ", "█   ", "████"],
-  D: ["███ ", "█  █", "█  █", "█  █", "███ "],
-  E: ["████", "█   ", "███ ", "█   ", "████"],
-  F: ["████", "█   ", "███ ", "█   ", "█   "],
-  G: ["████", "█   ", "█ ██", "█  █", "████"],
-  H: ["█  █", "█  █", "████", "█  █", "█  █"],
-  I: ["███", " █ ", " █ ", " █ ", "███"],
-  J: ["████", "   █", "   █", "█  █", "████"],
-  K: ["█  █", "█ █ ", "██  ", "█ █ ", "█  █"],
-  L: ["█   ", "█   ", "█   ", "█   ", "████"],
-  M: ["█  █", "████", "█  █", "█  █", "█  █"],
-  N: ["█  █", "██ █", "█ ██", "█  █", "█  █"],
-  O: ["████", "█  █", "█  █", "█  █", "████"],
-  P: ["████", "█  █", "████", "█   ", "█   "],
-  Q: ["████", "█  █", "█  █", "█ ██", "████"],
-  R: ["███ ", "█  █", "███ ", "█ █ ", "█  █"],
-  S: ["████", "█   ", "████", "   █", "████"],
-  T: ["███", " █ ", " █ ", " █ ", " █ "],
-  U: ["█  █", "█  █", "█  █", "█  █", "████"],
-  V: ["█  █", "█  █", "█  █", " ██ ", " ██ "],
-  W: ["█  █", "█  █", "█  █", "████", "█  █"],
-  X: ["█  █", " ██ ", " ██ ", " ██ ", "█  █"],
-  Y: ["█  █", " ██ ", " █ ", " █ ", " █ "],
-  Z: ["████", "  █ ", " █  ", "█   ", "████"],
-  "0": ["████", "█  █", "█  █", "█  █", "████"],
-  "1": [" █ ", "██ ", " █ ", " █ ", "███"],
-  "2": ["████", "   █", "████", "█   ", "████"],
-  "3": ["████", "   █", " ███", "   █", "████"],
-  "4": ["█  █", "█  █", "████", "   █", "   █"],
-  "5": ["████", "█   ", "████", "   █", "████"],
-  "6": ["████", "█   ", "████", "█  █", "████"],
-  "7": ["████", "   █", "  █ ", " █  ", " █  "],
-  "8": ["████", "█  █", "████", "█  █", "████"],
-  "9": ["████", "█  █", "████", "   █", "████"],
-  "-": ["    ", "    ", "████", "    ", "    "],
-  "_": ["    ", "    ", "    ", "    ", "████"],
-  ".": ["  ", "  ", "  ", "  ", "██"],
-  " ": ["  ", "  ", "  ", "  ", "  "],
+  A: ["▄▀▄", "█▀█", "█ █"],
+  B: ["█▀▄", "█▀▄", "▀▀ "],
+  C: ["▄▀▀", "█  ", "▀▄▄"],
+  D: ["█▀▄", "█ █", "▀▀ "],
+  E: ["█▀▀", "█▀ ", "▀▀▀"],
+  F: ["█▀▀", "█▀ ", "█  "],
+  G: ["▄▀▀", "█ ▄", "▀▄▀"],
+  H: ["█ █", "█▀█", "█ █"],
+  I: ["█", "█", "█"],
+  J: ["  █", "  █", "▀▀ "],
+  K: ["█ ▄", "██ ", "█ ▀"],
+  L: ["█  ", "█  ", "▀▀▀"],
+  M: ["█▄ ▄█", "█ ▀ █", "█   █"],
+  N: ["█▄ █", "█ ▀█", "█  █"],
+  O: ["▄▀▄", "█ █", "▀▄▀"],
+  P: ["█▀▄", "█▀ ", "█  "],
+  Q: ["▄▀▄", "█ █", "▀▄▀▄"],
+  R: ["█▀▄", "█▀▄", "█ ▀"],
+  S: ["▄▀▀", "▀▀▄", "▀▄▀"],
+  T: ["▀█▀", " █ ", " █ "],
+  U: ["█ █", "█ █", "▀▄▀"],
+  V: ["█ █", "█ █", " ▀ "],
+  W: ["█   █", "█ ▄ █", "▀▄▀▄▀"],
+  X: ["▀▄▀", " █ ", "▄▀▄"],
+  Y: ["█ █", " ▀ ", " █ "],
+  Z: ["▀▀█", " ▄▀", "█▄▄"],
+  "0": ["▄▀▄", "█ █", "▀▄▀"],
+  "1": ["▄█ ", " █ ", "▄█▄"],
+  "2": ["▀▀▄", " ▄▀", "█▄▄"],
+  "3": ["▀▀▄", " ▀▄", "▀▀ "],
+  "4": ["█ █", "▀▀█", "  █"],
+  "5": ["█▀▀", "▀▀▄", "▀▀ "],
+  "6": ["▄▀▀", "█▀▄", "▀▄▀"],
+  "7": ["▀▀█", " ▄▀", "▄▀ "],
+  "8": ["▄▀▄", "▄▀▄", "▀▄▀"],
+  "9": ["▄▀▄", "▀▄█", "▀▄▀"],
+  "-": ["   ", "▄▄▄", "   "],
+  "_": ["   ", "   ", "▄▄▄"],
+  ".": [" ", " ", "▄"],
+  " ": ["  ", "  ", "  "],
 };
 
 /** The blank fallback used for any char outside the FONT charset. */
@@ -142,9 +149,9 @@ function normalizeGlyph(rows: readonly string[]): string[] {
 }
 
 /**
- * Layout result: the 5 art rows PLUS, for each visible column, the index of the
+ * Layout result: the 3 art rows PLUS, for each visible column, the index of the
  * letter it belongs to (-1 for an inter-glyph gap). The letter index drives the
- * per-letter solid color; the first art row is the white highlight row.
+ * per-letter solid pastel color.
  */
 interface ArtLayout {
   rows: string[];
@@ -153,7 +160,7 @@ interface ArtLayout {
 }
 
 /**
- * Render `name` into the 5-row solid-block font with per-column letter tags.
+ * Render `name` into the 3-row solid-block font with per-column letter tags.
  * Glyphs are joined with a single blank gap column (tagged -1) so adjacent
  * letters get distinct colors. Returns null when the name has no renderable
  * characters.
@@ -184,37 +191,33 @@ function artWidth(layout: ArtLayout): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Per-letter vivid palette. Each WHOLE letter gets one solid bright color,
-// cycled through a curated punchy set (hot pink → orange → yellow → lime →
-// cyan → blue → violet) so adjacent letters are clearly different and POP. This
-// reads as "vivid distinct colors", NOT a smooth rainbow gradient. The top row
-// of every glyph is overpainted bright WHITE for a glossy shine.
+// Per-letter PASTEL palette. Each WHOLE letter gets one soft, muted color,
+// cycled through a curated gentle set (rose → peach → soft yellow → mint → sky
+// → periwinkle → lavender → soft lilac) so adjacent letters stay distinguishable
+// while the whole banner reads CALM, not loud neon. No white highlight.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Curated vivid RGB palette (8 punchy hues), cycled per letter. */
+/** Curated soft pastel RGB palette (8 muted hues), cycled per letter. */
 const PALETTE_RGB: ReadonlyArray<readonly [number, number, number]> = [
-  [255, 45, 149], // hot pink
-  [255, 122, 0], // orange
-  [255, 214, 0], // yellow
-  [120, 255, 40], // lime
-  [0, 230, 160], // teal-green
-  [0, 200, 255], // cyan
-  [70, 110, 255], // blue
-  [185, 80, 255], // violet
+  [244, 170, 190], // soft rose
+  [247, 198, 165], // peach
+  [243, 225, 168], // soft yellow
+  [183, 223, 178], // mint
+  [167, 214, 214], // soft aqua
+  [170, 198, 240], // sky blue
+  [183, 184, 232], // periwinkle
+  [206, 184, 230], // lavender
 ];
 
-/** 256-color cube indices matching the vivid palette, cycled per letter. */
-const PALETTE_256: readonly number[] = [198, 208, 220, 118, 48, 45, 63, 135];
+/** 256-color cube indices approximating the pastel palette, cycled per letter. */
+const PALETTE_256: readonly number[] = [218, 223, 229, 151, 152, 153, 147, 183];
 
-/** 16-color bright fg codes matching the palette, cycled per letter. */
-const PALETTE_16: readonly number[] = [95, 93, 93, 92, 92, 96, 94, 95];
+/** 16-color (non-bright) fg codes approximating the pastels, cycled per letter. */
+const PALETTE_16: readonly number[] = [35, 33, 33, 32, 36, 34, 34, 35];
 
 const RESET = "\x1b[0m";
-const WHITE_RGB = "\x1b[38;2;255;255;255m";
-const WHITE_256 = "\x1b[38;5;231m";
-const WHITE_16 = "\x1b[97m";
 
-/** The SGR open-escape for a letter's solid color at the given tier. */
+/** The SGR open-escape for a letter's solid pastel color at the given tier. */
 function letterOpen(letterIndex: number, color: ColorMode): string {
   if (color === "truecolor") {
     const [r, g, b] = PALETTE_RGB[letterIndex % PALETTE_RGB.length]!;
@@ -226,25 +229,12 @@ function letterOpen(letterIndex: number, color: ColorMode): string {
   return `\x1b[${PALETTE_16[letterIndex % PALETTE_16.length]}m`;
 }
 
-/** The bright-white highlight open-escape for the given tier. */
-function whiteOpen(color: ColorMode): string {
-  if (color === "truecolor") return WHITE_RGB;
-  if (color === "ansi256") return WHITE_256;
-  return WHITE_16;
-}
-
 /**
- * Colorize ONE art row. `top` = render the filled cells in bright white (the
- * glossy highlight, used for each glyph's top row); otherwise each filled cell
- * takes its letter's solid palette color. Gap/space cells are emitted bare (no
- * escape). Under "none" the row is returned verbatim.
+ * Colorize ONE art row: each filled cell takes its letter's solid pastel color;
+ * gap/space cells are emitted bare (no escape). Under "none" the row is returned
+ * verbatim.
  */
-function colorizeRow(
-  row: string,
-  letterOf: number[],
-  color: ColorMode,
-  top: boolean,
-): string {
+function colorizeRow(row: string, letterOf: number[], color: ColorMode): string {
   if (color === "none") return row;
   const chars = [...row];
   let out = "";
@@ -255,7 +245,7 @@ function colorizeRow(
       out += ch; // gap or empty cell — no color
       continue;
     }
-    out += (top ? whiteOpen(color) : letterOpen(li, color)) + ch + RESET;
+    out += letterOpen(li, color) + ch + RESET;
   }
   return out;
 }
@@ -276,9 +266,9 @@ function dim(text: string, color: ColorMode): string {
 }
 
 /**
- * Render the full banner: the compact solid-block brand name with per-letter
- * vivid colors + a bright-white top-row shine, then a two-line dim footer
- * directly below. Width-safe:
+ * Render the full banner: the compact 3-row solid-block brand name with one
+ * solid pastel color per letter, then a two-line dim footer directly below.
+ * Width-safe:
  *
  *   • One line when it fits `columns` (which "agent-connector" does at 80 cols).
  *   • A token genuinely too wide → a one-line styled `» name` degrade rather
@@ -296,7 +286,7 @@ export function renderBrandBanner(name: string, opts: BannerOptions): string {
   const limit = columns > 0 ? columns : Infinity;
   if (layout == null || artWidth(layout) > limit) {
     // Degrade to a single styled line (no art, or an un-fittable token).
-    const lead = color === "none" ? "» " : whiteOpen(color) + "» " + RESET;
+    const lead = color === "none" ? "» " : letterOpen(0, color) + "» " + RESET;
     const line =
       color === "none"
         ? `${lead}${name}`
@@ -305,8 +295,6 @@ export function renderBrandBanner(name: string, opts: BannerOptions): string {
   }
 
   const { rows, letterOf } = layout;
-  const body = rows
-    .map((row, r) => colorizeRow(row, letterOf, color, r === 0))
-    .join("\n");
+  const body = rows.map((row) => colorizeRow(row, letterOf, color)).join("\n");
   return `${body}\n${footer}`;
 }
