@@ -11,6 +11,7 @@
 import type { PlatformId } from "../types.js";
 import { claudeDriver } from "./claude.js";
 import { codexDriver } from "./codex.js";
+import { copilotDriver } from "./copilot.js";
 import { droidDriver } from "./droid.js";
 import { makeAgyDriver } from "./agy.js";
 import { geminiDriver } from "./gemini.js";
@@ -57,6 +58,7 @@ function npmLocalDriver(platform: PlatformId): MarketplaceDriver {
 const DRIVER_RESOLVERS: readonly DriverResolver[] = [
   { platforms: ["claude-code"], resolve: () => claudeDriver },
   { platforms: ["codex"], resolve: () => codexDriver },
+  { platforms: ["copilot-cli"], resolve: () => copilotDriver },
   {
     platforms: ["antigravity", "antigravity-cli"],
     resolve: (platform) => agyDriver(platform),
