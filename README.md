@@ -13,6 +13,11 @@ the native config — or `package` it as a real plugin — across **42 agent CLI
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
 ![platforms](https://img.shields.io/badge/platforms-42-2563eb)
+![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
+![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
+![install verified](https://img.shields.io/badge/install%20verified-42%2F42-22c55e)
+![headless runtime](https://img.shields.io/badge/headless%20runtime-20%20CLIs%20activated-22c55e)
+![marketplace](https://img.shields.io/badge/package-10%20marketplace%20formats-2563eb)
 ![tests](https://img.shields.io/badge/tests-passing-22c55e)
 
 <p align="center">

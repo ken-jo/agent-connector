@@ -46,7 +46,7 @@ function TwoWaysToShip() {
 }
 
 /* ------------------------------------------------------------------ */
-/* The 9-format table                                                  */
+/* The 10-format table                                                 */
 /* ------------------------------------------------------------------ */
 
 function FormatRow({ r, index }: { r: PackageFormatRow; index: number }) {
