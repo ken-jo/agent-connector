@@ -23,6 +23,7 @@ body:
       description: Which AI-agent CLI(s) exhibit the problem? Select all that apply.
       multiple: true
       options:
+        - codebuddy
         - claude-code
         - codex
         - cursor
@@ -34,6 +35,7 @@ body:
         - mimo-code
         - kilo-cli
         - droid
+        - openhands
         - roo-code
         - kilo
         - cline
@@ -58,9 +60,27 @@ body:
         - amazon-q
         - continue
         - windsurf
+        - grok-cli
+        - devin
+        - open-interpreter
+        - junie
+        - mistral-vibe
         - other / not listed
     validations:
       required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system(s)
+      description: Where does it reproduce? Select all that apply.
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: false
 
   - type: input
     id: host-version
