@@ -42,8 +42,8 @@ export function Hero() {
           </Badge>
 
           <h1 className="animate-fade-up mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
-            Write your MCP server + hooks once.{" "}
-            <span className="text-gradient">Ship to every agent.</span>
+            Deploy one MCP to{" "}
+            <span className="text-gradient">every agent CLI.</span>
           </h1>
 
           <p className="animate-fade-up mt-6 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
