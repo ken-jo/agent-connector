@@ -8,18 +8,20 @@
  *   renderBrandBanner(name, { color, columns, palette })  → the banner string
  *   shouldShowBanner({ isTTY, noColor, json, quiet }) → whether to show it
  *
- * RESPONSIVE FONT (one line, NEVER stacked): two hand-authored fixed-width glyph
- * maps that tile cleanly. A WIDE 6-row "ANSI Shadow" font (solid `█` + `╗╔╝╚║═`
- * shadow, ~8 cols/char) is used when it fits the terminal; otherwise a COMPACT
- * 6-row solid-block font (`█`/`▀`/`▄`, ~4-5 cols/char) that fits 80 cols;
- * otherwise a one-line styled `» name` degrade. Both fonts cover the connector-id
- * charset [A-Za-z0-9 ._-] (uppercased — lowercase reuses caps).
+ * RESPONSIVE (one line, NEVER stacked), two forms:
+ *   • WIDE — a 6-row "ANSI Shadow" block font (solid `█` + `╗╔╝╚║═` shadow,
+ *     ~8 cols/char, hand-transcribed + fixed-width so it tiles cleanly) when its
+ *     render fits the terminal width.
+ *   • NARROW — a single-line gradient TITLE `◆  AGENT-CONNECTOR` (the brand
+ *     uppercased, each char colored along the palette + bold). ~18 cols, so it
+ *     fits any real terminal; it is the universal narrow form.
+ * The WIDE font covers the connector-id charset [A-Za-z0-9 ._-].
  *
- * COLOR: a per-column gradient sweeps each row left-to-right between three RGB
- * stops (a {@link Palette}). The render is PURE and palette-parameterized — the
- * caller picks the palette (the impure app.ts wrapper rotates {@link PALETTES}
- * per run). truecolor→256→16→none tiers all honor the palette; NO_COLOR = zero
- * ANSI.
+ * COLOR: a palette gradient (three RGB stops, a {@link Palette}) — swept per
+ * column across the block art, or per character across the title. The render is
+ * PURE and palette-parameterized — the caller picks the palette (the impure
+ * app.ts wrapper rotates {@link PALETTES} per run). truecolor→256→16→none tiers
+ * all honor the palette; NO_COLOR = zero ANSI.
  */
 
 /** Color capability the host terminal advertises, highest → lowest. */
@@ -152,56 +154,6 @@ const WIDE_FONT: Record<string, readonly string[]> = {
   " ": ["    ", "    ", "    ", "    ", "    ", "    "],
 };
 
-// ─────────────────────────────────────────────────────────────────────────
-// COMPACT (narrow) font — solid-block (6 rows). `█`/`▀`/`▄`, no 3D outline;
-// ~4-5 cols/char so "agent-connector" fits one line under 80 cols. The taller
-// box keeps ambiguous letters legible — N a full-height diagonal, M two peaks +
-// center join, W two valleys.
-// ─────────────────────────────────────────────────────────────────────────
-
-const COMPACT_FONT: Record<string, readonly string[]> = {
-  A: [" ██ ", "█  █", "█  █", "████", "█  █", "█  █"],
-  B: ["███ ", "█  █", "███ ", "█  █", "█  █", "███ "],
-  C: [" ███", "█   ", "█   ", "█   ", "█   ", " ███"],
-  D: ["███ ", "█  █", "█  █", "█  █", "█  █", "███ "],
-  E: ["████", "█   ", "███ ", "█   ", "█   ", "████"],
-  F: ["████", "█   ", "███ ", "█   ", "█   ", "█   "],
-  G: [" ███", "█   ", "█ ██", "█  █", "█  █", " ███"],
-  H: ["█  █", "█  █", "████", "█  █", "█  █", "█  █"],
-  I: ["███", " █ ", " █ ", " █ ", " █ ", "███"],
-  J: ["  ██", "   █", "   █", "   █", "█  █", " ██ "],
-  K: ["█  █", "█ █ ", "██  ", "██  ", "█ █ ", "█  █"],
-  L: ["█   ", "█   ", "█   ", "█   ", "█   ", "████"],
-  M: ["█   █", "██ ██", "█ █ █", "█   █", "█   █", "█   █"],
-  N: ["█   █", "██  █", "█ █ █", "█  ██", "█   █", "█   █"],
-  O: [" ██ ", "█  █", "█  █", "█  █", "█  █", " ██ "],
-  P: ["███ ", "█  █", "█  █", "███ ", "█   ", "█   "],
-  Q: [" ██ ", "█  █", "█  █", "█  █", "█ ██", " ███"],
-  R: ["███ ", "█  █", "█  █", "███ ", "█ █ ", "█  █"],
-  S: [" ███", "█   ", " ██ ", "   █", "   █", "███ "],
-  T: ["███", " █ ", " █ ", " █ ", " █ ", " █ "],
-  U: ["█  █", "█  █", "█  █", "█  █", "█  █", " ██ "],
-  V: ["█   █", "█   █", "█   █", "█   █", " █ █ ", "  █  "],
-  W: ["█   █", "█   █", "█   █", "█ █ █", "██ ██", "█   █"],
-  X: ["█   █", " █ █ ", "  █  ", "  █  ", " █ █ ", "█   █"],
-  Y: ["█   █", " █ █ ", "  █  ", "  █  ", "  █  ", "  █  "],
-  Z: ["████", "   █", "  █ ", " █  ", "█   ", "████"],
-  "0": [" ██ ", "█  █", "█ ██", "██ █", "█  █", " ██ "],
-  "1": [" █ ", "██ ", " █ ", " █ ", " █ ", "███"],
-  "2": [" ██ ", "█  █", "  █ ", " █  ", "█   ", "████"],
-  "3": ["███ ", "   █", " ██ ", "   █", "   █", "███ "],
-  "4": ["█  █", "█  █", "████", "   █", "   █", "   █"],
-  "5": ["████", "█   ", "███ ", "   █", "   █", "███ "],
-  "6": [" ███", "█   ", "███ ", "█  █", "█  █", " ██ "],
-  "7": ["████", "   █", "  █ ", " █  ", " █  ", " █  "],
-  "8": [" ██ ", "█  █", " ██ ", "█  █", "█  █", " ██ "],
-  "9": [" ██ ", "█  █", "█  █", " ███", "   █", "███ "],
-  "-": ["    ", "    ", "████", "    ", "    ", "    "],
-  "_": ["    ", "    ", "    ", "    ", "    ", "████"],
-  ".": ["  ", "  ", "  ", "  ", "  ", "██"],
-  " ": ["  ", "  ", "  ", "  ", "  ", "  "],
-};
-
 const GLYPH_ROWS = 6;
 
 /** Visible column count of a string (full-block + box-drawing are 1 cell each). */
@@ -210,28 +162,20 @@ function vlen(s: string): number {
 }
 
 /**
- * Render `name` into a fixed-width glyph `font` as GLYPH_ROWS lines. Glyphs are
- * concatenated with `gap` blank columns between them: the COMPACT font needs a
- * 1-column gap to breathe, while the ANSI-Shadow glyphs already carry their own
- * trailing shadow column and tile cleanly with NO gap (a gap would only bloat
- * the width). Returns null when the name has no renderable characters; each
- * font's glyphs are width-consistent per glyph, so the rows stay aligned.
+ * Render `name` into the fixed-width `font` as GLYPH_ROWS lines. The ANSI-Shadow
+ * glyphs already carry their own trailing shadow column and tile cleanly with NO
+ * inter-glyph gap. Returns null when the name has no renderable characters; the
+ * glyphs are width-consistent per glyph, so the rows stay aligned.
  */
-function renderWithFont(
-  name: string,
-  font: Record<string, readonly string[]>,
-  gap: number,
-): string[] | null {
+function renderWithFont(name: string, font: Record<string, readonly string[]>): string[] | null {
   const chars = [...name];
   if (chars.length === 0) return null;
   const blank = font[" "]!;
-  const sep = " ".repeat(gap);
   const rows: string[] = Array.from({ length: GLYPH_ROWS }, () => "");
-  for (let ci = 0; ci < chars.length; ci++) {
-    const glyph = font[chars[ci]!.toUpperCase()] ?? blank;
-    const lead = ci === 0 ? "" : sep;
+  for (const ch of chars) {
+    const glyph = font[ch.toUpperCase()] ?? blank;
     for (let r = 0; r < GLYPH_ROWS; r++) {
-      rows[r] += lead + (glyph[r] ?? "");
+      rows[r] += glyph[r] ?? "";
     }
   }
   // Drop any fully-blank bottom rows so a name built from narrower glyphs (e.g.
@@ -246,19 +190,14 @@ function blockWidth(rows: string[]): number {
 }
 
 /**
- * Pick the art for `name` that fits `columns`, ONE line, never stacked: the WIDE
- * ANSI-Shadow font when it fits, else the COMPACT font when it fits, else null
- * (the caller degrades to a one-line styled `» name`). `columns <= 0` means "no
- * constraint" → the WIDE font.
+ * The WIDE ANSI-Shadow block art for `name` when it fits `columns` (ONE line,
+ * never stacked); else null so the caller renders the narrow one-line title.
+ * `columns <= 0` means "no constraint" → always the WIDE art.
  */
-function selectArt(name: string, columns: number): string[] | null {
+function selectWideArt(name: string, columns: number): string[] | null {
   const limit = columns > 0 ? columns : Infinity;
-  // WIDE ANSI-Shadow tiles gap-free (glyphs self-space); COMPACT needs a 1-col gap.
-  const wide = renderWithFont(name, WIDE_FONT, 0);
-  if (wide != null && blockWidth(wide) <= limit) return wide;
-  const compact = renderWithFont(name, COMPACT_FONT, 1);
-  if (compact != null && blockWidth(compact) <= limit) return compact;
-  return null;
+  const wide = renderWithFont(name, WIDE_FONT);
+  return wide != null && blockWidth(wide) <= limit ? wide : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -325,6 +264,39 @@ function colorizeRow(row: string, color: ColorMode, palette: Palette): string {
   return out;
 }
 
+/** A single BOLD grapheme at gradient position `t` (used by the narrow title). */
+function boldColorChar(ch: string, t: number, color: ColorMode, palette: Palette): string {
+  if (color === "none") return ch;
+  const [r, g, b] = gradientRGB(t, palette);
+  const fg =
+    color === "truecolor"
+      ? `38;2;${r};${g};${b}`
+      : color === "ansi256"
+        ? `38;5;${rgbTo256(r, g, b)}`
+        : `${rgbTo16(r, g, b)}`;
+  return `\x1b[1;${fg}m${ch}${RESET}`;
+}
+
+/**
+ * The NARROW one-line title `◆  AGENT-CONNECTOR`: a colored leading diamond (the
+ * palette mid stop), two spaces, then the UPPERCASED brand with each character
+ * colored along the palette gradient (i → t = i/(len-1)) and bold. Under "none"
+ * it is the plain text with ZERO ANSI. ~18 cols for "agent-connector", so it
+ * fits any real terminal.
+ */
+function renderTitle(name: string, color: ColorMode, palette: Palette): string {
+  const upper = name.toUpperCase();
+  if (color === "none") return `◆  ${upper}`;
+  const diamond = boldColorChar("◆", 0.5, color, palette);
+  const chars = [...upper];
+  const span = Math.max(1, chars.length - 1);
+  let title = "";
+  for (let i = 0; i < chars.length; i++) {
+    title += boldColorChar(chars[i]!, i / span, color, palette);
+  }
+  return `${diamond}  ${title}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Footer (engine attribution). Shown on BOTH the global and branded CLIs — the
 // "powered by" wording is intentional.
@@ -341,15 +313,17 @@ function dim(text: string, color: ColorMode): string {
 }
 
 /**
- * Render the full banner: the responsive block-font brand name with a
- * palette-driven gradient, then a two-line dim footer directly below.
+ * Render the full banner: a responsive brand title with a palette-driven
+ * gradient, then a two-line dim footer directly below.
  *
- *   • Font is selected by width (WIDE ANSI-Shadow → COMPACT → one-line degrade),
- *     ALWAYS one line, never stacked. `columns <= 0` means "no constraint".
+ *   • WIDE — the ANSI-Shadow block art when it fits `columns` (ONE line, never
+ *     stacked; `columns <= 0` = no constraint).
+ *   • NARROW — the one-line `◆  AGENT-CONNECTOR` gradient title (the universal
+ *     narrow form, ~18 cols) when the block art would overflow.
  *   • `palette` defaults to PALETTES[0] so direct callers + tests are
  *     deterministic; the impure app.ts wrapper rotates the palettes per run.
  *   • Under `color: "none"` (NO_COLOR / dumb term) the output carries zero ANSI
- *     escape codes — only the raw art + footer text.
+ *     escape codes — only the raw art/title + footer text.
  *
  * The result has NO trailing newline; the caller prints it with one.
  */
@@ -358,15 +332,10 @@ export function renderBrandBanner(name: string, opts: BannerOptions): string {
   const palette = opts.palette ?? PALETTES[0]!;
   const footer = FOOTER_LINES.map((l) => dim(l, color)).join("\n");
 
-  const art = selectArt(name, columns);
-  if (art == null) {
-    // Degrade to a single styled line when neither font fits (a very narrow
-    // terminal) or the name has no renderable characters.
-    const lead = color === "none" ? "» " : colorChar("▌", 0, color, palette) + " ";
-    const line = color === "none" ? `» ${name}` : `${lead}${colorizeRow(name, color, palette)}`;
-    return `${line}\n${footer}`;
-  }
-
-  const body = art.map((row) => colorizeRow(row, color, palette)).join("\n");
+  const art = selectWideArt(name, columns);
+  const body =
+    art != null
+      ? art.map((row) => colorizeRow(row, color, palette)).join("\n")
+      : renderTitle(name, color, palette);
   return `${body}\n${footer}`;
 }

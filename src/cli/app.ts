@@ -75,7 +75,10 @@ export function maybePrintBanner(flags: { json?: boolean; quiet?: boolean }): vo
     colorterm: process.env.COLORTERM,
     term: process.env.TERM,
   });
-  const columns = typeof process.stdout.columns === "number" ? process.stdout.columns : 80;
+  // Coerce an unknown/zero width to a conservative 80 so an unknown-width TTY
+  // shows the safe one-line title rather than the 129-col block art.
+  const c = process.stdout.columns;
+  const columns = typeof c === "number" && c > 0 ? c : 80;
   // Rotate the gradient per run so each real invocation reads differently. The
   // random pick lives HERE (the impure wrapper) so the pure renderer stays
   // deterministic for tests/direct callers.

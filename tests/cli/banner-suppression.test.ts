@@ -24,8 +24,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { main } from "../../src/cli/app.js";
 
-/** Any block-art glyph the banner uses — the unambiguous "banner is here" marker. */
-const ART = /[█▀▄]/;
+/**
+ * Any banner art marker — the WIDE block glyphs (`█` + the `╗╔╝╚║═` shadow) OR
+ * the NARROW title's leading `◆` — the unambiguous "banner is here" signal. The
+ * primary suppression assertion remains POWERED_BY (always present in a banner,
+ * never in plain command output).
+ */
+const ART = /[█▀▄╗╔╝╚║═◆]/;
 const POWERED_BY = "powered by @ken-jo/agent-connector";
 
 function captureStdout(): { restore: () => void; text: () => string } {

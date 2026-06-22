@@ -6,11 +6,11 @@
  *   • shouldShowBanner({ isTTY, noColor, json, quiet }) → gating boolean
  *   • resolveColorMode(...) → the color tier from the (injected) terminal env
  *
- * Covers: RESPONSIVE one-line font selection (WIDE ANSI-Shadow on a wide
- * terminal, the COMPACT 6-row solid-block on 80 cols, a `» name` degrade when
- * neither fits) — never stacked; distinct letters (M ≠ N ≠ W); the footer; the
- * palette-parameterized gradient (each {@link PALETTES} entry honored across the
- * truecolor→256→16 tiers); NO_COLOR = zero ANSI.
+ * Covers: RESPONSIVE one-line selection (WIDE ANSI-Shadow block art when it fits,
+ * else the one-line `◆  AGENT-CONNECTOR` gradient TITLE) — never stacked; the
+ * footer; the palette-parameterized gradient (each {@link PALETTES} entry honored
+ * across the truecolor→256→16 tiers, on both the art and the title); NO_COLOR =
+ * zero ANSI.
  */
 
 import { describe, expect, it } from "vitest";
@@ -52,45 +52,50 @@ describe("renderBrandBanner — responsive font selection (one line, never stack
     expect(out).toContain("more → https://github.com/ken-jo/agent-connector");
   });
 
-  it("falls to the COMPACT 6-row font on an 80-column terminal", () => {
+  it("falls to the ONE-LINE gradient title on an 80-column terminal", () => {
+    // "agent-connector" block art is ~129 cols, so 80 cols → the narrow title.
     const out = renderBrandBanner("agent-connector", { color: "none", columns: 80 });
     const art = artLines(out);
-    // Compact solid-block art — NO ANSI-Shadow box-drawing — ONE 6-row block ≤80.
+    // A SINGLE art line (not a 6-row block), the `◆  AGENT-CONNECTOR` title, ≤80.
+    expect(art.length).toBe(1);
     expect(out).not.toMatch(SHADOW);
-    expect(out).toMatch(/[█▀▄]/);
-    expect(art.length).toBe(6);
-    for (const line of art) expect(cols(line)).toBeLessThanOrEqual(80);
-    expect(out).not.toContain("» ");
+    expect(art[0]).toContain("◆");
+    expect(art[0]).toContain("AGENT-CONNECTOR");
+    expect(cols(art[0]!)).toBeLessThanOrEqual(80);
+    expect(out).toContain("powered by @ken-jo/agent-connector");
+    expect(out).toContain("more → https://github.com/ken-jo/agent-connector");
   });
 
-  it("degrades to a single styled `» name` line on a very narrow terminal (columns:20)", () => {
+  it("the narrow title fits any real terminal (still a title even at columns:20)", () => {
     const out = renderBrandBanner("agent-connector", { color: "none", columns: 20 });
     const art = artLines(out);
     expect(art.length).toBe(1);
-    expect(art[0]).toBe("» agent-connector");
+    expect(art[0]).toBe("◆  AGENT-CONNECTOR");
     expect(out).toContain("powered by @ken-jo/agent-connector");
   });
 
-  it("renders an SDK brand ('acme') — compact at 80, wide at 140", () => {
-    expect(artLines(renderBrandBanner("acme", { color: "none", columns: 80 }))).toHaveLength(6);
-    expect(renderBrandBanner("acme", { color: "none", columns: 140 })).toMatch(SHADOW);
+  it("uses the WIDE art for a short brand that fits ('acme'), the title for a long one", () => {
+    // "acme" block art easily fits 80 cols → WIDE art (6 rows, has shadow).
+    const acme = renderBrandBanner("acme", { color: "none", columns: 80 });
+    expect(artLines(acme)).toHaveLength(6);
+    expect(acme).toMatch(SHADOW);
+    // A long brand whose block art overflows 80 → the one-line title.
+    const longArt = artLines(renderBrandBanner("agent-connector", { color: "none", columns: 80 }));
+    expect(longArt.length).toBe(1);
   });
 
-  it("renders distinct letters with DISTINCT art (legibility: M ≠ N ≠ W, A ≠ B)", () => {
-    // Compare in the COMPACT font (80 cols) where the glyphs are hand-authored.
-    const art = (s: string) =>
-      artLines(renderBrandBanner(s, { color: "none", columns: 80 })).join("\n");
-    expect(art("M")).not.toBe(art("N"));
-    expect(art("N")).not.toBe(art("W"));
-    expect(art("M")).not.toBe(art("W"));
-    expect(art("A")).not.toBe(art("B"));
+  it("uppercases the title brand regardless of input case", () => {
+    const out = renderBrandBanner("Agent-Connector", { color: "none", columns: 80 });
+    expect(artLines(out)[0]).toBe("◆  AGENT-CONNECTOR");
   });
 
-  it("shows the powered-by footer on BOTH global and branded banners", () => {
-    const global = renderBrandBanner("agent-connector", { color: "none", columns: 80 });
-    const branded = renderBrandBanner("acme-db", { color: "none", columns: 80 });
-    expect(global).toContain("powered by @ken-jo/agent-connector");
-    expect(branded).toContain("powered by @ken-jo/agent-connector");
+  it("shows the powered-by footer under BOTH the wide art and the narrow title", () => {
+    const wide = renderBrandBanner("acme", { color: "none", columns: 140 });
+    const narrow = renderBrandBanner("agent-connector", { color: "none", columns: 80 });
+    expect(wide).toMatch(SHADOW); // wide art
+    expect(wide).toContain("powered by @ken-jo/agent-connector");
+    expect(artLines(narrow).length).toBe(1); // narrow title
+    expect(narrow).toContain("powered by @ken-jo/agent-connector");
   });
 
   it("degrades (rather than throws) on an empty name", () => {
@@ -160,6 +165,19 @@ describe("renderBrandBanner — palette gradient", () => {
   it("derives 16-color fg escapes from the palette under color:'ansi16'", () => {
     const out = renderBrandBanner("acme", { color: "ansi16", columns: 80, palette: PALETTES[2] });
     expect(out).toMatch(/\x1b\[9[0-7]m/);
+  });
+
+  it("colors the NARROW title per-char + BOLD across all tiers; plain under NO_COLOR", () => {
+    // "agent-connector" @80 → the narrow title; assert each tier's bold+color.
+    const tc = renderBrandBanner("agent-connector", { color: "truecolor", columns: 80, palette: PALETTES[0] });
+    expect(tc).toMatch(/\x1b\[1;38;2;\d+;\d+;\d+m/); // bold truecolor
+    expect(tc).toMatch(/\x1b\[1;38;2;\d+;\d+;\d+m◆/); // the leading diamond is colored
+    const a256 = renderBrandBanner("agent-connector", { color: "ansi256", columns: 80, palette: PALETTES[0] });
+    expect(a256).toMatch(/\x1b\[1;38;5;\d+m/); // bold 256
+    const a16 = renderBrandBanner("agent-connector", { color: "ansi16", columns: 80, palette: PALETTES[0] });
+    expect(a16).toMatch(/\x1b\[1;9[0-7]m/); // bold 16
+    const none = renderBrandBanner("agent-connector", { color: "none", columns: 80, palette: PALETTES[0] });
+    expect(none).not.toContain("\x1b"); // plain ◆  AGENT-CONNECTOR, zero ANSI
   });
 });
 
