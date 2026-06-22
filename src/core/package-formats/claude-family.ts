@@ -1,14 +1,23 @@
 /**
- * core/package-formats/claude-family — the claude-plugin emitter + its two
- * manifest-rename siblings (codex-plugin, factory-plugin).
+ * core/package-formats/claude-family — the claude-plugin emitter + its
+ * manifest-rename / host-restamp siblings (codex-plugin, factory-plugin,
+ * copilot-plugin).
  *
- * All three share ONE component tree (commands/ agents-or-droids/ skills/<n>/
+ * All share ONE component tree (commands/ agents-or-droids/ skills/<n>/
  * SKILL.md + hooks/hooks.json + an MCP json) and differ only in:
  *   • the manifest DIR + filename            (.claude-plugin/ | .codex-plugin/ | .factory-plugin/)
  *   • the subagent dir name                  (agents/ vs droids/ for factory)
  *   • the MCP filename                       (.mcp.json vs mcp.json for factory)
  *   • the manifest extra fields              (claude adds $schema; factory pins version+author)
  *   • the marketplace catalog shape          (claude/codex object-owner; factory git-repo catalog)
+ *   • the platform stamped into hooks/MCP    (--host, so telemetry routes per host)
+ *
+ * copilot-plugin is the claude-plugin bundle EXACTLY (GitHub Copilot CLI 1.0.63
+ * accepts a Claude-shaped `.claude-plugin/` bundle byte-for-byte — live-verified:
+ * `copilot plugin marketplace add <dir>` + `copilot plugin install <id>@<mkt>`
+ * succeed and `copilot plugin list` shows it), differing ONLY in the --host
+ * stamp (`copilot-cli`) so the wrapped MCP server + hook commands route telemetry
+ * to the copilot host instead of claude.
  *
  * The command / skill / subagent markdown is rendered through the SAME shared
  * claude-code renderers the live adapter writes with, so an installed plugin and
@@ -83,6 +92,18 @@ const SPECS: Record<string, ClaudeFamilySpec> = {
       file: "marketplace.json",
       shape: "claude",
     },
+  },
+  "copilot-plugin": {
+    // copilot-cli accepts a Claude-shaped bundle as-is; the ONLY difference from
+    // claude-plugin is the --host stamp so the wrapped MCP + hook commands route
+    // telemetry to the copilot host. Same `.claude-plugin/` manifest dir + schema
+    // + `.claude-plugin/marketplace.json` catalog (live-verified on CLI 1.0.63).
+    platformId: "copilot-cli",
+    manifestDir: ".claude-plugin",
+    subagentDir: "agents",
+    mcpFile: ".mcp.json",
+    schemaUrl: "https://json.schemastore.org/claude-code-plugin-manifest.json",
+    marketplace: { dir: ".claude-plugin", file: "marketplace.json", shape: "claude" },
   },
   "factory-plugin": {
     platformId: "droid",
@@ -213,3 +234,6 @@ export const emitCodexPlugin: FormatEmitter = (connector, ctx) =>
 
 export const emitFactoryPlugin: FormatEmitter = (connector, ctx) =>
   emitClaudeFamily(connector, ctx, "factory-plugin");
+
+export const emitCopilotPlugin: FormatEmitter = (connector, ctx) =>
+  emitClaudeFamily(connector, ctx, "copilot-plugin");

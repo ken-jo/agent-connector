@@ -10,9 +10,9 @@
  * (marketplace-drivers/*), resolved per target via the registry; this module
  * keeps only the generic policy (target resolution, the double-install guard,
  * dry-run rendering, state-record bookkeeping) and dispatches through the
- * driver. Live drivers: claude-code + codex (catalog drivers — shared root +
- * one "agent-connector" catalog + a registered local marketplace) and
- * antigravity / antigravity-cli (the agy direct install-by-path driver, no
+ * driver. Live drivers: claude-code + codex + copilot-cli (catalog drivers —
+ * shared root + one "agent-connector" catalog + a registered local marketplace)
+ * and antigravity / antigravity-cli (the agy direct install-by-path driver, no
  * catalog). Every other marketplace-capable host degrades to a never-silent
  * skip/warn record carrying the exact manual commands from `package`.
  *
@@ -108,6 +108,7 @@ export const MARKETPLACE_FORMAT_BY_PLATFORM: Partial<
 > = {
   "claude-code": "claude-plugin",
   codex: "codex-plugin",
+  "copilot-cli": "copilot-plugin",
   droid: "factory-plugin",
   "gemini-cli": "gemini-extension",
   "qwen-code": "qwen-extension",
@@ -375,6 +376,7 @@ const MANUAL_UNINSTALL: Partial<Record<PlatformId, (id: string) => string>> = {
   antigravity: (id) => `agy plugin uninstall ${id}`,
   "antigravity-cli": (id) => `agy plugin uninstall ${id}`,
   codex: (id) => `codex plugin remove ${id}@${MARKETPLACE_NAME}`,
+  "copilot-cli": (id) => `copilot plugin uninstall ${id}@${MARKETPLACE_NAME}`,
 };
 
 /**
@@ -659,6 +661,7 @@ export async function marketplaceDoctorChecks(
   const candidates = (
     [
       "codex",
+      "copilot-cli",
       "droid",
       "antigravity",
       "antigravity-cli",
@@ -713,6 +716,7 @@ function platformDoctorRank(platform: PlatformId): number {
   const order: PlatformId[] = [
     "claude-code",
     "codex",
+    "copilot-cli",
     "droid",
     "antigravity",
     "antigravity-cli",

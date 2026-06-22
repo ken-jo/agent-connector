@@ -219,6 +219,49 @@ describe("packageConnector — codex-plugin", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// copilot-plugin — claude-plugin bundle restamped --host copilot-cli
+// (GitHub Copilot CLI accepts a Claude-shaped `.claude-plugin/` bundle as-is)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("packageConnector — copilot-plugin", () => {
+  it("emits the SAME claude-plugin layout (.claude-plugin/plugin.json + $schema + components)", () => {
+    const res = packageConnector(connector, { outDir, format: "copilot-plugin", homeBinPath: HOME_BIN });
+    const manifestDir = join(res.pluginDir, ".claude-plugin");
+    expect(readdirSync(manifestDir)).toEqual(["plugin.json"]);
+    const m = readJson(join(manifestDir, "plugin.json"));
+    expect(m.name).toBe(CONNECTOR_ID);
+    // copilot uses the claude manifest verbatim, including the $schema field.
+    expect(m.$schema).toBe(
+      "https://json.schemastore.org/claude-code-plugin-manifest.json",
+    );
+    // Components at the plugin ROOT (commands/, agents/, skills/).
+    expect(existsSync(join(res.pluginDir, "commands", "deploy.md"))).toBe(true);
+    expect(existsSync(join(res.pluginDir, "agents", "reviewer.md"))).toBe(true);
+    expect(existsSync(join(res.pluginDir, "skills", "pdf-tools", "SKILL.md"))).toBe(true);
+  });
+
+  it("emits a .claude-plugin/marketplace.json catalog, hooks + MCP serve-wrapped --host copilot-cli", () => {
+    const res = packageConnector(connector, { outDir, format: "copilot-plugin", homeBinPath: HOME_BIN });
+    // Same catalog location + shape as claude (copilot reads it live-verified).
+    expect(res.marketplacePath).toBe(join(outDir, ".claude-plugin", "marketplace.json"));
+    const mkt = readJson(res.marketplacePath!);
+    expect(mkt.owner).toEqual({ name: "Acme Inc" }); // publish.author attributes the catalog
+
+    // Hooks + MCP are stamped --host copilot-cli so telemetry routes to copilot,
+    // NOT claude-code (the one byte-level difference from a claude-plugin bundle).
+    const hooks = readJson(join(res.pluginDir, "hooks", "hooks.json")).hooks as Record<
+      string,
+      Array<{ matcher?: string; hooks: Array<{ command: string }> }>
+    >;
+    expect(Object.keys(hooks).sort()).toEqual(["PreToolUse", "SessionStart"]);
+    expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe(hookCommand("copilot-cli", "PreToolUse"));
+
+    const mcp = readJson(join(res.pluginDir, ".mcp.json")).mcpServers as Record<string, never>;
+    expectServeWrapper(mcp[CONNECTOR_ID] as never, "copilot-cli");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // factory-plugin — droid variant (.factory-plugin/, droids/, mcp.json)
 // ─────────────────────────────────────────────────────────────────────────
 

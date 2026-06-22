@@ -10,6 +10,7 @@
  * Supported formats (PackageFormat):
  *   • claude-plugin    — Claude Code / codex / vscode-copilot / openclaw / omp
  *   • codex-plugin     — Codex `.codex-plugin/` manifest variant of claude-plugin
+ *   • copilot-plugin   — GitHub Copilot CLI (claude-plugin bundle, --host copilot-cli)
  *   • factory-plugin   — droid `.factory-plugin/` (droids/, mcp.json) variant
  *   • gemini-extension — Gemini CLI extension (gemini-extension.json + TOML commands)
  *   • qwen-extension   — Qwen Code extension (qwen-extension.json + Markdown commands)
@@ -34,6 +35,7 @@ import type { EmitContext, FormatEmitter, PackageResult } from "./package-format
 import {
   emitClaudePlugin,
   emitCodexPlugin,
+  emitCopilotPlugin,
   emitFactoryPlugin,
 } from "./package-formats/claude-family.js";
 import { emitCursorPlugin } from "./package-formats/cursor.js";
@@ -53,6 +55,7 @@ export type { PackageResult } from "./package-formats/shared.js";
 export type PackageFormat =
   | "claude-plugin"
   | "codex-plugin"
+  | "copilot-plugin"
   | "factory-plugin"
   | "gemini-extension"
   | "qwen-extension"
@@ -70,6 +73,7 @@ export type PackageFormat =
 const EMITTERS: Record<PackageFormat, FormatEmitter> = {
   "claude-plugin": emitClaudePlugin,
   "codex-plugin": emitCodexPlugin,
+  "copilot-plugin": emitCopilotPlugin,
   "factory-plugin": emitFactoryPlugin,
   "gemini-extension": emitGeminiExtension,
   "qwen-extension": emitQwenExtension,
@@ -85,6 +89,7 @@ const EMITTERS: Record<PackageFormat, FormatEmitter> = {
 export const ALL_FORMATS: readonly PackageFormat[] = [
   "claude-plugin",
   "codex-plugin",
+  "copilot-plugin",
   "factory-plugin",
   "gemini-extension",
   "qwen-extension",
@@ -107,6 +112,7 @@ export const ALL_FORMATS: readonly PackageFormat[] = [
 export const FEASIBLE_FORMATS: readonly PackageFormat[] = [
   "claude-plugin",
   "codex-plugin",
+  "copilot-plugin",
   "factory-plugin",
   "gemini-extension",
   "qwen-extension",
@@ -152,6 +158,7 @@ export interface PackageOptions {
 const HOME_BIN_EMBED_FORMATS: ReadonlySet<PackageFormat> = new Set([
   "claude-plugin",
   "codex-plugin",
+  "copilot-plugin",
   "factory-plugin",
   "gemini-extension",
   "qwen-extension",
@@ -236,6 +243,11 @@ export function installInstructions(
       return [
         `codex plugin marketplace add ${outDir}`,
         `codex plugin add ${id}@agent-connector`,
+      ];
+    case "copilot-plugin":
+      return [
+        `copilot plugin marketplace add ${outDir}`,
+        `copilot plugin install ${id}@agent-connector`,
       ];
     case "factory-plugin":
       return [

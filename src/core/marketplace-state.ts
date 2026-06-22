@@ -159,6 +159,11 @@ export function codexStagingRoot(): string {
   return join(marketplaceRoot(), "codex");
 }
 
+/** Shared GitHub Copilot CLI staging root: <dataRoot>/marketplace/copilot. */
+export function copilotStagingRoot(): string {
+  return join(marketplaceRoot(), "copilot");
+}
+
 /** Shared agy (Antigravity) staging root: <dataRoot>/marketplace/agy. */
 export function agyStagingRoot(): string {
   return join(marketplaceRoot(), "agy");
@@ -321,6 +326,95 @@ export function codexMarketplaceSource(name: string): string | null {
   if (!entry || typeof entry !== "object") return null;
   const source = (entry as { source?: unknown }).source;
   return typeof source === "string" ? source : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// GitHub Copilot CLI host-state readers (~/.copilot, NO env — HOME isolation)
+//
+// LIVE-VERIFIED against GitHub Copilot CLI 1.0.63:
+//   • ~/.copilot/config.json — JSONC (leading `// …` comment header, "managed
+//     automatically") carrying `installedPlugins: [{ name, marketplace,
+//     version, installed_at, enabled, cache_path }]`. The DEFINITIVE install
+//     probe (an uninstall empties this array). Parsed JSONC-tolerantly so the
+//     comment header does not break JSON.parse.
+//   • ~/.copilot/settings.json — `extraKnownMarketplaces["<name>"].source.path`
+//     records the registered local marketplace dir (a `{source:"directory",
+//     path}` object); `enabledPlugins["<id>@agent-connector"]: true`. The
+//     `.source.path` is both the presence probe and the NAME-COLLISION check.
+// Both readers degrade to false/null on absence/parse failure (refuse only on
+// positive evidence).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Copilot CLI's config dir: ~/.copilot (NO dedicated env — HOME isolation). */
+export function copilotConfigDir(): string {
+  return join(homedir(), ".copilot");
+}
+
+/** The state key our marketplace install creates for `id` (== claude/codex). */
+export function copilotPluginKey(connectorId: string): string {
+  return `${connectorId}@${MARKETPLACE_NAME}`;
+}
+
+/** The `installedPlugins` array from Copilot's config.json (JSONC; [] when unreadable). */
+function readCopilotInstalledPlugins(): Array<Record<string, unknown>> {
+  let raw: string;
+  try {
+    raw = readFileSync(join(copilotConfigDir(), "config.json"), "utf8");
+  } catch {
+    return [];
+  }
+  const parsed = parseJsonc(raw);
+  const plugins = parsed?.["installedPlugins"];
+  if (!Array.isArray(plugins)) return [];
+  return plugins.filter(
+    (e): e is Record<string, unknown> =>
+      e != null && typeof e === "object" && !Array.isArray(e),
+  );
+}
+
+/**
+ * True when Copilot's config.json lists `id` installed from our marketplace
+ * (`installedPlugins[]` carries an entry with `name === id`, `marketplace ===
+ * agent-connector`, and not `enabled: false`). The DEFINITIVE probe — an
+ * uninstall empties this array (live-verified on CLI 1.0.63).
+ */
+export function copilotPluginInstalled(connectorId: string): boolean {
+  return readCopilotInstalledPlugins().some(
+    (e) =>
+      e["name"] === connectorId &&
+      e["marketplace"] === MARKETPLACE_NAME &&
+      e["enabled"] !== false,
+  );
+}
+
+/** True when ANY plugin from our marketplace remains in Copilot's config.json. */
+export function anyCopilotAgentConnectorPlugins(): boolean {
+  return readCopilotInstalledPlugins().some(
+    (e) => e["marketplace"] === MARKETPLACE_NAME && e["enabled"] !== false,
+  );
+}
+
+/**
+ * The directory settings.json records as `extraKnownMarketplaces["<name>"]
+ * .source.path`, or null when not registered / unreadable. Both a presence probe
+ * and the NAME-COLLISION check (a registration pointing somewhere other than our
+ * staging root belongs to the user and must never be touched). `source` is a
+ * `{ source: "directory", path }` object on CLI 1.0.63; a bare string source is
+ * accepted defensively.
+ */
+export function copilotMarketplaceSource(name: string): string | null {
+  const parsed = readJsonFile(join(copilotConfigDir(), "settings.json"));
+  const known = parsed?.["extraKnownMarketplaces"];
+  if (!known || typeof known !== "object" || Array.isArray(known)) return null;
+  const entry = (known as Record<string, unknown>)[name];
+  if (entry == null) return null;
+  const source = (entry as { source?: unknown }).source;
+  if (typeof source === "string") return source;
+  if (source && typeof source === "object" && !Array.isArray(source)) {
+    const path = (source as { path?: unknown }).path;
+    if (typeof path === "string") return path;
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -780,6 +874,10 @@ export function marketplaceEvidence(
       );
       return existsSync(dir) ? `codex plugin cache ${dir} exists` : null;
     }
+    case "copilot-cli":
+      return copilotPluginInstalled(connectorId)
+        ? `${copilotPluginKey(connectorId)} listed in Copilot's config.json`
+        : null;
     default:
       return null;
   }
