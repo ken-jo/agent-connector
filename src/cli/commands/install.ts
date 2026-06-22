@@ -29,6 +29,7 @@ import { classifySource, resolveRemoteSource } from "../../core/fetch-source.js"
 import {
   buildConnectorSummary,
   fail,
+  maybePrintBanner,
   parseScope,
   parseTargets,
   print,
@@ -48,11 +49,15 @@ export async function run(argv: string[]): Promise<number> {
       // Memory surface: overwrite USER-EDITED managed blocks (hash drift).
       // Default behavior is warn-and-leave; --force backs the file up first.
       force: { type: "boolean", default: false },
+      // Decorative-banner suppressor (no effect on command output bytes).
+      quiet: { type: "boolean", default: false },
     },
     // A single positional <source> (local path OR remote GitHub spec) is the
     // ergonomic alias of --connector; either may be remote.
     allowPositionals: true,
   });
+
+  maybePrintBanner({ quiet: values.quiet });
 
   const method = parseInstallMethod(values.method);
   if (method == null) {

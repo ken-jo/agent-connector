@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 
+import { PALETTES, renderBrandBanner, resolveColorMode, shouldShowBanner } from "./banner.js";
 import type {
   ChangeRecord,
   ConnectorSummary,
@@ -44,6 +45,46 @@ let activeProgramName = "agent-connector";
 export function fail(message: string, code = 2): number {
   process.stderr.write(`${activeProgramName}: ${message}\n`);
   return code;
+}
+
+/**
+ * The brand active for THIS invocation (what the banner renders in ASCII art).
+ * main() sets it from {@link MainOptions.programName} before dispatch; reading it
+ * here keeps the banner branded for an embedding SDK CLI without each command
+ * module needing the program name threaded through.
+ */
+export function getActiveProgramName(): string {
+  return activeProgramName;
+}
+
+/**
+ * Print the branded ASCII banner once, atop install / uninstall / upgrade /
+ * doctor — but ONLY for an interactive TTY (suppressed when piped/redirected,
+ * under --json, or under --quiet) so scripts and pipelines see byte-identical
+ * command output. The pure render lives in cli/banner; this thin wrapper reads
+ * the real stdout/env and feeds it in.
+ */
+export function maybePrintBanner(flags: { json?: boolean; quiet?: boolean }): void {
+  const isTTY = process.stdout.isTTY === true;
+  const noColor = process.env.NO_COLOR != null && process.env.NO_COLOR !== "";
+  if (!shouldShowBanner({ isTTY, noColor, json: flags.json === true, quiet: flags.quiet === true })) {
+    return;
+  }
+  const color = resolveColorMode({
+    noColor,
+    colorterm: process.env.COLORTERM,
+    term: process.env.TERM,
+  });
+  // Coerce an unknown/zero width to a conservative 80 so an unknown-width TTY
+  // shows the safe one-line title rather than the 129-col block art.
+  const c = process.stdout.columns;
+  const columns = typeof c === "number" && c > 0 ? c : 80;
+  // Rotate the gradient per run so each real invocation reads differently. The
+  // random pick lives HERE (the impure wrapper) so the pure renderer stays
+  // deterministic for tests/direct callers.
+  const palette = PALETTES[Math.floor(Math.random() * PALETTES.length)]!;
+  print(renderBrandBanner(activeProgramName, { color, columns, palette }));
+  print("");
 }
 
 /**
@@ -489,18 +530,18 @@ export const DEFAULT_PROGRAM_NAME = "agent-connector";
 const COMMAND_USAGE: Record<string, string> = {
   detect: "detect [--json] [--project <dir>]",
   install:
-    "install [<source>] [--method direct|marketplace] [--connector <source>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force]\n" +
+    "install [<source>] [--method direct|marketplace] [--connector <source>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force] [--quiet]\n" +
     "  <source>    a local path OR a remote GitHub connector: owner/repo[/subpath][#ref], a github.com URL (incl. /tree/<ref>/<sub>), git@github.com:owner/repo, or github:owner/repo. Remote sources are fetched to ~/.agent-connector/sources/ and must be an agent-connector package (have an agent-connector.config.{mjs,js,json}).",
   uninstall:
-    "uninstall [--method auto|direct|marketplace] [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge]",
+    "uninstall [--method auto|direct|marketplace] [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge] [--quiet]",
   upgrade:
-    "upgrade [--method direct|marketplace] [--channel stable|latest] [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run]",
+    "upgrade [--method direct|marketplace] [--channel stable|latest] [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--quiet]",
   sync: "sync — alias of upgrade (see `upgrade --help`)",
   update: "update — alias of upgrade (see `upgrade --help`)",
   package:
     "package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]",
   doctor:
-    "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--explain] [--json] [--heal] [--dry-run]\n" +
+    "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--explain] [--json] [--heal] [--dry-run] [--quiet]\n" +
     "  --explain   per-(host,event) hook honor matrix (honored/degraded/dropped). Exit non-zero ONLY when an explicitly-targeted host DEGRADES a declared event (fires it but silently won't honor the reply); dropped/mcp-only hosts and fleet-wide (targets:auto) gaps are informational (exit 0).",
   status: "status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
   telemetry:

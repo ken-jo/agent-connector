@@ -45,6 +45,7 @@ import type {
 import {
   buildConnectorSummary,
   fail,
+  maybePrintBanner,
   parseScope,
   parseTargets,
   print,
@@ -81,9 +82,13 @@ export async function run(argv: string[]): Promise<number> {
       project: { type: "string" },
       "dry-run": { type: "boolean", default: false },
       purge: { type: "boolean", default: false },
+      // Decorative-banner suppressor (no effect on command output bytes).
+      quiet: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });
+
+  maybePrintBanner({ quiet: values.quiet });
 
   const method = parseUninstallMethod(values.method);
   if (method == null) {
