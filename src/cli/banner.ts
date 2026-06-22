@@ -8,15 +8,14 @@
  *   renderBrandBanner(name, { color, columns })  → the banner string
  *   shouldShowBanner({ isTTY, noColor, json, quiet }) → whether to show it
  *
- * The art is a compact, dependency-free 3-row SOLID-block font (filled `█` plus
- * the half-blocks `▀`/`▄`, no 3D outline) over [A-Za-z0-9 ._-] — the
- * connector-id charset — a modest ~1.3× text-height banner. Glyphs are mostly 3
- * columns wide (M/N/W wider so they stay distinct), so the full 15-char
- * "agent-connector" fits on ONE line within an 80-column terminal (no stacking,
- * no wrap). Coloring is PER-LETTER: each whole glyph gets one solid SOFT-PASTEL
- * color from a curated muted palette (cycled so adjacent letters stay
- * distinguishable while the banner reads calm, not neon). Only a single token
- * genuinely too wide for the terminal degrades to a one-line styled `» name`.
+ * The art is a hand-rolled COMPACT 6-row solid-block font (no figlet dependency,
+ * dependency-free; `█`/`▀`/`▄` blocks, no 3D outline) covering [A-Za-z0-9 ._-] —
+ * the connector-id charset — so a kebab-case brand ("agent-connector") and an
+ * arbitrary SDK brand ("acme") both render legibly (N/M/W are unmistakable at
+ * 6 rows). Glyphs are ~4-5 cols/char so the 15-char "agent-connector" fits one
+ * line under 80 cols. The per-column cyan→blue→magenta gradient sweeps each row
+ * left-to-right. When the art would overflow the terminal width it degrades
+ * gracefully (a single styled line) rather than mangling a wrap.
  */
 
 /** Color capability the host terminal advertises, highest → lowest. */
@@ -26,7 +25,7 @@ export type ColorMode = "truecolor" | "ansi256" | "ansi16" | "none";
 export interface BannerOptions {
   /** Color capability to render at. "none" emits zero ANSI codes. */
   color: ColorMode;
-  /** Terminal width in columns; an un-fittable token degrades to one line. */
+  /** Terminal width in columns; the art degrades to one line when it overflows. */
   columns: number;
 }
 
@@ -74,178 +73,155 @@ export function resolveColorMode(env: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Compact solid-block font: 3 rows per glyph (a modest ~1.3× text-height
-// banner), built from `█` plus the half-blocks `▀`/`▄`, no outline. Glyphs are
-// variable width (mostly 3 cols; M/N/W wider so they stay distinct), padded to
-// their own max so columns align when concatenated with a single-column gap.
-// Covers [A-Za-z0-9 ._-] (uppercased; lowercase reuses caps). The 15-char
-// "agent-connector" fits one line under 80 cols. Unknown chars → the blank.
+// Compact solid-block font (6 rows). Each glyph is up to 6 lines of `█`/`▀`/`▄`
+// blocks (no 3D outline); widths vary (~4 cols, narrower for I/T/1) so the art
+// stays tight and "agent-connector" fits one line under 80 cols. The taller box
+// makes ambiguous letters legible — N is a full-height diagonal, M two peaks +
+// center join, W two valleys. Unknown chars fall back to the blank glyph. Charset
+// covers a connector id: [A-Za-z0-9 ._-] (uppercased — lowercase reuses caps).
 // ─────────────────────────────────────────────────────────────────────────
 
-const GLYPH_ROWS = 3;
+const GLYPH_ROWS = 6;
 
-/**
- * Glyph map: char → 3 rows of compact solid-block art (full `█` blocks plus the
- * upper-/lower-half blocks `▀`/`▄` for stroke detail, no outline). Most glyphs
- * are 3 columns wide (narrow ones less), so the full 15-char "agent-connector"
- * fits one line under 80 cols. Covers [A-Za-z0-9 ._-] (uppercased; lowercase
- * reuses caps). M/N/W are drawn distinctly. Unknown chars → the blank glyph.
- */
+/** Glyph map: char → up to 6 rows of solid-block art (caps + digits). */
 const FONT: Record<string, readonly string[]> = {
-  A: ["▄▀▄", "█▀█", "█ █"],
-  B: ["█▀▄", "█▀▄", "▀▀ "],
-  C: ["▄▀▀", "█  ", "▀▄▄"],
-  D: ["█▀▄", "█ █", "▀▀ "],
-  E: ["█▀▀", "█▀ ", "▀▀▀"],
-  F: ["█▀▀", "█▀ ", "█  "],
-  G: ["▄▀▀", "█ ▄", "▀▄▀"],
-  H: ["█ █", "█▀█", "█ █"],
-  I: ["█", "█", "█"],
-  J: ["  █", "  █", "▀▀ "],
-  K: ["█ ▄", "██ ", "█ ▀"],
-  L: ["█  ", "█  ", "▀▀▀"],
-  M: ["█▄ ▄█", "█ ▀ █", "█   █"],
-  N: ["█▄ █", "█ ▀█", "█  █"],
-  O: ["▄▀▄", "█ █", "▀▄▀"],
-  P: ["█▀▄", "█▀ ", "█  "],
-  Q: ["▄▀▄", "█ █", "▀▄▀▄"],
-  R: ["█▀▄", "█▀▄", "█ ▀"],
-  S: ["▄▀▀", "▀▀▄", "▀▄▀"],
-  T: ["▀█▀", " █ ", " █ "],
-  U: ["█ █", "█ █", "▀▄▀"],
-  V: ["█ █", "█ █", " ▀ "],
-  W: ["█   █", "█ ▄ █", "▀▄▀▄▀"],
-  X: ["▀▄▀", " █ ", "▄▀▄"],
-  Y: ["█ █", " ▀ ", " █ "],
-  Z: ["▀▀█", " ▄▀", "█▄▄"],
-  "0": ["▄▀▄", "█ █", "▀▄▀"],
-  "1": ["▄█ ", " █ ", "▄█▄"],
-  "2": ["▀▀▄", " ▄▀", "█▄▄"],
-  "3": ["▀▀▄", " ▀▄", "▀▀ "],
-  "4": ["█ █", "▀▀█", "  █"],
-  "5": ["█▀▀", "▀▀▄", "▀▀ "],
-  "6": ["▄▀▀", "█▀▄", "▀▄▀"],
-  "7": ["▀▀█", " ▄▀", "▄▀ "],
-  "8": ["▄▀▄", "▄▀▄", "▀▄▀"],
-  "9": ["▄▀▄", "▀▄█", "▀▄▀"],
-  "-": ["   ", "▄▄▄", "   "],
-  "_": ["   ", "   ", "▄▄▄"],
-  ".": [" ", " ", "▄"],
-  " ": ["  ", "  ", "  "],
+  A: [" ██ ", "█  █", "█  █", "████", "█  █", "█  █"],
+  B: ["███ ", "█  █", "███ ", "█  █", "█  █", "███ "],
+  C: [" ███", "█   ", "█   ", "█   ", "█   ", " ███"],
+  D: ["███ ", "█  █", "█  █", "█  █", "█  █", "███ "],
+  E: ["████", "█   ", "███ ", "█   ", "█   ", "████"],
+  F: ["████", "█   ", "███ ", "█   ", "█   ", "█   "],
+  G: [" ███", "█   ", "█ ██", "█  █", "█  █", " ███"],
+  H: ["█  █", "█  █", "████", "█  █", "█  █", "█  █"],
+  I: ["███", " █ ", " █ ", " █ ", " █ ", "███"],
+  J: ["  ██", "   █", "   █", "   █", "█  █", " ██ "],
+  K: ["█  █", "█ █ ", "██  ", "██  ", "█ █ ", "█  █"],
+  L: ["█   ", "█   ", "█   ", "█   ", "█   ", "████"],
+  M: ["█   █", "██ ██", "█ █ █", "█   █", "█   █", "█   █"],
+  N: ["█   █", "██  █", "█ █ █", "█  ██", "█   █", "█   █"],
+  O: [" ██ ", "█  █", "█  █", "█  █", "█  █", " ██ "],
+  P: ["███ ", "█  █", "█  █", "███ ", "█   ", "█   "],
+  Q: [" ██ ", "█  █", "█  █", "█  █", "█ ██", " ███"],
+  R: ["███ ", "█  █", "█  █", "███ ", "█ █ ", "█  █"],
+  S: [" ███", "█   ", " ██ ", "   █", "   █", "███ "],
+  T: ["███", " █ ", " █ ", " █ ", " █ ", " █ "],
+  U: ["█  █", "█  █", "█  █", "█  █", "█  █", " ██ "],
+  V: ["█   █", "█   █", "█   █", "█   █", " █ █ ", "  █  "],
+  W: ["█   █", "█   █", "█   █", "█ █ █", "██ ██", "█   █"],
+  X: ["█   █", " █ █ ", "  █  ", "  █  ", " █ █ ", "█   █"],
+  Y: ["█   █", " █ █ ", "  █  ", "  █  ", "  █  ", "  █  "],
+  Z: ["████", "   █", "  █ ", " █  ", "█   ", "████"],
+  "0": [" ██ ", "█  █", "█ ██", "██ █", "█  █", " ██ "],
+  "1": [" █ ", "██ ", " █ ", " █ ", " █ ", "███"],
+  "2": [" ██ ", "█  █", "  █ ", " █  ", "█   ", "████"],
+  "3": ["███ ", "   █", " ██ ", "   █", "   █", "███ "],
+  "4": ["█  █", "█  █", "████", "   █", "   █", "   █"],
+  "5": ["████", "█   ", "███ ", "   █", "   █", "███ "],
+  "6": [" ███", "█   ", "███ ", "█  █", "█  █", " ██ "],
+  "7": ["████", "   █", "  █ ", " █  ", " █  ", " █  "],
+  "8": [" ██ ", "█  █", " ██ ", "█  █", "█  █", " ██ "],
+  "9": [" ██ ", "█  █", "█  █", " ███", "   █", "███ "],
+  "-": ["    ", "    ", "████", "    ", "    ", "    "],
+  "_": ["    ", "    ", "    ", "    ", "    ", "████"],
+  ".": ["  ", "  ", "  ", "  ", "  ", "██"],
+  " ": ["  ", "  ", "  ", "  ", "  ", "  "],
 };
 
 /** The blank fallback used for any char outside the FONT charset. */
 const BLANK = FONT[" "]!;
 
-/** Visible column count of a string (each `█`/space is one cell). */
-function vlen(s: string): number {
-  return [...s].length;
-}
-
-/** Pad a glyph's rows to its own max width so columns stay aligned. */
-function normalizeGlyph(rows: readonly string[]): string[] {
-  const w = Math.max(...rows.map(vlen));
-  return rows.map((r) => r + " ".repeat(w - vlen(r)));
-}
-
 /**
- * Layout result: the 3 art rows PLUS, for each visible column, the index of the
- * letter it belongs to (-1 for an inter-glyph gap). The letter index drives the
- * per-letter solid pastel color.
+ * Render the brand name into the compact block font as an array of GLYPH_ROWS
+ * equal-length lines (glyphs joined with a single-column gap). Returns null when
+ * the name has no renderable characters.
  */
-interface ArtLayout {
-  rows: string[];
-  /** letterIndex[col] = which glyph occupies column `col` (-1 = gap). */
-  letterOf: number[];
-}
-
-/**
- * Render `name` into the 3-row solid-block font with per-column letter tags.
- * Glyphs are joined with a single blank gap column (tagged -1) so adjacent
- * letters get distinct colors. Returns null when the name has no renderable
- * characters.
- */
-function layoutArt(name: string): ArtLayout | null {
+function renderArtRows(name: string): string[] | null {
   const chars = [...name];
   if (chars.length === 0) return null;
   const rows: string[] = Array.from({ length: GLYPH_ROWS }, () => "");
-  const letterOf: number[] = [];
   for (let ci = 0; ci < chars.length; ci++) {
     const ch = chars[ci]!;
-    const glyph = normalizeGlyph(FONT[ch.toUpperCase()] ?? BLANK);
-    const gw = vlen(glyph[0] ?? "");
-    if (ci > 0) {
-      // One gap column between glyphs (tagged -1 so it stays uncolored).
-      for (let r = 0; r < GLYPH_ROWS; r++) rows[r] += " ";
-      letterOf.push(-1);
+    const glyph = FONT[ch.toUpperCase()] ?? BLANK;
+    const gap = ci === 0 ? "" : " ";
+    for (let r = 0; r < GLYPH_ROWS; r++) {
+      rows[r] += gap + (glyph[r] ?? "");
     }
-    for (let r = 0; r < GLYPH_ROWS; r++) rows[r] += glyph[r] ?? "";
-    for (let c = 0; c < gw; c++) letterOf.push(ci);
   }
-  return { rows, letterOf };
-}
-
-/** Max visible width across the layout's rows. */
-function artWidth(layout: ArtLayout): number {
-  return Math.max(...layout.rows.map(vlen));
+  // Drop any fully-blank bottom rows so a name built from narrower glyphs (e.g.
+  // "." / "_") never pads the banner with trailing empty lines.
+  while (rows.length > 1 && rows[rows.length - 1]!.trim() === "") rows.pop();
+  return rows;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Per-letter PASTEL palette. Each WHOLE letter gets one soft, muted color,
-// cycled through a curated gentle set (rose → peach → soft yellow → mint → sky
-// → periwinkle → lavender → soft lilac) so adjacent letters stay distinguishable
-// while the whole banner reads CALM, not loud neon. No white highlight.
+// Color gradient. A static cyan → blue → magenta sweep left-to-right across
+// each row, so the art reads "cool" without depending on the brand. Each tier
+// emits the closest representable escape; "none" emits the bare char.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Curated soft pastel RGB palette (8 muted hues), cycled per letter. */
-const PALETTE_RGB: ReadonlyArray<readonly [number, number, number]> = [
-  [244, 170, 190], // soft rose
-  [247, 198, 165], // peach
-  [243, 225, 168], // soft yellow
-  [183, 223, 178], // mint
-  [167, 214, 214], // soft aqua
-  [170, 198, 240], // sky blue
-  [183, 184, 232], // periwinkle
-  [206, 184, 230], // lavender
-];
+/** A point on the cyan→blue→magenta gradient as a 24-bit RGB triple. */
+function gradientRGB(t: number): [number, number, number] {
+  // t in [0,1]. Two-segment lerp: cyan(0,200,200) → blue(40,80,230) → magenta(200,40,200).
+  const clamp = Math.max(0, Math.min(1, t));
+  const stops: Array<[number, number, number]> = [
+    [0, 200, 200],
+    [40, 80, 230],
+    [200, 40, 200],
+  ];
+  const seg = clamp >= 0.5 ? 1 : 0;
+  const local = (clamp - seg * 0.5) / 0.5;
+  const a = stops[seg]!;
+  const b = stops[seg + 1]!;
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * local),
+    Math.round(a[1] + (b[1] - a[1]) * local),
+    Math.round(a[2] + (b[2] - a[2]) * local),
+  ];
+}
 
-/** 256-color cube indices approximating the pastel palette, cycled per letter. */
-const PALETTE_256: readonly number[] = [218, 223, 229, 151, 152, 153, 147, 183];
+/** Map a 0..1 gradient position to one of the cool 16-color fg codes. */
+function ansi16At(t: number): number {
+  // 96 = bright cyan, 94 = bright blue, 95 = bright magenta.
+  if (t < 0.34) return 96;
+  if (t < 0.67) return 94;
+  return 95;
+}
 
-/** 16-color (non-bright) fg codes approximating the pastels, cycled per letter. */
-const PALETTE_16: readonly number[] = [35, 33, 33, 32, 36, 34, 34, 35];
+/** Map a 0..1 gradient position to a 256-color cube index (cool band). */
+function ansi256At(t: number): number {
+  // A hand-picked cool ramp: cyan → blue → magenta within the 16..231 cube.
+  const ramp = [51, 45, 39, 33, 27, 63, 99, 129, 165, 201];
+  const i = Math.min(ramp.length - 1, Math.max(0, Math.round(t * (ramp.length - 1))));
+  return ramp[i]!;
+}
 
 const RESET = "\x1b[0m";
 
-/** The SGR open-escape for a letter's solid pastel color at the given tier. */
-function letterOpen(letterIndex: number, color: ColorMode): string {
+/**
+ * Wrap a single grapheme `ch` at gradient position `t` in the SGR escape for the
+ * given color tier. Whitespace is never colored (no point paying for an escape
+ * around a space) and "none" returns the bare char.
+ */
+function colorChar(ch: string, t: number, color: ColorMode): string {
+  if (color === "none" || ch.trim() === "") return ch;
   if (color === "truecolor") {
-    const [r, g, b] = PALETTE_RGB[letterIndex % PALETTE_RGB.length]!;
-    return `\x1b[38;2;${r};${g};${b}m`;
+    const [r, g, b] = gradientRGB(t);
+    return `\x1b[38;2;${r};${g};${b}m${ch}${RESET}`;
   }
   if (color === "ansi256") {
-    return `\x1b[38;5;${PALETTE_256[letterIndex % PALETTE_256.length]}m`;
+    return `\x1b[38;5;${ansi256At(t)}m${ch}${RESET}`;
   }
-  return `\x1b[${PALETTE_16[letterIndex % PALETTE_16.length]}m`;
+  return `\x1b[${ansi16At(t)}m${ch}${RESET}`;
 }
 
-/**
- * Colorize ONE art row: each filled cell takes its letter's solid pastel color;
- * gap/space cells are emitted bare (no escape). Under "none" the row is returned
- * verbatim.
- */
-function colorizeRow(row: string, letterOf: number[], color: ColorMode): string {
+/** Apply the left-to-right gradient across one art row (by visible column). */
+function colorizeRow(row: string, color: ColorMode): string {
   if (color === "none") return row;
   const chars = [...row];
+  const width = Math.max(1, chars.length - 1);
   let out = "";
   for (let i = 0; i < chars.length; i++) {
-    const ch = chars[i]!;
-    const li = letterOf[i] ?? -1;
-    if (ch === " " || li < 0) {
-      out += ch; // gap or empty cell — no color
-      continue;
-    }
-    out += letterOpen(li, color) + ch + RESET;
+    out += colorChar(chars[i]!, i / width, color);
   }
   return out;
 }
@@ -266,13 +242,11 @@ function dim(text: string, color: ColorMode): string {
 }
 
 /**
- * Render the full banner: the compact 3-row solid-block brand name with one
- * solid pastel color per letter, then a two-line dim footer directly below.
- * Width-safe:
+ * Render the full banner: the big block-font brand name with a cool cyan→blue→
+ * magenta gradient, then a two-line dim footer directly below. Width-safe:
  *
- *   • One line when it fits `columns` (which "agent-connector" does at 80 cols).
- *   • A token genuinely too wide → a one-line styled `» name` degrade rather
- *     than a mangled wrap. A 0/unknown `columns` is "no constraint".
+ *   • Reads `columns` (injected) and, when the block art would overflow, degrades
+ *     to a SINGLE styled line (`▌ <name>`) rather than a mangled wrap.
  *   • Under `color: "none"` (NO_COLOR / dumb term) the output carries zero ANSI
  *     escape codes — only the raw art + footer text.
  *
@@ -280,21 +254,23 @@ function dim(text: string, color: ColorMode): string {
  */
 export function renderBrandBanner(name: string, opts: BannerOptions): string {
   const { color, columns } = opts;
+  const art = renderArtRows(name);
+
   const footer = FOOTER_LINES.map((l) => dim(l, color)).join("\n");
 
-  const layout = layoutArt(name);
-  const limit = columns > 0 ? columns : Infinity;
-  if (layout == null || artWidth(layout) > limit) {
-    // Degrade to a single styled line (no art, or an un-fittable token).
-    const lead = color === "none" ? "» " : letterOpen(0, color) + "» " + RESET;
-    const line =
-      color === "none"
-        ? `${lead}${name}`
-        : `${lead}${letterOpen(0, color)}${name}${RESET}`;
+  // Degrade to a single styled line when there is no art, or when the art is
+  // wider than the terminal (a long brand name) — a mangled wrap is worse than a
+  // compact one-liner. A 0/unknown `columns` is treated as "no constraint".
+  const artWidth = art ? Math.max(...art.map((r) => [...r].length)) : 0;
+  const fits = art != null && (columns <= 0 || artWidth <= columns);
+
+  if (!fits) {
+    const bar = color === "none" ? "" : colorChar("▌", 0, color) + " ";
+    const lead = color === "none" ? "» " : bar;
+    const line = color === "none" ? `${lead}${name}` : `${lead}${colorizeRow(name, color)}`;
     return `${line}\n${footer}`;
   }
 
-  const { rows, letterOf } = layout;
-  const body = rows.map((row) => colorizeRow(row, letterOf, color)).join("\n");
+  const body = art.map((row) => colorizeRow(row, color)).join("\n");
   return `${body}\n${footer}`;
 }
