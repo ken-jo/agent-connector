@@ -1,6 +1,6 @@
 # Contributing to agent-connector
 
-agent-connector is the layer between your MCP server and every AI-agent CLI platform. You write standard MCP functionality once; agent-connector owns the non-functional cross-CLI infrastructure — packaging, hook normalization, telemetry wrapping, and rendering native config per host — so your connector deploys across all 35+ supported platforms without touching platform-specific details.
+agent-connector is the layer between your MCP server and every AI-agent CLI platform. You write standard MCP functionality once; agent-connector owns the non-functional cross-CLI infrastructure — packaging, hook normalization, telemetry wrapping, and rendering native config per host — so your connector deploys across all 42 supported platforms without touching platform-specific details.
 
 ---
 
