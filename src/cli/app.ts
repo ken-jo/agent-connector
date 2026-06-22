@@ -13,7 +13,6 @@
 
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { sep } from "node:path";
 
 import type {
   ChangeRecord,
@@ -130,11 +129,15 @@ export function buildConnectorSummary(connector: ResolvedConnector): ConnectorSu
  * per-host paths read short. Leaves non-home and relative paths untouched.
  */
 function tildify(path: string): string {
-  const home = homedir();
-  if (home && (path === home || path.startsWith(home + sep))) {
-    return "~" + path.slice(home.length);
+  // Normalize both to forward slashes so the home-prefix check is separator-
+  // robust (Windows mixes `\` and `/`) and the displayed path reads `~/…`
+  // consistently on every platform (Windows terminals accept `/` fine).
+  const home = homedir().replace(/\\/g, "/");
+  const np = path.replace(/\\/g, "/");
+  if (home && (np === home || np.startsWith(home + "/"))) {
+    return "~" + np.slice(home.length);
   }
-  return path;
+  return np;
 }
 
 /** Truncate a long single-line command for the header (keeps it scannable). */

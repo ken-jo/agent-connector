@@ -15,6 +15,8 @@
  * machine (--json) contract does not flow through this renderer.
  */
 
+import { homedir } from "node:os";
+
 import { describe, expect, it } from "vitest";
 
 import { defineConnector } from "../../src/index.js";
@@ -128,7 +130,9 @@ describe("renderInstallResult — per-host grouping", () => {
 
   it("dedupes + HOME-relativizes the touched paths", () => {
     // settings.json appears on two hook records → must show once, ~/-relative.
-    const home = process.env.HOME ?? "";
+    // Use os.homedir() (NOT process.env.HOME, unset on Windows) so the fixture
+    // matches the home dir tildify() resolves on every platform.
+    const home = homedir();
     const changes: ChangeRecord[] = [
       { platform: "claude-code", action: "create", detail: "mcpServers.acme-db", path: `${home}/.claude.json` },
       { platform: "claude-code", action: "create", detail: "hooks.SessionStart", path: `${home}/.claude/settings.json` },
@@ -140,6 +144,22 @@ describe("renderInstallResult — per-host grouping", () => {
     expect(hostLine).toContain("~/.claude/settings.json");
     // settings.json relativized + deduped → exactly one occurrence on the line.
     expect(hostLine.match(/settings\.json/g)).toHaveLength(1);
+  });
+
+  it("tildifies a BACKSLASH-separated path to forward-slash ~/… (cross-platform)", () => {
+    // A Windows-style absolute path (home + `\.codex\config.toml`) must still
+    // relativize to a forward-slash `~/.codex/config.toml`, regardless of the
+    // host's native separator — pins the cross-platform tildify behavior.
+    const home = homedir();
+    const winPath = home.replace(/\//g, "\\") + "\\.codex\\config.toml";
+    const changes: ChangeRecord[] = [
+      { platform: "codex", action: "create", detail: "mcp_servers.acme-db", path: winPath },
+    ];
+    const out = renderInstallResult(result({ changes }), "install");
+    const hostLine = out.split("\n").find((l) => l.includes("codex"))!;
+    expect(hostLine).toContain("~/.codex/config.toml");
+    expect(hostLine).not.toContain("\\.codex");
+    expect(hostLine).not.toContain("~\\");
   });
 
   it("derives a `+ 1 command` summary from a content-file path", () => {
