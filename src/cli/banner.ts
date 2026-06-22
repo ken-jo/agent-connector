@@ -55,7 +55,7 @@ export const PALETTES: readonly Palette[] = [
 export interface BannerOptions {
   /** Color capability to render at. "none" emits zero ANSI codes. */
   color: ColorMode;
-  /** Terminal width in columns; selects the font (wide → compact → degrade). */
+  /** Terminal width in columns; selects the form (wide block art → one-line title). */
   columns: number;
   /** The 3-stop gradient. Defaults to {@link PALETTES}[0] (Sunset) when omitted. */
   palette?: Palette;
