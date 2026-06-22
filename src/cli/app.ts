@@ -12,12 +12,16 @@
  */
 
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
+import { sep } from "node:path";
 
 import type {
   ChangeRecord,
+  ConnectorSummary,
   InstallResult,
   InstallScope,
   PlatformId,
+  ResolvedConnector,
 } from "../core/types.js";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -83,55 +87,346 @@ export function parseTargets(value: string | undefined): PlatformId[] | undefine
   return ids.length > 0 ? ids : undefined;
 }
 
-const ACTION_GLYPH: Record<ChangeRecord["action"], string> = {
-  create: "+",
-  update: "~",
-  remove: "-",
-  skip: "=",
-  warn: "!",
-};
+/**
+ * Build the render-only {@link ConnectorSummary} from a resolved connector. The
+ * command modules call this on the {@link ResolvedConnector} they already loaded
+ * and attach the result to {@link InstallResult.connector}, so the friendly
+ * renderer can print a header describing WHAT was deployed without importing the
+ * heavyweight connector type or its live handlers.
+ */
+export function buildConnectorSummary(connector: ResolvedConnector): ConnectorSummary {
+  let server: ConnectorSummary["server"];
+  if (connector.server) {
+    const s = connector.server;
+    // stdio → "node server.mjs"; remote → the URL (best-effort one-liner).
+    // HOME-relativize each part so a bundled absolute server path reads short.
+    const cmd =
+      s.transport === "stdio"
+        ? [s.command, ...(s.args ?? [])]
+            .filter((p): p is string => p != null && p !== "")
+            .map((p) => tildify(p))
+            .join(" ")
+        : (s.url ?? "");
+    server = { transport: s.transport, command: cmd };
+  }
+  return {
+    id: connector.id,
+    version: connector.version,
+    displayName: connector.displayName,
+    server,
+    hookEvents: [...connector.hookEvents],
+    telemetryEnabled: connector.telemetry.enabled,
+    commands: connector.commands.length,
+    skills: connector.skills.length,
+    subagents: connector.subagents.length,
+    memory: connector.memory.length,
+    hasStatusline: connector.statusline != null,
+    actions: connector.actions.length,
+  };
+}
 
 /**
- * Render an InstallResult as a readable diff: one line per ChangeRecord (glyph,
- * platform, detail, path) followed by any warnings and a summary tally. Used by
- * install / upgrade / uninstall.
+ * Rewrite an absolute path under the user's home dir to a leading `~/…` so the
+ * per-host paths read short. Leaves non-home and relative paths untouched.
  */
-export function renderInstallResult(
-  result: InstallResult,
-  verb: "install" | "upgrade" | "uninstall",
-): string {
-  const lines: string[] = [];
-  const mode = result.dryRun ? " (dry-run — nothing written)" : "";
-  lines.push(`${verb} "${result.connectorId}"${mode}`);
+function tildify(path: string): string {
+  const home = homedir();
+  if (home && (path === home || path.startsWith(home + sep))) {
+    return "~" + path.slice(home.length);
+  }
+  return path;
+}
 
-  if (result.changes.length === 0) {
-    lines.push("  (no changes)");
+/** Truncate a long single-line command for the header (keeps it scannable). */
+function truncateCommand(cmd: string, max = 64): string {
+  if (cmd.length <= max) return cmd;
+  return cmd.slice(0, max - 1) + "…";
+}
+
+/**
+ * The surface a ChangeRecord touched, derived from its detail (primary signal)
+ * then its path (fallback for content files whose detail is a bare basename).
+ */
+type Surface = "mcp" | "hooks" | "commands" | "skills" | "subagents" | "memory" | "statusline" | "actions" | "backup" | "other";
+
+function classifySurface(c: ChangeRecord): Surface {
+  const detail = c.detail.toLowerCase();
+  // A safety backup the installer wrote before a destructive change.
+  if (detail.startsWith("backed up") || detail.includes("backup")) return "backup";
+  // MCP server entry: mcpServers.<id> / mcp_servers.<id> / mcp.servers.<id>.
+  if (/^mcp[._]?servers?\./.test(detail) || detail.startsWith("mcp.")) return "mcp";
+  // Normalized + native hook entries: hooks.<Event> (case varies per host).
+  if (detail.startsWith("hooks.") || detail.startsWith("hook ")) return "hooks";
+  if (detail.includes("nativehooks")) return "hooks";
+  if (detail.startsWith("memory")) return "memory";
+  if (detail.startsWith("statusline")) return "statusline";
+  if (detail.startsWith("actions") || detail.startsWith("action ")) return "actions";
+  if (detail.includes("configpatch")) return "other";
+  // Path-based fallback for content-file surfaces (detail is a bare basename).
+  const p = (c.path ?? "").replace(/\\/g, "/").toLowerCase();
+  if (/\/commands?\//.test(p)) return "commands";
+  if (/\/skills?\//.test(p)) return "skills";
+  if (/\/(subagents?|agents?)\//.test(p)) return "subagents";
+  // Detail mentions a surface noun (skip/warn lines like "no skills").
+  if (/\bcommands?\b/.test(detail)) return "commands";
+  if (/\bskills?\b/.test(detail)) return "skills";
+  if (/\bsubagents?\b/.test(detail)) return "subagents";
+  return "other";
+}
+
+const SURFACE_LABEL_SINGULAR: Record<Surface, string> = {
+  mcp: "MCP server",
+  hooks: "hook",
+  commands: "command",
+  skills: "skill",
+  subagents: "subagent",
+  memory: "memory block",
+  statusline: "status line",
+  actions: "action",
+  backup: "backup",
+  other: "change",
+};
+
+/** Pluralize a surface count, e.g. (2,"hooks") → "2 hooks". */
+function countLabel(n: number, surface: Surface): string {
+  const base = SURFACE_LABEL_SINGULAR[surface];
+  if (surface === "mcp") return "MCP server"; // singular by construction
+  return n === 1 ? `1 ${base}` : `${n} ${base}s`;
+}
+
+/** Verb-appropriate glyph for a host's NET status. */
+function hostGlyph(status: "ok" | "skip" | "warn"): string {
+  return status === "warn" ? "!" : status === "skip" ? "=" : "✓";
+}
+
+/**
+ * One host's collapsed view: its net status, a surface summary line, the
+ * deduped HOME-relativized paths it touched, and any inline warnings.
+ */
+interface HostGroup {
+  platform: PlatformId;
+  status: "ok" | "skip" | "warn";
+  summary: string;
+  paths: string[];
+  warnings: string[];
+}
+
+/**
+ * Collapse the per-(host,surface) ChangeRecords into ONE entry per host:
+ *   - status: warn if any record warned; ok if any created/updated/removed;
+ *     else skip (everything was a no-op).
+ *   - summary: the active (non-skip) surfaces, joined ("MCP server + 2 hooks").
+ *     When every record skipped, the reason is surfaced instead.
+ */
+function groupByHost(changes: ChangeRecord[], verb: Verb): HostGroup[] {
+  const order: PlatformId[] = [];
+  const byHost = new Map<PlatformId, ChangeRecord[]>();
+  for (const c of changes) {
+    if (!byHost.has(c.platform)) {
+      byHost.set(c.platform, []);
+      order.push(c.platform);
+    }
+    byHost.get(c.platform)!.push(c);
+  }
+
+  const groups: HostGroup[] = [];
+  for (const platform of order) {
+    const recs = byHost.get(platform)!;
+    // A safety backup the installer wrote is INCIDENTAL, not an installed
+    // surface: it must not flip an otherwise-no-op host to "changed" (an
+    // idempotent re-install that only re-backs-up should still read "already
+    // current"). It is shown only ALONGSIDE a real surface change.
+    const written = recs.filter((c) => c.action !== "skip" && c.action !== "warn");
+    const realChanges = written.filter((c) => classifySurface(c) !== "backup");
+    const warned = recs.filter((c) => c.action === "warn");
+    const status: HostGroup["status"] =
+      warned.length > 0 ? "warn" : realChanges.length > 0 ? "ok" : "skip";
+
+    // Surface summary from the written records (created/updated/removed),
+    // preserving a stable surface order and collapsing per-surface counts. The
+    // incidental `backup` surface is included ONLY when a real surface changed.
+    const SURFACE_ORDER: Surface[] = [
+      "mcp",
+      "hooks",
+      "commands",
+      "skills",
+      "subagents",
+      "memory",
+      "statusline",
+      "actions",
+      "backup",
+      "other",
+    ];
+    const counts = new Map<Surface, number>();
+    const summarySource = realChanges.length > 0 ? written : realChanges;
+    for (const c of summarySource) {
+      const s = classifySurface(c);
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    const parts = SURFACE_ORDER.filter((s) => counts.has(s)).map((s) =>
+      countLabel(counts.get(s)!, s),
+    );
+
+    let summary: string;
+    if (parts.length > 0) {
+      summary = parts.join(" + ");
+    } else if (status === "warn") {
+      // No real surface change but a warning — the warning line carries detail.
+      summary = "";
+    } else {
+      // Nothing real changed: surface a skip reason (or note the incidental
+      // backup) for context.
+      const reason =
+        recs.find((c) => c.action === "skip")?.detail ??
+        (written.length > 0 ? "already current (re-backed-up only)" : "no changes");
+      summary = verb === "uninstall" ? `nothing to remove (${reason})` : `unchanged (${reason})`;
+    }
+
+    const paths = [
+      ...new Set(
+        recs
+          .filter((c) => c.path != null && c.path !== "")
+          .map((c) => tildify(c.path!)),
+      ),
+    ];
+    const warnings = warned.map((c) => c.detail);
+
+    groups.push({ platform, status, summary, paths, warnings });
+  }
+  return groups;
+}
+
+type Verb = "install" | "upgrade" | "uninstall";
+
+/**
+ * Render an InstallResult as a friendly, grouped report (the DEFAULT output):
+ *   1. a connector header (id/version/displayName + server/hooks/telemetry +
+ *      one line per shipped content surface), when the summary is threaded in;
+ *   2. one line per host (net glyph + surface summary + deduped ~/… paths),
+ *      with any host warnings inline beneath it;
+ *   3. a friendly closing line + restart hint + doctor/uninstall next steps.
+ *
+ * Used by install / upgrade / uninstall. The exit-non-zero-on-warn convention
+ * is enforced by the callers (this function only renders).
+ */
+export function renderInstallResult(result: InstallResult, verb: Verb): string {
+  const lines: string[] = [];
+  const summary = result.connector;
+
+  // ── 1. Connector header ───────────────────────────────────────────────────
+  if (summary) {
+    const head = [`${summary.id}  v${summary.version}`];
+    if (summary.displayName && summary.displayName !== summary.id) {
+      head.push(summary.displayName);
+    }
+    lines.push(head.join("  ·  "));
+
+    if (summary.server) {
+      lines.push(
+        `  server      ${summary.server.transport} · ${truncateCommand(summary.server.command)}`,
+      );
+    } else {
+      lines.push("  server      (hooks-only)");
+    }
+    if (summary.hookEvents.length > 0) {
+      lines.push(`  hooks       ${summary.hookEvents.join(", ")}`);
+    }
+    lines.push(`  telemetry   ${summary.telemetryEnabled ? "on" : "off"}`);
+    if (summary.commands > 0)
+      lines.push(`  commands    ${summary.commands}`);
+    if (summary.skills > 0) lines.push(`  skills      ${summary.skills}`);
+    if (summary.subagents > 0)
+      lines.push(`  subagents   ${summary.subagents}`);
+    if (summary.memory > 0) lines.push(`  memory      ${summary.memory}`);
+    if (summary.hasStatusline) lines.push(`  statusline  1`);
+    if (summary.actions > 0) lines.push(`  actions     ${summary.actions}`);
+    lines.push("");
   } else {
-    for (const c of result.changes) {
-      const glyph = ACTION_GLYPH[c.action];
-      const where = c.path ? `  ${c.path}` : "";
-      lines.push(`  ${glyph} [${c.platform}] ${c.action}: ${c.detail}${where}`);
+    // No summary threaded (back-compat): keep a minimal verb header.
+    const mode = result.dryRun ? " (dry-run — nothing written)" : "";
+    lines.push(`${verb} "${result.connectorId}"${mode}`);
+  }
+
+  // ── 2. Per-host grouping ──────────────────────────────────────────────────
+  const groups = groupByHost(result.changes, verb);
+  if (groups.length === 0) {
+    lines.push("(no changes)");
+  } else {
+    const verbed = verb === "uninstall" ? "removed from" : verb === "upgrade" ? "synced to" : "detected";
+    lines.push(`→ ${groups.length} agent ${groups.length === 1 ? "CLI" : "CLIs"} ${verbed}:`);
+    // Width-align the platform column for a scannable table; the summary column
+    // gets a fixed min width but always keeps a 2-space gap before the paths
+    // even when an unusually long summary overflows it.
+    const pad = Math.max(...groups.map((g) => g.platform.length));
+    for (const g of groups) {
+      const glyph = hostGlyph(g.status);
+      const name = g.platform.padEnd(pad);
+      const pathsCol = g.paths.join(", ");
+      const gap = pathsCol === "" ? "" : "  ";
+      const summaryCol = pathsCol === "" ? g.summary : g.summary.padEnd(26) + gap;
+      lines.push(`  ${glyph} ${name}   ${summaryCol}${pathsCol}`.trimEnd());
+      for (const w of g.warnings) lines.push(`      ! ${w}`);
     }
   }
 
-  if (result.warnings.length > 0) {
-    lines.push("");
-    lines.push("warnings:");
-    for (const w of result.warnings) lines.push(`  ! ${w}`);
-  }
-
-  const tally = result.changes.reduce<Record<ChangeRecord["action"], number>>(
+  // ── 3. Closing summary + next steps ───────────────────────────────────────
+  // The headline file tally counts only REAL surface writes — an incidental
+  // safety backup must not masquerade as an installed file, so a re-install
+  // whose only write was a backup honestly reports 0 files / "already current".
+  const tally = result.changes.reduce(
     (acc, c) => {
-      acc[c.action] += 1;
+      const isWrite = c.action === "create" || c.action === "update" || c.action === "remove";
+      if (isWrite && classifySurface(c) !== "backup") acc.files += 1;
+      if (c.action === "warn") acc.warns += 1;
       return acc;
     },
-    { create: 0, update: 0, remove: 0, skip: 0, warn: 0 },
+    { files: 0, warns: 0 },
   );
+  const cliCount = groups.length;
+  const cliWord = cliCount === 1 ? "CLI" : "CLIs";
+  const fileWord = tally.files === 1 ? "file" : "files";
+
   lines.push("");
-  lines.push(
-    `summary: ${tally.create} created, ${tally.update} updated, ` +
-      `${tally.remove} removed, ${tally.skip} skipped, ${tally.warn} warning(s)`,
-  );
+  if (verb === "uninstall") {
+    if (result.dryRun) {
+      lines.push(`✓ Would remove ${summary?.id ?? result.connectorId} from ${cliCount} ${cliWord} · ${tally.files} ${fileWord} (dry-run — nothing written).`);
+    } else if (tally.files === 0 && tally.warns === 0) {
+      lines.push(`✓ Nothing to remove — ${summary?.id ?? result.connectorId} was not installed (zero residue).`);
+    } else {
+      lines.push(`✓ Removed ${summary?.id ?? result.connectorId} from ${cliCount} ${cliWord} · ${tally.files} ${fileWord} cleaned${tally.warns === 0 ? " (zero residue)" : ""}.`);
+    }
+  } else {
+    const what = verb === "upgrade" ? "Synced" : "Installed";
+    const wouldWhat = verb === "upgrade" ? "sync" : "install";
+    if (result.dryRun) {
+      lines.push(`✓ Would ${wouldWhat} ${summary?.id ?? result.connectorId} to ${cliCount} ${cliWord} · ${tally.files} ${fileWord} (dry-run — nothing written).`);
+    } else if (tally.files === 0) {
+      lines.push(`✓ ${summary?.id ?? result.connectorId}: already current on ${cliCount} ${cliWord} — nothing to write.`);
+    } else {
+      lines.push(`✓ ${what} ${summary?.id ?? result.connectorId} to ${cliCount} ${cliWord} · ${tally.files} ${fileWord}. Restart each CLI to load it.`);
+    }
+  }
+
+  // Warnings block (kept explicit — callers exit non-zero on any warn). A
+  // remote-transport connector pushes the SAME string to both a warn
+  // ChangeRecord (already shown inline on its host line) and result.warnings, so
+  // skip any bottom-block entry already surfaced inline to show each warning ONCE.
+  const inlineWarnings = new Set(groups.flatMap((g) => g.warnings));
+  const blockWarnings = result.warnings.filter((w) => !inlineWarnings.has(w));
+  if (blockWarnings.length > 0) {
+    lines.push("");
+    lines.push("warnings:");
+    for (const w of blockWarnings) lines.push(`  ! ${w}`);
+  }
+
+  // Next-step hints (the verbs read as the active brand).
+  if (verb === "uninstall") {
+    lines.push(`  Verify it's gone: ${activeProgramName} doctor`);
+  } else {
+    lines.push(
+      `  Verify: ${activeProgramName} doctor   ·   Remove: ${activeProgramName} uninstall`,
+    );
+  }
 
   return lines.join("\n");
 }

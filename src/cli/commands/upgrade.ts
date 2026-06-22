@@ -22,7 +22,14 @@ import { resolveCliEntry, syncConnector } from "../../core/installer.js";
 import { parseInstallMethod, upgradeViaMarketplace } from "../../core/marketplace.js";
 import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-connector.js";
 import { ensureHomeBin, homeBinPath } from "../../core/paths.js";
-import { fail, parseScope, parseTargets, print, renderInstallResult } from "../app.js";
+import {
+  buildConnectorSummary,
+  fail,
+  parseScope,
+  parseTargets,
+  print,
+  renderInstallResult,
+} from "../app.js";
 
 type Channel = "stable" | "latest";
 
@@ -92,6 +99,7 @@ export async function run(argv: string[]): Promise<number> {
       method === "marketplace"
         ? await upgradeViaMarketplace(opts)
         : await syncConnector(opts);
+    result.connector = buildConnectorSummary(connector);
     print(renderInstallResult(result, "upgrade"));
     if (result.changes.some((c) => c.action === "warn")) hadWarn = true;
     print("");
