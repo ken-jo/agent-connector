@@ -36,20 +36,37 @@ import {
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
 import { assertConnectorId } from "../../core/ids.js";
 import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-connector.js";
-import type { InstallResult, PlatformId } from "../../core/types.js";
-import { fail, parseScope, parseTargets, print, renderInstallResult } from "../app.js";
+import type {
+  ConnectorSummary,
+  InstallResult,
+  PlatformId,
+  ResolvedConnector,
+} from "../../core/types.js";
+import {
+  buildConnectorSummary,
+  fail,
+  parseScope,
+  parseTargets,
+  print,
+  renderInstallResult,
+} from "../app.js";
 
-/** Resolve the connector id from flags, then from a local config file. */
+/**
+ * Resolve the connector id from flags, then from a local config file. When the
+ * id was inferred by LOADING a config, the resolved connector is returned too so
+ * the caller can build a header summary; an explicit `--connector-id` yields no
+ * connector (id-only uninstall), and the renderer degrades to an id-only header.
+ */
 async function resolveConnectorId(
   explicitId: string | undefined,
   connectorPath: string | undefined,
   projectDir: string,
-): Promise<string | null> {
-  if (explicitId && explicitId.trim() !== "") return explicitId;
+): Promise<{ id: string; connector?: ResolvedConnector } | null> {
+  if (explicitId && explicitId.trim() !== "") return { id: explicitId };
   const configPath = connectorPath ?? findConnectorConfig(projectDir);
   if (!configPath) return null;
   const { connector } = await loadConnectorFromPath(configPath);
-  return connector.id;
+  return { id: connector.id, connector };
 }
 
 export async function run(argv: string[]): Promise<number> {
@@ -78,17 +95,24 @@ export async function run(argv: string[]): Promise<number> {
   const scope = parseScope(values.scope);
   if (scope == null) return fail(`invalid --scope "${values.scope}" (use user|project)`);
 
-  const connectorId = await resolveConnectorId(
+  const resolved = await resolveConnectorId(
     values["connector-id"],
     values.connector,
     projectDir,
   );
-  if (!connectorId) {
+  if (!resolved) {
     return fail(
       "could not determine connector id. Pass --connector-id <id>, " +
         "--connector <path>, or run inside a project with an agent-connector config.",
     );
   }
+  const connectorId = resolved.id;
+  // Header summary when a connector config was actually loaded; id-only
+  // (--connector-id) uninstalls have no connector → the renderer degrades to an
+  // id-only header.
+  const summary: ConnectorSummary | undefined = resolved.connector
+    ? buildConnectorSummary(resolved.connector)
+    : undefined;
 
   // Single choke-point: validate the id BEFORE any path is built or any delete
   // runs. Every branch below (explicit --method marketplace, --method auto, and
@@ -118,6 +142,7 @@ export async function run(argv: string[]): Promise<number> {
       ...(targets ? { targets } : {}),
     });
     if (values.purge) purgeFrameworkState(connectorId, dryRun, result);
+    result.connector = summary;
     print(renderInstallResult(result, "uninstall"));
     return result.changes.some((c) => c.action === "warn") ? 1 : 0;
   }
@@ -127,7 +152,7 @@ export async function run(argv: string[]): Promise<number> {
   let marketplaceTargets: PlatformId[] = [];
   let directTargets: PlatformId[] = [];
   if (method === "auto") {
-    const resolved = await resolveUninstallTargets(connectorId, targets, projectDir);
+    const resolvedTargets = await resolveUninstallTargets(connectorId, targets, projectDir);
     // With no explicit --targets, recorded marketplace platforms are unioned
     // in: the state record IS the authority for what we installed, and host
     // detection can miss a host whose probe-able config dir was relocated.
@@ -135,11 +160,11 @@ export async function run(argv: string[]): Promise<number> {
     const recorded = targets
       ? []
       : (Object.keys(readMarketplaceInstalls(connectorId)) as PlatformId[]);
-    const candidates = [...new Set([...resolved, ...recorded])];
+    const candidates = [...new Set([...resolvedTargets, ...recorded])];
     marketplaceTargets = candidates.filter(
       (id) => marketplaceEvidence(connectorId, id) != null,
     );
-    directTargets = resolved.filter((id) => !marketplaceTargets.includes(id));
+    directTargets = resolvedTargets.filter((id) => !marketplaceTargets.includes(id));
   }
 
   // No marketplace evidence anywhere (or --method direct): exactly today's
@@ -154,6 +179,7 @@ export async function run(argv: string[]): Promise<number> {
       purge: values.purge,
       ...(targets ? { targets } : {}),
     });
+    result.connector = summary;
     print(renderInstallResult(result, "uninstall"));
     return result.changes.some((c) => c.action === "warn") ? 1 : 0;
   }
@@ -211,6 +237,7 @@ export async function run(argv: string[]): Promise<number> {
     dryRun,
     changes: results.flatMap((r) => r.changes),
     warnings: results.flatMap((r) => r.warnings),
+    connector: summary,
   };
   print(renderInstallResult(merged, "uninstall"));
   return merged.changes.some((c) => c.action === "warn") ? 1 : 0;

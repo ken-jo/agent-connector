@@ -1232,6 +1232,39 @@ export interface InstallResult {
   dryRun: boolean;
   changes: ChangeRecord[];
   warnings: string[];
+  /**
+   * Render-only digest of the resolved connector (id/version/server/hooks/
+   * telemetry/surface counts), threaded in by the CLI command so the friendly
+   * renderer can print a connector header. OPTIONAL: the core install/uninstall
+   * functions never populate it (they don't shape presentation) — the CLI
+   * attaches it from the {@link ResolvedConnector} it already loaded. The
+   * `--json` machine contract does NOT include it; see cli/app
+   * buildConnectorSummary / renderInstallResult.
+   */
+  connector?: ConnectorSummary;
+}
+
+/**
+ * A minimal, presentation-only digest of a {@link ResolvedConnector} used by the
+ * CLI's friendly install/uninstall/upgrade output. Lives here (not in cli/) so
+ * {@link InstallResult} can reference it without a CLI→core import cycle; it is
+ * BUILT by cli/app buildConnectorSummary. Render-only: never part of any machine
+ * (JSON) contract.
+ */
+export interface ConnectorSummary {
+  id: string;
+  version: string;
+  displayName?: string;
+  /** stdio command line / remote URL; absent ⇒ hooks-only connector. */
+  server?: { transport: string; command: string };
+  hookEvents: string[];
+  telemetryEnabled: boolean;
+  commands: number;
+  skills: number;
+  subagents: number;
+  memory: number;
+  hasStatusline: boolean;
+  actions: number;
 }
 
 export interface DiagnosticResult {

@@ -134,13 +134,16 @@ describe("cli install <remote-source> (built dist/cli.js, file:// git fixture)",
     ]);
 
     expect(code).toBe(0);
-    // The connector id was resolved from the fetched repo (gate passed).
-    expect(stdout).toContain('install "remote-smoke-connector"');
+    // The connector id was resolved from the fetched repo (gate passed): it
+    // headlines the friendly connector header (id + version).
+    expect(stdout).toContain("remote-smoke-connector");
+    expect(stdout).toContain("v9.9.9");
     expect(stdout).toContain("(dry-run — nothing written)");
-    // A real plan for BOTH targets.
-    expect(stdout).toContain("[claude-code]");
-    expect(stdout).toContain("[codex]");
-    expect(stdout).toMatch(/mcp_?[sS]ervers\.remote-smoke-connector/);
+    // A real plan for BOTH targets — one collapsed line per host.
+    expect(stdout).toContain("claude-code");
+    expect(stdout).toContain("codex");
+    // Each host's server entry is summarized as an "MCP server" surface.
+    expect(stdout).toContain("MCP server");
 
     // Path stability: persisted under a STABLE source cache dir below the
     // data-root, NOT a temp dir.

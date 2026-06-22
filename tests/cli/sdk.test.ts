@@ -156,8 +156,8 @@ describe("createConnectorCli auto-scopes to the developer connector", () => {
   it("injects --connector for `install --dry-run` (dev connector targeted, user passed none)", () => {
     const { code, stdout } = runDriver(["install", "--dry-run", "--targets", "claude-code"]);
     expect(code).toBe(0);
-    // The dry-run header names the injected connector id from the config path.
-    expect(stdout).toContain('install "acme-dev"');
+    // The connector header names the injected connector id from the config path.
+    expect(stdout).toContain("acme-dev  v1.0.0");
     expect(stdout).toContain("dry-run");
   });
 
@@ -171,9 +171,10 @@ describe("createConnectorCli auto-scopes to the developer connector", () => {
       otherConnectorPath,
     ]);
     expect(code).toBe(0);
-    // The user-supplied connector wins — the OTHER connector id is planned.
-    expect(stdout).toContain('install "other-conn"');
-    expect(stdout).not.toContain('install "acme-dev"');
+    // The user-supplied connector wins — the OTHER connector id is planned and
+    // the auto-injected dev connector (acme-dev) is absent from the output.
+    expect(stdout).toContain("other-conn  v1.0.0");
+    expect(stdout).not.toContain("acme-dev");
   });
 
   it("scopes `leaderboard` to the dev connector id (other-conn excluded from the MCP section)", () => {

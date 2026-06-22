@@ -26,7 +26,14 @@ import { installConnector } from "../../core/installer.js";
 import { installViaMarketplace, parseInstallMethod } from "../../core/marketplace.js";
 import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-connector.js";
 import { classifySource, resolveRemoteSource } from "../../core/fetch-source.js";
-import { fail, parseScope, parseTargets, print, renderInstallResult } from "../app.js";
+import {
+  buildConnectorSummary,
+  fail,
+  parseScope,
+  parseTargets,
+  print,
+  renderInstallResult,
+} from "../app.js";
 
 export async function run(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -125,6 +132,7 @@ export async function run(argv: string[]): Promise<number> {
           ...(targets ? { targets } : {}),
         });
 
+  result.connector = buildConnectorSummary(connector);
   print(renderInstallResult(result, "install"));
   return result.changes.some((c) => c.action === "warn") ? 1 : 0;
 }
