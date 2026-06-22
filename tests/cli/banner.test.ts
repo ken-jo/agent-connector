@@ -6,11 +6,13 @@
  *   • shouldShowBanner({ isTTY, noColor, json, quiet }) → gating boolean
  *   • resolveColorMode(...) → the color tier from the (injected) terminal env
  *
- * Covers: the bold 6-row ANSI-Shadow art renders legibly (distinct letters look
- * different), the footer is present, NO_COLOR/"none" emits zero ANSI codes while
- * color modes emit a VIVID RAINBOW (many distinct hues), a long name STACKS at
- * separators to fit the width while a single un-splittable token degrades, and
- * both a kebab name ("agent-connector") and an SDK brand ("acme") render.
+ * Covers: the compact 5-row solid-block art renders legibly (distinct letters
+ * look different) and "agent-connector" fits ONE line at 80 cols (no stacking),
+ * the footer is present, NO_COLOR/"none" emits zero ANSI codes, and in color
+ * mode each whole letter is ONE solid vivid palette color (not a smooth
+ * gradient) with a bright-WHITE top-row highlight; both a kebab name
+ * ("agent-connector") and an SDK brand ("acme") render; a genuinely un-fittable
+ * token degrades to one styled line.
  */
 
 import { describe, expect, it } from "vitest";
@@ -28,8 +30,8 @@ function cols(line: string): number {
 
 /** Any ANSI SGR escape (color, dim, reset). */
 const ANSI = /\x1b\[[0-9;]*m/;
-/** The block / box-drawing glyphs the bold ANSI-Shadow art is built from. */
-const ART_GLYPH = /[█╗╔╝╚║═▄▀]/;
+/** The solid-block glyph the compact art is built from. */
+const ART_GLYPH = /█/;
 /** Art rows only (drop the two footer lines). */
 function artLines(out: string): string[] {
   return out
@@ -38,11 +40,11 @@ function artLines(out: string): string[] {
 }
 
 describe("renderBrandBanner", () => {
-  it("renders 'acme' as bold 6-row block art with the footer", () => {
+  it("renders 'acme' as compact 5-row solid-block art with the footer", () => {
     const out = renderBrandBanner("acme", { color: "none", columns: 80 });
     expect(out).toMatch(ART_GLYPH);
-    // A single-line name is exactly the font's 6 rows of art.
-    expect(artLines(out).length).toBe(6);
+    // A single-line name is exactly the font's 5 rows of art.
+    expect(artLines(out).length).toBe(5);
     expect(out).toContain("powered by @ken-jo/agent-connector");
     expect(out).toContain("more → https://github.com/ken-jo/agent-connector");
   });
@@ -54,8 +56,8 @@ describe("renderBrandBanner", () => {
     const b = artLines(renderBrandBanner("B", { color: "none", columns: 80 })).join("\n");
     expect(m).not.toBe(n);
     expect(a).not.toBe(b);
-    // Every glyph is the full 6 rows tall.
-    expect(artLines(renderBrandBanner("M", { color: "none", columns: 80 })).length).toBe(6);
+    // Every glyph is the full 5 rows tall.
+    expect(artLines(renderBrandBanner("M", { color: "none", columns: 80 })).length).toBe(5);
   });
 
   it("shows the powered-by footer on BOTH global and branded banners", () => {
@@ -71,51 +73,62 @@ describe("renderBrandBanner", () => {
     expect(ANSI.test(out)).toBe(false);
   });
 
-  it("emits a VIVID RAINBOW (many distinct truecolor hues) under color:'truecolor'", () => {
+  it("colors each WHOLE letter ONE solid vivid hue (distinct, not a gradient)", () => {
     const out = renderBrandBanner("acme", { color: "truecolor", columns: 80 });
     expect(out).toMatch(/\x1b\[38;2;\d+;\d+;\d+m/);
-    expect(out).toContain("\x1b[0m"); // reset after each colored glyph
-    const triples = [...out.matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g)].map((mm) =>
-      mm.slice(1).join(","),
-    );
-    const distinct = new Set(triples);
-    // A real spectrum sweep yields many different colors (not a 2-3-stop gradient).
-    expect(distinct.size).toBeGreaterThanOrEqual(8);
-    // It spans warm → cool: a red-dominant AND a blue-dominant color both appear.
-    const rgb = [...distinct].map((s) => s.split(",").map(Number) as [number, number, number]);
-    expect(rgb.some(([r, , b]) => r > 180 && b < 120)).toBe(true); // red/orange end
-    expect(rgb.some(([, , b]) => b > 180)).toBe(true); // blue/violet end
+    expect(out).toContain("\x1b[0m"); // reset after each colored cell
+    const lines = out.split("\n");
+    // Row index 1 (a non-top row) of "acme": exactly 4 letters → 4 distinct
+    // palette colors, one solid hue per whole letter (cycled, all different here).
+    const row1 = lines[1]!;
+    const colors = [...row1.matchAll(/38;2;(\d+;\d+;\d+)m/g)].map((mm) => mm[1]);
+    const distinct = new Set(colors);
+    expect(distinct.size).toBe(4);
+    // The palette is vivid (a hot-pink-ish and a lime-ish letter both appear),
+    // and is a curated set — far fewer than one-hue-per-column (no gradient).
+    expect([...distinct]).toContain("255;45;149"); // hot pink (1st letter)
+    expect([...distinct]).toContain("120;255;40"); // lime (3rd letter)
   });
 
-  it("emits 256-color (38;5;n) escapes under color:'ansi256'", () => {
+  it("paints each glyph's TOP row bright WHITE (the glossy highlight)", () => {
+    const out = renderBrandBanner("acme", { color: "truecolor", columns: 80 });
+    const lines = out.split("\n");
+    // Top art row is overpainted bright white; the rows below carry palette hues.
+    expect(lines[0]).toContain("38;2;255;255;255m"); // white on the top row
+    const below = lines.slice(1, 5).join("");
+    expect(below).not.toContain("255;255;255"); // no white below the top row
+  });
+
+  it("emits 256-color palette + white highlight under color:'ansi256'", () => {
     const out = renderBrandBanner("acme", { color: "ansi256", columns: 80 });
     expect(out).toMatch(/\x1b\[38;5;\d+m/);
+    expect(out).toContain("\x1b[38;5;231m"); // bright-white highlight
   });
 
-  it("emits 16-color rainbow-wheel fg escapes under color:'ansi16'", () => {
+  it("emits 16-color palette + white highlight under color:'ansi16'", () => {
     const out = renderBrandBanner("acme", { color: "ansi16", columns: 80 });
-    expect(out).toMatch(/\x1b\[9[1-6]m/); // bright red..magenta wheel
+    expect(out).toMatch(/\x1b\[9[2-6]m/); // bright palette fg
+    expect(out).toContain("\x1b[97m"); // bright-white highlight
   });
 
-  it("STACKS 'agent-connector' at its separator to fit an 80-column terminal", () => {
+  it("renders 'agent-connector' on ONE line that fits an 80-column terminal", () => {
     const out = renderBrandBanner("agent-connector", { color: "none", columns: 80 });
     const art = artLines(out);
-    // Stacked = two 6-row blocks + a blank spacer row between them = 13 lines,
-    // not the un-stacked single 6-row line that would overflow 80 cols.
-    expect(art.length).toBe(13);
+    // ONE 5-row block (no stacking, no wrap), every row within 80 cols.
+    expect(art.length).toBe(5);
     for (const line of art) expect(cols(line)).toBeLessThanOrEqual(80);
-    // And it is still real block art (not the degraded "» name" line).
+    // Real block art (not the degraded "» name" line).
     expect(out).toMatch(ART_GLYPH);
     expect(out).not.toContain("» ");
   });
 
-  it("renders a short name on ONE big-font line (no stacking)", () => {
+  it("renders a short name on the same single 5-row block", () => {
     const out = renderBrandBanner("acme", { color: "none", columns: 80 });
-    expect(artLines(out).length).toBe(6); // single 6-row block, never stacked
+    expect(artLines(out).length).toBe(5);
   });
 
-  it("degrades a single un-splittable over-wide token to one styled line", () => {
-    // No separators → cannot stack; too wide for the column count → degrade.
+  it("degrades a single genuinely-un-fittable token to one styled line", () => {
+    // A token wider than the column budget → the last-resort one-line degrade.
     const out = renderBrandBanner("supercalifragilistic", { color: "none", columns: 20 });
     const art = artLines(out);
     expect(art.length).toBe(1);
