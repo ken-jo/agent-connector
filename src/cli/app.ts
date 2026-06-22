@@ -191,7 +191,8 @@ export const DEFAULT_PROGRAM_NAME = "agent-connector";
 const COMMAND_USAGE: Record<string, string> = {
   detect: "detect [--json] [--project <dir>]",
   install:
-    "install [--method direct|marketplace] [--connector <path>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force]",
+    "install [<source>] [--method direct|marketplace] [--connector <source>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force]\n" +
+    "  <source>    a local path OR a remote GitHub connector: owner/repo[/subpath][#ref], a github.com URL (incl. /tree/<ref>/<sub>), git@github.com:owner/repo, or github:owner/repo. Remote sources are fetched to ~/.agent-connector/sources/ and must be an agent-connector package (have an agent-connector.config.{mjs,js,json}).",
   uninstall:
     "uninstall [--method auto|direct|marketplace] [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge]",
   upgrade:

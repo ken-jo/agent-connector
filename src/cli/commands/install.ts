@@ -25,10 +25,11 @@ import { parseArgs } from "node:util";
 import { installConnector } from "../../core/installer.js";
 import { installViaMarketplace, parseInstallMethod } from "../../core/marketplace.js";
 import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-connector.js";
+import { classifySource, resolveRemoteSource } from "../../core/fetch-source.js";
 import { fail, parseScope, parseTargets, print, renderInstallResult } from "../app.js";
 
 export async function run(argv: string[]): Promise<number> {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: argv,
     options: {
       method: { type: "string", default: "direct" },
@@ -41,7 +42,9 @@ export async function run(argv: string[]): Promise<number> {
       // Default behavior is warn-and-leave; --force backs the file up first.
       force: { type: "boolean", default: false },
     },
-    allowPositionals: false,
+    // A single positional <source> (local path OR remote GitHub spec) is the
+    // ergonomic alias of --connector; either may be remote.
+    allowPositionals: true,
   });
 
   const method = parseInstallMethod(values.method);
@@ -50,13 +53,16 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const projectDir = values.project ?? process.cwd();
-  const configPath = values.connector ?? findConnectorConfig(projectDir);
-  if (!configPath) {
-    return fail(
-      "no connector config found. Pass --connector <path> or add an " +
-        "agent-connector.config.{mjs,js,json} to your project.",
-    );
+
+  // A connector source may arrive as the first positional or via --connector,
+  // and may be a LOCAL path (today's behavior) or a REMOTE GitHub spec
+  // (owner/repo[/sub][#ref], a github URL, git@…, github:…). The positional and
+  // the flag are equivalent; reject ambiguity when both name a source.
+  const positionalSource = positionals[0];
+  if (positionalSource != null && values.connector != null) {
+    return fail("pass a connector source as EITHER the positional <source> OR --connector, not both.");
   }
+  const source = positionalSource ?? values.connector;
 
   const scope = parseScope(values.scope);
   if (scope == null) return fail(`invalid --scope "${values.scope}" (use user|project)`);
@@ -66,7 +72,37 @@ export async function run(argv: string[]): Promise<number> {
     );
   }
 
-  const { connector, modulePath } = await loadConnectorFromPath(configPath);
+  // Resolve the source to a loadable connector. A REMOTE spec is fetched into a
+  // STABLE cache dir under the data-root and GATED (must be an agent-connector
+  // package) before handing off to the existing install flow. A LOCAL source —
+  // or no source at all — keeps today's path-discovery behavior unchanged.
+  let connector: Awaited<ReturnType<typeof loadConnectorFromPath>>["connector"];
+  let modulePath: string;
+  const spec = source != null ? classifySource(source) : null;
+  if (source != null && spec == null) {
+    return fail(
+      `"${source}" is not a local path or a recognizable GitHub source ` +
+        "(owner/repo[/subpath][#ref], a github.com URL, git@github.com:…, or github:owner/repo).",
+    );
+  }
+  if (spec != null && spec.kind === "remote") {
+    try {
+      const resolved = await resolveRemoteSource(spec.remote);
+      ({ connector, modulePath } = resolved);
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : String(err));
+    }
+  } else {
+    const configPath = source ?? findConnectorConfig(projectDir);
+    if (!configPath) {
+      return fail(
+        "no connector config found. Pass a <source> (local path or owner/repo) or " +
+          "--connector <path>, or add an agent-connector.config.{mjs,js,json} to your project.",
+      );
+    }
+    ({ connector, modulePath } = await loadConnectorFromPath(configPath));
+  }
+
   const targets = parseTargets(values.targets);
 
   const result =
