@@ -226,7 +226,7 @@ export const sectionDescription: Record<string, string> = {
   surfaces:
     "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts (33 of 42, the open agents.md standard), and on the non-AGENTS.md exceptions CLAUDE.md (Claude Code) and .clinerules (Cline); the dedicated-file rules hosts each get an agent-connector-owned file in their rules dir — .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf) — plus GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; claude-code in v1, other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; v1 ships the dispatch backbone, no host affordance emitter yet).",
   packaging:
-    "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 9 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
+    "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 10 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
     "Agent-CLI users (no connector): `agent-connector usage` reads each agent CLI's own session logs read-only and reports whole-conversation token totals grouped by platform, model, project, session, or day. It does NOT itemize cost per MCP server or per tool — agent CLIs don't log per-tool token attribution. Per-MCP/per-tool numbers require the MCP-developer serve-proxy telemetry track.",
   "telemetry-overview":
@@ -1518,7 +1518,7 @@ export const telemetryEmptyRows: { reason: string; fix: string }[] = [
 /* ------------------------------------------------------------------ */
 
 /**
- * The 11 PackageFormat values (9 host formats + 2 opt-in standard artifacts),
+ * The 12 PackageFormat values (10 host formats + 2 opt-in standard artifacts),
  * in ALL_FORMATS order (also the order
  * `--format all` emits). Each row is read directly from
  * src/core/package-formats/*.ts: the --format value, the target platform(s) it
@@ -1551,6 +1551,13 @@ export const packageFormatRows: PackageFormatRow[] = [
     manifest: ".codex-plugin/plugin.json + .agents/plugins/marketplace.json catalog (same component tree as claude-plugin; .mcp.json)",
     install: "codex plugin marketplace add <out> · codex plugin add <id>@agent-connector (driven end-to-end by `install --method marketplace --targets codex`)",
     note: "Manifest dir is .codex-plugin/, but the marketplace CATALOG must live at .agents/plugins/marketplace.json — codex rejects a catalog under .codex-plugin/ (live-confirmed).",
+  },
+  {
+    format: "copilot-plugin",
+    targets: "GitHub Copilot CLI",
+    manifest: ".claude-plugin/plugin.json + .claude-plugin/marketplace.json (the claude-plugin bundle, restamped --host copilot-cli; .mcp.json)",
+    install: "copilot plugin marketplace add <out> · copilot plugin install <id>@agent-connector (driven end-to-end by `install --method marketplace --targets copilot-cli`)",
+    note: "The claude-plugin bundle byte-for-byte (live-verified on GitHub Copilot CLI 1.0.63), restamped --host copilot-cli so telemetry routes to copilot.",
   },
   {
     format: "factory-plugin",

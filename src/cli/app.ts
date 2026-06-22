@@ -573,7 +573,7 @@ commands:
   install      Deploy a connector across its target platforms (--method direct writes host config; --method marketplace drives the host's plugin install).
   uninstall    Remove a connector's registrations (--method auto reverses whichever method is actually installed).
   upgrade      Bring everything current: re-render host config + heal the home pointer + managed update guidance (alias: update, sync).
-  package      Emit a marketplace/extension bundle (9 host formats, or the standard artifacts mcp-server-json | mcpb).
+  package      Emit a marketplace/extension bundle (10 host formats, or the standard artifacts mcp-server-json | mcpb).
   doctor       Health-check every detected platform; non-zero exit on any failure.
   status       Light install-state summary: which connectors are present on which hosts (always exits 0).
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).

@@ -27,7 +27,7 @@ const oldWay = [
 const newWay = [
   "Declare your server + hooks + commands + skills + subagents + memory once with defineConnector({…})",
   "Pick which platforms to activate via targets — or let it auto-detect every installed host",
-  "Ship it your way: install directly into every host, or `package` one connector into 9 marketplace/extension formats (Claude Code, Gemini, Antigravity, Cursor, Kimi, npm…) — plus opt-in official MCP server.json / MCPB artifacts — for one-command install",
+  "Ship it your way: install directly into every host, or `package` one connector into 10 marketplace/extension formats (Claude Code, Copilot, Gemini, Antigravity, Cursor, Kimi, npm…) — plus opt-in official MCP server.json / MCPB artifacts — for one-command install",
   "A new platform? Change one line. You maintain none of the adapter code",
 ];
 

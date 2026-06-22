@@ -160,7 +160,7 @@ agent-connector doctor [--probe]            # health checks; --probe spawns the 
 agent-connector status                      # glanceable install-state, ALWAYS exits 0 — doctor is the gate, status is the glance
 agent-connector upgrade                     # ONE verb: re-render + heal stale pointers + managed-update guidance (aliases: sync, update)
 agent-connector uninstall                   # full inverse — removes everything we wrote
-agent-connector package                     # marketplace bundle, claude-plugin default (9 host formats)
+agent-connector package                     # marketplace bundle, claude-plugin default (10 host formats)
 agent-connector package --format mcp-server-json|mcpb   # official MCP Registry server.json / MCPB bundle — requires the connector's publish{} block; see /docs/dev/packaging
 ```
 

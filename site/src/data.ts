@@ -247,7 +247,7 @@ export const cliCommands: { cmd: string; purpose: string }[] = [
   { cmd: "install", purpose: "Render + write MCP + hooks across detected targets (--method direct), OR drive the host's own marketplace/plugin flow for 10 hosts incl. Claude Code, Codex, Gemini CLI, OpenCode, Kilo, Antigravity, Droid & Qwen (--method marketplace); user-edited managed blocks are left alone unless --force (backs the file up first)." },
   { cmd: "uninstall", purpose: "Full inverse — removes everything we wrote." },
   { cmd: "upgrade", purpose: "Bring all current: re-render config, heal pointers, managed update (alias: update, sync)." },
-  { cmd: "package", purpose: "One connector → 9 marketplace/extension formats via --format all, plus opt-in official mcp-server-json / mcpb artifacts." },
+  { cmd: "package", purpose: "One connector → 10 marketplace/extension formats via --format all, plus opt-in official mcp-server-json / mcpb artifacts." },
   { cmd: "doctor", purpose: "Per-platform health checks; --probe runs a live MCP handshake." },
   { cmd: "status", purpose: "Light install-state: which connectors are present on which hosts (exits 0)." },
   { cmd: "telemetry", purpose: "Per-tool token footprint, input/output split." },
