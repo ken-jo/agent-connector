@@ -14,7 +14,7 @@
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 
-import { renderBrandBanner, resolveColorMode, shouldShowBanner } from "./banner.js";
+import { PALETTES, renderBrandBanner, resolveColorMode, shouldShowBanner } from "./banner.js";
 import type {
   ChangeRecord,
   ConnectorSummary,
@@ -76,7 +76,11 @@ export function maybePrintBanner(flags: { json?: boolean; quiet?: boolean }): vo
     term: process.env.TERM,
   });
   const columns = typeof process.stdout.columns === "number" ? process.stdout.columns : 80;
-  print(renderBrandBanner(activeProgramName, { color, columns }));
+  // Rotate the gradient per run so each real invocation reads differently. The
+  // random pick lives HERE (the impure wrapper) so the pure renderer stays
+  // deterministic for tests/direct callers.
+  const palette = PALETTES[Math.floor(Math.random() * PALETTES.length)]!;
+  print(renderBrandBanner(activeProgramName, { color, columns, palette }));
   print("");
 }
 
