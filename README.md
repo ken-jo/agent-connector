@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="site/public/mascot.png" alt="agent-connector mascot — a pixel-art lobster worker in a tool belt" width="160" />
+</p>
+
 # agent-connector
 
 ### Deploy one MCP to every agent CLI.
