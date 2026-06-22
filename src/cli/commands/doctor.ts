@@ -34,7 +34,7 @@ import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { probeStdioServer } from "../../runtime/probe.js";
 import { explainHooks } from "../../sdk/test-harness.js";
 import type { HookEventVerdict } from "../../sdk/test-harness.js";
-import { fail, parseScope, parseTargets, print } from "../app.js";
+import { fail, maybePrintBanner, parseScope, parseTargets, print } from "../app.js";
 
 const STATUS_GLYPH: Record<DiagnosticResult["status"], string> = {
   pass: "[pass]",
@@ -357,9 +357,15 @@ export async function run(argv: string[]): Promise<number> {
       heal: { type: "boolean", default: false },
       explain: { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
+      // Decorative-banner suppressor (no effect on command output bytes).
+      quiet: { type: "boolean", default: false },
     },
     allowPositionals: false,
   });
+
+  // Decorative header — suppressed under --json (machine output) and --quiet,
+  // and whenever stdout is not a TTY (so piped/redirected doctor stays clean).
+  maybePrintBanner({ json: values.json, quiet: values.quiet });
 
   const projectDir = values.project ?? process.cwd();
 
