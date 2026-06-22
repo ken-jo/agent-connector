@@ -1,5 +1,10 @@
 # agent-connector
 
+### Deploy one MCP to every agent CLI.
+
+Write your server + hooks once with `defineConnector()` → native config, plugin &
+marketplace across **42 agent CLIs** (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
+
 > **If you BUILD an MCP integration:** write your server + hooks once with
 > `defineConnector()`, deploy it to every detected AI-agent platform, and measure
 > your own server's per-tool tokens.
