@@ -25,7 +25,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../../src/cli/app.js";
 
 /** Any block-art glyph the banner uses — the unambiguous "banner is here" marker. */
-const ART = /[█▀▄]/;
+const ART = /[█╗╔╝╚║═▄▀]/;
 const POWERED_BY = "powered by @ken-jo/agent-connector";
 
 function captureStdout(): { restore: () => void; text: () => string } {
