@@ -55,6 +55,15 @@ export function isNonDefaultDataRoot(root: string): boolean {
 export function connectorsDir(): string {
   return join(dataRoot(), "connectors");
 }
+/**
+ * Stable cache root for REMOTE connector sources fetched by `install <source>`
+ * (one subdir per `<owner>__<repo>[__<ref>]`). Lives under the data-root — NOT a
+ * temp dir — so a fetched connector whose server is a LOCAL stdio command
+ * (`node <path-in-the-clone>`) keeps resolving after install across reboots.
+ */
+export function sourcesDir(): string {
+  return join(dataRoot(), "sources");
+}
 export function connectorDir(id: string): string {
   const root = resolve(connectorsDir());
   const safeId = assertConnectorId(id);
