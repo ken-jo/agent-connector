@@ -669,6 +669,14 @@ function ClaudeVsKilo() {
         </table>
       </div>
 
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        This comparison covers the <strong>12 events at least one of these two
+        hosts wires</strong>. The 13th canonical event, <C>PostCompact</C>, is a
+        no-op on <em>both</em> claude-code and kilo-cli (neither has a native
+        equivalent), so it is omitted here rather than shown as a pair of empty
+        cells.
+      </p>
+
       <Callout title="The same position, two renderings">
         For the events both hosts support, you write <em>one</em> handler. The
         framework places it at the host&apos;s native position — a{" "}

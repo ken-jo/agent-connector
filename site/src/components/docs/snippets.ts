@@ -17,7 +17,8 @@ export const brandedCliSnippet = `#!/usr/bin/env node
 import { fileURLToPath } from "node:url";
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
-createConnectorCli({
+// run() resolves to the exit code and never calls process.exit — forward it.
+process.exitCode = await createConnectorCli({
   name: "acme-db",
   connector: fileURLToPath(
     new URL("./agent-connector.config.mjs", import.meta.url),

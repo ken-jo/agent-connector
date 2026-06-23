@@ -230,7 +230,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 13 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts (33 of 42, the open agents.md standard), and on the non-AGENTS.md exceptions CLAUDE.md (Claude Code) and .clinerules (Cline); the dedicated-file rules hosts each get an agent-connector-owned file in their rules dir — .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf) — plus GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; emitted for claude-code and antigravity-cli (top-level statusLine) and qwen-code (nested ui.statusLine), other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; host affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw fork, which inherits openclaw's emitter), other hosts skip-warn).",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts (33 of 42, the open agents.md standard), and on the non-AGENTS.md exception CLAUDE.md (Claude Code); the dedicated-file rules hosts each get an agent-connector-owned file in their rules dir — .clinerules/agent-connector.md (Cline; project DIRECTORY form, user ~/Documents/Cline/Rules — skip-warns when .clinerules is a single FILE), .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf) — plus GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; emitted for claude-code and antigravity-cli (top-level statusLine) and qwen-code (nested ui.statusLine), other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; host affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw fork, which inherits openclaw's emitter), other hosts skip-warn).",
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 10 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -790,8 +790,8 @@ export const memoryDefFields: FieldRow[] = [
 /**
  * Memory write targets (llms-full §2.4): the AGENTS.md-first policy plus the
  * documented non-AGENTS.md exception hosts — claude-code (CLAUDE.md), gemini-cli
- * (GEMINI.md), and the dedicated rules-dir hosts amazon-q (.amazonq/rules),
- * continue (.continue/rules), windsurf (.windsurf/rules).
+ * (GEMINI.md), and the dedicated rules-dir hosts cline (.clinerules),
+ * amazon-q (.amazonq/rules), continue (.continue/rules), windsurf (.windsurf/rules).
  */
 export const memoryTargetRows: {
   host: string;
@@ -821,6 +821,13 @@ export const memoryTargetRows: {
     user: "~/.gemini/GEMINI.md",
     note:
       'AGENTS.md is targeted instead when the user\'s context.fileName setting includes "AGENTS.md" — probed and respected, never edited by agent-connector.',
+  },
+  {
+    host: "cline",
+    project: "<projectDir>/.clinerules/agent-connector.md",
+    user: "~/Documents/Cline/Rules/agent-connector.md",
+    note:
+      "Cline reads its own `.clinerules` rules tree (NOT AGENTS.md), so AC writes a dedicated agent-connector-owned file in the rules dir at both scopes — `.clinerules/agent-connector.md` (project, the DIRECTORY form) and `~/Documents/Cline/Rules/agent-connector.md` (user; the Documents dir is resolved cross-OS, honoring XDG_DOCUMENTS_DIR). FILE-vs-DIRECTORY caveat: when `.clinerules` already exists as a single FILE (the legacy single-file form), the project memory write is skip-warned rather than nesting `agent-connector.md` under a file path.",
   },
   {
     host: "amazon-q",
@@ -1135,9 +1142,9 @@ export const cliCommands: CliCommand[] = [
   {
     name: "doctor",
     signature:
-      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe] [--heal] [--dry-run]",
+      "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe] [--heal] [--explain] [--dry-run]",
     summary:
-      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code. With --heal it self-heals — re-syncs every connector that has fixable findings (e.g. a missing memory block or absent configPatch key), then re-diagnoses and reports healed / still-failing / deferred (drifted user-edited values are deferred, never overwritten). --dry-run pairs with --heal to preview what would be healed/deferred without writing anything (always exits 0).",
+      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code. With --heal it self-heals — re-syncs every connector that has fixable findings (e.g. a missing memory block or absent configPatch key), then re-diagnoses and reports healed / still-failing / deferred (drifted user-edited values are deferred, never overwritten). With --explain it prints an offline per-(host, event) hook-honor matrix — honored / degraded / dropped — for every declared event, resolved from the connector's OWN targets (or --targets) BEFORE installing, NOT from detection; it exits 1 only when a declared event is degraded (the host fires it but silently won't honor the reply) on an explicitly-targeted host, while a dropped event (a host with no native equivalent) is always informational (exit 0). --dry-run pairs with --heal to preview what would be healed/deferred without writing anything (always exits 0).",
   },
   {
     name: "status",

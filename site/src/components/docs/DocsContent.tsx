@@ -146,7 +146,7 @@ export function Installation() {
       <CodeBlock code={S.installSnippet} language="bash" filename="terminal" />
       <P>
         Then expose every subcommand under your own brand with{" "}
-        <C>createConnectorCli</C> from the <C>agent-connector/cli</C> export — the{" "}
+        <C>createConnectorCli</C> from the <C>@ken-jo/agent-connector/cli</C> export — the{" "}
         <Link className="underline hover:text-foreground" to="/docs/dev/embed-cli">
           branded-CLI flow
         </Link>
@@ -270,7 +270,7 @@ export function EmbedCli() {
 
       <H3 id="embed-bin">2. createConnectorCli in your bin</H3>
       <P>
-        Import <C>createConnectorCli</C> from the <C>agent-connector/cli</C>{" "}
+        Import <C>createConnectorCli</C> from the <C>@ken-jo/agent-connector/cli</C>{" "}
         export, point it at your shipped config, and <C>.run()</C> it. That is the
         whole bin — every command behavior still lives in agent-connector; this is
         pure brand + auto-scope.
