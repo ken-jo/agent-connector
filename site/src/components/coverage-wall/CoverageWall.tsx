@@ -26,12 +26,11 @@ import {
 
 /**
  * The detailed rank-tier coverage wall, extracted out of the landing into a
- * shared component so BOTH docs consumers render the same logic (no
- * duplication):
- *   - the dev docs Platforms reference (`/docs/dev/platforms`) embeds the full
- *     interactive `<CoverageWall />` (filter bar + tier colors + links);
- *   - the `/docs` persona chooser embeds the lightweight `<StaticCoverage />`
- *     snapshot (tier-colored grid, no filter machinery).
+ * shared component. It is the full interactive matrix (filter bar + tier-colored
+ * cards + GitHub/Guide links + ✦ handler chips) and lives at the `/docs` root
+ * (the wide persona-chooser page) — NOT in the narrow dev-docs prose column,
+ * where the full-width grid + filter bar would overflow. The landing carries
+ * only a lightweight name-chip marquee that links here.
  *
  * It imports only from `@/data` (the dependency-free platform-data layer) and
  * the build-fetched star snapshot, so the docs route chunk owns this weight —
@@ -601,47 +600,6 @@ export function TierLegend() {
           </span>
         ))}
       </div>
-    </div>
-  );
-}
-
-/**
- * A compact, NON-interactive coverage snapshot for the `/docs` persona chooser:
- * the same comparator-ordered hosts as the full wall, each a small
- * tier-colored pill (paradigm dot + name + form-factor tag) — no filter bar, no
- * star counts, no per-card links. It is a static teaser that links out to the
- * full interactive matrix at `/docs/dev/platforms`.
- */
-export function StaticCoverage() {
-  return (
-    <div className="flex flex-wrap justify-center gap-1.5">
-      {wallPlatforms.map((pl) => {
-        const paradigm = paradigms.find((p) => p.id === pl.paradigm)!;
-        const ffShort = formFactorShort(pl.id);
-        const tier = coverageTierFor(pl.id);
-        const style = tierStyle[tier];
-        return (
-          <span
-            key={pl.id}
-            title={`${pl.name} — ${style.label} tier · ${paradigm.label}`}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
-              style.card,
-            )}
-          >
-            <span
-              className={cn("size-2 shrink-0 rounded-full", paradigm.dot)}
-              aria-hidden="true"
-            />
-            <span className="text-foreground">{pl.name}</span>
-            {ffShort ? (
-              <span className="font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
-                {ffShort}
-              </span>
-            ) : null}
-          </span>
-        );
-      })}
     </div>
   );
 }

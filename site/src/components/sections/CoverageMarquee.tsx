@@ -130,7 +130,7 @@ export function CoverageMarquee() {
 
       <div className="mt-10 text-center">
         <Link
-          to="/docs/dev/platforms"
+          to="/docs"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
         >
           See the full coverage matrix

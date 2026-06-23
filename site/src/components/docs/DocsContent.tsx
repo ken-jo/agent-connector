@@ -58,12 +58,6 @@ import {
 } from "./docs-data";
 import { HooksGuideSection } from "./HooksGuide";
 import { PackagingGuideSection } from "./PackagingGuide";
-import {
-  CoverageWall,
-  ParadigmLegend,
-  SurfaceLegend,
-  TierLegend,
-} from "@/components/coverage-wall/CoverageWall";
 
 /* ================================================================== */
 /* Getting Started                                                     */
@@ -1889,38 +1883,12 @@ export function PlatformsSection() {
         platform — <strong>{platformCount}</strong> hosts, grouped by hook
         paradigm (the deepest cross-platform divergence).
       </Lead>
-
-      {/* The full interactive rank-tier coverage wall (Tier | Surface filter,
-          tier colors, GitHub + Guide links, ✦ handler chips) lives here in the
-          dev docs reference. The landing carries only a lightweight marquee
-          teaser; this is the canonical, deep-link target for every "Guide →"
-          and "See the full coverage matrix →" link. The component is shared
-          (src/components/coverage-wall/CoverageWall.tsx) — not duplicated. */}
-      <H3 id="coverage-wall">Coverage wall</H3>
       <P>
-        Every agent below shows exactly which surfaces agent-connector installs
-        on it, straight from its adapter — and, just as honestly, which surfaces
-        the host offers that we haven&apos;t wired yet. Filter by{" "}
-        <strong>Tier</strong> or <strong>Surface</strong>; the colored dot is its
-        hook paradigm, the corner tag its form factor (CLI / IDE / Ext), and the
-        card color its rank tier (Frontier = closed-source flagship; Challenger →
-        Bronze = open-source hosts ranked by GitHub stars).
+        Prefer a visual, filterable view?{" "}
+        <Link className="underline hover:text-foreground" to="/docs">
+          See the full interactive coverage matrix on the docs home →
+        </Link>
       </P>
-      <div className="not-prose my-8 flex flex-col items-center gap-3">
-        <ParadigmLegend />
-        <SurfaceLegend />
-        <TierLegend />
-      </div>
-      <div className="not-prose my-8">
-        <CoverageWall />
-      </div>
-      <P>
-        Surface profiles are drift-tested against the adapter registry — the
-        wall can&apos;t claim what an adapter doesn&apos;t ship, and a lit chip
-        always implies the host natively offers that surface.
-      </P>
-
-      <H3 id="platform-paradigms">By hook paradigm</H3>
       {/* counts derive from the entry lists (which the drift-guard test pins
           to the adapter registry) so they can never rot independently again. */}
       <PlatformTable
