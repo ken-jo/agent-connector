@@ -223,7 +223,7 @@
      exactly -50% (one copy width), so the loop is seamless with no JS.
      `marquee-right` reverses the direction for the opposite-scrolling row. */
   .marquee-track {
-    animation: marquee-scroll 48s linear infinite;
+    animation: marquee-scroll 80s linear infinite;
     will-change: transform;
   }
 

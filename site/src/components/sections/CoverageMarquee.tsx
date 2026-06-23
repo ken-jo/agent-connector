@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import {
   byParadigmFamilyName,
   formFactorShort,
+  hostSource,
   paradigms,
   platformCount,
   platforms,
@@ -14,8 +15,9 @@ import {
 /**
  * Landing coverage teaser — a lightweight, dependency-free auto-scrolling
  * marquee that replaces the detailed rank-tier wall (which now lives at
- * /coverage). Name chips only (NO logos): each chip is the host name
- * + its paradigm color dot + a small form-factor tag (CLI / IDE / Ext).
+ * /coverage). Host NAMES only (no logos, no paradigm dot, no pill outline) —
+ * a clean flowing line separated by `·`, with a small form-factor tag
+ * (CLI / IDE / Ext). Frontier (closed-source) hosts render a notch larger.
  *
  * Two rows scroll horizontally in OPPOSITE directions in a continuous,
  * seamless loop. The loop is pure CSS (`@keyframes` translateX, see
@@ -43,18 +45,19 @@ const rowB: Platform[] = ordered.filter((_, i) => i % 2 === 1);
 function HostChip({ platform }: { platform: Platform }) {
   const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
   const ffShort = formFactorShort(platform.id);
+  // Frontier (closed-source) hosts get a notch-larger, bolder name.
+  const isFrontier = "closed" in hostSource[platform.id];
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card/70 px-3 py-1.5 text-sm font-medium shadow-sm"
+      className={cn(
+        "inline-flex shrink-0 items-baseline gap-1.5",
+        isFrontier ? "text-lg font-semibold" : "text-base font-medium",
+      )}
       title={`${platform.name} — ${paradigm.label}`}
     >
-      <span
-        className={cn("size-2 shrink-0 rounded-full", paradigm.dot)}
-        aria-hidden="true"
-      />
       <span className="text-foreground">{platform.name}</span>
       {ffShort ? (
-        <span className="font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
+        <span className="font-mono text-[10px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
           {ffShort}
         </span>
       ) : null}
@@ -79,9 +82,9 @@ function MarqueeRow({
 }) {
   return (
     <div className="group flex overflow-hidden">
-      {/* No flex `gap` here: each <li> carries equal `pr-2.5` instead, so the
-          two copies are EXACTLY equal width and the -50% translate lands on a
-          chip boundary with no seam. */}
+      {/* Each <li> carries a trailing `·` separator (equal on every item, so
+          the two copies stay EXACTLY equal width and the -50% translate lands
+          on a boundary with no seam — the wrap reads `… · A · B · …`). */}
       <ul
         className={cn(
           "marquee-track flex w-max shrink-0 list-none items-center",
@@ -90,14 +93,20 @@ function MarqueeRow({
         )}
       >
         {hosts.map((p) => (
-          <li key={p.id} className="pr-2.5">
+          <li key={p.id} className="flex items-center">
             <HostChip platform={p} />
+            <span aria-hidden="true" className="mx-4 text-muted-foreground/40">
+              ·
+            </span>
           </li>
         ))}
         {/* Second, aria-hidden copy: makes the -50% translate loop seamless. */}
         {hosts.map((p) => (
-          <li key={`${p.id}-dup`} aria-hidden="true" className="pr-2.5">
+          <li key={`${p.id}-dup`} aria-hidden="true" className="flex items-center">
             <HostChip platform={p} />
+            <span aria-hidden="true" className="mx-4 text-muted-foreground/40">
+              ·
+            </span>
           </li>
         ))}
       </ul>
