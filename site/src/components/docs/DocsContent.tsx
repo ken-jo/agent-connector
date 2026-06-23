@@ -690,13 +690,14 @@ export function SurfacesSection() {
       <P>
         Plus two runtime-dispatched handler surfaces beyond the content writers —
         a singular <C>statusline</C> (a HUD <C>render(ctx)</C> handler; claude-code
-        (top-level statusLine) and qwen-code (nested ui.statusLine in
-        settings.json) today, other hosts skip-warn) and <C>actions</C>{" "}
+        and antigravity-cli (top-level statusLine) and qwen-code (nested
+        ui.statusLine in settings.json) today, other hosts skip-warn) and{" "}
+        <C>actions</C>{" "}
         (user-invokable <C>run(ctx)</C> handlers dispatched by{" "}
         <C>agent-connector action</C>; v1 ships the dispatch backbone, and host
-        affordance emitters now ship for droid, hermes, kiro, warp, omp, and
-        openclaw (plus the nemoclaw fork, which inherits openclaw&apos;s emitter);
-        hosts with no verifiable emission target skip-warn).
+        affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi,
+        warp, and zed (plus the nemoclaw fork, which inherits openclaw&apos;s
+        emitter); hosts with no verifiable emission target skip-warn).
       </P>
 
       <H3 id="command-def">CommandDef</H3>

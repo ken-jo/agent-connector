@@ -679,8 +679,8 @@ function ClaudeVsKilo() {
         <C>agent-connector hook &lt;platform&gt; PreToolUse --connector &lt;id&gt;</C>
         ). They line up on PreToolUse / PostToolUse / SessionStart; they diverge
         on output-rewrite (Kilo can rewrite tool output, Claude can&apos;t) and on
-        the nine lifecycle events Kilo&apos;s plugin surface simply doesn&apos;t
-        expose.
+        the six lifecycle events Kilo&apos;s plugin surface simply doesn&apos;t
+        expose{/* keep in sync with compareEvents rows where align === "claude-only" */}.
       </Callout>
     </div>
   );

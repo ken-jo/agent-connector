@@ -28,6 +28,38 @@ import * as sdk from "../../src/sdk/index.js";
 
 const LLMS = readFileSync("llms.txt", "utf8");
 const LLMS_FULL = readFileSync("llms-full.txt", "utf8");
+const SKILL = readFileSync("skills/agent-connector/SKILL.md", "utf8");
+
+/**
+ * Inline registry-count idioms — the prose phrasings that quote the adapter
+ * count as a bare number ("the N registered adapters", "subset of the N",
+ * "all N unconditionally", "the N-adapter registry"). Each pattern captures the
+ * number in group 1; the guard asserts it === ADAPTER_REGISTRY.length so a stale
+ * "36"/"35"/"40" can never be reintroduced.
+ *
+ * Deliberately SCOPED to the registry-count idioms only — it must NOT match the
+ * AGENTS.md "most supporting hosts" rephrase, paradigm subtotals (22/12/8),
+ * byte/line sizes, version strings, or the "N of 42" AGENTS readership ratio.
+ */
+const REGISTRY_COUNT_PATTERNS: readonly RegExp[] = [
+  /\b(\d+) registered(?: deploy)? adapters?\b/g,
+  /\b(\d+)-adapter registry\b/g,
+  /\bsubset of the (\d+) adapters\b/g,
+  /\bacross the (\d+) registered adapters\b/g,
+  /\ball (\d+) unconditionally\b/g,
+  /\binstall to all (\d+)\b/g,
+];
+
+/** Every registry-count number quoted in `text`, with a label for failures. */
+function registryCounts(text: string): { num: number; phrase: string }[] {
+  const hits: { num: number; phrase: string }[] = [];
+  for (const pattern of REGISTRY_COUNT_PATTERNS) {
+    for (const m of text.matchAll(pattern)) {
+      hits.push({ num: Number(m[1]), phrase: m[0] });
+    }
+  }
+  return hits;
+}
 
 /** The line in llms.txt that starts with `prefix` (the bullet anchor). */
 function bullet(text: string, prefix: string): string | undefined {
@@ -134,6 +166,36 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     expect(LLMS).toContain(`${nativeHooks.length} adapters support it today`);
     for (const id of nativeHooks) {
       expect(LLMS, `llms.txt nativeHooks paragraph omits "${id}"`).toContain(id);
+    }
+  });
+
+  // ── Inline registry-count prose (the freshness sweep guards this) ─────────
+  it("every inline registry-count phrase equals the adapter registry length", () => {
+    const expected = ADAPTER_REGISTRY.length;
+    // sanity: the idioms must actually be present, or the guard guards nothing
+    // (a refactor that renamed every phrasing should make us notice).
+    const llmsHits = registryCounts(LLMS);
+    const skillHits = registryCounts(SKILL);
+    expect(
+      llmsHits.length,
+      "llms.txt has no inline registry-count idiom — the guard would be a no-op",
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      skillHits.length,
+      "SKILL.md has no inline registry-count idiom — the guard would be a no-op",
+    ).toBeGreaterThanOrEqual(1);
+
+    for (const [name, text] of [
+      ["llms.txt", LLMS],
+      ["llms-full.txt", LLMS_FULL],
+      ["skills/agent-connector/SKILL.md", SKILL],
+    ] as const) {
+      for (const { num, phrase } of registryCounts(text)) {
+        expect(
+          num,
+          `${name} quotes a stale registry count: "${phrase}" (expected ${expected})`,
+        ).toBe(expected);
+      }
     }
   });
 
