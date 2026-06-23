@@ -4,20 +4,13 @@ import { ArrowRight } from "lucide-react";
 import { Nav } from "@/components/sections/Nav";
 import { Footer } from "@/components/sections/Footer";
 import { SkipLink } from "@/components/ui/skip-link";
-import { C } from "./prose";
+import { C, Callout } from "./prose";
 import {
   DocsSearchButton,
   DocsSearchDialog,
   useDocsSearch,
 } from "./DocsSearch";
 import { DEFAULT_DESCRIPTION, setMetaDescription } from "./meta";
-import {
-  CoverageWall,
-  ParadigmLegend,
-  SurfaceLegend,
-  TierLegend,
-} from "@/components/coverage-wall/CoverageWall";
-import { platformCount } from "@/data";
 
 const CONTENT_ID = "docs-content";
 
@@ -25,7 +18,9 @@ const CONTENT_ID = "docs-content";
  * /docs — the persona chooser. The docs fork into two audience tracks at the
  * route level; this page IS the fork: two whole-card links into /docs/dev and
  * /docs/user, with the one accuracy-critical boundary between them stated
- * right here at the fork. ⌘K search works from here too.
+ * right here at the fork as a standalone amber callout. ⌘K search works from
+ * here too. The full interactive coverage matrix lives on its own dedicated
+ * /coverage page (linked from the header nav), not here.
  */
 export function DocsChooser() {
   const { open: searchOpen, setOpen: setSearchOpen } = useDocsSearch();
@@ -40,12 +35,8 @@ export function DocsChooser() {
     <div className="flex min-h-dvh flex-col bg-background">
       <SkipLink targetId={CONTENT_ID} />
       <Nav />
-      {/* The page is max-w-6xl so the full interactive coverage wall (its grid
-          caps at max-w-5xl) fits below; the chooser header + cards stay in a
-          narrower max-w-4xl block for readable line length. */}
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-14 sm:py-20">
+      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-14 sm:py-20">
         <div id={CONTENT_ID} tabIndex={-1} className="scroll-mt-24 outline-none">
-          <div className="mx-auto max-w-4xl">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -85,11 +76,8 @@ export function DocsChooser() {
                 You write your MCP server + hooks (and optionally commands,
                 skills, subagents) <strong>once</strong>, then deploy across every
                 detected agent platform — shipping a branded CLI or running{" "}
-                <C>npx @ken-jo/agent-connector</C>. Per-MCP and per-tool token
-                numbers come from the serve-proxy telemetry your connector
-                produces for the server it declares and wraps —{" "}
-                <strong>see what your tools cost</strong> (your own wrapped
-                server).
+                <C>npx @ken-jo/agent-connector</C>. You get per-MCP and per-tool
+                token counts for <strong>your own wrapped server</strong>.
               </p>
               <div className="mt-auto pt-5">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 group-hover:underline">
@@ -118,12 +106,10 @@ export function DocsChooser() {
               <p className="text-sm leading-relaxed text-foreground/90">
                 <strong>You have NOT authored a connector — you just use agent
                 CLIs.</strong> You already run Claude Code / Codex / Cursor; with
-                zero setup, the connector-free <C>usage</C> path reports
-                whole-conversation totals per agent CLI / model / project /
-                session / day from each CLI&apos;s own session logs. It can&apos;t
-                itemize by individual MCP server or tool (agent CLIs don&apos;t
-                log per-tool attribution) —{" "}
-                <strong>see host totals, not per-MCP</strong>.
+                zero setup you run <C>agent-connector usage</C> to scan each
+                agent CLI&apos;s own session logs and see how many tokens
+                they&apos;re burning, ranked by CLI / model / project / session /
+                day.
               </p>
               <div className="mt-auto pt-5">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 group-hover:underline">
@@ -136,40 +122,28 @@ export function DocsChooser() {
               </div>
             </Link>
           </div>
-          </div>
 
-          {/* The full INTERACTIVE coverage matrix lives here at the /docs root
-              (a wide centered page), not in the narrow dev-docs prose column.
-              Full filter bar + tier cards — the real wall, not a static
-              snapshot. The accuracy-critical per-MCP-vs-host-totals line is now
-              folded into each entry card's copy above, not a standalone box. */}
-          <section aria-labelledby="docs-coverage-heading" className="mt-16">
-            <h2
-              id="docs-coverage-heading"
-              className="text-center text-2xl font-bold tracking-tight sm:text-3xl"
+          <Callout title="The one accuracy-critical line between the tracks" tone="warn">
+            The connector-free{" "}
+            <Link className="underline hover:text-foreground" to="/docs/user/usage">
+              <C>usage</C>
+            </Link>{" "}
+            path reports <strong>whole-conversation totals</strong> per agent
+            CLI / model / project / session / day — it does <strong>not</strong>{" "}
+            and cannot itemize cost by individual MCP server or tool, because
+            agent CLIs don&apos;t log per-tool token attribution.{" "}
+            <strong>Per-MCP and per-tool numbers</strong> come only from the{" "}
+            <Link
+              className="underline hover:text-foreground"
+              to="/docs/dev/telemetry-overview"
             >
-              Works with {platformCount} agents
-            </h2>
-            <p className="mx-auto mt-3 max-w-2xl text-center text-sm leading-relaxed text-muted-foreground">
-              Every agent shows exactly which surfaces agent-connector installs,
-              straight from its adapter — and which surfaces the host offers that
-              we haven&apos;t wired yet. Filter by tier or surface; each card
-              links to its setup guide.
-            </p>
-            <div className="mt-8 flex flex-col items-center gap-3">
-              <ParadigmLegend />
-              <SurfaceLegend />
-              <TierLegend />
-            </div>
-            <div className="mt-8">
-              <CoverageWall />
-            </div>
-            <p className="mx-auto mt-8 max-w-2xl text-center text-xs text-muted-foreground">
-              Surface profiles are drift-tested against the adapter registry —
-              the wall can&apos;t claim what an adapter doesn&apos;t ship, and a
-              lit chip always implies the host natively offers that surface.
-            </p>
-          </section>
+              serve-proxy telemetry
+            </Link>{" "}
+            that an MCP developer&apos;s own connector produces for the server
+            it declares and wraps. &quot;See what your tools cost&quot; (your own
+            wrapped server) is never the same as &quot;see what the MCPs you use
+            cost&quot; (only available as host totals, not per-MCP).
+          </Callout>
         </div>
       </main>
       <Footer />

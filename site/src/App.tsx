@@ -22,6 +22,14 @@ const LegacyDocsRedirect = React.lazy(() =>
     default: m.LegacyDocsRedirect,
   })),
 );
+// /coverage is code-split for the same reason as the docs routes: the full
+// interactive CoverageWall (+ its star snapshot) must never land in the
+// landing's initial chunk.
+const CoveragePage = React.lazy(() =>
+  import("@/components/coverage-wall/CoveragePage").then((m) => ({
+    default: m.CoveragePage,
+  })),
+);
 
 function lazyDocs(node: React.ReactNode) {
   return <React.Suspense fallback={null}>{node}</React.Suspense>;
@@ -31,6 +39,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      {/* /coverage — the dedicated, indexable full interactive coverage matrix. */}
+      <Route path="/coverage" element={lazyDocs(<CoveragePage />)} />
       {/* /docs is the persona chooser — the fork between the two tracks. */}
       <Route path="/docs" element={lazyDocs(<DocsChooser />)} />
       {/* Static /docs/user and /docs/dev segments outrank /docs/:legacySection
