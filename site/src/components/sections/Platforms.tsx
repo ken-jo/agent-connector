@@ -213,12 +213,25 @@ const generalPlatforms: Platform[] = platforms
 
 /**
  * The long tail: collapsed by default to ~2 rows behind a bottom fade, with a
- * "Show all N more" toggle. The clamp is a max-height on the wrapper (robust to
- * varying per-row counts — it just hides whatever overflows two-ish rows); the
- * gradient overlay fades the cut-off row. Opening removes both.
+ * "Show all N more" toggle that mounts the full set.
+ *
+ * Roughly two rows' worth of general cards stay mounted while collapsed. With a
+ * responsive flex-wrap a CSS max-height clamp would clip cards BELOW the fold
+ * while leaving their links in the tab order (a keyboard / screen-reader user
+ * tabs into off-screen links). Instead the collapsed wall renders only this
+ * slice — so the focusable set ALWAYS equals the visible set at every width,
+ * with no clipped-but-focusable links — and the bottom gradient fades the last
+ * mounted row into the page. (~2 rows at desktop; "roughly" by design, since
+ * wrap count varies with width.)
  */
+const COLLAPSED_GENERAL_COUNT = 12;
+
 function GeneralWall() {
   const [open, setOpen] = useState(false);
+  const regionId = "general-coverage-wall";
+  const shown = open
+    ? generalPlatforms
+    : generalPlatforms.slice(0, COLLAPSED_GENERAL_COUNT);
 
   return (
     <div>
@@ -233,19 +246,17 @@ function GeneralWall() {
 
       <div className="relative">
         <div
-          className={cn(
-            "flex flex-wrap justify-center gap-2.5 transition-all",
-            open ? "max-h-none" : "max-h-[15rem] overflow-hidden",
-          )}
+          id={regionId}
+          className="flex flex-wrap justify-center gap-2.5"
         >
-          {generalPlatforms.map((pl) => (
+          {shown.map((pl) => (
             <AgentEntry key={pl.id} platform={pl} />
           ))}
         </div>
         {!open && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-background via-background/85 to-transparent"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background via-background/85 to-transparent"
           />
         )}
       </div>
@@ -255,6 +266,7 @@ function GeneralWall() {
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
+          aria-controls={regionId}
           className="rounded-full border border-border bg-background/60 px-4 py-1.5 font-mono text-xs font-medium text-foreground transition-colors hover:border-foreground/30 hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
         >
           {open ? "Show fewer" : `Show all ${generalPlatforms.length} more`}

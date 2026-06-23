@@ -29,6 +29,8 @@ import {
 import {
   formFactorIds,
   formFactorOf,
+  frontierIds,
+  isFrontier,
   platforms as landingPlatforms,
 } from "../../site/src/platform-data.js";
 
@@ -124,6 +126,25 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     for (const p of landingPlatforms) {
       expect(formFactorOf(p.id), `"${p.id}" has no form-factor band`).toBeTruthy();
     }
+  });
+
+  it("frontierIds is a valid PARTITION marker over the landing platforms", () => {
+    // The Frontier grid renders frontierIds in pinned promo order and silently
+    // drops a typo'd id (.filter(Boolean)); the General wall is everything NOT in
+    // frontierIds. Guard both so a renamed/removed host fails LOUDLY here instead
+    // of vanishing from the wall: every frontier id must exist in `platforms`, no
+    // duplicates, and the two sections must SUM to the full platform count.
+    for (const id of frontierIds) {
+      expect(
+        landingPlatforms.some((p) => p.id === id),
+        `frontierIds entry "${id}" is not a landing platform`,
+      ).toBe(true);
+    }
+    expect(new Set(frontierIds).size, "frontierIds has a duplicate").toBe(
+      frontierIds.length,
+    );
+    const general = landingPlatforms.filter((p) => !isFrontier(p.id));
+    expect(frontierIds.length + general.length).toBe(landingPlatforms.length);
   });
 
   it("site landing surface flags EXACTLY match each loaded adapter's capabilities", async () => {
