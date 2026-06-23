@@ -53,6 +53,13 @@ export interface Platform {
   surfaces: PlatformSurfaces;
   /** What the host natively offers, independent of our adapter coverage. */
   hostNative: PlatformSurfaces;
+  /**
+   * Fork-lineage family key, used only to keep same-lineage hosts adjacent when
+   * coverage displays sort by paradigm → family → name. OPTIONAL and NOT
+   * drift-asserted: `familyOf` (below) is the single source of truth, so leaving
+   * this unset is the norm — `familyKey()` falls back to the host's own id.
+   */
+  family?: string;
 }
 
 /** Chip metadata: compact label on the wall, full word in the tooltip. */
@@ -766,4 +773,92 @@ const formFactorById: Record<string, FormFactorId> = Object.fromEntries(
 /** The form-factor of a platform id (undefined if unclassified). */
 export function formFactorOf(id: string): FormFactorId | undefined {
   return formFactorById[id];
+}
+
+/* ------------------------------------------------------------------ */
+/* Fork-lineage families — ordering metadata only (NOT drift-guarded)  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fork-lineage families: which hosts descend from a common parent. Used solely
+ * to keep same-lineage hosts adjacent when coverage displays sort by
+ * paradigm → family → name; it has no install/runtime effect.
+ *
+ * Single source of truth for the `family` ordering key. Each value is the
+ * FAMILY ANCHOR id (the lineage parent); only multi-member families are listed
+ * — every other host is its own family (familyKey falls back to the id), so
+ * singletons sort by name within their paradigm.
+ *
+ * Fork families per src/adapters/registry.ts fork-ordering comments +
+ * site/src/platform-data.ts host comments:
+ *   - claude-code: codebuddy is a Claude Code fork (registry.ts "Claude Code fork").
+ *   - codex: open-interpreter is "a fork of OpenAI's Codex" (registry.ts).
+ *   - opencode: mimo-code + kilo-cli are OpenCode forks (registry.ts "OpenCode FORK").
+ *   - cline: roo-code + kilo forked from cline ("the PARENT that roo-code and kilo forked").
+ *   - copilot-cli: vscode-copilot + jetbrains-copilot share the GitHub Copilot surface.
+ *   - pi: omp is a "pi fork" (platform-data.ts omp comment).
+ *   - openclaw: nemoclaw wraps/extends OpenClaw (registry.ts "wraps OpenClaw").
+ *   - antigravity: antigravity-cli is "a fork of the IDE" (registry.ts).
+ */
+export const familyOf: Record<string, string> = {
+  // claude-code lineage
+  "claude-code": "claude-code",
+  codebuddy: "claude-code",
+  // codex lineage
+  codex: "codex",
+  "open-interpreter": "codex",
+  // opencode lineage
+  opencode: "opencode",
+  "mimo-code": "opencode",
+  "kilo-cli": "opencode",
+  // cline lineage
+  cline: "cline",
+  "roo-code": "cline",
+  kilo: "cline",
+  // GitHub Copilot lineage
+  "copilot-cli": "copilot-cli",
+  "vscode-copilot": "copilot-cli",
+  "jetbrains-copilot": "copilot-cli",
+  // pi lineage
+  pi: "pi",
+  omp: "pi",
+  // openclaw lineage
+  openclaw: "openclaw",
+  nemoclaw: "openclaw",
+  // antigravity lineage
+  antigravity: "antigravity",
+  "antigravity-cli": "antigravity",
+};
+
+/**
+ * The lineage-family key for a platform id. Members of a documented fork family
+ * share their anchor id; every other host is its own family (its id), so it
+ * sorts purely by name within its paradigm.
+ */
+export function familyKey(id: string): string {
+  return familyOf[id] ?? id;
+}
+
+/** Paradigm display/sort order (the `paradigms` index): json-stdio < mcp-only < ts-plugin. */
+const paradigmRank: Record<ParadigmId, number> = {
+  "json-stdio": 0,
+  "mcp-only": 1,
+  "ts-plugin": 2,
+};
+
+/**
+ * Coverage-display comparator: order hosts by hook paradigm, then by fork-lineage
+ * family (so forks stay adjacent), then alphabetically by display name. Reusable
+ * across every coverage surface that lists hosts in an otherwise-arbitrary order,
+ * keeping the ordering consistent and predictable. Sorts within whatever the
+ * surface's primary grouping already is (e.g. a form-factor band) — it does not
+ * change that grouping.
+ */
+export function byParadigmFamilyName(a: Platform, b: Platform): number {
+  const pr = paradigmRank[a.paradigm] - paradigmRank[b.paradigm];
+  if (pr !== 0) return pr;
+  const fa = familyKey(a.id);
+  const fb = familyKey(b.id);
+  if (fa !== fb) return fa.localeCompare(fb);
+  return a.name.localeCompare(b.name);
 }
