@@ -1,20 +1,22 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Section, SectionHeading } from "@/components/sections/Section";
 import { cn } from "@/lib/utils";
+import coverageStars from "@/coverage-stars.generated.json";
 import {
   byParadigmFamilyName,
   formFactorShort,
-  frontierIds,
   handlerChips,
+  hostSource,
   installMethods,
-  isFrontier,
   paradigms,
   platformCount,
   platforms,
+  STAR_TIERS,
   surfaceChips,
   surfaceState,
+  tierOf,
+  type CoverageTier,
   type Platform,
   type SurfaceState,
 } from "@/data";
@@ -24,6 +26,74 @@ const PLATFORMS_DOC = "/docs/dev/platforms";
 const HANDLER_DOC: Record<"statusline" | "actions", string> = {
   statusline: "/docs/dev/surfaces#statusline",
   actions: "/docs/dev/surfaces#actions",
+};
+
+/** Build-fetched stargazers counts ({ "owner/name": stars }). */
+const STARS: Record<string, number> = coverageStars;
+
+/** The stargazers count for a host id (undefined if closed / no repo). */
+function starsFor(id: string): number | undefined {
+  const src = hostSource[id];
+  return src && "repo" in src ? STARS[src.repo] : undefined;
+}
+
+/** The coverage tier for a host id, resolving its fetched star count. */
+function coverageTierFor(id: string): CoverageTier {
+  return tierOf(id, starsFor(id));
+}
+
+/**
+ * Per-tier card treatment — a graded, dark-theme-friendly rank palette.
+ * `frontier` is the premium closed-source tier (gold/amber gradient); the eight
+ * OSS tiers step down a cool→warm metallic ramp so adjacent tiers stay
+ * distinguishable without shouting. `chip` colors the small tier badge.
+ */
+const tierStyle: Record<CoverageTier, { card: string; chip: string; label: string }> = {
+  frontier: {
+    card: "border-amber-400/40 bg-gradient-to-br from-amber-500/20 to-yellow-600/10 shadow-sm shadow-amber-500/10",
+    chip: "border-amber-400/50 bg-amber-400/15 text-amber-200",
+    label: "Frontier",
+  },
+  Challenger: {
+    card: "border-fuchsia-400/40 bg-gradient-to-br from-fuchsia-500/20 to-violet-600/10",
+    chip: "border-fuchsia-400/50 bg-fuchsia-400/15 text-fuchsia-200",
+    label: "Challenger",
+  },
+  Grandmaster: {
+    card: "border-rose-400/40 bg-gradient-to-br from-rose-500/18 to-red-600/10",
+    chip: "border-rose-400/50 bg-rose-400/15 text-rose-200",
+    label: "Grandmaster",
+  },
+  Master: {
+    card: "border-purple-400/35 bg-gradient-to-br from-purple-500/16 to-indigo-600/10",
+    chip: "border-purple-400/50 bg-purple-400/15 text-purple-200",
+    label: "Master",
+  },
+  Diamond: {
+    card: "border-sky-400/35 bg-gradient-to-br from-sky-500/16 to-blue-600/10",
+    chip: "border-sky-400/50 bg-sky-400/15 text-sky-200",
+    label: "Diamond",
+  },
+  Platinum: {
+    card: "border-teal-400/35 bg-gradient-to-br from-teal-500/14 to-cyan-600/8",
+    chip: "border-teal-400/50 bg-teal-400/15 text-teal-200",
+    label: "Platinum",
+  },
+  Gold: {
+    card: "border-yellow-500/30 bg-gradient-to-br from-yellow-600/14 to-amber-700/8",
+    chip: "border-yellow-500/50 bg-yellow-500/15 text-yellow-200",
+    label: "Gold",
+  },
+  Silver: {
+    card: "border-slate-300/25 bg-gradient-to-br from-slate-400/12 to-slate-500/6",
+    chip: "border-slate-300/40 bg-slate-300/12 text-slate-200",
+    label: "Silver",
+  },
+  Bronze: {
+    card: "border-orange-800/35 bg-gradient-to-br from-orange-900/20 to-amber-950/10",
+    chip: "border-orange-700/50 bg-orange-800/20 text-orange-200",
+    label: "Bronze",
+  },
 };
 
 function ParadigmLegend() {
@@ -115,7 +185,7 @@ function SurfaceLegend() {
  * while a click anywhere else on the card opens the Platforms reference. Both the
  * card link and the chip links are focusable real <a> elements.
  */
-function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boolean }) {
+function AgentEntry({ platform }: { platform: Platform }) {
   const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
   const ffShort = formFactorShort(platform.id);
   const supported = surfaceChips
@@ -123,16 +193,21 @@ function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boo
     .map((c) => c.full)
     .join(", ");
   const litHandlers = handlerChips.filter((c) => platform.surfaces[c.key]);
+  const tier = coverageTierFor(platform.id);
+  const style = tierStyle[tier];
+  const stars = starsFor(platform.id);
+  const tierTitle =
+    tier === "frontier"
+      ? "Frontier — closed-source flagship"
+      : `${tier} tier — ${stars?.toLocaleString() ?? "?"} GitHub stars`;
 
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-lg border px-3.5 py-2.5 transition-colors hover:border-foreground/30 hover:bg-accent focus-within:border-foreground/40",
-        frontier
-          ? "border-foreground/20 bg-foreground/[0.04] shadow-sm"
-          : "border-border bg-background/60",
+        "group relative overflow-hidden rounded-lg border px-3.5 py-2.5 transition-colors hover:border-foreground/40 focus-within:border-foreground/50",
+        style.card,
       )}
-      title={`${platform.name} (${paradigm.label}) — supports: ${supported}`}
+      title={`${platform.name} (${paradigm.label}) · ${tierTitle} — supports: ${supported}`}
     >
       {/* Full-card link to the Platforms reference, behind the chips. */}
       <Link
@@ -145,7 +220,7 @@ function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boo
           className={cn("mt-1.5 size-2 shrink-0 rounded-full", paradigm.dot)}
           aria-hidden="true"
         />
-        <span className="min-w-0 break-words text-sm font-medium leading-snug text-muted-foreground transition-colors group-hover:text-foreground">
+        <span className="min-w-0 break-words text-sm font-semibold leading-snug text-foreground">
           {platform.name}
         </span>
         {ffShort ? (
@@ -154,6 +229,21 @@ function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boo
             title={`Form factor: ${ffShort}`}
           >
             {ffShort}
+          </span>
+        ) : null}
+      </div>
+      <div className="pointer-events-none relative z-10 mt-1.5 flex items-center gap-1.5">
+        <span
+          className={cn(
+            "rounded border px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase leading-none tracking-wide",
+            style.chip,
+          )}
+        >
+          {style.label}
+        </span>
+        {stars !== undefined ? (
+          <span className="font-mono text-[9px] leading-none text-muted-foreground">
+            ★ {stars.toLocaleString()}
           </span>
         ) : null}
       </div>
@@ -201,79 +291,38 @@ function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boo
   );
 }
 
-/** Curated frontier hosts, rendered in the pinned promo order (NOT the comparator). */
-const frontierPlatforms: Platform[] = frontierIds
-  .map((id) => platforms.find((p) => p.id === id))
-  .filter((p): p is Platform => Boolean(p));
-
-/** Everything else, sorted by paradigm → family → name. */
-const generalPlatforms: Platform[] = platforms
-  .filter((p) => !isFrontier(p.id))
-  .sort(byParadigmFamilyName);
-
 /**
- * The long tail: collapsed by default to ~2 rows behind a bottom fade, with a
- * "Show all N more" toggle that mounts the full set.
- *
- * Roughly two rows' worth of general cards stay mounted while collapsed. With a
- * responsive flex-wrap a CSS max-height clamp would clip cards BELOW the fold
- * while leaving their links in the tab order (a keyboard / screen-reader user
- * tabs into off-screen links). Instead the collapsed wall renders only this
- * slice — so the focusable set ALWAYS equals the visible set at every width,
- * with no clipped-but-focusable links — and the bottom gradient fades the last
- * mounted row into the page. (~2 rows at desktop; "roughly" by design, since
- * wrap count varies with width.)
+ * All hosts in ONE wall, ordered by paradigm → fork-family → name (the shared
+ * coverage comparator). Each card's BACKGROUND is colored by its rank tier
+ * (closed → Frontier; OSS → GitHub-stars tier), computed at render from the
+ * build-fetched star snapshot.
  */
-const COLLAPSED_GENERAL_COUNT = 12;
+const wallPlatforms: Platform[] = [...platforms].sort(byParadigmFamilyName);
 
-function GeneralWall() {
-  const [open, setOpen] = useState(false);
-  const regionId = "general-coverage-wall";
-  const shown = open
-    ? generalPlatforms
-    : generalPlatforms.slice(0, COLLAPSED_GENERAL_COUNT);
-
+/** Tier legend: Frontier (closed flagship) + the eight star-ranked tiers. */
+function TierLegend() {
   return (
-    <div>
-      <div className="mb-3 flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5">
-        <h3 className="font-mono text-sm font-semibold uppercase tracking-wide text-foreground">
-          General support
-        </h3>
-        <span className="text-xs text-muted-foreground">
-          · {generalPlatforms.length} more · same drift-tested profiles
-        </span>
-      </div>
-
-      <div className="relative">
-        <div
-          id={regionId}
-          className="flex flex-wrap justify-center gap-2.5"
-        >
-          {shown.map((pl) => (
-            <AgentEntry key={pl.id} platform={pl} />
-          ))}
-        </div>
-        {!open && (
-          // z-20 keeps the fade ABOVE the cards' z-10 content (incl. the ✦
-          // handler chips) so the last partially-shown row fades uniformly;
-          // pointer-events-none lets clicks pass through to the chip/card link.
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-20 bg-gradient-to-t from-background via-background/85 to-transparent"
-          />
+    <div className="flex flex-col items-center gap-2">
+      <p className="text-center text-xs text-muted-foreground">
+        Card color = rank tier.{" "}
+        <span className="text-foreground">Frontier</span> = closed-source
+        flagship; <span className="text-foreground">Challenger → Bronze</span> =
+        open-source hosts ranked by GitHub stars.
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        {(["frontier", ...STAR_TIERS.map((t) => t.tier)] as CoverageTier[]).map(
+          (t) => (
+            <span
+              key={t}
+              className={cn(
+                "rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase leading-none tracking-wide",
+                tierStyle[t].chip,
+              )}
+            >
+              {tierStyle[t].label}
+            </span>
+          ),
         )}
-      </div>
-
-      <div className="mt-4 flex justify-center">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-controls={regionId}
-          className="rounded-full border border-border bg-background/60 px-4 py-1.5 font-mono text-xs font-medium text-foreground transition-colors hover:border-foreground/30 hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
-        >
-          {open ? "Show fewer" : `Show all ${generalPlatforms.length} more`}
-        </button>
       </div>
     </div>
   );
@@ -296,33 +345,21 @@ export function Platforms() {
       <div className="mt-10 flex flex-col items-center gap-3">
         <ParadigmLegend />
         <SurfaceLegend />
+        <TierLegend />
       </div>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
         Each card links to the{" "}
         <span className="text-foreground">Platforms reference</span>; the colored
-        dot is its <span className="text-foreground">hook paradigm</span> and the
-        corner tag its form factor (CLI / IDE / Ext).
+        dot is its <span className="text-foreground">hook paradigm</span>, the
+        corner tag its form factor (CLI / IDE / Ext), and the card color its{" "}
+        <span className="text-foreground">rank tier</span>.
       </p>
 
-      <div className="mt-8 flex flex-col gap-10">
-        <div>
-          <div className="mb-3 flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5">
-            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              Frontier
-            </span>
-            <h3 className="font-mono text-sm font-semibold uppercase tracking-wide text-foreground">
-              · {frontierPlatforms.length} flagship hosts
-            </h3>
-          </div>
-          <div className="mx-auto grid max-w-5xl grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-            {frontierPlatforms.map((pl) => (
-              <AgentEntry key={pl.id} platform={pl} frontier />
-            ))}
-          </div>
-        </div>
-
-        <GeneralWall />
+      <div className="mx-auto mt-8 grid max-w-5xl grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+        {wallPlatforms.map((pl) => (
+          <AgentEntry key={pl.id} platform={pl} />
+        ))}
       </div>
 
       <p className="mt-8 text-center text-xs text-muted-foreground">

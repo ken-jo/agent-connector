@@ -7,7 +7,9 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/fetch-coverage-stars.mjs",
     "build": "tsc -b && vite build && node scripts/prerender.mjs",
+    "fetch-stars": "node scripts/fetch-coverage-stars.mjs",
     "prerender": "node scripts/prerender.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b"

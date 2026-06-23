@@ -29,9 +29,9 @@ import {
 import {
   formFactorIds,
   formFactorOf,
-  frontierIds,
-  isFrontier,
+  hostSource,
   platforms as landingPlatforms,
+  tierOf,
 } from "../../site/src/platform-data.js";
 
 /** Registry-derived truth: paradigm → sorted adapter ids. */
@@ -128,23 +128,29 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     }
   });
 
-  it("frontierIds is a valid PARTITION marker over the landing platforms", () => {
-    // The Frontier grid renders frontierIds in pinned promo order and silently
-    // drops a typo'd id (.filter(Boolean)); the General wall is everything NOT in
-    // frontierIds. Guard both so a renamed/removed host fails LOUDLY here instead
-    // of vanishing from the wall: every frontier id must exist in `platforms`, no
-    // duplicates, and the two sections must SUM to the full platform count.
-    for (const id of frontierIds) {
-      expect(
-        landingPlatforms.some((p) => p.id === id),
-        `frontierIds entry "${id}" is not a landing platform`,
-      ).toBe(true);
+  it("hostSource classifies EVERY landing platform exactly once (closed or a repo)", () => {
+    // The coverage wall colors each card by tierOf(id) — closed → Frontier, else
+    // a GitHub-stars tier on its repo. A host missing from hostSource would fall
+    // back to Frontier silently; a stray hostSource key would be dead data. Guard
+    // an exact partition: every platform id has one entry, no stray keys, and
+    // every entry is either { closed: true } or carries a non-empty "owner/name"
+    // repo. tierOf must also resolve a tier for every host (never throw / undefined).
+    const platformIds = new Set(landingPlatforms.map((p) => p.id));
+    const sourceIds = new Set(Object.keys(hostSource));
+    expect([...sourceIds].sort()).toEqual([...platformIds].sort());
+    for (const [id, src] of Object.entries(hostSource)) {
+      if ("closed" in src) {
+        expect(src.closed, `hostSource["${id}"].closed must be true`).toBe(true);
+      } else {
+        expect(src.repo, `hostSource["${id}"].repo must be "owner/name"`).toMatch(
+          /^[^/\s]+\/[^/\s]+$/,
+        );
+      }
     }
-    expect(new Set(frontierIds).size, "frontierIds has a duplicate").toBe(
-      frontierIds.length,
-    );
-    const general = landingPlatforms.filter((p) => !isFrontier(p.id));
-    expect(frontierIds.length + general.length).toBe(landingPlatforms.length);
+    for (const p of landingPlatforms) {
+      const tier = tierOf(p.id, "repo" in (hostSource[p.id] ?? {}) ? 1234 : undefined);
+      expect(tier, `tierOf("${p.id}") returned no tier`).toBeTruthy();
+    }
   });
 
   it("site landing surface flags EXACTLY match each loaded adapter's capabilities", async () => {

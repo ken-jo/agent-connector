@@ -789,37 +789,131 @@ export function formFactorShort(id: string): string | undefined {
 }
 
 /* ------------------------------------------------------------------ */
-/* Frontier hosts — curated promo set surfaced above the long tail.    */
+/* Coverage rank tiers — closed-vs-OSS hybrid                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * The 12 frontier hosts, promoted into their own grid above the general wall.
- * Single source of truth for that set AND its display order: the Frontier grid
- * renders these in EXACTLY this order (CLIs first, then editors/IDEs), NOT the
- * byParadigmFamilyName comparator. Every other host falls into the general
- * support section (sorted by the comparator). Pinned ids — each must exist in
- * `platforms`; the platform-drift guard partitions the wall against these.
+ * Per-host open/closed status, the input to the wall's rank-tier coloring.
+ *   - `{ closed: true }` → no open-source PRODUCT repo → the premium "Frontier"
+ *     tier (these are flagship agents whose star count would misrepresent them:
+ *     either there is no public repo, or the only public repo is an
+ *     issues/docs tracker, not the product source).
+ *   - `{ repo: "owner/name" }` → open-source product; ranked by that repo's
+ *     GitHub stargazers_count into LoL-style tiers (see STAR_TIERS).
+ *
+ * Each repo was VERIFIED to exist and to be the actual product source via
+ * `gh api repos/<owner>/<name>` (stars/lang/homepage/fork checked, 2026-06-23);
+ * basis cited inline. A host with no confirmable public PRODUCT repo is marked
+ * `closed` rather than guessing a repo. Drift-guarded: every platform id must
+ * have exactly one entry here (tests/docs/platform-drift.test.ts).
  */
-export const frontierIds: readonly string[] = [
-  "claude-code",
-  "codex",
-  "gemini-cli",
-  "copilot-cli",
-  "opencode",
-  "amp",
-  "warp",
-  "hermes",
-  "cursor",
-  "windsurf",
-  "zed",
-  "antigravity",
+export type HostSource = { closed: true } | { repo: string };
+
+export const hostSource: Record<string, HostSource> = {
+  // --- OSS (product source repo verified) ---
+  codex: { repo: "openai/codex" },
+  "gemini-cli": { repo: "google-gemini/gemini-cli" },
+  opencode: { repo: "sst/opencode" },
+  "mimo-code": { repo: "XiaomiMiMo/MiMo-Code" }, // adapter header cites this repo
+  "kilo-cli": { repo: "Kilo-Org/kilocode" }, // OpenCode-fork CLI shares the kilocode source
+  openhands: { repo: "All-Hands-AI/OpenHands" },
+  "roo-code": { repo: "RooCodeInc/Roo-Code" },
+  kilo: { repo: "Kilo-Org/kilocode" }, // VS Code ext, same source repo as kilo-cli
+  cline: { repo: "cline/cline" },
+  zed: { repo: "zed-industries/zed" },
+  codebuff: { repo: "CodebuffAI/codebuff" },
+  pi: { repo: "earendil-works/pi" }, // badlogic/pi-mono redirects here (canonical)
+  omp: { repo: "earendil-works/pi" }, // OMP is a pi fork; same upstream source repo
+  "qwen-code": { repo: "QwenLM/qwen-code" },
+  kimi: { repo: "MoonshotAI/kimi-cli" }, // Kimi Code CLI, open product source
+  crush: { repo: "charmbracelet/crush" },
+  goose: { repo: "block/goose" },
+  nemoclaw: { repo: "NVIDIA/NemoClaw" },
+  openclaw: { repo: "openclaw/openclaw" }, // homepage openclaw.ai, active TS source
+  "amazon-q": { repo: "aws/amazon-q-developer-cli" }, // the CLI IS open source (Rust)
+  continue: { repo: "continuedev/continue" },
+  "grok-cli": { repo: "superagent-ai/grok-cli" }, // community grok-cli (npm grok-dev)
+  "open-interpreter": { repo: "OpenInterpreter/open-interpreter" },
+  "mistral-vibe": { repo: "mistralai/mistral-vibe" },
+  junie: { repo: "JetBrains/junie" }, // JetBrains' own open agent CLI
+  mux: { repo: "coder/mux" }, // Coder's mux, mux.coder.com, open TS source
+
+  // --- Closed (no confirmable open-source product repo → Frontier) ---
+  codebuddy: { closed: true }, // Tencent CodeBuddy — no public repo (404)
+  "claude-code": { closed: true }, // product closed; anthropics/claude-code is issues-only
+  cursor: { closed: true }, // product closed; getcursor/cursor is issues-only
+  "vscode-copilot": { closed: true }, // GitHub Copilot in VS Code — closed
+  "copilot-cli": { closed: true }, // github/copilot-cli is a feedback repo, product closed
+  "jetbrains-copilot": { closed: true }, // GitHub Copilot in JetBrains — closed
+  amp: { closed: true }, // Sourcegraph Amp — no public source repo
+  warp: { closed: true }, // Warp terminal — closed (warpdotdev/warp is not the product src)
+  droid: { closed: true }, // Factory Droid; Factory-AI/factory is docs/issues (lang null)
+  "antigravity-cli": { closed: true }, // Google Antigravity CLI — closed
+  antigravity: { closed: true }, // Google Antigravity IDE — closed
+  kiro: { closed: true }, // AWS Kiro — no public repo (404)
+  trae: { closed: true }, // ByteDance Trae — no public repo (404)
+  devin: { closed: true }, // Cognition Devin — no public repo (404)
+  windsurf: { closed: true }, // Windsurf (Codeium) — no public product repo (404)
+  hermes: { closed: true }, // Nous Research Hermes Agent — no public repo found (404)
+};
+
+/**
+ * GitHub-stars rank tier, highest threshold first. `frontier` is the premium
+ * closed-source tier and is NOT in this list (it has no star threshold). The
+ * thresholds were tuned against the real, fetched star spread (2026-06-23) so
+ * the OSS hosts land across all eight tiers rather than piling into the top.
+ */
+export type StarTier =
+  | "Challenger"
+  | "Grandmaster"
+  | "Master"
+  | "Diamond"
+  | "Platinum"
+  | "Gold"
+  | "Silver"
+  | "Bronze";
+
+export type CoverageTier = "frontier" | StarTier;
+
+export const STAR_TIERS: readonly { tier: StarTier; min: number }[] = [
+  { tier: "Challenger", min: 80000 },
+  { tier: "Grandmaster", min: 50000 },
+  { tier: "Master", min: 25000 },
+  { tier: "Diamond", min: 15000 },
+  { tier: "Platinum", min: 8000 },
+  { tier: "Gold", min: 3000 },
+  { tier: "Silver", min: 1000 },
+  { tier: "Bronze", min: 0 },
 ];
 
-/** Membership test for the frontier promo set. */
-const frontierIdSet = new Set(frontierIds);
-export function isFrontier(id: string): boolean {
-  return frontierIdSet.has(id);
+/** The star-derived tier for a stargazers count. */
+export function starTier(stars: number): StarTier {
+  return (STAR_TIERS.find((t) => stars >= t.min) ?? STAR_TIERS[STAR_TIERS.length - 1]!).tier;
 }
+
+/**
+ * The coverage tier for a host: `frontier` if closed-source, else the
+ * star-derived tier from `stars` (its repo's stargazers_count, 0 if unknown).
+ * Unknown ids default to `frontier` (treated as closed) so the wall never
+ * renders an untiered card.
+ */
+export function tierOf(id: string, stars: number | undefined): CoverageTier {
+  const src = hostSource[id];
+  if (!src || "closed" in src) return "frontier";
+  return starTier(stars ?? 0);
+}
+
+/**
+ * The OSS repos to refresh at build (id → "owner/name"), deduped by repo.
+ * Read by site/scripts/fetch-coverage-stars.mjs (which transpiles this module).
+ */
+export const coverageRepos: readonly string[] = Array.from(
+  new Set(
+    Object.values(hostSource)
+      .filter((s): s is { repo: string } => "repo" in s)
+      .map((s) => s.repo),
+  ),
+);
 
 /* ------------------------------------------------------------------ */
 /* Fork-lineage families — ordering metadata only (NOT drift-guarded)  */
