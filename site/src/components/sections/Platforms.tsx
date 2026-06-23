@@ -49,55 +49,59 @@ function coverageTierFor(id: string): CoverageTier {
 }
 
 /**
- * Per-tier card treatment — a graded, dark-theme-friendly rank palette.
- * `frontier` is the premium closed-source tier (gold/amber gradient); the eight
- * OSS tiers step down a cool→warm metallic ramp so adjacent tiers stay
- * distinguishable without shouting. `chip` colors the small tier badge.
+ * Per-tier card treatment — a graded rank palette, theme-aware.
+ *
+ * Each value is LIGHT-mode-first (solid pastel tint + a darker border and dark
+ * tinted label text that read on a WHITE background) with a `dark:` override
+ * that restores the original translucent gradient + light tinted text for the
+ * dark theme. Without this, the translucent dark gradients washed out to faint
+ * pastels in light mode. `frontier` is the premium closed-source tier; the
+ * eight OSS tiers step down a cool→warm ramp distinguishable in BOTH themes.
  */
 const tierStyle: Record<CoverageTier, { card: string; chip: string; label: string }> = {
   frontier: {
-    card: "border-amber-400/40 bg-gradient-to-br from-amber-500/20 to-yellow-600/10 shadow-sm shadow-amber-500/10",
-    chip: "border-amber-400/50 bg-amber-400/15 text-amber-200",
+    card: "border-amber-300 bg-amber-100 shadow-sm dark:border-amber-400/40 dark:bg-gradient-to-br dark:from-amber-500/20 dark:to-yellow-600/10 dark:shadow-amber-500/10",
+    chip: "border-amber-400 bg-amber-200 text-amber-900 dark:border-amber-400/50 dark:bg-amber-400/15 dark:text-amber-200",
     label: "Frontier",
   },
   Challenger: {
-    card: "border-fuchsia-400/40 bg-gradient-to-br from-fuchsia-500/20 to-violet-600/10",
-    chip: "border-fuchsia-400/50 bg-fuchsia-400/15 text-fuchsia-200",
+    card: "border-fuchsia-300 bg-fuchsia-100 dark:border-fuchsia-400/40 dark:bg-gradient-to-br dark:from-fuchsia-500/20 dark:to-violet-600/10",
+    chip: "border-fuchsia-400 bg-fuchsia-200 text-fuchsia-900 dark:border-fuchsia-400/50 dark:bg-fuchsia-400/15 dark:text-fuchsia-200",
     label: "Challenger",
   },
   Grandmaster: {
-    card: "border-rose-400/40 bg-gradient-to-br from-rose-500/18 to-red-600/10",
-    chip: "border-rose-400/50 bg-rose-400/15 text-rose-200",
+    card: "border-rose-300 bg-rose-100 dark:border-rose-400/40 dark:bg-gradient-to-br dark:from-rose-500/18 dark:to-red-600/10",
+    chip: "border-rose-400 bg-rose-200 text-rose-900 dark:border-rose-400/50 dark:bg-rose-400/15 dark:text-rose-200",
     label: "Grandmaster",
   },
   Master: {
-    card: "border-purple-400/35 bg-gradient-to-br from-purple-500/16 to-indigo-600/10",
-    chip: "border-purple-400/50 bg-purple-400/15 text-purple-200",
+    card: "border-purple-300 bg-purple-100 dark:border-purple-400/35 dark:bg-gradient-to-br dark:from-purple-500/16 dark:to-indigo-600/10",
+    chip: "border-purple-400 bg-purple-200 text-purple-900 dark:border-purple-400/50 dark:bg-purple-400/15 dark:text-purple-200",
     label: "Master",
   },
   Diamond: {
-    card: "border-sky-400/35 bg-gradient-to-br from-sky-500/16 to-blue-600/10",
-    chip: "border-sky-400/50 bg-sky-400/15 text-sky-200",
+    card: "border-sky-300 bg-sky-100 dark:border-sky-400/35 dark:bg-gradient-to-br dark:from-sky-500/16 dark:to-blue-600/10",
+    chip: "border-sky-400 bg-sky-200 text-sky-900 dark:border-sky-400/50 dark:bg-sky-400/15 dark:text-sky-200",
     label: "Diamond",
   },
   Platinum: {
-    card: "border-teal-400/35 bg-gradient-to-br from-teal-500/14 to-cyan-600/8",
-    chip: "border-teal-400/50 bg-teal-400/15 text-teal-200",
+    card: "border-teal-300 bg-teal-100 dark:border-teal-400/35 dark:bg-gradient-to-br dark:from-teal-500/14 dark:to-cyan-600/8",
+    chip: "border-teal-400 bg-teal-200 text-teal-900 dark:border-teal-400/50 dark:bg-teal-400/15 dark:text-teal-200",
     label: "Platinum",
   },
   Gold: {
-    card: "border-yellow-500/30 bg-gradient-to-br from-yellow-600/14 to-amber-700/8",
-    chip: "border-yellow-500/50 bg-yellow-500/15 text-yellow-200",
+    card: "border-yellow-400 bg-yellow-100 dark:border-yellow-500/30 dark:bg-gradient-to-br dark:from-yellow-600/14 dark:to-amber-700/8",
+    chip: "border-yellow-500 bg-yellow-200 text-yellow-900 dark:border-yellow-500/50 dark:bg-yellow-500/15 dark:text-yellow-200",
     label: "Gold",
   },
   Silver: {
-    card: "border-slate-300/25 bg-gradient-to-br from-slate-400/12 to-slate-500/6",
-    chip: "border-slate-300/40 bg-slate-300/12 text-slate-200",
+    card: "border-slate-300 bg-slate-100 dark:border-slate-300/25 dark:bg-gradient-to-br dark:from-slate-400/12 dark:to-slate-500/6",
+    chip: "border-slate-400 bg-slate-200 text-slate-800 dark:border-slate-300/40 dark:bg-slate-300/12 dark:text-slate-200",
     label: "Silver",
   },
   Bronze: {
-    card: "border-orange-800/35 bg-gradient-to-br from-orange-900/20 to-amber-950/10",
-    chip: "border-orange-700/50 bg-orange-800/20 text-orange-200",
+    card: "border-orange-300 bg-orange-100 dark:border-orange-800/35 dark:bg-gradient-to-br dark:from-orange-900/20 dark:to-amber-950/10",
+    chip: "border-orange-400 bg-orange-200 text-orange-900 dark:border-orange-700/50 dark:bg-orange-800/20 dark:text-orange-200",
     label: "Bronze",
   },
 };
@@ -125,16 +129,19 @@ function ParadigmLegend() {
  */
 const chipStates: Record<SurfaceState, { className: string; label: string }> = {
   supported: {
-    className: "text-foreground",
+    className: "font-semibold text-foreground",
     label: "supported",
   },
   "host-gap": {
     className:
-      "text-muted-foreground underline decoration-dotted decoration-muted-foreground/70 underline-offset-2",
+      "text-foreground/70 underline decoration-dotted decoration-foreground/60 underline-offset-2",
     label: "host supports — agent-connector support coming",
   },
   "host-na": {
-    className: "text-muted-foreground/30 line-through decoration-muted-foreground/30",
+    // Legibly STRUCK, not vanished: was text-muted-foreground/30 (near-invisible,
+    // esp. light mode) — bumped so a non-supported chip (e.g. a struck "Skills")
+    // still reads in BOTH themes while staying clearly crossed out.
+    className: "text-muted-foreground/70 line-through decoration-muted-foreground/70",
     label: "not offered by this agent",
   },
 };
@@ -336,46 +343,94 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
 const wallPlatforms: Platform[] = [...platforms].sort(byParadigmFamilyName);
 
 /**
- * The eight filterable surface tags — the 6 content surfaces + the 2
- * runtime-dispatched handler surfaces (statusline/actions), so the host
- * special surfaces are filterable too. `key` is a PlatformSurfaces flag.
+ * The eight surface filter tags — the 6 content surfaces + the 2
+ * runtime-dispatched handler surfaces (statusline/actions), so the host special
+ * surfaces are filterable too. `key` is a PlatformSurfaces flag.
  */
-const FILTER_TAGS: { key: keyof PlatformSurfaces; label: string }[] = [
+const SURFACE_TAGS: { key: keyof PlatformSurfaces; label: string }[] = [
   ...surfaceChips.map((c) => ({ key: c.key, label: c.abbr })),
   ...handlerChips.map((c) => ({ key: c.key, label: c.abbr })),
 ];
-const ALL_TAG_KEYS = FILTER_TAGS.map((t) => t.key);
+const SURFACE_KEYS = SURFACE_TAGS.map((t) => t.key);
 
-/** A card MATCHES if it supports at least one currently-enabled surface tag. */
-function matchesFilter(platform: Platform, enabled: Set<keyof PlatformSurfaces>): boolean {
+/** All tiers in display order (Frontier first, then Challenger → Bronze). */
+const ALL_TIERS: CoverageTier[] = ["frontier", ...STAR_TIERS.map((t) => t.tier)];
+
+type FilterMode = "surface" | "tier";
+
+/** Surface-mode match: supports at least one enabled surface tag (OR-of-enabled). */
+function matchesSurface(platform: Platform, enabled: Set<keyof PlatformSurfaces>): boolean {
   if (enabled.size === 0) return false;
-  return ALL_TAG_KEYS.some((k) => enabled.has(k) && platform.surfaces[k]);
+  return SURFACE_KEYS.some((k) => enabled.has(k) && platform.surfaces[k]);
+}
+
+/** Tier-mode match: the host's tier is in the enabled-tier set. */
+function matchesTier(platform: Platform, enabled: Set<CoverageTier>): boolean {
+  return enabled.has(coverageTierFor(platform.id));
 }
 
 /**
- * Surface filter + tier-colored wall.
+ * Filter bar (Surface | Tier modes) + tier-colored wall.
  *
- * Filter chips (one per surface tag) start ALL ON, so every card matches and the
- * wall shows full tier color in comparator order. A card matches if it supports
- * at least ONE enabled tag (OR-of-enabled); turning tags OFF narrows the lit set.
- * Non-matching cards are NEVER hidden — they are sorted to the BOTTOM and
- * rendered dimmed (grayscale + reduced opacity, tier color dropped). Matching
- * cards keep their comparator order on top. A stable sort preserves order within
- * each group.
+ * Bar order, left → right: a Surface|Tier mode toggle, an `All` button, the
+ * mode's filter chips, and a `Reset` button.
+ *  - Surface mode: 8 surface chips; a card matches if it supports ≥1 enabled
+ *    surface (OR-of-enabled).
+ *  - Tier mode: 9 tier chips (each in its tier color); a card matches if its
+ *    tier ∈ the enabled-tier set.
+ * Both modes start ALL ON (every card matches → full tier color, comparator
+ * order). `All` is highlighted ONLY when every chip in the current mode is on;
+ * toggling any chip off de-highlights it; clicking `All` re-enables all.
+ * Switching mode resets that mode's selection to all-on. `Reset` returns to
+ * defaults (Surface mode, all on).
+ *
+ * Semantics (unchanged): non-matching cards are NEVER hidden — they sort to the
+ * BOTTOM and render dimmed (grayscale + reduced opacity, tier color dropped); a
+ * STABLE partition preserves comparator order within each group.
  */
 function CoverageWall() {
-  const [enabled, setEnabled] = useState<Set<keyof PlatformSurfaces>>(
-    () => new Set(ALL_TAG_KEYS),
+  const [mode, setMode] = useState<FilterMode>("surface");
+  const [enabledSurfaces, setEnabledSurfaces] = useState<Set<keyof PlatformSurfaces>>(
+    () => new Set(SURFACE_KEYS),
   );
-  const allOn = enabled.size === ALL_TAG_KEYS.length;
+  const [enabledTiers, setEnabledTiers] = useState<Set<CoverageTier>>(
+    () => new Set(ALL_TIERS),
+  );
 
-  const toggle = (key: keyof PlatformSurfaces) =>
-    setEnabled((prev) => {
+  const allSurfacesOn = enabledSurfaces.size === SURFACE_KEYS.length;
+  const allTiersOn = enabledTiers.size === ALL_TIERS.length;
+  const allOn = mode === "surface" ? allSurfacesOn : allTiersOn;
+
+  const toggleSurface = (key: keyof PlatformSurfaces) =>
+    setEnabledSurfaces((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
+  const toggleTier = (tier: CoverageTier) =>
+    setEnabledTiers((prev) => {
+      const next = new Set(prev);
+      next.has(tier) ? next.delete(tier) : next.add(tier);
+      return next;
+    });
+
+  const enableAll = () =>
+    mode === "surface"
+      ? setEnabledSurfaces(new Set(SURFACE_KEYS))
+      : setEnabledTiers(new Set(ALL_TIERS));
+
+  const switchMode = (m: FilterMode) => {
+    setMode(m);
+    // Switching mode resets THAT mode's selection to all-on.
+    if (m === "surface") setEnabledSurfaces(new Set(SURFACE_KEYS));
+    else setEnabledTiers(new Set(ALL_TIERS));
+  };
+
+  const reset = () => {
+    setMode("surface");
+    setEnabledSurfaces(new Set(SURFACE_KEYS));
+    setEnabledTiers(new Set(ALL_TIERS));
+  };
 
   const ordered = useMemo(() => {
     // wallPlatforms is already in comparator order; a STABLE partition keeps
@@ -383,41 +438,102 @@ function CoverageWall() {
     const match: Platform[] = [];
     const dim: Platform[] = [];
     for (const p of wallPlatforms) {
-      (matchesFilter(p, enabled) ? match : dim).push(p);
+      const isMatch =
+        mode === "surface"
+          ? matchesSurface(p, enabledSurfaces)
+          : matchesTier(p, enabledTiers);
+      (isMatch ? match : dim).push(p);
     }
     return { match, dim };
-  }, [enabled]);
+  }, [mode, enabledSurfaces, enabledTiers]);
+
+  const segBtn = (m: FilterMode, label: string) => (
+    <button
+      type="button"
+      onClick={() => switchMode(m)}
+      aria-pressed={mode === m}
+      className={cn(
+        "rounded-full px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+        mode === m
+          ? "bg-foreground text-background"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-center gap-1.5">
-        <span className="mr-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-          Filter by surface:
-        </span>
-        {FILTER_TAGS.map((t) => {
-          const on = enabled.has(t.key);
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => toggle(t.key)}
-              aria-pressed={on}
-              className={cn(
-                "rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
-                on
-                  ? "border-foreground/40 bg-foreground/10 text-foreground"
-                  : "border-border bg-transparent text-muted-foreground line-through decoration-muted-foreground/50",
-              )}
-            >
-              {t.label}
-            </button>
-          );
-        })}
+        {/* (a) mode toggle */}
+        <div className="flex items-center rounded-full border border-border bg-background/60 p-0.5">
+          {segBtn("surface", "Surface")}
+          {segBtn("tier", "Tier")}
+        </div>
+
+        {/* (b) All */}
         <button
           type="button"
-          onClick={() => setEnabled(new Set(ALL_TAG_KEYS))}
-          disabled={allOn}
-          className="ml-1 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground disabled:cursor-default disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
+          onClick={enableAll}
+          aria-pressed={allOn}
+          className={cn(
+            "rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+            allOn
+              ? "border-foreground/50 bg-foreground/15 text-foreground"
+              : "border-border bg-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          All
+        </button>
+
+        {/* (c) chips for the current mode */}
+        {mode === "surface"
+          ? SURFACE_TAGS.map((t) => {
+              const on = enabledSurfaces.has(t.key);
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => toggleSurface(t.key)}
+                  aria-pressed={on}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+                    on
+                      ? "border-foreground/40 bg-foreground/10 text-foreground"
+                      : "border-border bg-transparent text-muted-foreground line-through decoration-muted-foreground/60",
+                  )}
+                >
+                  {t.label}
+                </button>
+              );
+            })
+          : ALL_TIERS.map((tier) => {
+              const on = enabledTiers.has(tier);
+              const style = tierStyle[tier];
+              return (
+                <button
+                  key={tier}
+                  type="button"
+                  onClick={() => toggleTier(tier)}
+                  aria-pressed={on}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+                    on
+                      ? style.chip
+                      : "border-border bg-transparent text-muted-foreground line-through decoration-muted-foreground/60",
+                  )}
+                >
+                  {style.label}
+                </button>
+              );
+            })}
+
+        {/* (d) Reset */}
+        <button
+          type="button"
+          onClick={reset}
+          className="ml-1 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
         >
           Reset
         </button>
