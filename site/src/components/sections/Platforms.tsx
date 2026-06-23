@@ -51,56 +51,61 @@ function coverageTierFor(id: string): CoverageTier {
 /**
  * Per-tier card treatment — a graded rank palette, theme-aware.
  *
- * Each value is LIGHT-mode-first (solid pastel tint + a darker border and dark
- * tinted label text that read on a WHITE background) with a `dark:` override
- * that restores the original translucent gradient + light tinted text for the
- * dark theme. Without this, the translucent dark gradients washed out to faint
- * pastels in light mode. `frontier` is the premium closed-source tier; the
- * eight OSS tiers step down a cool→warm ramp distinguishable in BOTH themes.
+ * The card uses a background-IMAGE gradient in BOTH themes and NO
+ * background-COLOR. This is deliberate: `cn()` runs twMerge, which treats
+ * `bg-{color}` and `bg-gradient-*` as ONE conflict group and would drop one —
+ * a light `bg-{tier}-100` then bleeds through the translucent dark gradient
+ * (bright-pastel-in-dark bug). Light stops differ from dark stops only by the
+ * `dark:` variant, so twMerge keeps both, and with no solid bg-color nothing
+ * bleeds. Light = a readable `from-{tier}-100 to-{tier}-200` gradient; `dark:`
+ * = the ORIGINAL subtle translucent gradient. `frontier` is the premium
+ * closed-source tier; the eight OSS tiers step down a cool→warm ramp,
+ * distinguishable in BOTH themes. The chips stay solid translucent bg-color —
+ * no competing gradient there, so they are left as-is.
  */
 const tierStyle: Record<CoverageTier, { card: string; chip: string; label: string }> = {
   frontier: {
-    card: "border-amber-300 bg-amber-100 shadow-sm dark:border-amber-400/40 dark:bg-amber-500/15 dark:shadow-amber-500/10",
+    card: "bg-gradient-to-br from-amber-100 to-amber-200 border-amber-300 shadow-sm dark:border-amber-400/40 dark:from-amber-500/20 dark:to-yellow-600/10 dark:shadow-amber-500/10",
     chip: "border-amber-400 bg-amber-200 text-amber-900 dark:border-amber-400/50 dark:bg-amber-400/15 dark:text-amber-200",
     label: "Frontier",
   },
   Challenger: {
-    card: "border-fuchsia-300 bg-fuchsia-100 dark:border-fuchsia-400/40 dark:bg-fuchsia-500/15",
+    card: "bg-gradient-to-br from-fuchsia-100 to-fuchsia-200 border-fuchsia-300 dark:border-fuchsia-400/40 dark:from-fuchsia-500/20 dark:to-violet-600/10",
     chip: "border-fuchsia-400 bg-fuchsia-200 text-fuchsia-900 dark:border-fuchsia-400/50 dark:bg-fuchsia-400/15 dark:text-fuchsia-200",
     label: "Challenger",
   },
   Grandmaster: {
-    card: "border-rose-300 bg-rose-100 dark:border-rose-400/40 dark:bg-rose-500/15",
+    card: "bg-gradient-to-br from-rose-100 to-rose-200 border-rose-300 dark:border-rose-400/40 dark:from-rose-500/18 dark:to-red-600/10",
     chip: "border-rose-400 bg-rose-200 text-rose-900 dark:border-rose-400/50 dark:bg-rose-400/15 dark:text-rose-200",
     label: "Grandmaster",
   },
   Master: {
-    card: "border-purple-300 bg-purple-100 dark:border-purple-400/35 dark:bg-purple-500/15",
+    card: "bg-gradient-to-br from-purple-100 to-purple-200 border-purple-300 dark:border-purple-400/35 dark:from-purple-500/16 dark:to-indigo-600/10",
     chip: "border-purple-400 bg-purple-200 text-purple-900 dark:border-purple-400/50 dark:bg-purple-400/15 dark:text-purple-200",
     label: "Master",
   },
   Diamond: {
-    card: "border-sky-300 bg-sky-100 dark:border-sky-400/35 dark:bg-sky-500/15",
+    card: "bg-gradient-to-br from-sky-100 to-sky-200 border-sky-300 dark:border-sky-400/35 dark:from-sky-500/16 dark:to-blue-600/10",
     chip: "border-sky-400 bg-sky-200 text-sky-900 dark:border-sky-400/50 dark:bg-sky-400/15 dark:text-sky-200",
     label: "Diamond",
   },
   Platinum: {
-    card: "border-teal-300 bg-teal-100 dark:border-teal-400/35 dark:bg-teal-500/14",
+    card: "bg-gradient-to-br from-teal-100 to-teal-200 border-teal-300 dark:border-teal-400/35 dark:from-teal-500/14 dark:to-cyan-600/8",
     chip: "border-teal-400 bg-teal-200 text-teal-900 dark:border-teal-400/50 dark:bg-teal-400/15 dark:text-teal-200",
     label: "Platinum",
   },
   Gold: {
-    card: "border-yellow-400 bg-yellow-100 dark:border-yellow-500/30 dark:bg-yellow-500/14",
+    card: "bg-gradient-to-br from-yellow-100 to-yellow-200 border-yellow-400 dark:border-yellow-500/30 dark:from-yellow-600/14 dark:to-amber-700/8",
     chip: "border-yellow-500 bg-yellow-200 text-yellow-900 dark:border-yellow-500/50 dark:bg-yellow-500/15 dark:text-yellow-200",
     label: "Gold",
   },
   Silver: {
-    card: "border-slate-300 bg-slate-100 dark:border-slate-300/25 dark:bg-slate-400/13",
+    card: "bg-gradient-to-br from-slate-100 to-slate-200 border-slate-300 dark:border-slate-300/25 dark:from-slate-400/12 dark:to-slate-500/6",
     chip: "border-slate-400 bg-slate-200 text-slate-800 dark:border-slate-300/40 dark:bg-slate-300/12 dark:text-slate-200",
     label: "Silver",
   },
   Bronze: {
-    card: "border-orange-300 bg-orange-100 dark:border-orange-800/35 dark:bg-orange-500/13",
+    card: "bg-gradient-to-br from-orange-100 to-orange-200 border-orange-300 dark:border-orange-800/35 dark:from-orange-900/20 dark:to-amber-950/10",
     chip: "border-orange-400 bg-orange-200 text-orange-900 dark:border-orange-700/50 dark:bg-orange-800/20 dark:text-orange-200",
     label: "Bronze",
   },
@@ -389,7 +394,7 @@ function matchesTier(platform: Platform, enabled: Set<CoverageTier>): boolean {
  * STABLE partition preserves comparator order within each group.
  */
 function CoverageWall() {
-  const [mode, setMode] = useState<FilterMode>("surface");
+  const [mode, setMode] = useState<FilterMode>("tier");
   const [enabledSurfaces, setEnabledSurfaces] = useState<Set<keyof PlatformSurfaces>>(
     () => new Set(SURFACE_KEYS),
   );
@@ -427,7 +432,7 @@ function CoverageWall() {
   };
 
   const reset = () => {
-    setMode("surface");
+    setMode("tier");
     setEnabledSurfaces(new Set(SURFACE_KEYS));
     setEnabledTiers(new Set(ALL_TIERS));
   };
