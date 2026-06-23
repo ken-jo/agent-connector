@@ -14,12 +14,12 @@ import {
 /**
  * Landing coverage teaser — a lightweight, dependency-free auto-scrolling
  * marquee that replaces the detailed rank-tier wall (which now lives at
- * /docs/dev/platforms). Name chips only (NO logos): each chip is the host name
+ * /coverage). Name chips only (NO logos): each chip is the host name
  * + its paradigm color dot + a small form-factor tag (CLI / IDE / Ext).
  *
  * Two rows scroll horizontally in OPPOSITE directions in a continuous,
  * seamless loop. The loop is pure CSS (`@keyframes` translateX, see
- * `.marquee-track` / `marquee-left` / `marquee-right` in index.css): each row's
+ * `.marquee-track` / `.marquee-right` in index.css): each row's
  * chip list is rendered TWICE back-to-back and the track translates by exactly
  * -50% (one full copy width), so the second copy is in frame the instant the
  * first scrolls off — no JS rAF loop, no seam.
@@ -130,7 +130,7 @@ export function CoverageMarquee() {
 
       <div className="mt-10 text-center">
         <Link
-          to="/docs"
+          to="/coverage"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
         >
           See the full coverage matrix
