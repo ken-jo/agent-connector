@@ -200,6 +200,23 @@ export function QuickStart() {
         read-only.
       </Callout>
 
+      <Callout title="Don't have an MCP server yet?" tone="note">
+        agent-connector <strong>deploys</strong> an MCP server you already have —
+        it doesn&apos;t write one for you, so step 0 is having a server file. The{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://modelcontextprotocol.io/quickstart/server"
+          target="_blank"
+          rel="noreferrer"
+        >
+          official MCP SDK quickstart
+        </a>{" "}
+        is the fastest on-ramp, and{" "}
+        <C>examples/acme-db/acme-db-mcp-server.mjs</C> in this repo is a
+        self-contained stub you can copy. Once you have a server file, point the
+        connector&apos;s <C>server</C> at it (next step).
+      </Callout>
+
       <P>
         Add the dependency and create an{" "}
         <C>agent-connector.config.&#123;mjs,js,json&#125;</C> at your project root
@@ -216,7 +233,12 @@ export function QuickStart() {
         and <C>--dry-run</C>-able. <C>install</C> targets the hosts{" "}
         <strong>detected</strong> on your machine (or an explicit{" "}
         <C>--targets</C> list), intersected with the {platformCount}-adapter
-        registry.
+        registry. The <C>server</C> below points at a published package
+        (<C>command: &quot;npx&quot;</C> + <C>args: [&quot;-y&quot;, &quot;@acme/db-mcp&quot;]</C>);
+        while you&apos;re still developing, the same field can be{" "}
+        <C>command: &quot;node&quot;</C> + a local server-file path (the{" "}
+        <C>acme-db-mcp-server.mjs</C> stub above) — then switch to the{" "}
+        <C>npx</C>-plus-package shape once you publish.
       </P>
       <CodeBlock
         code={S.defineConnectorSnippet}
