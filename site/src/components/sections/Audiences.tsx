@@ -38,9 +38,11 @@ export function Audiences() {
           </div>
           <p className="text-sm leading-relaxed text-foreground/90">
             Write your MCP server + hooks <strong>once</strong> with{" "}
-            <code className="font-mono text-foreground">defineConnector</code>,
-            deploy across {platformCount} agent platforms, and get per-tool
-            token telemetry for <strong>your own wrapped server</strong>.
+            <code className="font-mono text-foreground">defineConnector</code>{" "}
+            and deploy across {platformCount} agent platforms. Your
+            connector&apos;s serve-proxy telemetry reports{" "}
+            <strong>per-MCP / per-tool</strong> token cost for the server it
+            declares and wraps — <em>see what your tools cost</em>.
           </p>
           <div className="mt-auto pt-5">
             <Link
@@ -64,10 +66,13 @@ export function Audiences() {
             </span>
           </div>
           <p className="text-sm leading-relaxed text-foreground/90">
-            See whole-conversation token{" "}
-            <strong>totals per agent CLI / model / project / session</strong> —
-            not per-tool — read locally from each CLI&apos;s own session logs.
-            No connector, no config, nothing installed.
+            The connector-free <code className="font-mono text-foreground">usage</code>{" "}
+            path reports whole-conversation{" "}
+            <strong>totals per agent CLI / model / project / session / day</strong>,
+            read locally from each CLI&apos;s own session logs. It can&apos;t
+            itemize by individual MCP server or tool (agent CLIs don&apos;t log
+            per-tool attribution) — <em>see host totals, not per-MCP</em>. No
+            connector, no config, nothing installed.
           </p>
           <div className="mt-4 flex h-10 min-w-0 items-center gap-2 rounded-lg border border-border bg-background/60 pl-3 pr-1 font-mono text-xs shadow-sm">
             <Terminal className="size-3.5 shrink-0 text-muted-foreground" />

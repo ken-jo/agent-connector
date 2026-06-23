@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { ExternalLink, Github } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { Section, SectionHeading } from "@/components/sections/Section";
 import { cn } from "@/lib/utils";
 import coverageStars from "@/coverage-stars.generated.json";
 import {
@@ -13,9 +12,7 @@ import {
   hostLinks,
   hostLinkUrl,
   hostSource,
-  installMethods,
   paradigms,
-  platformCount,
   platforms,
   STAR_TIERS,
   surfaceChips,
@@ -26,6 +23,21 @@ import {
   type PlatformSurfaces,
   type SurfaceState,
 } from "@/data";
+
+/**
+ * The detailed rank-tier coverage wall, extracted out of the landing into a
+ * shared component so BOTH docs consumers render the same logic (no
+ * duplication):
+ *   - the dev docs Platforms reference (`/docs/dev/platforms`) embeds the full
+ *     interactive `<CoverageWall />` (filter bar + tier colors + links);
+ *   - the `/docs` persona chooser embeds the lightweight `<StaticCoverage />`
+ *     snapshot (tier-colored grid, no filter machinery).
+ *
+ * It imports only from `@/data` (the dependency-free platform-data layer) and
+ * the build-fetched star snapshot, so the docs route chunk owns this weight —
+ * the landing never pulls it in. `platform-data.ts` stays dependency-free;
+ * this is a React component, not docs-data.
+ */
 
 /** Where a card's surface/handler links land in the dev docs. */
 const PLATFORMS_DOC = "/docs/dev/platforms";
@@ -63,7 +75,7 @@ function coverageTierFor(id: string): CoverageTier {
  * distinguishable in BOTH themes. The chips stay solid translucent bg-color —
  * no competing gradient there, so they are left as-is.
  */
-const tierStyle: Record<CoverageTier, { card: string; chip: string; label: string }> = {
+export const tierStyle: Record<CoverageTier, { card: string; chip: string; label: string }> = {
   frontier: {
     card: "bg-gradient-to-br from-amber-100 to-amber-200 border-amber-300 shadow-sm dark:border-amber-400/40 dark:from-amber-500/20 dark:to-yellow-600/10 dark:shadow-amber-500/10",
     chip: "border-amber-400 bg-amber-200 text-amber-900 dark:border-amber-400/50 dark:bg-amber-400/15 dark:text-amber-200",
@@ -111,7 +123,7 @@ const tierStyle: Record<CoverageTier, { card: string; chip: string; label: strin
   },
 };
 
-function ParadigmLegend() {
+export function ParadigmLegend() {
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
       {paradigms.map((p) => (
@@ -151,7 +163,7 @@ const chipStates: Record<SurfaceState, { className: string; label: string }> = {
   },
 };
 
-function SurfaceLegend() {
+export function SurfaceLegend() {
   return (
     <div className="flex flex-col items-center gap-1.5">
       <p className="text-center font-mono text-xs text-muted-foreground">
@@ -392,7 +404,7 @@ function matchesTier(platform: Platform, enabled: Set<CoverageTier>): boolean {
  * BOTTOM and render dimmed (grayscale + reduced opacity, tier color dropped); a
  * STABLE partition preserves comparator order within each group.
  */
-function CoverageWall() {
+export function CoverageWall() {
   const [mode, setMode] = useState<FilterMode>("tier");
   const [enabledSurfaces, setEnabledSurfaces] = useState<Set<keyof PlatformSurfaces>>(
     () => new Set(SURFACE_KEYS),
@@ -567,7 +579,7 @@ function CoverageWall() {
 }
 
 /** Tier legend: Frontier (closed flagship) + the eight star-ranked tiers. */
-function TierLegend() {
+export function TierLegend() {
   return (
     <div className="flex flex-col items-center gap-2">
       <p className="text-center text-xs text-muted-foreground">
@@ -577,118 +589,59 @@ function TierLegend() {
         open-source hosts ranked by GitHub stars.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-1.5">
-        {(["frontier", ...STAR_TIERS.map((t) => t.tier)] as CoverageTier[]).map(
-          (t) => (
-            <span
-              key={t}
-              className={cn(
-                "rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase leading-none tracking-wide",
-                tierStyle[t].chip,
-              )}
-            >
-              {tierStyle[t].label}
-            </span>
-          ),
-        )}
+        {ALL_TIERS.map((t) => (
+          <span
+            key={t}
+            className={cn(
+              "rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase leading-none tracking-wide",
+              tierStyle[t].chip,
+            )}
+          >
+            {tierStyle[t].label}
+          </span>
+        ))}
       </div>
     </div>
   );
 }
 
-export function Platforms() {
-  return (
-    <Section id="platforms">
-      <SectionHeading
-        eyebrow="Coverage"
-        title={
-          <>
-            Works with{" "}
-            <span className="text-gradient">{platformCount} agents</span>
-          </>
-        }
-        description="No vague compatibility wall: every agent below shows exactly which surfaces agent-connector installs on it, straight from its adapter — and, just as honestly, which surfaces the host offers that we haven't wired yet."
-      />
-
-      <div className="mt-10 flex flex-col items-center gap-3">
-        <ParadigmLegend />
-        <SurfaceLegend />
-        <TierLegend />
-      </div>
-
-      <p className="mt-6 text-center text-xs text-muted-foreground">
-        Each card carries a{" "}
-        <span className="text-foreground">GitHub link</span> (top-right) and a{" "}
-        <span className="text-foreground">Guide →</span> link to its Platforms
-        reference; the colored dot is its{" "}
-        <span className="text-foreground">hook paradigm</span>, the corner tag its
-        form factor (CLI / IDE / Ext), and the card color its{" "}
-        <span className="text-foreground">rank tier</span>.
-      </p>
-
-      <div className="mt-8">
-        <CoverageWall />
-      </div>
-
-      <p className="mt-8 text-center text-xs text-muted-foreground">
-        Surface profiles are drift-tested against the adapter registry — the
-        wall can't claim what an adapter doesn't ship, and a lit chip always
-        implies the host natively offers that surface.
-      </p>
-
-      <InstallMethods />
-    </Section>
-  );
-}
-
 /**
- * "Two ways in" — direct config-write vs the marketplace/plugin flow. Marketplace
- * is now an officially supported, end-to-end-DRIVEN path for Claude Code, Codex
- * and Antigravity (live-verified on Linux + native Windows), not just a hand-
- * installable bundle.
+ * A compact, NON-interactive coverage snapshot for the `/docs` persona chooser:
+ * the same comparator-ordered hosts as the full wall, each a small
+ * tier-colored pill (paradigm dot + name + form-factor tag) — no filter bar, no
+ * star counts, no per-card links. It is a static teaser that links out to the
+ * full interactive matrix at `/docs/dev/platforms`.
  */
-function InstallMethods() {
+export function StaticCoverage() {
   return (
-    <div className="mx-auto mt-16 max-w-4xl">
-      <div className="text-center">
-        <span className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          Two ways in
-        </span>
-        <h3 className="mt-3 text-balance text-xl font-bold tracking-tight sm:text-2xl">
-          Direct config-write —{" "}
-          <span className="text-gradient">or drive the host's own marketplace</span>
-        </h3>
-      </div>
-
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        {installMethods.map((m) => (
-          <div
-            key={m.id}
-            className="rounded-xl border border-border bg-card/60 p-6 backdrop-blur transition-colors hover:border-foreground/20"
+    <div className="flex flex-wrap justify-center gap-1.5">
+      {wallPlatforms.map((pl) => {
+        const paradigm = paradigms.find((p) => p.id === pl.paradigm)!;
+        const ffShort = formFactorShort(pl.id);
+        const tier = coverageTierFor(pl.id);
+        const style = tierStyle[tier];
+        return (
+          <span
+            key={pl.id}
+            title={`${pl.name} — ${style.label} tier · ${paradigm.label}`}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+              style.card,
+            )}
           >
-            <code
-              className="font-mono text-xs"
-              style={{ color: "var(--brand)" }}
-            >
-              {m.flag}
-            </code>
-            <h4 className="mt-2 text-lg font-semibold tracking-tight">
-              {m.title}
-            </h4>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              {m.summary}
-            </p>
-            <p className="mt-4 border-t border-border pt-3 text-xs font-medium text-foreground">
-              {m.scope}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <p className="mx-auto mt-6 max-w-2xl text-center text-xs text-muted-foreground">
-        Same connector, same telemetry — `uninstall --method auto` reverses
-        whichever method is installed, and a guard refuses installing the same
-        connector by both at once.
-      </p>
+            <span
+              className={cn("size-2 shrink-0 rounded-full", paradigm.dot)}
+              aria-hidden="true"
+            />
+            <span className="text-foreground">{pl.name}</span>
+            {ffShort ? (
+              <span className="font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
+                {ffShort}
+              </span>
+            ) : null}
+          </span>
+        );
+      })}
     </div>
   );
 }

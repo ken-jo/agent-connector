@@ -11,6 +11,8 @@ import {
   useDocsSearch,
 } from "./DocsSearch";
 import { DEFAULT_DESCRIPTION, setMetaDescription } from "./meta";
+import { StaticCoverage } from "@/components/coverage-wall/CoverageWall";
+import { platformCount } from "@/data";
 
 const CONTENT_ID = "docs-content";
 
@@ -142,6 +144,36 @@ export function DocsChooser() {
             wrapped server) is never the same as &quot;see what the MCPs you use
             cost&quot; (only available as host totals, not per-MCP).
           </Callout>
+
+          {/* Static coverage snapshot — a compact, NON-interactive tier-colored
+              grid of every host (no filter bar, no star counts). The full
+              interactive wall lives at /docs/dev/platforms; this is a teaser
+              under the persona cards. */}
+          <section aria-labelledby="docs-coverage-heading" className="mt-14">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2
+                id="docs-coverage-heading"
+                className="text-lg font-semibold tracking-tight"
+              >
+                Works with {platformCount} agents
+              </h2>
+              <Link
+                to="/docs/dev/platforms"
+                className="inline-flex items-center gap-1 text-sm font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                Full coverage matrix
+                <ArrowRight className="size-4" />
+              </Link>
+            </div>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+              A snapshot of every supported host, colored by rank tier. Open the
+              full matrix to filter by tier or surface and reach each
+              host&apos;s setup guide.
+            </p>
+            <div className="mt-6">
+              <StaticCoverage />
+            </div>
+          </section>
         </div>
       </main>
       <Footer />

@@ -4,7 +4,8 @@ import { Hero } from "@/components/sections/Hero";
 import { Audiences } from "@/components/sections/Audiences";
 import { Pillars } from "@/components/sections/Pillars";
 import { Surfaces } from "@/components/sections/Surfaces";
-import { Platforms } from "@/components/sections/Platforms";
+import { CoverageMarquee } from "@/components/sections/CoverageMarquee";
+import { InstallMethods } from "@/components/sections/InstallMethods";
 import { Efficiency } from "@/components/sections/Efficiency";
 import { WriteOnceTabs } from "@/components/sections/WriteOnceTabs";
 import { Telemetry } from "@/components/sections/Telemetry";
@@ -19,15 +20,20 @@ export function Landing() {
       <Nav />
       <main id="main-content" tabIndex={-1} className="outline-none">
         <Hero />
-        <Audiences />
         <Efficiency />
-        {/* Owner: the supported-platform wall sits directly under the 99% story. */}
-        <Platforms />
+        {/* Lightweight auto-scrolling coverage marquee in the old Platforms
+            slot — the detailed rank-tier wall + filter now lives at
+            /docs/dev/platforms (linked from here). */}
+        <CoverageMarquee />
         <Pillars />
         <Surfaces />
         <WriteOnceTabs />
         <Telemetry />
         <Cli />
+        {/* "Who it's for" sits directly above "Two ways in": pick your track,
+            then see how each track gets in. */}
+        <Audiences />
+        <InstallMethods />
         <HowItWorks />
       </main>
       <Footer />
