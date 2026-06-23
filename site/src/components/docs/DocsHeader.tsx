@@ -1,6 +1,11 @@
-import { Link } from "react-router-dom";
-import { ChevronRight, Pencil } from "lucide-react";
-import { sectionLabel, tracks, type TrackId } from "./docs-data";
+import { Link, useSearchParams } from "react-router-dom";
+import { ArrowLeft, ChevronRight, Pencil } from "lucide-react";
+import {
+  sectionLabel,
+  tracks,
+  trackSectionIds,
+  type TrackId,
+} from "./docs-data";
 
 const GITHUB_REPO = "https://github.com/ken-jo/agent-connector";
 const EDIT_PATH = "site/src/components/docs/DocsContent.tsx";
@@ -10,6 +15,27 @@ const EDIT_URL = `${GITHUB_REPO}/edit/main/${EDIT_PATH}`;
 function groupOf(track: TrackId, id: string): string | undefined {
   return tracks[track].groups.find((g) => g.items.some((i) => i.id === id))
     ?.title;
+}
+
+/**
+ * Parse a `?from=<track>/<section>` referrer into a validated back-link target,
+ * or null when it is absent / malformed / points into the SAME track (no
+ * persona boundary was crossed, so no banner). Used to surface a lightweight
+ * "you followed a link out of your track into a shared page" banner.
+ */
+function parseCrossTrackFrom(
+  fromParam: string | null,
+  currentTrack: TrackId,
+): { track: TrackId; section: string } | null {
+  if (!fromParam) return null;
+  const slash = fromParam.indexOf("/");
+  if (slash < 0) return null;
+  const track = fromParam.slice(0, slash);
+  const section = fromParam.slice(slash + 1);
+  if (track !== "user" && track !== "dev") return null;
+  if (track === currentTrack) return null;
+  if (!trackSectionIds[track].has(section)) return null;
+  return { track, section };
 }
 
 /**
@@ -27,8 +53,26 @@ export function DocsHeader({
   const group = groupOf(track, activeId);
   const page = sectionLabel[activeId];
 
+  const [searchParams] = useSearchParams();
+  const crossFrom = parseCrossTrackFrom(searchParams.get("from"), track);
+
   return (
     <div className="mb-8 border-b border-border/60 pb-4">
+      {crossFrom ? (
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <span>
+            <span className="font-medium text-foreground">{page}</span> — shared
+            with the {tracks[track].label} track.
+          </span>
+          <Link
+            to={`/docs/${crossFrom.track}/${crossFrom.section}`}
+            className="inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            <ArrowLeft className="size-3" />
+            Back to {sectionLabel[crossFrom.section]}
+          </Link>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Breadcrumb" className="min-w-0">
           <ol className="flex items-center gap-1.5 text-sm text-muted-foreground">

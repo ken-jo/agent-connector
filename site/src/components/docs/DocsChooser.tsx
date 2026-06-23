@@ -69,9 +69,10 @@ export function DocsChooser() {
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-foreground/90">
+                <strong>You authored a connector with{" "}
+                <C>defineConnector(&#123;...&#125;)</C></strong> (or are about to).
                 You write your MCP server + hooks (and optionally commands,
-                skills, subagents) <strong>once</strong> with{" "}
-                <C>defineConnector(&#123;...&#125;)</C>, then deploy across every
+                skills, subagents) <strong>once</strong>, then deploy across every
                 detected agent platform — shipping a branded CLI or running{" "}
                 <C>npx @ken-jo/agent-connector</C>. You get per-MCP and per-tool
                 token counts for <strong>your own wrapped server</strong>.
@@ -101,17 +102,21 @@ export function DocsChooser() {
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-foreground/90">
-                You already run Claude Code / Codex / Cursor and have{" "}
-                <strong>not</strong> authored a connector. With zero setup you
-                run <C>agent-connector usage</C> to scan each agent CLI&apos;s
-                own session logs and see how many tokens they&apos;re burning,
-                ranked by CLI / model / project / session / day.
+                <strong>You have NOT authored a connector — you just use agent
+                CLIs.</strong> You already run Claude Code / Codex / Cursor; with
+                zero setup you run <C>agent-connector usage</C> to scan each
+                agent CLI&apos;s own session logs and see how many tokens
+                they&apos;re burning, ranked by CLI / model / project / session /
+                day.
               </p>
               <div className="mt-auto pt-5">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 group-hover:underline">
                   See your agent-CLI usage
                   <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Reports · Leaderboards · Coverage
+                </p>
               </div>
             </Link>
           </div>

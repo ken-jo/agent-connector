@@ -50,6 +50,7 @@ import {
   telemetryEmptyRows,
   telemetryAxes,
   telemetrySurfaces,
+  telemetryReconcileRows,
   eventScopeRows,
   surfaceKindRows,
   surfaceLeaderboardColumns,
@@ -84,19 +85,15 @@ export function Introduction() {
       </P>
 
       <Callout title="The one accuracy-critical line between the tracks" tone="warn">
-        The connector-free{" "}
-        <Link className="underline hover:text-foreground" to="/docs/user/usage">
-          <C>usage</C>
+        &quot;See what <em>your</em> tools cost&quot; (per-MCP / per-tool, from
+        your own wrapped server&apos;s serve proxy) is never the same as
+        &quot;see what the MCPs you use cost&quot; (only available as
+        whole-conversation host totals). The connector-free{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage#per-mcp-vs-host">
+          <C>usage</C> path
         </Link>{" "}
-        path reports <strong>whole-conversation totals</strong> per agent CLI /
-        model / project / session / day — it does <strong>not</strong> and
-        cannot itemize cost by individual MCP server or tool, because agent CLIs
-        don&apos;t log per-tool token attribution.{" "}
-        <strong>Per-MCP and per-tool numbers</strong> come only from the
-        serve-proxy telemetry that an MCP developer&apos;s own connector
-        produces for the server it declares and wraps. &quot;See what your tools
-        cost&quot; (your own wrapped server) is never the same as &quot;see what
-        the MCPs you use cost&quot; (only available as host totals, not per-MCP).
+        cannot itemize per MCP server or tool — the canonical explanation covers
+        why and which track gives you per-tool numbers.
       </Callout>
 
       <H3 id="two-pillars">Two pillars</H3>
@@ -146,7 +143,7 @@ export function Installation() {
       <CodeBlock code={S.installSnippet} language="bash" filename="terminal" />
       <P>
         Then expose every subcommand under your own brand with{" "}
-        <C>createConnectorCli</C> from the <C>agent-connector/cli</C> export — the{" "}
+        <C>createConnectorCli</C> from the <C>@ken-jo/agent-connector/cli</C> export — the{" "}
         <Link className="underline hover:text-foreground" to="/docs/dev/embed-cli">
           branded-CLI flow
         </Link>
@@ -200,6 +197,23 @@ export function QuickStart() {
         read-only.
       </Callout>
 
+      <Callout title="Don't have an MCP server yet?" tone="note">
+        agent-connector <strong>deploys</strong> an MCP server you already have —
+        it doesn&apos;t write one for you, so step 0 is having a server file. The{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://modelcontextprotocol.io/quickstart/server"
+          target="_blank"
+          rel="noreferrer"
+        >
+          official MCP SDK quickstart
+        </a>{" "}
+        is the fastest on-ramp, and{" "}
+        <C>examples/acme-db/acme-db-mcp-server.mjs</C> in this repo is a
+        self-contained stub you can copy. Once you have a server file, point the
+        connector&apos;s <C>server</C> at it (next step).
+      </Callout>
+
       <P>
         Add the dependency and create an{" "}
         <C>agent-connector.config.&#123;mjs,js,json&#125;</C> at your project root
@@ -216,7 +230,12 @@ export function QuickStart() {
         and <C>--dry-run</C>-able. <C>install</C> targets the hosts{" "}
         <strong>detected</strong> on your machine (or an explicit{" "}
         <C>--targets</C> list), intersected with the {platformCount}-adapter
-        registry.
+        registry. The <C>server</C> below points at a published package
+        (<C>command: &quot;npx&quot;</C> + <C>args: [&quot;-y&quot;, &quot;@acme/db-mcp&quot;]</C>);
+        while you&apos;re still developing, the same field can be{" "}
+        <C>command: &quot;node&quot;</C> + a local server-file path (the{" "}
+        <C>acme-db-mcp-server.mjs</C> stub above) — then switch to the{" "}
+        <C>npx</C>-plus-package shape once you publish.
       </P>
       <CodeBlock
         code={S.defineConnectorSnippet}
@@ -270,7 +289,7 @@ export function EmbedCli() {
 
       <H3 id="embed-bin">2. createConnectorCli in your bin</H3>
       <P>
-        Import <C>createConnectorCli</C> from the <C>agent-connector/cli</C>{" "}
+        Import <C>createConnectorCli</C> from the <C>@ken-jo/agent-connector/cli</C>{" "}
         export, point it at your shipped config, and <C>.run()</C> it. That is the
         whole bin — every command behavior still lives in agent-connector; this is
         pure brand + auto-scope.
@@ -913,7 +932,7 @@ export function UserOverview() {
   return (
     <DocSection
       id="overview"
-      eyebrow="Track your agent-CLI usage"
+      eyebrow="Agent-CLI user · start here"
       title="See your agent-CLI usage"
     >
       <Lead>
@@ -923,6 +942,22 @@ export function UserOverview() {
         CLI&apos;s own native session logs/DBs and shows token usage aggregated
         by agent CLI, model, project, session, or day.
       </Lead>
+
+      <P>
+        This track is three pages:{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/overview">
+          Overview &amp; quick start
+        </Link>{" "}
+        (this page — run it in one command),{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage">
+          Reports &amp; leaderboards
+        </Link>{" "}
+        (every <C>usage</C> flag, grouping, and export), and{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/coverage-confidence">
+          Coverage &amp; confidence
+        </Link>{" "}
+        (which hosts are exact vs estimated, and the requires-sync rows).
+      </P>
 
       <Callout title="This is the connector-free track" tone="note">
         Everything here works straight from <C>npx @ken-jo/agent-connector</C>{" "}
@@ -942,20 +977,12 @@ export function UserOverview() {
       </P>
       <CodeBlock code={S.usageQuickStartSnippet} language="bash" filename="terminal" />
       <Callout title="What this can and cannot show" tone="warn">
-        <C>usage</C> reports <strong>whole-conversation totals</strong> grouped
-        by platform / model / project / session / day — it does{" "}
-        <strong>not</strong> itemize cost per MCP server or per tool, because
-        agent CLIs don&apos;t log per-tool token attribution. Per-MCP and
-        per-tool token costs require an MCP to run through agent-connector&apos;s
-        serve proxy, which is the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/quick-start">
-          MCP-developer track
-        </Link>
-        . Full details on the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/user/usage">
-          usage page
-        </Link>
-        .
+        <C>usage</C> reports <strong>whole-conversation totals</strong>, not
+        per-MCP / per-tool cost — see the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage#per-mcp-vs-host">
+          canonical per-MCP vs host-scan explanation
+        </Link>{" "}
+        for why, and which track gives you per-tool numbers.
       </Callout>
     </DocSection>
   );
@@ -988,11 +1015,16 @@ export function Usage() {
       </P>
       <CodeBlock code={S.usageReportSnippet} language="text" filename="terminal" />
 
+      <H3 id="per-mcp-vs-host">
+        Per-MCP (serve-proxy) vs connector-free (host-scan)
+      </H3>
       <Callout
         title="What usage does NOT show: per-MCP / per-tool cost"
         tone="warn"
       >
-        <C>usage</C> reports <strong>whole-conversation totals</strong> per agent
+        <em>This is the canonical explanation of the two telemetry sources — the
+        rest of the docs link here.</em> The connector-free <C>usage</C>{" "}
+        host-scan reports <strong>whole-conversation totals</strong> per agent
         CLI / model / project / session / day — it does <strong>not</strong>{" "}
         itemize cost per individual MCP server or per tool. Agent CLIs fold tool
         results into the session&apos;s input tokens and never attribute them to
@@ -1000,7 +1032,7 @@ export function Usage() {
         whole-conversation totals. This is a current capability boundary of host
         logs. <strong>Per-MCP and per-tool token costs require the MCP to run
         through agent-connector&apos;s serve proxy</strong>, which is the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-overview">
+        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-overview?from=user/usage">
           MCP-developer telemetry track
         </Link>{" "}
         — and even then only for a server <em>your own</em> connector declares
@@ -1009,12 +1041,12 @@ export function Usage() {
 
       <P>
         See the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/cli?from=user/usage">
           CLI reference
         </Link>{" "}
         for every <C>usage</C> flag. <C>usage</C> is the only token view that
         works with no setup — the unified{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/leaderboards">
+        <Link className="underline hover:text-foreground" to="/docs/dev/leaderboards?from=user/usage">
           leaderboard
         </Link>
         &apos;s other two boards need a connector or the opt-in usage hook.
@@ -1048,11 +1080,11 @@ export function CoverageConfidence() {
       </List>
       <P>
         See the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/troubleshooting#requires-sync">
+        <Link className="underline hover:text-foreground" to="/docs/dev/troubleshooting?from=user/coverage-confidence#requires-sync">
           troubleshooting notes
         </Link>{" "}
         for what the skip line means (informational, not an error), and the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/cli?from=user/coverage-confidence">
           CLI reference
         </Link>{" "}
         for every <C>usage</C> flag.
@@ -1203,6 +1235,59 @@ export function TelemetrySurfaces() {
           </div>
         ))}
       </div>
+
+      <H3 id="telemetry-vocab">One table, four vocabularies</H3>
+      <P>
+        The telemetry types use four names for closely-related things — the{" "}
+        <strong>developer surface</strong>, its <C>EventScope</C>(s), its{" "}
+        <C>SurfaceKind</C>, and whether it is <strong>RUNTIME</strong>-measured or
+        a <strong>STATIC</strong> footprint. On the developer surfaces{" "}
+        <C>EventScope</C> and <C>SurfaceKind</C> co-vary, so this one table lines
+        all four up. The detailed per-vocabulary tables follow below.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Surface</Th>
+            <Th>EventScope(s)</Th>
+            <Th>SurfaceKind</Th>
+            <Th>RUNTIME / STATIC</Th>
+            <Th>What it is</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {telemetryReconcileRows.map((r) => (
+            <tr key={`${r.surface}-${r.eventScope}`}>
+              <Td className="whitespace-nowrap">
+                <Code>{r.surface}</Code>
+              </Td>
+              <Td className="whitespace-nowrap">
+                <Code>{r.eventScope}</Code>
+              </Td>
+              <Td className="whitespace-nowrap">
+                <Code>{r.surfaceKind}</Code>
+              </Td>
+              <Td className="whitespace-nowrap">
+                {r.kind === "—" ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : (
+                  <Badge
+                    variant="muted"
+                    className={
+                      r.kind === "RUNTIME"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                    }
+                  >
+                    {r.kind}
+                  </Badge>
+                )}
+              </Td>
+              <Td className="text-muted-foreground">{r.note}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
 
       <H3 id="five-surfaces">The five developer surfaces</H3>
       <P>
@@ -1508,7 +1593,12 @@ export function Leaderboards() {
         Per-MCP server bytes (🔌) measure your server&apos;s own I/O; host/user
         usage (🖥️) measures whole-conversation usage from CLI logs; live
         host-native turns (🛰️) are whole-conversation usage from a real-time hook.
-        These are different things — totals are never added across origins.
+        These are different things — totals are never added across origins. (For
+        the per-MCP vs host-scan distinction specifically, see the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage#per-mcp-vs-host">
+          canonical explanation
+        </Link>
+        .)
       </Callout>
     </DocSection>
   );
@@ -1518,10 +1608,54 @@ export function Privacy() {
   return (
     <DocSection id="privacy" eyebrow="Telemetry" title="Privacy & opt-out">
       <Lead>
-        Local-first, <strong>zero network egress by default</strong>. Reported
-        numbers are estimates from the server&apos;s own I/O, not host-billed
-        usage.
+        Both telemetry paths are <strong>local-first</strong> with{" "}
+        <strong>zero network egress by default</strong>, and store{" "}
+        <strong>aggregate counts only — never your prompts, arguments, or
+        results</strong>. Nothing leaves your machine unless you explicitly
+        opt in (the calibration sampler is the only off-box path, and it is off
+        by default).
       </Lead>
+
+      <H3 id="privacy-usage">The connector-free <C>usage</C> host-scan</H3>
+      <P>
+        The <Link className="underline hover:text-foreground" to="/docs/user/usage">
+          <C>usage</C>
+        </Link>{" "}
+        command needs no connector and writes nothing. It reads each agent
+        CLI&apos;s <strong>own</strong> native session logs / DBs{" "}
+        <strong>read-only</strong>, reports{" "}
+        <strong>counts only — never your prompts or results</strong>, writes{" "}
+        <strong>zero host config</strong> (it never runs <C>install</C>), and is
+        local-first: the scan stays entirely on your machine. It is a separate
+        read-only subsystem (<C>src/usage/</C>) that never collides with the
+        serve-proxy store below.
+      </P>
+
+      <H3 id="privacy-serve-proxy">The serve-proxy per-tool numbers</H3>
+      <P>
+        The per-MCP / per-tool telemetry comes from the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-overview">
+          serve proxy
+        </Link>{" "}
+        a connector developer&apos;s own wrapped server runs — it tokenizes the
+        server&apos;s I/O locally and stores aggregate counts only.
+      </P>
+      <Callout title="Scope of the &quot;estimate&quot; label" tone="note">
+        Reported per-tool numbers are <strong>estimates from the server&apos;s
+        own I/O</strong>, not host-billed usage — this caveat applies
+        specifically to the serve-proxy per-tool counts (every row carries its{" "}
+        <Link
+          className="underline hover:text-foreground"
+          to="/docs/dev/telemetry-overview#confidence-sources"
+        >
+          confidence source
+        </Link>{" "}
+        so an estimate is never read as exact). It is <em>not</em> a statement
+        that all telemetry is approximate: the connector-free <C>usage</C> scan
+        above reports the host&apos;s own logged counts.
+      </Callout>
+
+      <H3 id="privacy-switches">Opt-out switches</H3>
       <DocsTable>
         <thead>
           <tr>
