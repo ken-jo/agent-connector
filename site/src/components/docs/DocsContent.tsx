@@ -932,7 +932,7 @@ export function UserOverview() {
   return (
     <DocSection
       id="overview"
-      eyebrow="Track your agent-CLI usage"
+      eyebrow="Agent-CLI user · start here"
       title="See your agent-CLI usage"
     >
       <Lead>
@@ -942,6 +942,22 @@ export function UserOverview() {
         CLI&apos;s own native session logs/DBs and shows token usage aggregated
         by agent CLI, model, project, session, or day.
       </Lead>
+
+      <P>
+        This track is three pages:{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/overview">
+          Overview &amp; quick start
+        </Link>{" "}
+        (this page — run it in one command),{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage">
+          Reports &amp; leaderboards
+        </Link>{" "}
+        (every <C>usage</C> flag, grouping, and export), and{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/coverage-confidence">
+          Coverage &amp; confidence
+        </Link>{" "}
+        (which hosts are exact vs estimated, and the requires-sync rows).
+      </P>
 
       <Callout title="This is the connector-free track" tone="note">
         Everything here works straight from <C>npx @ken-jo/agent-connector</C>{" "}
@@ -1016,7 +1032,7 @@ export function Usage() {
         whole-conversation totals. This is a current capability boundary of host
         logs. <strong>Per-MCP and per-tool token costs require the MCP to run
         through agent-connector&apos;s serve proxy</strong>, which is the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-overview">
+        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-overview?from=user/usage">
           MCP-developer telemetry track
         </Link>{" "}
         — and even then only for a server <em>your own</em> connector declares
@@ -1025,12 +1041,12 @@ export function Usage() {
 
       <P>
         See the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/cli?from=user/usage">
           CLI reference
         </Link>{" "}
         for every <C>usage</C> flag. <C>usage</C> is the only token view that
         works with no setup — the unified{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/leaderboards">
+        <Link className="underline hover:text-foreground" to="/docs/dev/leaderboards?from=user/usage">
           leaderboard
         </Link>
         &apos;s other two boards need a connector or the opt-in usage hook.
@@ -1064,11 +1080,11 @@ export function CoverageConfidence() {
       </List>
       <P>
         See the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/troubleshooting#requires-sync">
+        <Link className="underline hover:text-foreground" to="/docs/dev/troubleshooting?from=user/coverage-confidence#requires-sync">
           troubleshooting notes
         </Link>{" "}
         for what the skip line means (informational, not an error), and the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/cli">
+        <Link className="underline hover:text-foreground" to="/docs/dev/cli?from=user/coverage-confidence">
           CLI reference
         </Link>{" "}
         for every <C>usage</C> flag.

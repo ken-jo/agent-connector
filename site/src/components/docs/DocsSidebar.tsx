@@ -37,6 +37,7 @@ export function DocsSidebar({
   className,
 }: DocsSidebarProps) {
   const navGroups = tracks[track].groups;
+  const otherTrack: TrackId = track === "dev" ? "user" : "dev";
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() =>
     typeof window === "undefined" ? new Set() : readCollapsed(track),
   );
@@ -70,19 +71,20 @@ export function DocsSidebar({
 
   return (
     <nav aria-label="Docs sections" className={cn("text-sm", className)}>
-      {/* Track header — which audience this sidebar belongs to + the way out. */}
+      {/* Track header — which audience this sidebar belongs to + a ONE-CLICK
+          toggle straight into the other track's home (no chooser round-trip). */}
       <div className="mb-5 px-3">
         <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-foreground">
           <span aria-hidden>{tracks[track].glyph}</span> {tracks[track].label}{" "}
           track
         </p>
         <Link
-          to="/docs"
+          to={tracks[otherTrack].basePath}
           onClick={onNavigate}
           className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeftRight className="size-3" />
-          Switch track →
+          Switch to the {tracks[otherTrack].label} track
         </Link>
       </div>
       <ul className="space-y-5">
