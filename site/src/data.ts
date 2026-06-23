@@ -89,8 +89,17 @@ export type { FormFactorId } from "./platform-data";
 /* Coverage rank tiers — closed=Frontier, else GitHub-stars tier.      */
 /* ------------------------------------------------------------------ */
 
-export { hostSource, STAR_TIERS, starTier, tierOf, coverageRepos } from "./platform-data";
-export type { HostSource, StarTier, CoverageTier } from "./platform-data";
+export {
+  hostSource,
+  STAR_TIERS,
+  starTier,
+  tierOf,
+  coverageRepos,
+  hostLinks,
+  hostLinkUrl,
+  formatStars,
+} from "./platform-data";
+export type { HostSource, StarTier, CoverageTier, HostLink } from "./platform-data";
 
 import type { FormFactorId } from "./platform-data";
 

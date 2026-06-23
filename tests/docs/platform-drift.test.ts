@@ -29,6 +29,7 @@ import {
 import {
   formFactorIds,
   formFactorOf,
+  hostLinks,
   hostSource,
   platforms as landingPlatforms,
   tierOf,
@@ -150,6 +151,28 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     for (const p of landingPlatforms) {
       const tier = tierOf(p.id, "repo" in (hostSource[p.id] ?? {}) ? 1234 : undefined);
       expect(tier, `tierOf("${p.id}") returned no tier`).toBeTruthy();
+    }
+  });
+
+  it("hostLinks gives EVERY landing platform exactly one valid source link", () => {
+    // Each card's top-right icon links to hostLinks[id] — a verified GitHub repo
+    // or a product homepage. A missing entry means no source link renders. Guard
+    // an exact partition: one entry per platform id, no stray keys, and each is
+    // either { kind:"github", repo:"owner/name" } or { kind:"home", url:"http(s)://…" }.
+    const platformIds = new Set(landingPlatforms.map((p) => p.id));
+    const linkIds = new Set(Object.keys(hostLinks));
+    expect([...linkIds].sort()).toEqual([...platformIds].sort());
+    for (const [id, link] of Object.entries(hostLinks)) {
+      if (link.kind === "github") {
+        expect(link.repo, `hostLinks["${id}"].repo must be "owner/name"`).toMatch(
+          /^[^/\s]+\/[^/\s]+$/,
+        );
+      } else {
+        expect(link.kind, `hostLinks["${id}"].kind`).toBe("home");
+        expect(link.url, `hostLinks["${id}"].url must be an http(s) URL`).toMatch(
+          /^https?:\/\/\S+$/,
+        );
+      }
     }
   });
 

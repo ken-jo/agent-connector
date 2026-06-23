@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+import { ExternalLink, Github } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { Section, SectionHeading } from "@/components/sections/Section";
@@ -5,8 +7,11 @@ import { cn } from "@/lib/utils";
 import coverageStars from "@/coverage-stars.generated.json";
 import {
   byParadigmFamilyName,
+  formatStars,
   formFactorShort,
   handlerChips,
+  hostLinks,
+  hostLinkUrl,
   hostSource,
   installMethods,
   paradigms,
@@ -18,6 +23,7 @@ import {
   tierOf,
   type CoverageTier,
   type Platform,
+  type PlatformSurfaces,
   type SurfaceState,
 } from "@/data";
 
@@ -176,16 +182,19 @@ function SurfaceLegend() {
 
 /**
  * One agent on the wall: name + its exact surface profile as 3-state chips, a
- * compact form-factor chip (CLI / IDE / Ext), and any lit handler chips.
+ * compact form-factor chip (CLI / IDE / Ext), the rank-tier badge + star count,
+ * any lit handler chips, and TWO sibling links — a top-right "go to source"
+ * icon (GitHub repo or product homepage) and a bottom "Guide →" Link to our
+ * Platforms reference.
  *
- * Linking, kept valid + accessible (no nested <a>): the card is a <div> with a
- * full-bleed Link to the Platforms reference behind everything (absolute inset-0,
- * z-0). The handler (✦) chips sit ABOVE it (relative z-10) as their OWN Links to
- * the specific surface-setup anchors, so a click on a chip jumps to that anchor
- * while a click anywhere else on the card opens the Platforms reference. Both the
- * card link and the chip links are focusable real <a> elements.
+ * Accessibility: there is NO card-wrapping anchor anymore. The source icon and
+ * the Guide link (and each ✦ handler link) are independent, focusable, sibling
+ * <a>/<Link> elements with their own aria-labels — no nested anchors.
+ *
+ * `dimmed` (set by the surface filter) drops the tier color for a neutral,
+ * grayscale, reduced-opacity treatment; the card is still fully interactive.
  */
-function AgentEntry({ platform }: { platform: Platform }) {
+function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean }) {
   const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
   const ffShort = formFactorShort(platform.id);
   const supported = surfaceChips
@@ -200,22 +209,25 @@ function AgentEntry({ platform }: { platform: Platform }) {
     tier === "frontier"
       ? "Frontier — closed-source flagship"
       : `${tier} tier — ${stars?.toLocaleString() ?? "?"} GitHub stars`;
+  const link = hostLinks[platform.id];
+  const linkUrl = hostLinkUrl(platform.id);
+  const SourceIcon = link?.kind === "github" ? Github : ExternalLink;
+  const sourceLabel =
+    link?.kind === "github"
+      ? `${platform.name} on GitHub`
+      : `${platform.name} — official site`;
 
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-lg border px-3.5 py-2.5 transition-colors hover:border-foreground/40 focus-within:border-foreground/50",
-        style.card,
+        "group relative flex flex-col overflow-hidden rounded-lg border px-3.5 py-2.5 transition-colors",
+        dimmed
+          ? "border-border bg-muted/20 opacity-60 grayscale hover:opacity-90"
+          : cn("hover:border-foreground/40 focus-within:border-foreground/50", style.card),
       )}
       title={`${platform.name} (${paradigm.label}) · ${tierTitle} — supports: ${supported}`}
     >
-      {/* Full-card link to the Platforms reference, behind the chips. */}
-      <Link
-        to={PLATFORMS_DOC}
-        aria-label={`${platform.name} — open the Platforms reference`}
-        className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
-      />
-      <div className="pointer-events-none relative z-10 flex items-start gap-2">
+      <div className="flex items-start gap-2">
         <span
           className={cn("mt-1.5 size-2 shrink-0 rounded-full", paradigm.dot)}
           aria-hidden="true"
@@ -223,16 +235,30 @@ function AgentEntry({ platform }: { platform: Platform }) {
         <span className="min-w-0 break-words text-sm font-semibold leading-snug text-foreground">
           {platform.name}
         </span>
-        {ffShort ? (
-          <span
-            className="ml-auto shrink-0 self-start rounded border border-border bg-background/80 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground"
-            title={`Form factor: ${ffShort}`}
-          >
-            {ffShort}
-          </span>
-        ) : null}
+        <span className="ml-auto flex shrink-0 items-center gap-1 self-start">
+          {ffShort ? (
+            <span
+              className="rounded border border-border bg-background/80 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground"
+              title={`Form factor: ${ffShort}`}
+            >
+              {ffShort}
+            </span>
+          ) : null}
+          {linkUrl ? (
+            <a
+              href={linkUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={sourceLabel}
+              title={sourceLabel}
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
+            >
+              <SourceIcon aria-hidden="true" className="size-3.5" />
+            </a>
+          ) : null}
+        </span>
       </div>
-      <div className="pointer-events-none relative z-10 mt-1.5 flex items-center gap-1.5">
+      <div className="mt-1.5 flex items-center gap-1.5">
         <span
           className={cn(
             "rounded border px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase leading-none tracking-wide",
@@ -242,12 +268,15 @@ function AgentEntry({ platform }: { platform: Platform }) {
           {style.label}
         </span>
         {stars !== undefined ? (
-          <span className="font-mono text-[9px] leading-none text-muted-foreground">
-            ★ {stars.toLocaleString()}
+          <span
+            className="font-mono text-[9px] leading-none text-muted-foreground"
+            title={`${stars.toLocaleString()} GitHub stars`}
+          >
+            ★ {formatStars(stars)}
           </span>
         ) : null}
       </div>
-      <div className="pointer-events-none relative z-10 mt-2 flex flex-wrap items-center gap-y-1 font-mono text-[10px] leading-none tracking-tight">
+      <div className="mt-2 flex flex-wrap items-center gap-y-1 font-mono text-[10px] leading-none tracking-tight">
         {surfaceChips.map((chip, i) => {
           const state = surfaceState(platform, chip.key);
           const { className, label } = chipStates[state];
@@ -270,7 +299,7 @@ function AgentEntry({ platform }: { platform: Platform }) {
         })}
       </div>
       {litHandlers.length > 0 && (
-        <div className="relative z-10 mt-2 flex flex-wrap items-center gap-1 border-t border-border/50 pt-2">
+        <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-border/50 pt-2">
           {litHandlers.map((c) => (
             <Link
               key={c.key}
@@ -287,6 +316,13 @@ function AgentEntry({ platform }: { platform: Platform }) {
           ))}
         </div>
       )}
+      <Link
+        to={PLATFORMS_DOC}
+        aria-label={`${platform.name} — open the Platforms reference (setup guide)`}
+        className="mt-2.5 inline-flex w-fit items-center gap-0.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
+      >
+        Guide <span aria-hidden="true">→</span>
+      </Link>
     </div>
   );
 }
@@ -298,6 +334,106 @@ function AgentEntry({ platform }: { platform: Platform }) {
  * build-fetched star snapshot.
  */
 const wallPlatforms: Platform[] = [...platforms].sort(byParadigmFamilyName);
+
+/**
+ * The eight filterable surface tags — the 6 content surfaces + the 2
+ * runtime-dispatched handler surfaces (statusline/actions), so the host
+ * special surfaces are filterable too. `key` is a PlatformSurfaces flag.
+ */
+const FILTER_TAGS: { key: keyof PlatformSurfaces; label: string }[] = [
+  ...surfaceChips.map((c) => ({ key: c.key, label: c.abbr })),
+  ...handlerChips.map((c) => ({ key: c.key, label: c.abbr })),
+];
+const ALL_TAG_KEYS = FILTER_TAGS.map((t) => t.key);
+
+/** A card MATCHES if it supports at least one currently-enabled surface tag. */
+function matchesFilter(platform: Platform, enabled: Set<keyof PlatformSurfaces>): boolean {
+  if (enabled.size === 0) return false;
+  return ALL_TAG_KEYS.some((k) => enabled.has(k) && platform.surfaces[k]);
+}
+
+/**
+ * Surface filter + tier-colored wall.
+ *
+ * Filter chips (one per surface tag) start ALL ON, so every card matches and the
+ * wall shows full tier color in comparator order. A card matches if it supports
+ * at least ONE enabled tag (OR-of-enabled); turning tags OFF narrows the lit set.
+ * Non-matching cards are NEVER hidden — they are sorted to the BOTTOM and
+ * rendered dimmed (grayscale + reduced opacity, tier color dropped). Matching
+ * cards keep their comparator order on top. A stable sort preserves order within
+ * each group.
+ */
+function CoverageWall() {
+  const [enabled, setEnabled] = useState<Set<keyof PlatformSurfaces>>(
+    () => new Set(ALL_TAG_KEYS),
+  );
+  const allOn = enabled.size === ALL_TAG_KEYS.length;
+
+  const toggle = (key: keyof PlatformSurfaces) =>
+    setEnabled((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const ordered = useMemo(() => {
+    // wallPlatforms is already in comparator order; a STABLE partition keeps
+    // that order within the matching group and within the dimmed group.
+    const match: Platform[] = [];
+    const dim: Platform[] = [];
+    for (const p of wallPlatforms) {
+      (matchesFilter(p, enabled) ? match : dim).push(p);
+    }
+    return { match, dim };
+  }, [enabled]);
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        <span className="mr-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+          Filter by surface:
+        </span>
+        {FILTER_TAGS.map((t) => {
+          const on = enabled.has(t.key);
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => toggle(t.key)}
+              aria-pressed={on}
+              className={cn(
+                "rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+                on
+                  ? "border-foreground/40 bg-foreground/10 text-foreground"
+                  : "border-border bg-transparent text-muted-foreground line-through decoration-muted-foreground/50",
+              )}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => setEnabled(new Set(ALL_TAG_KEYS))}
+          disabled={allOn}
+          className="ml-1 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground disabled:cursor-default disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
+        >
+          Reset
+        </button>
+      </div>
+
+      <div className="mx-auto mt-8 grid max-w-5xl grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+        {ordered.match.map((pl) => (
+          <AgentEntry key={pl.id} platform={pl} />
+        ))}
+        {ordered.dim.map((pl) => (
+          <AgentEntry key={pl.id} platform={pl} dimmed />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /** Tier legend: Frontier (closed flagship) + the eight star-ranked tiers. */
 function TierLegend() {
@@ -349,17 +485,17 @@ export function Platforms() {
       </div>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Each card links to the{" "}
-        <span className="text-foreground">Platforms reference</span>; the colored
-        dot is its <span className="text-foreground">hook paradigm</span>, the
-        corner tag its form factor (CLI / IDE / Ext), and the card color its{" "}
+        Each card carries a{" "}
+        <span className="text-foreground">GitHub link</span> (top-right) and a{" "}
+        <span className="text-foreground">Guide →</span> link to its Platforms
+        reference; the colored dot is its{" "}
+        <span className="text-foreground">hook paradigm</span>, the corner tag its
+        form factor (CLI / IDE / Ext), and the card color its{" "}
         <span className="text-foreground">rank tier</span>.
       </p>
 
-      <div className="mx-auto mt-8 grid max-w-5xl grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-        {wallPlatforms.map((pl) => (
-          <AgentEntry key={pl.id} platform={pl} />
-        ))}
+      <div className="mt-8">
+        <CoverageWall />
       </div>
 
       <p className="mt-8 text-center text-xs text-muted-foreground">

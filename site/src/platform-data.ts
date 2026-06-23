@@ -915,6 +915,95 @@ export const coverageRepos: readonly string[] = Array.from(
   ),
 );
 
+/**
+ * Per-host "go to the source" link, the target of each card's top-right icon.
+ *   - kind "github" → a verified public GitHub repo (the icon is a GitHub mark).
+ *     OSS hosts reuse their `hostSource` repo; closed hosts that nonetheless
+ *     keep a public repo (issues/release/source) point there.
+ *   - kind "home"   → no usable public repo found → the host's product homepage
+ *     (the icon is an external-link mark).
+ *
+ * Every URL was VERIFIED to resolve (2026-06-23): GitHub repos via
+ * `gh api repos/<owner>/<name>` (must return full_name); homepages via an
+ * HTTP 200. No URL is fabricated — a host with neither a confirmable repo nor a
+ * homepage would be given kind "home" with its documented site, never a guess.
+ * Drift-guarded: every platform id has exactly one entry
+ * (tests/docs/platform-drift.test.ts).
+ */
+export type HostLink = { kind: "github"; repo: string } | { kind: "home"; url: string };
+
+const gh = (repo: string): HostLink => ({ kind: "github", repo });
+const home = (url: string): HostLink => ({ kind: "home", url });
+
+export const hostLinks: Record<string, HostLink> = {
+  // OSS hosts → their product repo (same as hostSource).
+  codex: gh("openai/codex"),
+  "gemini-cli": gh("google-gemini/gemini-cli"),
+  opencode: gh("sst/opencode"),
+  "mimo-code": gh("XiaomiMiMo/MiMo-Code"),
+  "kilo-cli": gh("Kilo-Org/kilocode"),
+  openhands: gh("All-Hands-AI/OpenHands"),
+  "roo-code": gh("RooCodeInc/Roo-Code"),
+  kilo: gh("Kilo-Org/kilocode"),
+  cline: gh("cline/cline"),
+  zed: gh("zed-industries/zed"),
+  codebuff: gh("CodebuffAI/codebuff"),
+  pi: gh("earendil-works/pi"),
+  omp: gh("earendil-works/pi"),
+  "qwen-code": gh("QwenLM/qwen-code"),
+  kimi: gh("MoonshotAI/kimi-cli"),
+  crush: gh("charmbracelet/crush"),
+  goose: gh("block/goose"),
+  nemoclaw: gh("NVIDIA/NemoClaw"),
+  openclaw: gh("openclaw/openclaw"),
+  "amazon-q": gh("aws/amazon-q-developer-cli"),
+  continue: gh("continuedev/continue"),
+  "grok-cli": gh("superagent-ai/grok-cli"),
+  "open-interpreter": gh("OpenInterpreter/open-interpreter"),
+  "mistral-vibe": gh("mistralai/mistral-vibe"),
+  junie: gh("JetBrains/junie"),
+  mux: gh("coder/mux"),
+
+  // Closed hosts with a VERIFIED public GitHub repo (issues / release / source).
+  "claude-code": gh("anthropics/claude-code"),
+  cursor: gh("cursor/cursor"),
+  "copilot-cli": gh("github/copilot-cli"),
+  "vscode-copilot": gh("microsoft/vscode-copilot-release"),
+  warp: gh("warpdotdev/warp"),
+  droid: gh("Factory-AI/factory"),
+  trae: gh("Trae-AI/TRAE"),
+
+  // Closed hosts with NO confirmable product repo → product homepage (verified 200).
+  // (github/CopilotForXcode is a different product, so jetbrains-copilot points
+  // at GitHub Copilot's official feature page rather than a wrong repo.)
+  "jetbrains-copilot": home("https://github.com/features/copilot"),
+  amp: home("https://ampcode.com"),
+  kiro: home("https://kiro.dev"),
+  devin: home("https://devin.ai"),
+  windsurf: home("https://windsurf.com"),
+  hermes: home("https://hermes-agent.nousresearch.com"),
+  codebuddy: home("https://www.codebuddy.ai"),
+  antigravity: home("https://antigravity.google"),
+  "antigravity-cli": home("https://antigravity.google"),
+};
+
+/** Resolve a host's "go to source" URL (github repo URL or homepage). */
+export function hostLinkUrl(id: string): string | undefined {
+  const l = hostLinks[id];
+  if (!l) return undefined;
+  return l.kind === "github" ? `https://github.com/${l.repo}` : l.url;
+}
+
+/**
+ * Compact star label: rounded thousands with a "k" unit.
+ *   ≥1000 → Math.round(stars/1000)+"k"   (1970→"2k", 105509→"106k", 380044→"380k")
+ *   <1000 → (Math.round(stars/100)/10).toFixed(1)+"k"   (306→"0.3k")
+ */
+export function formatStars(stars: number): string {
+  if (stars >= 1000) return `${Math.round(stars / 1000)}k`;
+  return `${(Math.round(stars / 100) / 10).toFixed(1)}k`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Fork-lineage families — ordering metadata only (NOT drift-guarded)  */
 /* ------------------------------------------------------------------ */
