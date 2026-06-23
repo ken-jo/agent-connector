@@ -1,10 +1,32 @@
+import { execSync } from "node:child_process";
 import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+// "Last updated" date shown in the docs header. We use the HEAD commit date
+// (the commit the deploy was built from) rather than a version number: a
+// version would drift ahead of the docs (a release bump redeploys the site and
+// the number rises even though doc content is unchanged → false freshness),
+// whereas the commit date only moves when the site is actually rebuilt from a
+// new commit. Falls back to today's date for a tarball build with no git.
+function docsBuildDate(): string {
+  try {
+    return execSync("git log -1 --format=%cs", {
+      cwd: __dirname,
+    })
+      .toString()
+      .trim();
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
+  define: {
+    __DOCS_BUILD_DATE__: JSON.stringify(docsBuildDate()),
+  },
   // Absolute base: this is a client-routed SPA, so a relative base ("./") breaks
   // a full load / direct deep link of any 2+-level route (e.g. /docs/hooks-guide
   // resolves "./assets/…" to /docs/assets/… → 404 → blank page). An absolute base
