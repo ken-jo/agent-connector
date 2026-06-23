@@ -127,7 +127,7 @@ function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boo
   return (
     <div
       className={cn(
-        "group relative rounded-lg border px-3.5 py-2.5 transition-colors hover:border-foreground/30 hover:bg-accent focus-within:border-foreground/40",
+        "group relative overflow-hidden rounded-lg border px-3.5 py-2.5 transition-colors hover:border-foreground/30 hover:bg-accent focus-within:border-foreground/40",
         frontier
           ? "border-foreground/20 bg-foreground/[0.04] shadow-sm"
           : "border-border bg-background/60",
@@ -140,24 +140,24 @@ function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boo
         aria-label={`${platform.name} — open the Platforms reference`}
         className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
       />
-      <div className="pointer-events-none relative z-10 flex items-center gap-2">
+      <div className="pointer-events-none relative z-10 flex items-start gap-2">
         <span
-          className={cn("size-2 shrink-0 rounded-full", paradigm.dot)}
+          className={cn("mt-1.5 size-2 shrink-0 rounded-full", paradigm.dot)}
           aria-hidden="true"
         />
-        <span className="text-sm font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+        <span className="min-w-0 break-words text-sm font-medium leading-snug text-muted-foreground transition-colors group-hover:text-foreground">
           {platform.name}
         </span>
         {ffShort ? (
           <span
-            className="ml-auto rounded border border-border bg-background/80 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground"
+            className="ml-auto shrink-0 self-start rounded border border-border bg-background/80 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground"
             title={`Form factor: ${ffShort}`}
           >
             {ffShort}
           </span>
         ) : null}
       </div>
-      <div className="pointer-events-none relative z-10 mt-2 flex items-center font-mono text-[10px] leading-none tracking-tight">
+      <div className="pointer-events-none relative z-10 mt-2 flex flex-wrap items-center gap-y-1 font-mono text-[10px] leading-none tracking-tight">
         {surfaceChips.map((chip, i) => {
           const state = surfaceState(platform, chip.key);
           const { className, label } = chipStates[state];
@@ -254,9 +254,12 @@ function GeneralWall() {
           ))}
         </div>
         {!open && (
+          // z-20 keeps the fade ABOVE the cards' z-10 content (incl. the ✦
+          // handler chips) so the last partially-shown row fades uniformly;
+          // pointer-events-none lets clicks pass through to the chip/card link.
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background via-background/85 to-transparent"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-20 bg-gradient-to-t from-background via-background/85 to-transparent"
           />
         )}
       </div>
@@ -312,7 +315,7 @@ export function Platforms() {
               · {frontierPlatforms.length} flagship hosts
             </h3>
           </div>
-          <div className="mx-auto grid max-w-4xl grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mx-auto grid max-w-5xl grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
             {frontierPlatforms.map((pl) => (
               <AgentEntry key={pl.id} platform={pl} frontier />
             ))}

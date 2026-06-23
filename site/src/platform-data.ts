@@ -808,7 +808,7 @@ export const frontierIds: readonly string[] = [
   "opencode",
   "amp",
   "warp",
-  "amazon-q",
+  "hermes",
   "cursor",
   "windsurf",
   "zed",
