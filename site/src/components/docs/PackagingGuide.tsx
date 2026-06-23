@@ -135,7 +135,8 @@ export function PackagingGuideSection() {
         directly with the CLI, or emit a marketplace / extension{" "}
         <strong>bundle</strong> others install through their host&apos;s own
         plugin flow. The <C>agent-connector package</C> command renders the
-        bundle for any of <strong>nine</strong> host ecosystem formats — plus two
+        bundle for any of <strong>ten</strong>{/* keep in sync with the host-ecosystem (non-MCP) packageFormatRows: those with format !== "mcp-server-json" && !== "mcpb" */}{" "}
+        host ecosystem formats — plus two
         official <strong>MCP standard artifacts</strong> (a registry{" "}
         <C>server.json</C> and an <C>mcpb</C> bundle) that plug your real upstream
         server into the cross-vendor distribution graph.

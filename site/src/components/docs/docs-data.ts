@@ -5,6 +5,12 @@
  * The docs fork into two audience TRACKS at the route level: /docs/dev (MCP
  * developer) and /docs/user (agent-CLI user). Each track owns its own sidebar
  * nav, pager order, and home page; /docs itself is the persona chooser.
+ *
+ * IMPORTANT: this module MUST stay import-free — the prerender step
+ * (scripts/prerender.mjs → loadTsDataModule) evaluates it in isolation with a
+ * `require` stub that throws on any import. So registry-derived counts cannot be
+ * interpolated here; they are literals kept in sync with the adapter registry
+ * and guarded by tests/docs/robot-support.test.ts.
  */
 
 /* ------------------------------------------------------------------ */
@@ -224,7 +230,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 13 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts (33 of 42, the open agents.md standard), and on the non-AGENTS.md exceptions CLAUDE.md (Claude Code) and .clinerules (Cline); the dedicated-file rules hosts each get an agent-connector-owned file in their rules dir — .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf) — plus GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; claude-code in v1, other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; v1 ships the dispatch backbone, no host affordance emitter yet).",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts (33 of 42, the open agents.md standard), and on the non-AGENTS.md exceptions CLAUDE.md (Claude Code) and .clinerules (Cline); the dedicated-file rules hosts each get an agent-connector-owned file in their rules dir — .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf) — plus GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; emitted for claude-code and antigravity-cli (top-level statusLine) and qwen-code (nested ui.statusLine), other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; host affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw fork, which inherits openclaw's emitter), other hosts skip-warn).",
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 10 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -238,8 +244,9 @@ export const sectionDescription: Record<string, string> = {
   privacy:
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
+  // keep in sync with the adapter registry (ADAPTER_REGISTRY.length = 42)
   platforms:
-    "The 40 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
+    "The 42 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
   "add-a-platform":
     "Adding a platform is one registry entry plus one adapter — the framework's core design guarantee.",
   "operating-model":
@@ -1244,7 +1251,7 @@ export const sharedFlags: { flag: string; desc: string }[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (40, by paradigm — llms-full §6)                           */
+/* Platforms (42, by paradigm — llms-full §6)                           */
 /* ------------------------------------------------------------------ */
 
 export interface PlatformEntry {

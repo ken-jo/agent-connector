@@ -497,7 +497,7 @@ Marker + edit-detection semantics:
   matches); stray lone markers are recovered (backup + strip the marker line
   only), and duplicate pairs from past bugs collapse into one on every upsert.
 
-**AGENTS.md-first policy (where the block goes).** 29 of the 36 registered
+**AGENTS.md-first policy (where the block goes).** Most supporting
 hosts read the open AGENTS.md standard (https://agents.md — plain-markdown "README
 for agents", stewarded by the Agentic AI Foundation under the Linux Foundation),
 so the default target is the standard file. Project scope →

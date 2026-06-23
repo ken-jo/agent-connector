@@ -155,7 +155,7 @@ export const brandedPackageJsonSnippet = `{
   },
   "files": ["bin.mjs", "agent-connector.config.mjs"],
   "dependencies": {
-    "@ken-jo/agent-connector": "0.1.0"
+    "@ken-jo/agent-connector": "^0.4.0"
   }
 }`;
 
