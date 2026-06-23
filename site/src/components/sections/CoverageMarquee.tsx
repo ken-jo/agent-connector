@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Section, SectionHeading } from "@/components/sections/Section";
 import { cn } from "@/lib/utils";
 import {
+  brandColor,
   byParadigmFamilyName,
   formFactorShort,
   hostSource,
@@ -17,7 +18,11 @@ import {
  * marquee that replaces the detailed rank-tier wall (which now lives at
  * /coverage). Host NAMES only (no logos, no paradigm dot, no pill outline) —
  * a clean flowing line separated by `·`, with a small form-factor tag
- * (CLI / IDE / Ext). Frontier (closed-source) hosts render a notch larger.
+ * (CLI / IDE / Ext). Each name is tinted with the host's brand color
+ * (`brandColor[id]` — mid-tone hexes tuned to read on BOTH the dark and light
+ * theme backgrounds; see platform-data.ts). A clean 2-tier size scheme: the
+ * BIG tier — closed-source frontier hosts PLUS the famous-vendor OSS set
+ * (NOTABLE_VENDOR_OSS) — renders larger/bolder; everyone else renders smaller.
  *
  * Two rows scroll horizontally in OPPOSITE directions in a continuous,
  * seamless loop. The loop is pure CSS (`@keyframes` translateX, see
@@ -42,20 +47,34 @@ const ordered: Platform[] = [...platforms].sort(byParadigmFamilyName);
 const rowA: Platform[] = ordered.filter((_, i) => i % 2 === 0);
 const rowB: Platform[] = ordered.filter((_, i) => i % 2 === 1);
 
+/**
+ * Famous-vendor OSS hosts that join the closed-source frontier in the BIG size
+ * tier — flagship agents from major vendors whose names the maintainer wants
+ * shown larger even though they ship open source. Tune this set freely; the
+ * "is big" check is `isFrontier OR NOTABLE_VENDOR_OSS.has(id)`.
+ */
+const NOTABLE_VENDOR_OSS = new Set<string>([
+  "codex", // OpenAI
+  "gemini-cli", // Google
+  "qwen-code", // Alibaba / Qwen
+  "amazon-q", // AWS
+]);
+
 function HostChip({ platform }: { platform: Platform }) {
   const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
   const ffShort = formFactorShort(platform.id);
-  // Frontier (closed-source) hosts get a notch-larger, bolder name.
+  // BIG tier: closed-source frontier ∪ famous-vendor OSS — larger + bolder name.
   const isFrontier = "closed" in hostSource[platform.id];
+  const isBig = isFrontier || NOTABLE_VENDOR_OSS.has(platform.id);
   return (
     <span
       className={cn(
         "inline-flex shrink-0 items-baseline gap-1.5",
-        isFrontier ? "text-lg font-semibold" : "text-base font-medium",
+        isBig ? "text-xl font-semibold" : "text-base font-medium",
       )}
       title={`${platform.name} — ${paradigm.label}`}
     >
-      <span className="text-foreground">{platform.name}</span>
+      <span style={{ color: brandColor[platform.id] }}>{platform.name}</span>
       {ffShort ? (
         <span className="font-mono text-[10px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
           {ffShort}
