@@ -50,6 +50,7 @@ import {
   telemetryEmptyRows,
   telemetryAxes,
   telemetrySurfaces,
+  telemetryReconcileRows,
   eventScopeRows,
   surfaceKindRows,
   surfaceLeaderboardColumns,
@@ -84,19 +85,15 @@ export function Introduction() {
       </P>
 
       <Callout title="The one accuracy-critical line between the tracks" tone="warn">
-        The connector-free{" "}
-        <Link className="underline hover:text-foreground" to="/docs/user/usage">
-          <C>usage</C>
+        &quot;See what <em>your</em> tools cost&quot; (per-MCP / per-tool, from
+        your own wrapped server&apos;s serve proxy) is never the same as
+        &quot;see what the MCPs you use cost&quot; (only available as
+        whole-conversation host totals). The connector-free{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage#per-mcp-vs-host">
+          <C>usage</C> path
         </Link>{" "}
-        path reports <strong>whole-conversation totals</strong> per agent CLI /
-        model / project / session / day — it does <strong>not</strong> and
-        cannot itemize cost by individual MCP server or tool, because agent CLIs
-        don&apos;t log per-tool token attribution.{" "}
-        <strong>Per-MCP and per-tool numbers</strong> come only from the
-        serve-proxy telemetry that an MCP developer&apos;s own connector
-        produces for the server it declares and wraps. &quot;See what your tools
-        cost&quot; (your own wrapped server) is never the same as &quot;see what
-        the MCPs you use cost&quot; (only available as host totals, not per-MCP).
+        cannot itemize per MCP server or tool — the canonical explanation covers
+        why and which track gives you per-tool numbers.
       </Callout>
 
       <H3 id="two-pillars">Two pillars</H3>
@@ -964,20 +961,12 @@ export function UserOverview() {
       </P>
       <CodeBlock code={S.usageQuickStartSnippet} language="bash" filename="terminal" />
       <Callout title="What this can and cannot show" tone="warn">
-        <C>usage</C> reports <strong>whole-conversation totals</strong> grouped
-        by platform / model / project / session / day — it does{" "}
-        <strong>not</strong> itemize cost per MCP server or per tool, because
-        agent CLIs don&apos;t log per-tool token attribution. Per-MCP and
-        per-tool token costs require an MCP to run through agent-connector&apos;s
-        serve proxy, which is the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/dev/quick-start">
-          MCP-developer track
-        </Link>
-        . Full details on the{" "}
-        <Link className="underline hover:text-foreground" to="/docs/user/usage">
-          usage page
-        </Link>
-        .
+        <C>usage</C> reports <strong>whole-conversation totals</strong>, not
+        per-MCP / per-tool cost — see the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage#per-mcp-vs-host">
+          canonical per-MCP vs host-scan explanation
+        </Link>{" "}
+        for why, and which track gives you per-tool numbers.
       </Callout>
     </DocSection>
   );
@@ -1010,11 +999,16 @@ export function Usage() {
       </P>
       <CodeBlock code={S.usageReportSnippet} language="text" filename="terminal" />
 
+      <H3 id="per-mcp-vs-host">
+        Per-MCP (serve-proxy) vs connector-free (host-scan)
+      </H3>
       <Callout
         title="What usage does NOT show: per-MCP / per-tool cost"
         tone="warn"
       >
-        <C>usage</C> reports <strong>whole-conversation totals</strong> per agent
+        <em>This is the canonical explanation of the two telemetry sources — the
+        rest of the docs link here.</em> The connector-free <C>usage</C>{" "}
+        host-scan reports <strong>whole-conversation totals</strong> per agent
         CLI / model / project / session / day — it does <strong>not</strong>{" "}
         itemize cost per individual MCP server or per tool. Agent CLIs fold tool
         results into the session&apos;s input tokens and never attribute them to
@@ -1225,6 +1219,59 @@ export function TelemetrySurfaces() {
           </div>
         ))}
       </div>
+
+      <H3 id="telemetry-vocab">One table, four vocabularies</H3>
+      <P>
+        The telemetry types use four names for closely-related things — the{" "}
+        <strong>developer surface</strong>, its <C>EventScope</C>(s), its{" "}
+        <C>SurfaceKind</C>, and whether it is <strong>RUNTIME</strong>-measured or
+        a <strong>STATIC</strong> footprint. On the developer surfaces{" "}
+        <C>EventScope</C> and <C>SurfaceKind</C> co-vary, so this one table lines
+        all four up. The detailed per-vocabulary tables follow below.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Surface</Th>
+            <Th>EventScope(s)</Th>
+            <Th>SurfaceKind</Th>
+            <Th>RUNTIME / STATIC</Th>
+            <Th>What it is</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {telemetryReconcileRows.map((r) => (
+            <tr key={`${r.surface}-${r.eventScope}`}>
+              <Td className="whitespace-nowrap">
+                <Code>{r.surface}</Code>
+              </Td>
+              <Td className="whitespace-nowrap">
+                <Code>{r.eventScope}</Code>
+              </Td>
+              <Td className="whitespace-nowrap">
+                <Code>{r.surfaceKind}</Code>
+              </Td>
+              <Td className="whitespace-nowrap">
+                {r.kind === "—" ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : (
+                  <Badge
+                    variant="muted"
+                    className={
+                      r.kind === "RUNTIME"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                        : "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                    }
+                  >
+                    {r.kind}
+                  </Badge>
+                )}
+              </Td>
+              <Td className="text-muted-foreground">{r.note}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
 
       <H3 id="five-surfaces">The five developer surfaces</H3>
       <P>
@@ -1530,7 +1577,12 @@ export function Leaderboards() {
         Per-MCP server bytes (🔌) measure your server&apos;s own I/O; host/user
         usage (🖥️) measures whole-conversation usage from CLI logs; live
         host-native turns (🛰️) are whole-conversation usage from a real-time hook.
-        These are different things — totals are never added across origins.
+        These are different things — totals are never added across origins. (For
+        the per-MCP vs host-scan distinction specifically, see the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/user/usage#per-mcp-vs-host">
+          canonical explanation
+        </Link>
+        .)
       </Callout>
     </DocSection>
   );

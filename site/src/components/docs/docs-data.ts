@@ -1711,6 +1711,66 @@ export const telemetrySurfaces: {
   },
 ];
 
+/**
+ * One reconciling view of the four telemetry vocabularies that co-vary: the
+ * developer surface, its EventScope(s), its SurfaceKind, and whether it is
+ * measured at RUNTIME or computed as a STATIC footprint. EventScope and
+ * SurfaceKind move together on the developer surfaces, so they share a structure
+ * here. The trailing model_turn row is the one EventScope that is NOT a developer
+ * surface — a host-native whole-conversation turn, excluded from the per-MCP and
+ * per-surface views (it gets its own leaderboard board).
+ */
+export const telemetryReconcileRows: {
+  surface: string;
+  eventScope: string;
+  surfaceKind: string;
+  kind: "RUNTIME" | "STATIC" | "—";
+  note: string;
+}[] = [
+  {
+    surface: "server",
+    eventScope: "call, tool_defs",
+    surfaceKind: "server",
+    kind: "RUNTIME",
+    note: "Serve-proxy per-tool round-trips + the one-time tools/list schema overhead.",
+  },
+  {
+    surface: "hooks",
+    eventScope: "hook",
+    surfaceKind: "hook",
+    kind: "RUNTIME",
+    note: "One row per hook dispatch through the home-bin entrypoint.",
+  },
+  {
+    surface: "command",
+    eventScope: "— (no store row)",
+    surfaceKind: "command",
+    kind: "STATIC",
+    note: "Tokenized context footprint computed on demand; never a usage row.",
+  },
+  {
+    surface: "skill",
+    eventScope: "— (no store row)",
+    surfaceKind: "skill",
+    kind: "STATIC",
+    note: "Tokenized context footprint computed on demand; never a usage row.",
+  },
+  {
+    surface: "subagent",
+    eventScope: "— (no store row)",
+    surfaceKind: "subagent",
+    kind: "STATIC",
+    note: "Tokenized context footprint computed on demand; never a usage row.",
+  },
+  {
+    surface: "(not a developer surface)",
+    eventScope: "model_turn",
+    surfaceKind: "— (none)",
+    kind: "—",
+    note: "A host-native whole-conversation turn (e.g. Gemini/Antigravity AfterModel). Excluded from the per-MCP and per-surface views — it has its own leaderboard board.",
+  },
+];
+
 /** EventScope — the four DISTINCT origins a record can carry (never summed). */
 export const eventScopeRows: { scope: string; meaning: string }[] = [
   {
