@@ -775,6 +775,235 @@ export function formFactorOf(id: string): FormFactorId | undefined {
   return formFactorById[id];
 }
 
+/** Short per-card form-factor label: CLI / IDE / Ext (from the host's form factor). */
+const formFactorShortLabel: Record<FormFactorId, string> = {
+  cli: "CLI",
+  extension: "Ext",
+  app: "IDE",
+};
+
+/** Compact form-factor chip label for a platform id (undefined if unclassified). */
+export function formFactorShort(id: string): string | undefined {
+  const ff = formFactorOf(id);
+  return ff ? formFactorShortLabel[ff] : undefined;
+}
+
+/* ------------------------------------------------------------------ */
+/* Coverage rank tiers — closed-vs-OSS hybrid                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Per-host open/closed status, the input to the wall's rank-tier coloring.
+ *   - `{ closed: true }` → no open-source PRODUCT repo → the premium "Frontier"
+ *     tier (these are flagship agents whose star count would misrepresent them:
+ *     either there is no public repo, or the only public repo is an
+ *     issues/docs tracker, not the product source).
+ *   - `{ repo: "owner/name" }` → open-source product; ranked by that repo's
+ *     GitHub stargazers_count into LoL-style tiers (see STAR_TIERS).
+ *
+ * Each repo was VERIFIED to exist and to be the actual product source via
+ * `gh api repos/<owner>/<name>` (stars/lang/homepage/fork checked, 2026-06-23);
+ * basis cited inline. A host with no confirmable public PRODUCT repo is marked
+ * `closed` rather than guessing a repo. Drift-guarded: every platform id must
+ * have exactly one entry here (tests/docs/platform-drift.test.ts).
+ */
+export type HostSource = { closed: true } | { repo: string };
+
+export const hostSource: Record<string, HostSource> = {
+  // --- OSS (product source repo verified) ---
+  codex: { repo: "openai/codex" },
+  "gemini-cli": { repo: "google-gemini/gemini-cli" },
+  opencode: { repo: "sst/opencode" },
+  "mimo-code": { repo: "XiaomiMiMo/MiMo-Code" }, // adapter header cites this repo
+  "kilo-cli": { repo: "Kilo-Org/kilocode" }, // OpenCode-fork CLI shares the kilocode source
+  openhands: { repo: "All-Hands-AI/OpenHands" },
+  "roo-code": { repo: "RooCodeInc/Roo-Code" },
+  kilo: { repo: "Kilo-Org/kilocode" }, // VS Code ext, same source repo as kilo-cli
+  cline: { repo: "cline/cline" },
+  zed: { repo: "zed-industries/zed" },
+  codebuff: { repo: "CodebuffAI/codebuff" },
+  pi: { repo: "earendil-works/pi" }, // badlogic/pi-mono redirects here (canonical)
+  omp: { repo: "earendil-works/pi" }, // OMP is a pi fork; same upstream source repo
+  "qwen-code": { repo: "QwenLM/qwen-code" },
+  kimi: { repo: "MoonshotAI/kimi-cli" }, // Kimi Code CLI, open product source
+  crush: { repo: "charmbracelet/crush" },
+  goose: { repo: "block/goose" },
+  nemoclaw: { repo: "NVIDIA/NemoClaw" },
+  openclaw: { repo: "openclaw/openclaw" }, // homepage openclaw.ai, active TS source
+  "amazon-q": { repo: "aws/amazon-q-developer-cli" }, // the CLI IS open source (Rust)
+  continue: { repo: "continuedev/continue" },
+  "grok-cli": { repo: "superagent-ai/grok-cli" }, // community grok-cli (npm grok-dev)
+  "open-interpreter": { repo: "OpenInterpreter/open-interpreter" },
+  "mistral-vibe": { repo: "mistralai/mistral-vibe" },
+  junie: { repo: "JetBrains/junie" }, // JetBrains' own open agent CLI
+  mux: { repo: "coder/mux" }, // Coder's mux, mux.coder.com, open TS source
+
+  // --- Closed (no confirmable open-source product repo → Frontier) ---
+  codebuddy: { closed: true }, // Tencent CodeBuddy — no public repo (404)
+  "claude-code": { closed: true }, // product closed; anthropics/claude-code is issues-only
+  cursor: { closed: true }, // product closed; getcursor/cursor is issues-only
+  "vscode-copilot": { closed: true }, // GitHub Copilot in VS Code — closed
+  "copilot-cli": { closed: true }, // github/copilot-cli is a feedback repo, product closed
+  "jetbrains-copilot": { closed: true }, // GitHub Copilot in JetBrains — closed
+  amp: { closed: true }, // Sourcegraph Amp — no public source repo
+  warp: { closed: true }, // Warp terminal — closed (warpdotdev/warp is not the product src)
+  droid: { closed: true }, // Factory Droid; Factory-AI/factory is docs/issues (lang null)
+  "antigravity-cli": { closed: true }, // Google Antigravity CLI — closed
+  antigravity: { closed: true }, // Google Antigravity IDE — closed
+  kiro: { closed: true }, // AWS Kiro — no public repo (404)
+  trae: { closed: true }, // ByteDance Trae — no public repo (404)
+  devin: { closed: true }, // Cognition Devin — no public repo (404)
+  windsurf: { closed: true }, // Windsurf (Codeium) — no public product repo (404)
+  hermes: { closed: true }, // Nous Research Hermes Agent — no public repo found (404)
+};
+
+/**
+ * GitHub-stars rank tier, highest threshold first. `frontier` is the premium
+ * closed-source tier and is NOT in this list (it has no star threshold). The
+ * thresholds were tuned against the real, fetched star spread (2026-06-23) so
+ * the OSS hosts land across all eight tiers rather than piling into the top.
+ */
+export type StarTier =
+  | "Challenger"
+  | "Grandmaster"
+  | "Master"
+  | "Diamond"
+  | "Platinum"
+  | "Gold"
+  | "Silver"
+  | "Bronze";
+
+export type CoverageTier = "frontier" | StarTier;
+
+export const STAR_TIERS: readonly { tier: StarTier; min: number }[] = [
+  { tier: "Challenger", min: 80000 },
+  { tier: "Grandmaster", min: 50000 },
+  { tier: "Master", min: 25000 },
+  { tier: "Diamond", min: 15000 },
+  { tier: "Platinum", min: 8000 },
+  { tier: "Gold", min: 3000 },
+  { tier: "Silver", min: 1000 },
+  { tier: "Bronze", min: 0 },
+];
+
+/** The star-derived tier for a stargazers count. */
+export function starTier(stars: number): StarTier {
+  return (STAR_TIERS.find((t) => stars >= t.min) ?? STAR_TIERS[STAR_TIERS.length - 1]!).tier;
+}
+
+/**
+ * The coverage tier for a host: `frontier` if closed-source, else the
+ * star-derived tier from `stars` (its repo's stargazers_count, 0 if unknown).
+ * Unknown ids default to `frontier` (treated as closed) so the wall never
+ * renders an untiered card.
+ */
+export function tierOf(id: string, stars: number | undefined): CoverageTier {
+  const src = hostSource[id];
+  if (!src || "closed" in src) return "frontier";
+  return starTier(stars ?? 0);
+}
+
+/**
+ * The OSS repos to refresh at build (id → "owner/name"), deduped by repo.
+ * Read by site/scripts/fetch-coverage-stars.mjs (which transpiles this module).
+ */
+export const coverageRepos: readonly string[] = Array.from(
+  new Set(
+    Object.values(hostSource)
+      .filter((s): s is { repo: string } => "repo" in s)
+      .map((s) => s.repo),
+  ),
+);
+
+/**
+ * Per-host "go to the source" link, the target of each card's top-right icon.
+ *   - kind "github" → a verified public GitHub repo (the icon is a GitHub mark).
+ *     OSS hosts reuse their `hostSource` repo; closed hosts that nonetheless
+ *     keep a public repo (issues/release/source) point there.
+ *   - kind "home"   → no usable public repo found → the host's product homepage
+ *     (the icon is an external-link mark).
+ *
+ * Every URL was VERIFIED to resolve (2026-06-23): GitHub repos via
+ * `gh api repos/<owner>/<name>` (must return full_name); homepages via an
+ * HTTP 200. No URL is fabricated — a host with neither a confirmable repo nor a
+ * homepage would be given kind "home" with its documented site, never a guess.
+ * Drift-guarded: every platform id has exactly one entry
+ * (tests/docs/platform-drift.test.ts).
+ */
+export type HostLink = { kind: "github"; repo: string } | { kind: "home"; url: string };
+
+const gh = (repo: string): HostLink => ({ kind: "github", repo });
+const home = (url: string): HostLink => ({ kind: "home", url });
+
+export const hostLinks: Record<string, HostLink> = {
+  // OSS hosts → their product repo (same as hostSource).
+  codex: gh("openai/codex"),
+  "gemini-cli": gh("google-gemini/gemini-cli"),
+  opencode: gh("sst/opencode"),
+  "mimo-code": gh("XiaomiMiMo/MiMo-Code"),
+  "kilo-cli": gh("Kilo-Org/kilocode"),
+  openhands: gh("All-Hands-AI/OpenHands"),
+  "roo-code": gh("RooCodeInc/Roo-Code"),
+  kilo: gh("Kilo-Org/kilocode"),
+  cline: gh("cline/cline"),
+  zed: gh("zed-industries/zed"),
+  codebuff: gh("CodebuffAI/codebuff"),
+  pi: gh("earendil-works/pi"),
+  omp: gh("earendil-works/pi"),
+  "qwen-code": gh("QwenLM/qwen-code"),
+  kimi: gh("MoonshotAI/kimi-cli"),
+  crush: gh("charmbracelet/crush"),
+  goose: gh("block/goose"),
+  nemoclaw: gh("NVIDIA/NemoClaw"),
+  openclaw: gh("openclaw/openclaw"),
+  "amazon-q": gh("aws/amazon-q-developer-cli"),
+  continue: gh("continuedev/continue"),
+  "grok-cli": gh("superagent-ai/grok-cli"),
+  "open-interpreter": gh("OpenInterpreter/open-interpreter"),
+  "mistral-vibe": gh("mistralai/mistral-vibe"),
+  junie: gh("JetBrains/junie"),
+  mux: gh("coder/mux"),
+
+  // Closed hosts with a VERIFIED public GitHub repo (issues / release / source).
+  "claude-code": gh("anthropics/claude-code"),
+  cursor: gh("cursor/cursor"),
+  "copilot-cli": gh("github/copilot-cli"),
+  "vscode-copilot": gh("microsoft/vscode-copilot-release"),
+  warp: gh("warpdotdev/warp"),
+  droid: gh("Factory-AI/factory"),
+  trae: gh("Trae-AI/TRAE"),
+
+  // Closed hosts with NO confirmable product repo → product homepage (verified 200).
+  // (github/CopilotForXcode is a different product, so jetbrains-copilot points
+  // at GitHub Copilot's official feature page rather than a wrong repo.)
+  "jetbrains-copilot": home("https://github.com/features/copilot"),
+  amp: home("https://ampcode.com"),
+  kiro: home("https://kiro.dev"),
+  devin: home("https://devin.ai"),
+  windsurf: home("https://windsurf.com"),
+  hermes: home("https://hermes-agent.nousresearch.com"),
+  codebuddy: home("https://www.codebuddy.ai"),
+  antigravity: home("https://antigravity.google"),
+  "antigravity-cli": home("https://antigravity.google"),
+};
+
+/** Resolve a host's "go to source" URL (github repo URL or homepage). */
+export function hostLinkUrl(id: string): string | undefined {
+  const l = hostLinks[id];
+  if (!l) return undefined;
+  return l.kind === "github" ? `https://github.com/${l.repo}` : l.url;
+}
+
+/**
+ * Compact star label: rounded thousands with a "k" unit.
+ *   ≥1000 → Math.round(stars/1000)+"k"   (1970→"2k", 105509→"106k", 380044→"380k")
+ *   <1000 → (Math.round(stars/100)/10).toFixed(1)+"k"   (306→"0.3k")
+ */
+export function formatStars(stars: number): string {
+  if (stars >= 1000) return `${Math.round(stars / 1000)}k`;
+  return `${(Math.round(stars / 100) / 10).toFixed(1)}k`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Fork-lineage families — ordering metadata only (NOT drift-guarded)  */
 /* ------------------------------------------------------------------ */

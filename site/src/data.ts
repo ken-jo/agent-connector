@@ -78,8 +78,28 @@ export type { Platform, PlatformSurfaces, SurfaceChip, SurfaceState } from "./pl
 /* stays the dot color. Single-sourced + drift-tested in platform-data.*/
 /* ------------------------------------------------------------------ */
 
-export { formFactorIds, formFactorOf } from "./platform-data";
+export {
+  formFactorIds,
+  formFactorOf,
+  formFactorShort,
+} from "./platform-data";
 export type { FormFactorId } from "./platform-data";
+
+/* ------------------------------------------------------------------ */
+/* Coverage rank tiers — closed=Frontier, else GitHub-stars tier.      */
+/* ------------------------------------------------------------------ */
+
+export {
+  hostSource,
+  STAR_TIERS,
+  starTier,
+  tierOf,
+  coverageRepos,
+  hostLinks,
+  hostLinkUrl,
+  formatStars,
+} from "./platform-data";
+export type { HostSource, StarTier, CoverageTier, HostLink } from "./platform-data";
 
 import type { FormFactorId } from "./platform-data";
 
