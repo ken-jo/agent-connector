@@ -183,9 +183,8 @@ function SurfaceLegend() {
           Actions
         </span>
         <span>
-          — special runtime-dispatched surfaces, set off on their own row and shown
-          only where agent-connector wires them (absence isn&apos;t a claim the host
-          lacks them). Each links to its setup docs.
+          — runtime-dispatched surfaces, shown only where agent-connector wires
+          them (a blank &ne; a missing host feature). Each links to its setup docs.
         </span>
       </p>
     </div>
@@ -471,10 +470,13 @@ function CoverageWall() {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-center gap-1.5">
-        {/* (a) mode toggle */}
-        <div className="flex items-center rounded-full border border-border bg-background/60 p-0.5">
-          {segBtn("surface", "Surface")}
+        {/* (a) mode toggle — Tier | Surface, with a literal divider glyph */}
+        <div className="flex items-center rounded-full border border-border bg-background/60 px-1 py-0.5">
           {segBtn("tier", "Tier")}
+          <span aria-hidden="true" className="px-0.5 text-muted-foreground/40">
+            |
+          </span>
+          {segBtn("surface", "Surface")}
         </div>
 
         {/* (b) All */}
@@ -491,6 +493,10 @@ function CoverageWall() {
         >
           All
         </button>
+
+        <span aria-hidden="true" className="text-muted-foreground/40">
+          ·
+        </span>
 
         {/* (c) chips for the current mode */}
         {mode === "surface"
@@ -534,11 +540,15 @@ function CoverageWall() {
               );
             })}
 
+        <span aria-hidden="true" className="text-muted-foreground/40">
+          ·
+        </span>
+
         {/* (d) Reset */}
         <button
           type="button"
           onClick={reset}
-          className="ml-1 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
+          className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
         >
           Reset
         </button>
