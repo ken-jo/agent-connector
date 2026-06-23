@@ -1883,6 +1883,12 @@ export function PlatformsSection() {
         platform — <strong>{platformCount}</strong> hosts, grouped by hook
         paradigm (the deepest cross-platform divergence).
       </Lead>
+      <P>
+        Prefer a visual, filterable view?{" "}
+        <Link className="underline hover:text-foreground" to="/coverage">
+          See the full interactive coverage matrix on the dedicated coverage page →
+        </Link>
+      </P>
       {/* counts derive from the entry lists (which the drift-guard test pins
           to the adapter registry) so they can never rot independently again. */}
       <PlatformTable

@@ -5,13 +5,20 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
 import { REPO_URL } from "@/data";
 
-const links = [
+/**
+ * Header nav items. Most are landing-section anchors (`href`), resolved via
+ * `sectionHref` so they jump back to the landing from any route. A `to` entry
+ * is a real react-router route link (rendered as <Link>), so it works from any
+ * page — used for the dedicated /coverage matrix page.
+ */
+const links: { label: string; href?: string; to?: string }[] = [
   { href: "#audiences", label: "Who it's for" },
   { href: "#pillars", label: "Pillars" },
   { href: "#surfaces", label: "Surfaces" },
   { href: "#platforms", label: "Agents" },
   { href: "#dialects", label: "Dialects" },
   { href: "#telemetry", label: "Telemetry" },
+  { to: "/coverage", label: "Coverage" },
 ];
 
 function Logo() {
@@ -58,15 +65,30 @@ export function Nav() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Logo />
         <nav className="hidden items-center gap-1 md:flex">
-          {links.map((l) => (
-            <a
-              key={l.href}
-              href={sectionHref(l.href)}
-              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {l.label}
-            </a>
-          ))}
+          {links.map((l) =>
+            l.to ? (
+              <Link
+                key={l.to}
+                to={l.to}
+                className={cn(
+                  "rounded-md px-3 py-2 text-sm transition-colors hover:text-foreground",
+                  pathname.startsWith(l.to)
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
+                {l.label}
+              </Link>
+            ) : (
+              <a
+                key={l.href}
+                href={sectionHref(l.href!)}
+                className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {l.label}
+              </a>
+            ),
+          )}
           <Link
             to="/docs"
             className={cn(

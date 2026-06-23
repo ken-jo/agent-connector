@@ -218,8 +218,35 @@
     }
   }
 
+  /* Auto-scrolling coverage marquee (CoverageMarquee.tsx). Each row's single
+     track holds two back-to-back copies of the chip list and translates by
+     exactly -50% (one copy width), so the loop is seamless with no JS.
+     `marquee-right` reverses the direction for the opposite-scrolling row. */
+  .marquee-track {
+    animation: marquee-scroll 48s linear infinite;
+    will-change: transform;
+  }
+
+  .marquee-right {
+    animation-direction: reverse;
+  }
+
+  @keyframes marquee-scroll {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-fade-up {
+      animation: none;
+    }
+    /* Decorative motion only — kill the loop and let the chips sit static
+       (the duplicate copy still renders but is aria-hidden and harmless). */
+    .marquee-track {
       animation: none;
     }
     html {

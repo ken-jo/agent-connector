@@ -18,7 +18,9 @@ const CONTENT_ID = "docs-content";
  * /docs — the persona chooser. The docs fork into two audience tracks at the
  * route level; this page IS the fork: two whole-card links into /docs/dev and
  * /docs/user, with the one accuracy-critical boundary between them stated
- * right here at the fork. ⌘K search works from here too.
+ * right here at the fork as a standalone amber callout. ⌘K search works from
+ * here too. The full interactive coverage matrix lives on its own dedicated
+ * /coverage page (linked from the header nav), not here.
  */
 export function DocsChooser() {
   const { open: searchOpen, setOpen: setSearchOpen } = useDocsSearch();
