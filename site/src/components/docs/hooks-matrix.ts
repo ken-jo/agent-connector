@@ -9,6 +9,8 @@
  * adapter registry — do NOT invent or "fix" mappings here.
  */
 
+import { familyKey } from "../../platform-data";
+
 /**
  * The 13 normalized lifecycle events a developer writes once against. The newer
  * additions (PermissionRequest / PostToolUseFailure / SubagentStart /
@@ -1360,11 +1362,24 @@ export const platforms: PlatformHookEntry[] = [
 
 export const hooksMatrix: HooksMatrix = { canonicalEvents, platforms };
 
-/** Platforms grouped + ordered by paradigm (matrix column groups). */
+/**
+ * Within a single paradigm group, order by fork-lineage family (so forks stay
+ * adjacent) then display name — the same family → name ordering the coverage
+ * wall uses. Paradigm is already the group key here, so this is just the
+ * secondary/tertiary sort.
+ */
+function byFamilyName(a: PlatformHookEntry, b: PlatformHookEntry): number {
+  const fa = familyKey(a.platform);
+  const fb = familyKey(b.platform);
+  if (fa !== fb) return fa.localeCompare(fb);
+  return a.displayName.localeCompare(b.displayName);
+}
+
+/** Platforms grouped by paradigm, then ordered family → name (matrix column groups). */
 export const platformsByParadigm: Record<HookParadigm, PlatformHookEntry[]> = {
-  "json-stdio": platforms.filter((p) => p.paradigm === "json-stdio"),
-  "ts-plugin": platforms.filter((p) => p.paradigm === "ts-plugin"),
-  "mcp-only": platforms.filter((p) => p.paradigm === "mcp-only"),
+  "json-stdio": platforms.filter((p) => p.paradigm === "json-stdio").sort(byFamilyName),
+  "ts-plugin": platforms.filter((p) => p.paradigm === "ts-plugin").sort(byFamilyName),
+  "mcp-only": platforms.filter((p) => p.paradigm === "mcp-only").sort(byFamilyName),
 };
 
 /** Look up a single platform's hook entry by id. */

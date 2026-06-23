@@ -1,6 +1,7 @@
 import { Section, SectionHeading } from "@/components/sections/Section";
 import { cn } from "@/lib/utils";
 import {
+  byParadigmFamilyName,
   formFactorOf,
   formFactors,
   handlerChips,
@@ -189,7 +190,12 @@ export function Platforms() {
 
       <div className="mt-8 flex flex-col gap-8">
         {formFactors.map((ff) => {
-          const band = platforms.filter((pl) => formFactorOf(pl.id) === ff.id);
+          // Group by form factor (unchanged); WITHIN each band, order by hook
+          // paradigm → fork-lineage family → name so forks stay adjacent and
+          // the wall is predictable instead of raw registry order.
+          const band = platforms
+            .filter((pl) => formFactorOf(pl.id) === ff.id)
+            .sort(byParadigmFamilyName);
           if (band.length === 0) return null;
           return (
             <div key={ff.id}>
