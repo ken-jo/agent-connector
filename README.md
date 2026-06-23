@@ -20,6 +20,19 @@ the native config — or `package` it as a real plugin — across **42 agent CLI
 ![marketplace](https://img.shields.io/badge/package-10%20marketplace%20formats-2563eb)
 ![tests](https://img.shields.io/badge/tests-passing-22c55e)
 
+**Two audiences:** connector developers start at [Quick start](#quick-start);
+if you already run an agent CLI and just want token totals, jump straight to
+[`usage`](#token-telemetry--usage).
+
+- [Quick start](#quick-start) — depend on the SDK, declare a connector, install it
+- [Ship it](#ship-it-direct-install-or-a-marketplace-plugin) — direct install or a marketplace plugin
+- [What you define once](#what-you-define-once) — server, hooks, and the other surfaces
+- [How it works](#how-it-works) — single home binary, per-project data, hook paradigms
+- [CLI](#cli) — every command at a glance
+- [Token telemetry & usage](#token-telemetry--usage) — per-tool telemetry vs. connector-free `usage`
+- [Publish to the MCP ecosystem](#publish-to-the-mcp-ecosystem) — emit the official MCP standard artifacts
+- [Verification](#verification) — how the 42-platform contract is proven
+
 <p align="center">
   <a href="examples/showcase-demo/">
     <img src="examples/showcase-demo/demo.gif" width="820"
@@ -36,7 +49,15 @@ the native config — or `package` it as a real plugin — across **42 agent CLI
 
 agent-connector is an **SDK you depend on**, not a global tool. Add it to the
 package that holds your connector, declare the connector once, then `install` —
-it deploys to every detected agent CLI in that host's own native config.
+it deploys to every detected agent CLI in that host's own native config. The
+linear path is: **get a server → declare it → install**.
+
+**0. You need an MCP server file first.** The config below points at
+`./my-mcp-server.mjs`, so that file must exist before you install. Don't have an
+MCP server yet? Copy
+[`examples/acme-db/acme-db-mcp-server.mjs`](examples/acme-db/acme-db-mcp-server.mjs)
+(a self-contained ~35-line stub) as `./my-mcp-server.mjs`, or follow the
+[official MCP SDK quickstart](https://modelcontextprotocol.io/quickstart/server).
 
 ```bash
 # 1. add agent-connector as a DEPENDENCY of your connector package
@@ -61,6 +82,11 @@ export default defineConnector({
 });
 ```
 
+> While developing, `server.command` can be `node` + a local file path (as
+> above); once your server is a published package, switch to `npx` + the package
+> name (`command: "npx", args: ["-y", "@acme/acme-db-mcp"]`) — the form the
+> [site quick-start](https://agent-connector.ai) teaches.
+
 ```bash
 # 3. deploy across the agent CLIs detected on this machine
 npx @ken-jo/agent-connector detect           # which platforms are installed here?
@@ -73,12 +99,6 @@ npx @ken-jo/agent-connector install           # write native config in each host
 > 42-adapter registry — there is no "install to all 42 unconditionally" path.
 > A global `npm i -g` is **not** required: `npx @ken-jo/agent-connector …` runs
 > straight from your project.
-
-Don't have an MCP server yet? The
-[official MCP SDK quickstart](https://modelcontextprotocol.io/quickstart/server)
-is the fastest on-ramp, and
-[`examples/acme-db/acme-db-mcp-server.mjs`](examples/acme-db/acme-db-mcp-server.mjs)
-is a self-contained ~35-line stub you can copy.
 
 ## Ship it: direct install or a marketplace plugin
 
@@ -127,17 +147,20 @@ agent-connector package --format gemini-extension --out ./ext   # or just one
 > **local install on that same machine/home**. For shared distribution use
 > `npm-plugin` or the MCP standard artifacts, or re-run `package` per machine.
 
-**Let agent-connector drive the host's own install flow** — `install --method
-marketplace` stages the bundle, registers a local marketplace where the host has
-one, then runs the host's plugin-install verb (or, for npm-plugin hosts, writes
-a local `file://` entry); headless and idempotent. Live-verified for Claude
-Code, Codex, OpenCode, Kilo (CLI + ext), and Antigravity (CLI + IDE) on Linux,
-Windows, and macOS — plus Droid and Qwen Code (driver shipped, pending a live
-host) and Gemini CLI (legacy — sunsetting toward Antigravity; driver kept for
-existing installs). `uninstall --method auto` reverses whichever method is
-installed, a guard refuses installing the same connector by BOTH methods, and
-`doctor` checks registration drift. Other marketplace-format hosts print the
-exact manual commands.
+**Let agent-connector drive the host's own install flow** with `install --method
+marketplace`:
+
+- **What it does** — stages the bundle, registers a local marketplace where the
+  host has one, then runs the host's plugin-install verb (or, for npm-plugin
+  hosts, writes a local `file://` entry); headless and idempotent. Other
+  marketplace-format hosts print the exact manual commands.
+- **Host coverage** — live-verified for Claude Code, Codex, OpenCode, Kilo
+  (CLI + ext), and Antigravity (CLI + IDE) on Linux, Windows, and macOS; Droid
+  and Qwen Code have the driver shipped but pending a live host; Gemini CLI is
+  legacy (sunsetting toward Antigravity — driver kept for existing installs).
+- **Safety + reversal** — a guard refuses installing the same connector by BOTH
+  methods, `uninstall --method auto` reverses whichever method is installed, and
+  `doctor` checks registration drift.
 
 ### Ship a branded CLI
 
@@ -219,32 +242,44 @@ export default defineConnector({
 …each pointing hooks at a **single stable home binary**, so one update propagates
 everywhere.
 
-> **Secret env-refs (`${env:VAR}`).** Write `"${env:VAR}"` in `command`, `args`,
-> `env`, `url`, or `headers` to reference an environment variable, or
-> `"${env:VAR:-default}"` to supply a fallback. On hosts with **native**
-> interpolation (Claude Code, Cursor, VS Code Copilot, amp, codebuff) the token
-> is written through to the host config and resolved at runtime. Every other
-> host has **no** native interpolation, so the value is resolved to a **literal
-> at install time**; an unset variable with no default resolves to an **empty
-> string**, and `install` emits a `warn` for it on a literal-resolving host.
+**Secret env-refs (`${env:VAR}`).** Write `"${env:VAR}"` (or `"${env:VAR:-default}"`) anywhere in `command` / `args` / `env` / `url` / `headers` to reference an environment variable.
 
-> **Native hooks escape hatch.** The normalized `hooks` API covers the 13
-> cross-platform events. For host-only events — Claude Code alone ships 30 —
-> declare `platforms: { "claude-code": { nativeHooks: { TaskCompleted: { handler } } } }`:
-> the handler receives the host's **raw** payload and whatever it returns is the
+<details>
+<summary>Native interpolation vs. literal-at-install resolution</summary>
+
+> On hosts with **native** interpolation (Claude Code, Cursor, VS Code Copilot,
+> amp, codebuff) the token is written through to the host config and resolved at
+> runtime. Every other host has **no** native interpolation, so the value is
+> resolved to a **literal at install time**; an unset variable with no default
+> resolves to an **empty string**, and `install` emits a `warn` for it on a
+> literal-resolving host.
+
+</details>
+
+**Native hooks escape hatch.** The normalized `hooks` API covers the 13 cross-platform events; for host-only events (Claude Code alone ships 30) declare `platforms: { "claude-code": { nativeHooks: { TaskCompleted: { handler } } } }`.
+
+<details>
+<summary>Raw-payload semantics and the ~14 passthrough hosts</summary>
+
+> The handler receives the host's **raw** payload and whatever it returns is the
 > **verbatim** JSON reply (exit 0 only — exit-2 blocking isn't modeled). Hosts
 > supporting host-native passthrough: `amp`, `claude-code`, `continue`,
 > `copilot-cli`, `cursor`, `gemini-cli`, `hermes`, `jetbrains-copilot`, `kimi`,
 > `nemoclaw`, `omp`, `openclaw`, `opencode`, `qwen-code`. Others skip-warn.
 
-> **Host-config key patches.** For host-exclusive *settings keys* no other
-> surface reaches, declare
-> `platforms: { "claude-code": { configPatch: [{ key, value, reason }] } }`.
+</details>
+
+**Host-config key patches.** For host-exclusive *settings keys* no other surface reaches, declare `platforms: { "claude-code": { configPatch: [{ key, value, reason }] } }` (Claude Code only for now; other hosts skip-warn with the exact manual edit).
+
+<details>
+<summary>Set-if-absent + refcount + denylist semantics</summary>
+
 > Semantics are fixed: **set-if-absent + skip-warn on any conflict** — never
 > overwrite, never deep-merge. Ownership is refcounted in a persisted ledger;
 > security-relevant keys and keys agent-connector models as first-class surfaces
-> are hard-refused. Claude Code only for now; other hosts skip-warn with the
-> exact manual edit.
+> are hard-refused.
+
+</details>
 
 ### Memory, statusline, actions, and the SDK
 
@@ -305,17 +340,17 @@ Adding a platform = **one registry entry + one adapter**.
 | Command | Purpose |
 |---|---|
 | `detect` | List installed platforms, scopes, capabilities, hook paradigm. |
-| `install [--scope user\|project] [--targets …] [--method direct\|marketplace] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces (commands / skills / subagents / memory) across targets. `--force` overwrites user-edited memory blocks (after a backup). |
-| `uninstall [--targets …] [--purge] [--method auto\|direct\|marketplace]` | Full inverse — removes everything we wrote; `--purge` also clears framework state. |
-| `upgrade [--channel stable\|latest]` | One verb (alias: `update`, `sync`) — re-render host config + heal stale pointers + refresh the home-binary pointer, printing managed-update guidance (never a silent self-update). |
-| `doctor [--probe] [--explain]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real server; `--explain` prints the per-`(host, event)` hook honor matrix (`honored` / `degraded` / `dropped` + reason) for the connector's declared events. |
+| `install [--scope …] [--targets …] [--method …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces across targets. |
+| `uninstall [--targets …] [--purge] [--method …]` | Full inverse — removes everything we wrote; `--purge` also clears framework state. |
+| `upgrade [--channel …]` | Re-render host config + heal stale pointers + refresh the home binary (alias: `update`, `sync`); never a silent self-update. |
+| `doctor [--probe] [--explain]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake, `--explain` prints the per-`(host, event)` hook honor matrix. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
 | `package [--format <fmt>\|all]` | Emit a host plugin bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
 | `action <platform> <id> [--connector <id>]` | Run a declared action from the shell. |
-| `telemetry report [--by tool\|session\|project] [--since 7d] [--connector <id>]` | Per-tool token footprint of **your connector's own wrapped server**. Stdio servers only. |
-| `telemetry export [--format csv\|json] [--connector <id>]` | Raw aggregate records for your wrapped server. |
-| `usage report\|export\|leaderboard [--by platform\|model\|project\|session\|day]` | **No connector needed.** Host-native token usage parsed read-only from each agent CLI's own logs — whole-conversation totals per platform / model / project / session / day. Does NOT break down by individual MCP or tool. |
-| `leaderboard [--since 7d] [--connector <id>] [--scope <slice>]` | Three origin-labeled boards with **different prerequisites** (counts are never summed across them): 🔌 MCP/plugin needs a connector + serve traffic; 🛰️ host-native turns need the opt-in usage hook (Gemini CLI / Antigravity only); 🖥️ host/user works with **no setup**. |
+| `telemetry report [--by …] [--since …] [--connector <id>]` | Per-tool token footprint of **your connector's own wrapped server**. Stdio servers only. |
+| `telemetry export [--format …] [--connector <id>]` | Raw aggregate records for your wrapped server. |
+| `usage report\|export\|leaderboard [--by …]` | **No connector needed.** Host-native whole-conversation token totals parsed read-only from each agent CLI's own logs. Does NOT break down by individual MCP or tool. |
+| `leaderboard [--since …] [--connector <id>] [--scope …]` | Three origin-labeled boards with **different prerequisites** (🔌 MCP/plugin · 🛰️ host-native turns · 🖥️ host/user); counts are never summed across them. |
 
 > `hook` and `serve` also exist — internal entrypoints the written host configs
 > point at; you never run them by hand. Full flag-level reference: the
