@@ -1540,10 +1540,54 @@ export function Privacy() {
   return (
     <DocSection id="privacy" eyebrow="Telemetry" title="Privacy & opt-out">
       <Lead>
-        Local-first, <strong>zero network egress by default</strong>. Reported
-        numbers are estimates from the server&apos;s own I/O, not host-billed
-        usage.
+        Both telemetry paths are <strong>local-first</strong> with{" "}
+        <strong>zero network egress by default</strong>, and store{" "}
+        <strong>aggregate counts only — never your prompts, arguments, or
+        results</strong>. Nothing leaves your machine unless you explicitly
+        opt in (the calibration sampler is the only off-box path, and it is off
+        by default).
       </Lead>
+
+      <H3 id="privacy-usage">The connector-free <C>usage</C> host-scan</H3>
+      <P>
+        The <Link className="underline hover:text-foreground" to="/docs/user/usage">
+          <C>usage</C>
+        </Link>{" "}
+        command needs no connector and writes nothing. It reads each agent
+        CLI&apos;s <strong>own</strong> native session logs / DBs{" "}
+        <strong>read-only</strong>, reports{" "}
+        <strong>counts only — never your prompts or results</strong>, writes{" "}
+        <strong>zero host config</strong> (it never runs <C>install</C>), and is
+        local-first: the scan stays entirely on your machine. It is a separate
+        read-only subsystem (<C>src/usage/</C>) that never collides with the
+        serve-proxy store below.
+      </P>
+
+      <H3 id="privacy-serve-proxy">The serve-proxy per-tool numbers</H3>
+      <P>
+        The per-MCP / per-tool telemetry comes from the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/telemetry-overview">
+          serve proxy
+        </Link>{" "}
+        a connector developer&apos;s own wrapped server runs — it tokenizes the
+        server&apos;s I/O locally and stores aggregate counts only.
+      </P>
+      <Callout title="Scope of the &quot;estimate&quot; label" tone="note">
+        Reported per-tool numbers are <strong>estimates from the server&apos;s
+        own I/O</strong>, not host-billed usage — this caveat applies
+        specifically to the serve-proxy per-tool counts (every row carries its{" "}
+        <Link
+          className="underline hover:text-foreground"
+          to="/docs/dev/telemetry-overview#confidence-sources"
+        >
+          confidence source
+        </Link>{" "}
+        so an estimate is never read as exact). It is <em>not</em> a statement
+        that all telemetry is approximate: the connector-free <C>usage</C> scan
+        above reports the host&apos;s own logged counts.
+      </Callout>
+
+      <H3 id="privacy-switches">Opt-out switches</H3>
       <DocsTable>
         <thead>
           <tr>
