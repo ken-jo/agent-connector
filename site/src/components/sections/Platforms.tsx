@@ -1,11 +1,15 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+
 import { Section, SectionHeading } from "@/components/sections/Section";
 import { cn } from "@/lib/utils";
 import {
   byParadigmFamilyName,
-  formFactorOf,
-  formFactors,
+  formFactorShort,
+  frontierIds,
   handlerChips,
   installMethods,
+  isFrontier,
   paradigms,
   platformCount,
   platforms,
@@ -14,6 +18,13 @@ import {
   type Platform,
   type SurfaceState,
 } from "@/data";
+
+/** Where a card's surface/handler links land in the dev docs. */
+const PLATFORMS_DOC = "/docs/dev/platforms";
+const HANDLER_DOC: Record<"statusline" | "actions", string> = {
+  statusline: "/docs/dev/surfaces#statusline",
+  actions: "/docs/dev/surfaces#actions",
+};
 
 function ParadigmLegend() {
   return (
@@ -86,27 +97,50 @@ function SurfaceLegend() {
         <span>
           — special runtime-dispatched surfaces, set off on their own row and shown
           only where agent-connector wires them (absence isn&apos;t a claim the host
-          lacks them).
+          lacks them). Each links to its setup docs.
         </span>
       </p>
     </div>
   );
 }
 
-/** One agent on the wall: name + its exact surface profile as 3-state chips. */
-function AgentEntry({ platform }: { platform: Platform }) {
+/**
+ * One agent on the wall: name + its exact surface profile as 3-state chips, a
+ * compact form-factor chip (CLI / IDE / Ext), and any lit handler chips.
+ *
+ * Linking, kept valid + accessible (no nested <a>): the card is a <div> with a
+ * full-bleed Link to the Platforms reference behind everything (absolute inset-0,
+ * z-0). The handler (✦) chips sit ABOVE it (relative z-10) as their OWN Links to
+ * the specific surface-setup anchors, so a click on a chip jumps to that anchor
+ * while a click anywhere else on the card opens the Platforms reference. Both the
+ * card link and the chip links are focusable real <a> elements.
+ */
+function AgentEntry({ platform, frontier }: { platform: Platform; frontier?: boolean }) {
   const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
+  const ffShort = formFactorShort(platform.id);
   const supported = surfaceChips
     .filter((c) => platform.surfaces[c.key])
     .map((c) => c.full)
     .join(", ");
+  const litHandlers = handlerChips.filter((c) => platform.surfaces[c.key]);
 
   return (
     <div
-      className="group rounded-lg border border-border bg-background/60 px-3.5 py-2.5 transition-colors hover:border-foreground/30 hover:bg-accent"
+      className={cn(
+        "group relative rounded-lg border px-3.5 py-2.5 transition-colors hover:border-foreground/30 hover:bg-accent focus-within:border-foreground/40",
+        frontier
+          ? "border-foreground/20 bg-foreground/[0.04] shadow-sm"
+          : "border-border bg-background/60",
+      )}
       title={`${platform.name} (${paradigm.label}) — supports: ${supported}`}
     >
-      <div className="flex items-center gap-2">
+      {/* Full-card link to the Platforms reference, behind the chips. */}
+      <Link
+        to={PLATFORMS_DOC}
+        aria-label={`${platform.name} — open the Platforms reference`}
+        className="absolute inset-0 z-0 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
+      />
+      <div className="pointer-events-none relative z-10 flex items-center gap-2">
         <span
           className={cn("size-2 shrink-0 rounded-full", paradigm.dot)}
           aria-hidden="true"
@@ -114,8 +148,16 @@ function AgentEntry({ platform }: { platform: Platform }) {
         <span className="text-sm font-medium text-muted-foreground transition-colors group-hover:text-foreground">
           {platform.name}
         </span>
+        {ffShort ? (
+          <span
+            className="ml-auto rounded border border-border bg-background/80 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground"
+            title={`Form factor: ${ffShort}`}
+          >
+            {ffShort}
+          </span>
+        ) : null}
       </div>
-      <div className="mt-2 flex items-center font-mono text-[10px] leading-none tracking-tight">
+      <div className="pointer-events-none relative z-10 mt-2 flex items-center font-mono text-[10px] leading-none tracking-tight">
         {surfaceChips.map((chip, i) => {
           const state = surfaceState(platform, chip.key);
           const { className, label } = chipStates[state];
@@ -137,28 +179,87 @@ function AgentEntry({ platform }: { platform: Platform }) {
           );
         })}
       </div>
-      {handlerChips.some((c) => platform.surfaces[c.key]) && (
-        <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-border/50 pt-2">
-          {handlerChips
-            .filter((c) => platform.surfaces[c.key])
-            .map((c) => (
-              <span
-                key={c.key}
-                title={`${c.full}: special runtime handler surface, wired by agent-connector`}
-                className="inline-flex items-center gap-1 rounded-full border border-foreground/25 bg-foreground/[0.05] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-foreground"
-              >
-                <span aria-hidden="true" className="text-[7px] leading-none opacity-70">
-                  ✦
-                </span>
-                {c.abbr}
-                <span className="sr-only">
-                  {" "}
-                  — special runtime handler surface, wired by agent-connector
-                </span>
+      {litHandlers.length > 0 && (
+        <div className="relative z-10 mt-2 flex flex-wrap items-center gap-1 border-t border-border/50 pt-2">
+          {litHandlers.map((c) => (
+            <Link
+              key={c.key}
+              to={HANDLER_DOC[c.key]}
+              title={`${c.full}: special runtime handler surface, wired by agent-connector — open its setup docs`}
+              className="inline-flex items-center gap-1 rounded-full border border-foreground/25 bg-foreground/[0.05] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide text-foreground transition-colors hover:border-foreground/50 hover:bg-foreground/[0.12] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
+            >
+              <span aria-hidden="true" className="text-[7px] leading-none opacity-70">
+                ✦
               </span>
-            ))}
+              {c.abbr}
+              <span className="sr-only"> — open setup docs</span>
+            </Link>
+          ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Curated frontier hosts, rendered in the pinned promo order (NOT the comparator). */
+const frontierPlatforms: Platform[] = frontierIds
+  .map((id) => platforms.find((p) => p.id === id))
+  .filter((p): p is Platform => Boolean(p));
+
+/** Everything else, sorted by paradigm → family → name. */
+const generalPlatforms: Platform[] = platforms
+  .filter((p) => !isFrontier(p.id))
+  .sort(byParadigmFamilyName);
+
+/**
+ * The long tail: collapsed by default to ~2 rows behind a bottom fade, with a
+ * "Show all N more" toggle. The clamp is a max-height on the wrapper (robust to
+ * varying per-row counts — it just hides whatever overflows two-ish rows); the
+ * gradient overlay fades the cut-off row. Opening removes both.
+ */
+function GeneralWall() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5">
+        <h3 className="font-mono text-sm font-semibold uppercase tracking-wide text-foreground">
+          General support
+        </h3>
+        <span className="text-xs text-muted-foreground">
+          · {generalPlatforms.length} more · same drift-tested profiles
+        </span>
+      </div>
+
+      <div className="relative">
+        <div
+          className={cn(
+            "flex flex-wrap justify-center gap-2.5 transition-all",
+            open ? "max-h-none" : "max-h-[15rem] overflow-hidden",
+          )}
+        >
+          {generalPlatforms.map((pl) => (
+            <AgentEntry key={pl.id} platform={pl} />
+          ))}
+        </div>
+        {!open && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-background via-background/85 to-transparent"
+          />
+        )}
+      </div>
+
+      <div className="mt-4 flex justify-center">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="rounded-full border border-border bg-background/60 px-4 py-1.5 font-mono text-xs font-medium text-foreground transition-colors hover:border-foreground/30 hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
+        >
+          {open ? "Show fewer" : `Show all ${generalPlatforms.length} more`}
+        </button>
+      </div>
     </div>
   );
 }
@@ -183,38 +284,30 @@ export function Platforms() {
       </div>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Grouped by <span className="text-foreground">form factor</span> — how you
-        run the agent; the colored dot is its orthogonal{" "}
-        <span className="text-foreground">hook paradigm</span>.
+        Each card links to the{" "}
+        <span className="text-foreground">Platforms reference</span>; the colored
+        dot is its <span className="text-foreground">hook paradigm</span> and the
+        corner tag its form factor (CLI / IDE / Ext).
       </p>
 
-      <div className="mt-8 flex flex-col gap-8">
-        {formFactors.map((ff) => {
-          // Group by form factor (unchanged); WITHIN each band, order by hook
-          // paradigm → fork-lineage family → name so forks stay adjacent and
-          // the wall is predictable instead of raw registry order.
-          const band = platforms
-            .filter((pl) => formFactorOf(pl.id) === ff.id)
-            .sort(byParadigmFamilyName);
-          if (band.length === 0) return null;
-          return (
-            <div key={ff.id}>
-              <div className="mb-3 flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5">
-                <h3 className="font-mono text-sm font-semibold uppercase tracking-wide text-foreground">
-                  {ff.label}
-                </h3>
-                <span className="text-xs text-muted-foreground">
-                  · {band.length} · {ff.short}
-                </span>
-              </div>
-              <div className="flex flex-wrap justify-center gap-2.5">
-                {band.map((pl) => (
-                  <AgentEntry key={pl.id} platform={pl} />
-                ))}
-              </div>
-            </div>
-          );
-        })}
+      <div className="mt-8 flex flex-col gap-10">
+        <div>
+          <div className="mb-3 flex flex-wrap items-baseline justify-center gap-x-2 gap-y-0.5">
+            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Frontier
+            </span>
+            <h3 className="font-mono text-sm font-semibold uppercase tracking-wide text-foreground">
+              · {frontierPlatforms.length} flagship hosts
+            </h3>
+          </div>
+          <div className="mx-auto grid max-w-4xl grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+            {frontierPlatforms.map((pl) => (
+              <AgentEntry key={pl.id} platform={pl} frontier />
+            ))}
+          </div>
+        </div>
+
+        <GeneralWall />
       </div>
 
       <p className="mt-8 text-center text-xs text-muted-foreground">

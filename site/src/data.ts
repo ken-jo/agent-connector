@@ -78,7 +78,13 @@ export type { Platform, PlatformSurfaces, SurfaceChip, SurfaceState } from "./pl
 /* stays the dot color. Single-sourced + drift-tested in platform-data.*/
 /* ------------------------------------------------------------------ */
 
-export { formFactorIds, formFactorOf } from "./platform-data";
+export {
+  formFactorIds,
+  formFactorOf,
+  formFactorShort,
+  frontierIds,
+  isFrontier,
+} from "./platform-data";
 export type { FormFactorId } from "./platform-data";
 
 import type { FormFactorId } from "./platform-data";

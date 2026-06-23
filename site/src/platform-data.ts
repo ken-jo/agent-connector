@@ -775,6 +775,52 @@ export function formFactorOf(id: string): FormFactorId | undefined {
   return formFactorById[id];
 }
 
+/** Short per-card form-factor label: CLI / IDE / Ext (from the host's form factor). */
+const formFactorShortLabel: Record<FormFactorId, string> = {
+  cli: "CLI",
+  extension: "Ext",
+  app: "IDE",
+};
+
+/** Compact form-factor chip label for a platform id (undefined if unclassified). */
+export function formFactorShort(id: string): string | undefined {
+  const ff = formFactorOf(id);
+  return ff ? formFactorShortLabel[ff] : undefined;
+}
+
+/* ------------------------------------------------------------------ */
+/* Frontier hosts — curated promo set surfaced above the long tail.    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The 12 frontier hosts, promoted into their own grid above the general wall.
+ * Single source of truth for that set AND its display order: the Frontier grid
+ * renders these in EXACTLY this order (CLIs first, then editors/IDEs), NOT the
+ * byParadigmFamilyName comparator. Every other host falls into the general
+ * support section (sorted by the comparator). Pinned ids — each must exist in
+ * `platforms`; the platform-drift guard partitions the wall against these.
+ */
+export const frontierIds: readonly string[] = [
+  "claude-code",
+  "codex",
+  "gemini-cli",
+  "copilot-cli",
+  "opencode",
+  "amp",
+  "warp",
+  "amazon-q",
+  "cursor",
+  "windsurf",
+  "zed",
+  "antigravity",
+];
+
+/** Membership test for the frontier promo set. */
+const frontierIdSet = new Set(frontierIds);
+export function isFrontier(id: string): boolean {
+  return frontierIdSet.has(id);
+}
+
 /* ------------------------------------------------------------------ */
 /* Fork-lineage families — ordering metadata only (NOT drift-guarded)  */
 /* ------------------------------------------------------------------ */
