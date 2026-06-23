@@ -27,6 +27,7 @@ import {
   tsPluginPlatforms,
 } from "../../site/src/components/docs/docs-data.js";
 import {
+  brandColor,
   formFactorIds,
   formFactorOf,
   hostLinks,
@@ -173,6 +174,21 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
           /^https?:\/\/\S+$/,
         );
       }
+    }
+  });
+
+  it("brandColor gives EVERY landing platform exactly one 6-digit hex", () => {
+    // The coverage marquee (CoverageMarquee.tsx) tints each host NAME with
+    // brandColor[id]. A missing entry would leave a host's name uncolored
+    // (falling back to the default foreground). Guard an exact partition: one
+    // entry per platform id, no stray keys, and each value a #RRGGBB hex.
+    const platformIds = new Set(landingPlatforms.map((p) => p.id));
+    const colorIds = new Set(Object.keys(brandColor));
+    expect([...colorIds].sort()).toEqual([...platformIds].sort());
+    for (const [id, hex] of Object.entries(brandColor)) {
+      expect(hex, `brandColor["${id}"] must be a #RRGGBB hex`).toMatch(
+        /^#[0-9a-fA-F]{6}$/,
+      );
     }
   });
 

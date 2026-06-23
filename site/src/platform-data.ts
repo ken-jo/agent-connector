@@ -858,6 +858,74 @@ export const hostSource: Record<string, HostSource> = {
 };
 
 /**
+ * Per-host BRAND COLOR — the host's recognizable primary color, used to tint the
+ * host NAME on the landing coverage marquee (CoverageMarquee.tsx). One hex per
+ * platform id (all 42 covered; drift-guarded — every platform id must have
+ * exactly one entry, see tests/docs/platform-drift.test.ts).
+ *
+ * LEGIBILITY CONSTRAINT (the marquee renders on a near-black bg in dark mode and
+ * a near-white bg in light mode, and the site defaults to dark): every hex is a
+ * single MID-TONE shade tuned to clear WCAG large-text contrast (≥3:1) on BOTH
+ * backgrounds simultaneously. That luminance window is narrow (~0.11–0.29), so
+ * each color is the brand's recognizable hue rendered at a mid lightness rather
+ * than its literal logo hex — e.g. Anthropic's warm orange as a deep rust
+ * (#C2410C, not the lighter #D97757 which is invisible on white), AWS orange
+ * darkened from #FF9900 to #C77400, OpenAI's near-black mark surfaced as a
+ * readable teal-green (#157F66). Hosts with no obvious brand color get a
+ * sensible hue-derived neutral (e.g. grok-cli → slate). Verified worst-case
+ * contrast: 3.07:1 (dark) / 3.18:1 (light), both above the 3:1 bar.
+ */
+export const brandColor: Record<string, string> = {
+  // --- frontier / closed-source ---
+  "claude-code": "#C2410C", // Anthropic warm rust-orange (deep #D97757)
+  codebuddy: "#3B6FE0", // Tencent CodeBuddy blue
+  cursor: "#4B5EE0", // Cursor indigo-blue
+  "vscode-copilot": "#2563C9", // VS Code blue
+  "copilot-cli": "#7C3AED", // GitHub Copilot violet
+  "jetbrains-copilot": "#9333A8", // JetBrains × Copilot magenta-purple
+  amp: "#B85420", // Sourcegraph Amp orange (darkened)
+  warp: "#1E8E86", // Warp teal (darkened)
+  droid: "#C03A2B", // Factory Droid red-orange
+  "antigravity-cli": "#3A6FD8", // Google Antigravity blue
+  antigravity: "#3A6FD8", // Google Antigravity blue
+  kiro: "#6D4FC0", // AWS Kiro purple
+  trae: "#C0392B", // ByteDance Trae red
+  devin: "#1F84B5", // Cognition Devin blue
+  windsurf: "#1A8F6B", // Windsurf teal-green
+  hermes: "#9A7B1F", // Nous Hermes gold (darkened)
+
+  // --- famous-vendor OSS (the big tier alongside frontier) ---
+  codex: "#157F66", // OpenAI near-black mark → readable teal-green
+  "gemini-cli": "#3367D6", // Google blue
+  "qwen-code": "#7A3FC0", // Alibaba/Qwen purple
+  "amazon-q": "#C77400", // AWS orange (darkened from #FF9900)
+
+  // --- other OSS ---
+  opencode: "#C03A2B", // sst opencode red-orange
+  "mimo-code": "#D2691E", // Xiaomi MiMoCode orange (darkened)
+  "kilo-cli": "#2E8B3D", // Kilo green
+  openhands: "#B5860B", // All-Hands OpenHands gold-amber
+  "roo-code": "#9333A8", // Roo Code purple
+  kilo: "#2E8B3D", // Kilo green (same source as kilo-cli)
+  cline: "#1F8C84", // Cline teal
+  zed: "#2D5FD0", // Zed blue (readable #084CCF)
+  codebuff: "#C0492B", // Codebuff orange-red
+  pi: "#6D4FC0", // pi violet
+  omp: "#6D4FC0", // Oh My Pi violet (pi fork)
+  kimi: "#6A55D6", // Moonshot Kimi indigo
+  crush: "#C03A86", // Charm Crush pink-magenta
+  goose: "#2E8B57", // Block goose green
+  nemoclaw: "#5A9216", // NVIDIA NemoClaw green (darkened)
+  openclaw: "#C06A1E", // OpenClaw orange
+  continue: "#2C7FB8", // Continue blue
+  "grok-cli": "#5A6470", // xAI Grok neutral slate (no obvious brand hue)
+  "open-interpreter": "#2E8B3D", // Open Interpreter green
+  "mistral-vibe": "#D2691E", // Mistral Vibe orange (darkened)
+  junie: "#9333A8", // JetBrains Junie magenta
+  mux: "#3A6FD8", // Coder Mux blue
+};
+
+/**
  * GitHub-stars rank tier, highest threshold first. `frontier` is the premium
  * closed-source tier and is NOT in this list (it has no star threshold). The
  * thresholds were tuned against the real, fetched star spread (2026-06-23) so
