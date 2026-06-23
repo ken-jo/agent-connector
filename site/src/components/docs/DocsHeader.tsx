@@ -11,6 +11,14 @@ const GITHUB_REPO = "https://github.com/ken-jo/agent-connector";
 const EDIT_PATH = "site/src/components/docs/DocsContent.tsx";
 const EDIT_URL = `${GITHUB_REPO}/edit/main/${EDIT_PATH}`;
 
+// `__DOCS_BUILD_DATE__` is the HEAD commit date (`YYYY-MM-DD`) injected by Vite
+// `define` at build time. We render a site-wide "Last updated" date — doc pages
+// live in shared files, so a single build date is the honest granularity — and
+// deliberately show no version number (it would drift ahead of the docs).
+const BUILD_DATE_LABEL = new Date(
+  `${__DOCS_BUILD_DATE__}T00:00:00`,
+).toLocaleDateString("en-US", { year: "numeric", month: "long" });
+
 /** Group title that owns a section id within a track (the breadcrumb crumb). */
 function groupOf(track: TrackId, id: string): string | undefined {
   return tracks[track].groups.find((g) => g.items.some((i) => i.id === id))
@@ -40,7 +48,7 @@ function parseCrossTrackFrom(
 
 /**
  * Docs content header: a breadcrumb (Docs → track → group → page), an "Edit
- * this page on GitHub" link, and a subtle version / last-updated line.
+ * this page on GitHub" link, and a subtle "last updated" line (build date).
  * `activeId` is the section currently routed; `track` is its audience track.
  */
 export function DocsHeader({
@@ -108,7 +116,7 @@ export function DocsHeader({
         </a>
       </div>
       <p className="mt-2 text-[0.7rem] text-muted-foreground/70">
-        agent-connector v0.1.0 · Last updated June 2026
+        Last updated {BUILD_DATE_LABEL}
       </p>
     </div>
   );
