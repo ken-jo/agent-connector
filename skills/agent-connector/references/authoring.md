@@ -62,6 +62,44 @@ export default defineConnector({
 });
 ```
 
+## Server Shape Is Product-Specific
+
+Do not assume every MCP is a Node package launched with `npx` or a database
+integration with write guards. Match the server block to the real MCP product:
+
+Node/package-backed MCP:
+
+```ts
+server: {
+  transport: "stdio",
+  command: "npx",
+  args: ["-y", "@acme/acme-db-mcp"],
+}
+```
+
+CLI-backed context MCP, Headroom-style:
+
+```ts
+server: {
+  transport: "stdio",
+  command: "headroom",
+  args: ["mcp", "serve"],
+}
+```
+
+Remote MCP:
+
+```ts
+server: {
+  transport: "http",
+  url: "https://mcp.example.com/mcp",
+}
+```
+
+For context-saving MCPs, prefer memory/skills that teach agents when to compress
+large logs, retrieve originals by hash, and check stats. Do not add database
+write-confirmation hooks unless the server actually mutates data.
+
 ## Surfaces
 
 - `server` — one MCP server descriptor. Stdio uses `command`/`args`/`env`;
@@ -99,4 +137,3 @@ the universal model does not cover.
 
 Unsupported surfaces should be reported as skip-warn or disabled, never silently
 dropped.
-

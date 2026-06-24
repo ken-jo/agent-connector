@@ -29,6 +29,14 @@ import * as sdk from "../../src/sdk/index.js";
 const LLMS = readFileSync("llms.txt", "utf8");
 const LLMS_FULL = readFileSync("llms-full.txt", "utf8");
 const SKILL = readFileSync("skills/agent-connector/SKILL.md", "utf8");
+const AUTHORING_REFERENCE = readFileSync(
+  "skills/agent-connector/references/authoring.md",
+  "utf8",
+);
+const PACKAGE_FIRST_REFERENCE = readFileSync(
+  "skills/agent-connector/references/package-first.md",
+  "utf8",
+);
 
 /**
  * Inline registry-count idioms — the prose phrasings that quote the adapter
@@ -89,6 +97,20 @@ async function hostsWithCapability(
 }
 
 describe("robot docs drift guard — llms.txt + llms-full.txt (code is the source of truth)", () => {
+  it("keeps non-database MCP server shapes visible to agents", () => {
+    // The docs use acme-db as one concrete sample, but agents must not infer
+    // that every MCP is a database package launched through npx. Headroom-style
+    // context-compression servers are the counterexample that keeps the
+    // package-first contract product-neutral.
+    expect(LLMS).toContain("Headroom-style context-compression MCPs");
+    expect(LLMS).toContain("headroom mcp serve");
+    expect(LLMS_FULL).toContain("Headroom-style context-compression MCP");
+    expect(LLMS_FULL).toContain('command: "headroom"');
+    expect(SKILL).toContain("packageJson");
+    expect(AUTHORING_REFERENCE).toContain("CLI-backed context MCP, Headroom-style");
+    expect(PACKAGE_FIRST_REFERENCE).toContain("Balanced Example Families");
+  });
+
   // ── Paradigm partition (migrated from platform-drift) ────────────────────
   it("llms.txt paradigm bullets name EXACTLY the registry ids and point counts to coverage", async () => {
     const truth = await registryParadigms();

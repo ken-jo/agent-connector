@@ -221,6 +221,19 @@ export function SdkOverview() {
         filename="agent-connector.config.mjs"
       />
 
+      <H3 id="sdk-cli-backed-mcp">CLI-backed MCP servers</H3>
+      <P>
+        Not every MCP starts as a Node package. Context-compression servers such
+        as Headroom-style tools may already expose their own local CLI. Keep the
+        wrapper package&apos;s <C>package.json</C> as the public identity, then
+        point <C>server.command</C> at the real MCP process.
+      </P>
+      <CodeBlock
+        code={S.cliBackedMcpSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+
       <H3 id="sdk-cli-boundary">CLI boundary</H3>
       <P>
         <C>@ken-jo/agent-connector/cli</C> is a separate boundary: use{" "}
@@ -363,7 +376,9 @@ export function EmbedCli() {
         . With <C>createConnectorCli(&#123; packageJson, connector &#125;)</C> you expose{" "}
         <strong>every</strong> agent-connector subcommand under your own brand —
         fully delegated and <strong>auto-scoped</strong> to the connector your
-        package ships. Your users run <C>&lt;your-tool&gt; install</C> /{" "}
+        package ships. <C>packageJson</C> supplies public identity;{" "}
+        <C>connector</C> supplies behavior, so these are separate layers rather
+        than duplicate prompts. Your users run <C>&lt;your-tool&gt; install</C> /{" "}
         <C>&lt;your-tool&gt; leaderboard</C> / <C>&lt;your-tool&gt; telemetry</C>{" "}
         without a framework global install or <C>--connector</C> for branded MCP
         install commands.

@@ -101,7 +101,9 @@ agent-connector integration:
 4. Use `@ken-jo/agent-connector/sdk` for new authoring code (`defineConnector`,
    typed `define*` helpers, `hostsSupporting`, `capabilitiesOf`,
    `surfaceSupport`). Use `@ken-jo/agent-connector/cli` only inside the
-   developer package's bin via `createConnectorCli({ packageJson, connector })`.
+   developer package's bin via `createConnectorCli({ packageJson, connector })`:
+   `packageJson` supplies public identity; `connector` supplies behavior, so
+   these are two layers rather than duplicate id/display-name inputs.
 5. Foreground the developer's branded MCP package/bin in generated docs and
    commands: `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, etc.
    Use `npx @ken-jo/agent-connector ... --connector` only as a local framework
@@ -945,12 +947,20 @@ interface ResolvedConnector {
 
 ### 2.10 Full example (server + hooks + commands + skills)
 
+The example below is database-shaped. Do not generalize that into "all MCPs are
+database/write-guard MCPs." For a Headroom-style context-compression MCP, keep
+package identity in `package.json` and launch the real CLI with a server shape
+such as `{ transport: "stdio", command: "headroom", args: ["mcp", "serve"] }`;
+use memory/skills to teach compress/retrieve/stats behavior instead of adding
+irrelevant write-confirmation hooks.
+
 ```ts
 import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
   // package.json / npm metadata is the source of truth:
   // name/mcpName/bin/version derive the install id, host label, bin, and version.
+  // Host-native ids are generated during install; don't copy them back here as id/displayName.
   server: {
     transport: "stdio",
     command: "npx",
@@ -1453,8 +1463,9 @@ npm run dev -- detect             # run the CLI from source via tsx
 ```
 
 Or ship a branded CLI: `createConnectorCli({ packageJson, connector })` from
-`agent-connector/cli` derives the bin/version from `package.json`, exposes every
-subcommand under your own bin, and auto-scopes to your connector (see
+`agent-connector/cli` keeps two layers separate: `packageJson` derives the
+public bin/version/name/mcpName, while `connector` points at the behavior file.
+It exposes every subcommand under your own bin and auto-scopes to your connector (see
 `examples/branded-cli`); explicit `--connector`/`--connector-id` always overrides.
 
 **Package subpaths:** `.` (root — full `define*` family: `defineConnector` +

@@ -128,7 +128,10 @@ function generateBin(): string {
   lines.push("#!/usr/bin/env node");
   lines.push(`import { createConnectorCli } from ${q(`${PACKAGE_NAME}/cli`)};`, "");
   lines.push("process.exitCode = await createConnectorCli({");
+  lines.push(`${PAD}// packageJson supplies public identity: name, mcpName, bin, version.`);
   lines.push(`${PAD}packageJson: new URL("./package.json", import.meta.url),`);
+  lines.push(`${PAD}// connector supplies behavior: server, hooks, skills, telemetry.`);
+  lines.push(`${PAD}// These are two layers, not duplicate id/display-name inputs.`);
   lines.push(`${PAD}connector: new URL("./agent-connector.config.mjs", import.meta.url),`);
   lines.push("}).run();");
   return lines.join("\n");
@@ -143,6 +146,13 @@ function generateConnector(state: WizardState): string {
   const lines: string[] = [];
   lines.push(`import { defineConnector } from ${q(`${PACKAGE_NAME}/sdk`)};`, "");
   lines.push("export default defineConnector({");
+  lines.push(`${PAD}// package.json is the source of truth for public identity.`);
+  lines.push(
+    `${PAD}// Omit id/displayName/version here unless you need a legacy or multi-instance override.`,
+  );
+  lines.push(
+    `${PAD}// Host-native ids are generated from package metadata during install.`,
+  );
 
   // ── server ──
   lines.push(`${PAD}server: {`);
@@ -444,7 +454,7 @@ export function WizardPage() {
                 <Field
                   id="wiz-package"
                   label="MCP package"
-                  hint="package.json name or npm package. The host alias/runtime id is derived from mcpName/name/bin conventions."
+                  hint="Your wrapper package identity. It may launch its own Node MCP package, an existing CLI such as headroom, or a remote endpoint; there is still no separate connector id field."
                 >
                   <input
                     id="wiz-package"
@@ -502,7 +512,7 @@ export function WizardPage() {
                     <Field
                       id="wiz-command"
                       label="Command"
-                      hint="The executable that launches your MCP server."
+                      hint="The executable that launches your MCP server: npx for Node packages, or an existing CLI such as headroom."
                     >
                       <input
                         id="wiz-command"
@@ -516,7 +526,7 @@ export function WizardPage() {
                     <Field
                       id="wiz-args"
                       label="Runner args"
-                      hint="Comma-separated args before the package name. The package is appended automatically for npx."
+                      hint="Comma-separated args. For npx, the package name is appended automatically; for CLI-backed MCPs, use values such as mcp, serve."
                     >
                       <input
                         id="wiz-args"
@@ -662,7 +672,7 @@ export function WizardPage() {
                     num={2}
                     title="Set package identity + bin"
                     command={packageIdentityCmd}
-                    description="package.json is the source of truth: name identifies the package, bin names the command users run."
+                    description="package.json is the source of truth: name identifies the package, bin names the command users run, and mcpName can refine the host label when present."
                   />
                   <Step
                     num={3}

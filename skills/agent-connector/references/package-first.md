@@ -15,7 +15,9 @@ Read `package.json` first. For normal packaged connectors:
 
 Do not ask the user for these values again when they already exist. In
 `defineConnector`, omit `id`, `displayName`, and `version` unless there is a
-specific legacy or multi-instance reason.
+specific legacy or multi-instance reason. The host-native ids written during
+install are generated artifacts; do not copy those generated ids back into
+`defineConnector({ id })` as if they were another required input.
 
 Example:
 
@@ -45,6 +47,23 @@ Example:
 - Global `@ken-jo/agent-connector` is primarily for framework development,
   debug fallback, or connector-free token usage reports.
 
+## Balanced Example Families
+
+Use examples that match the MCP's product category:
+
+- Database/API MCP: `@acme/acme-db-mcp`, `mcpName:
+  io.github.acme/acme-db`, bin `acme-db`, server launched by `npx` or a local
+  Node entrypoint, optional write-confirmation hooks.
+- Context-compression MCP, Headroom-style: wrapper package such as
+  `@acme/context-cache-mcp`, `mcpName: io.github.acme/context-cache`, bin
+  `context-cache`, server launched by an existing CLI such as `headroom mcp
+  serve`, and memory/skills explaining compress/retrieve/stats behavior.
+- Remote/SaaS MCP: wrapper package/bin still owns install/doctor/uninstall,
+  while `server.transport: "http"` points at the remote MCP endpoint.
+
+The package-first rule is the same in all cases. Only the server launch shape
+and optional guidance surfaces change.
+
 ## Agent Checklist
 
 When generating or reviewing a connector:
@@ -55,7 +74,9 @@ When generating or reviewing a connector:
    than the npm name.
 3. Ensure docs and commands foreground the branded package/bin.
 4. Treat duplicate `defineConnector({ id, displayName, version })` values as a
-   smell unless justified.
+   smell unless justified. If a generated host config shows an id, add a comment
+   that it is an install artifact derived from package metadata, not a second
+   value the user must maintain.
 5. Keep examples aligned with the real package version.
 
 ## Good vs Bad
@@ -79,4 +100,3 @@ Bad as normal user guidance:
 npm i -g @ken-jo/agent-connector
 agent-connector install --connector ./agent-connector.config.mjs
 ```
-

@@ -53,9 +53,12 @@ mirrors developer docs under `/docs/dev`.
 3. Do not request separate connector id, display name, bin name, or version
    unless metadata is absent or the user explicitly needs a legacy/multi-instance
    override.
+   When showing generated host configs, comment that host-native ids are install
+   artifacts derived from package metadata, not second user-maintained inputs.
 4. Import new authoring code from `@ken-jo/agent-connector/sdk`.
 5. Put `createConnectorCli({ packageJson, connector })` in the developer's
-   package bin from `@ken-jo/agent-connector/cli`.
+   package bin from `@ken-jo/agent-connector/cli`; comment that `packageJson`
+   supplies identity while `connector` supplies behavior.
 6. Foreground the developer's brand in user-facing commands:
    `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, etc.
 7. Use `npx @ken-jo/agent-connector ... --connector` only as a local framework

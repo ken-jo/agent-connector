@@ -18,7 +18,10 @@ import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 // run() resolves to the exit code and never calls process.exit — forward it.
 process.exitCode = await createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();`;
 
@@ -62,6 +65,26 @@ export default defineConnector({
 });
 
 const hookHosts = await hostsSupporting("hooks");`;
+
+export const cliBackedMcpSnippet = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
+
+export default defineConnector({
+  // Context-compression MCPs such as Headroom-style tools often ship as a
+  // local CLI. package.json still owns the wrapper identity and bin; this
+  // server block only says how to launch the real MCP process.
+  server: {
+    transport: "stdio",
+    command: "headroom",
+    args: ["mcp", "serve"],
+  },
+  memory: [
+    {
+      name: "context-compression-guidance",
+      content:
+        "Use compression for large logs/search results; retrieve originals by hash before making irreversible decisions.",
+    },
+  ],
+});`;
 
 /**
  * Optional convenience only: install the CLI globally to try it directly,
@@ -149,6 +172,7 @@ export default defineConnector({
   // package.json / npm metadata is the source of truth.
   // id/displayName/version are derived from name/mcpName/bin/version unless
   // you need a multi-instance alias such as "github-octocorp".
+  // Host-native ids are generated during install; don't copy them back here.
   server: {
     transport: "stdio",
     command: "npx",
@@ -212,7 +236,10 @@ export const brandedBinSnippet = `#!/usr/bin/env node
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 })
   .run()

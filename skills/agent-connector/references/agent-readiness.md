@@ -85,6 +85,12 @@ acme-db doctor --probe
 
 Framework fallback belongs in notes, not as the primary path.
 
+Keep the example set balanced. Do not let a database MCP become the only mental
+model. Include or validate at least one non-database shape when changing
+scaffolds or docs, such as a Headroom-style context-compression MCP that exposes
+compress/retrieve/stats tools and may launch via an existing CLI (`headroom mcp
+serve`) rather than `npx <package>`.
+
 ### 5. Natural-language MCP affordance
 
 shadcn's MCP server lets assistants browse/search/install registry items from

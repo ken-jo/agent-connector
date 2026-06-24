@@ -10,7 +10,9 @@
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 createConnectorCli({
+  // Public identity comes from package.json; do not repeat it in the config.
   packageJson: new URL("./package.json", import.meta.url),
+  // Behavior comes from the connector config. This is not a second id source.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 })
   .run()

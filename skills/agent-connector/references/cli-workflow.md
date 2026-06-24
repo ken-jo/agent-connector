@@ -12,7 +12,10 @@ The developer package should expose its own bin:
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 process.exitCode = await createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();
 ```
@@ -95,4 +98,3 @@ npx @acme/acme-db-mcp doctor --probe
 
 Use SDK offline harnesses before touching host config when the question is about
 hook or surface behavior.
-

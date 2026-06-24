@@ -26,7 +26,10 @@ Four files:
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();
 ```

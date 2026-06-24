@@ -87,7 +87,8 @@ const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url)
 export default defineConnector({
   // package.json / npm metadata is the source of truth. The host alias/runtime
   // id and connector version are derived from name/mcpName/bin/version unless
-  // you need a multi-instance alias.
+  // you need a legacy or multi-instance alias. Host-native ids are generated
+  // during install, so do not copy them back into defineConnector({ id }).
   server: {
     transport: "stdio",
     command: "node",
@@ -101,6 +102,11 @@ export default defineConnector({
 > above); once your server is a published package, switch to `npx` + the package
 > name (`command: "npx", args: ["-y", "@acme/acme-db-mcp"]`) — the form the
 > [site quick-start](https://agent-connector.ai) teaches.
+> For CLI-backed MCPs, keep the same package/bin wrapper but point
+> `server.command` at the real process instead. A context-compression MCP in the
+> style of Headroom would use a shape like `command: "headroom", args: ["mcp",
+> "serve"]`, and would usually add memory/skills about compress/retrieve/stats
+> behavior rather than database write-confirmation hooks.
 
 ```bash
 # 4. deploy under your branded MCP package/bin
@@ -204,7 +210,10 @@ import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 // run() resolves to the exit code and never calls process.exit
 process.exitCode = await createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();
 ```
