@@ -1,6 +1,6 @@
 {
   "name": "@ken-jo/agent-connector",
-  "version": "0.4.95",
+  "version": "0.4.96",
   "type": "module",
   "description": "SDK/runtime for branded MCP packages: declare your server + hooks once, install across the current AI-agent coverage matrix, and collect local-first token telemetry.",
   "keywords": [
