@@ -94,7 +94,7 @@ function buildRenderConnector(): ResolvedConnector {
 }
 
 /** surfaces: a connector declaring a command + skill (with a resource) + subagent. */
-function buildSurfacesConnector(): ResolvedConnector {
+function buildSurfacesConnector(subagentExtra?: Record<string, unknown>): ResolvedConnector {
   return defineConnector({
     id: SURFACES_CONNECTOR_ID,
     displayName: "Acme Surfaces",
@@ -129,6 +129,7 @@ function buildSurfacesConnector(): ResolvedConnector {
         prompt: "You are a meticulous code reviewer. Find correctness bugs.",
         tools: { allow: ["Read", "Grep"] },
         model: "opus",
+        ...(subagentExtra ? { extra: subagentExtra } : {}),
       },
     ],
   });
@@ -809,6 +810,24 @@ describe("claude-code adapter — content surfaces", () => {
     expect(body.trim()).toBe(
       "You are a meticulous code reviewer. Find correctness bugs.",
     );
+  });
+
+  it("installSubagents preserves per-platform extra frontmatter", () => {
+    ctx = buildCtx(
+      projectDir,
+      buildSurfacesConnector({
+        color: "blue",
+        "x-review-mode": "strict",
+      }),
+    );
+
+    claudeAdapter.installSubagents!(ctx);
+    const agentPath = join(projectDir, ".claude", "agents", "reviewer.md");
+    const { frontmatter } = splitFrontmatter(readFileSync(agentPath, "utf8"));
+
+    expect(frontmatter.name).toBe("reviewer");
+    expect(frontmatter.color).toBe("blue");
+    expect(frontmatter["x-review-mode"]).toBe("strict");
   });
 
   it("installSubagents is idempotent — second call yields skip", () => {

@@ -247,7 +247,7 @@ function buildE1Connector(): ResolvedConnector {
 }
 
 /** content surfaces: a connector declaring a command + skill (resource) + subagent. */
-function buildSurfacesConnector(): ResolvedConnector {
+function buildSurfacesConnector(subagentExtra?: Record<string, unknown>): ResolvedConnector {
   return defineConnector({
     id: SURFACES_CONNECTOR_ID,
     displayName: "Acme Surfaces",
@@ -260,7 +260,13 @@ function buildSurfacesConnector(): ResolvedConnector {
         resources: { ...SKILL.resources },
       },
     ],
-    subagents: [{ ...SUBAGENT, tools: { allow: [...SUBAGENT.tools.allow] } }],
+    subagents: [
+      {
+        ...SUBAGENT,
+        tools: { allow: [...SUBAGENT.tools.allow] },
+        ...(subagentExtra ? { extra: subagentExtra } : {}),
+      },
+    ],
   });
 }
 
@@ -779,6 +785,24 @@ describe("gemini-cli adapter — content surfaces", () => {
     expect(frontmatter.tools).toBe("Read, Grep");
     expect(frontmatter.model).toBe("opus");
     expect(body.trim()).toBe(SUBAGENT.prompt);
+  });
+
+  it("installSubagents preserves per-platform extra frontmatter", () => {
+    ctx = buildCtx(
+      projectDir,
+      buildSurfacesConnector({
+        color: "blue",
+        "x-review-mode": "strict",
+      }),
+    );
+
+    geminiAdapter.installSubagents!(ctx);
+    const agentPath = join(projectDir, ".gemini", "agents", "reviewer.md");
+    const { frontmatter } = splitFrontmatter(readFileSync(agentPath, "utf8"));
+
+    expect(frontmatter.name).toBe("reviewer");
+    expect(frontmatter.color).toBe("blue");
+    expect(frontmatter["x-review-mode"]).toBe("strict");
   });
 
   it("is idempotent — second install yields skip across all surfaces", () => {
