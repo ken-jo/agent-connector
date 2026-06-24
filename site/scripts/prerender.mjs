@@ -103,7 +103,7 @@ const pages = [
     route: "/coverage",
     title: "Coverage — agent-connector",
     description:
-      "agent-connector lets a branded MCP package deploy across 42 AI-agent CLIs, IDE extensions and apps — see the full per-host coverage matrix with hook paradigm, surfaces and GitHub-stars rank tiers.",
+      "agent-connector lets a branded MCP package deploy across the current AI-agent CLI, IDE extension and app coverage matrix — see per-host hook paradigm, surfaces and GitHub-stars rank tiers.",
   },
   // The standalone connector scaffold generator — title/description match what
   // WizardPage sets client-side.
@@ -174,7 +174,7 @@ const OG_HTML = `<!doctype html>
 <body>
   <div class="brand"><div class="mark">ac</div><div class="name">agent-connector</div></div>
   <h1>Write your MCP server + hooks once.<br><span class="accent">Ship to every agent.</span></h1>
-  <div class="sub">One declarative defineConnector deploys MCP servers, hooks, commands, skills &amp; subagents across 42 AI-agent platforms.</div>
+  <div class="sub">One declarative defineConnector deploys MCP servers, hooks, commands, skills &amp; subagents across the current AI-agent coverage matrix.</div>
   <div class="url">agent-connector.ai</div>
 </body></html>`;
 

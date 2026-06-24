@@ -123,8 +123,11 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
   it("llms.txt paradigm bullets name EXACTLY the registry ids and point counts to coverage", async () => {
     const truth = await registryParadigms();
     expect(LLMS).toContain("## Supported platforms by paradigm");
+    expect(LLMS_FULL).toContain("## 6. Supported platforms by hook paradigm");
     expect(LLMS).toContain("https://agent-connector.ai/coverage");
+    expect(LLMS_FULL).toContain("https://agent-connector.ai/coverage");
     expect(LLMS).not.toMatch(/^## Supported platforms by paradigm \(\d+\)$/m);
+    expect(LLMS_FULL).not.toMatch(/^## 6\. Supported platforms \(\d+, by hook paradigm\)$/m);
     for (const [paradigm, ids] of Object.entries(truth)) {
       const line = bullet(LLMS, `- \`${paradigm}\``);
       expect(line, `llms.txt is missing the ${paradigm} bullet`).toBeTruthy();

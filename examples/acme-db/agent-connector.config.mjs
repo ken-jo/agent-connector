@@ -1,14 +1,14 @@
 // Example agent-connector definition.
 //
-// Framework fallback from this directory:
-//   npx @ken-jo/agent-connector detect
-//   npx @ken-jo/agent-connector install --dry-run
-//
 // Package-first path:
 //   package.json name/mcpName/bin/version define the identity.
 //   Users run the package bin, e.g. `acme-db-example install`, `doctor`,
 //   and `telemetry report`; a published package can expose the same flow as
 //   `npx @acme/acme-db-mcp install`.
+//
+// Framework fallback from this directory, for local development/debug only:
+//   npx @ken-jo/agent-connector detect
+//   npx @ken-jo/agent-connector install --dry-run
 //
 // Write it ONCE here; agent-connector renders it into each host's native dialect
 // (Claude Code mcpServers JSON, Codex TOML [mcp_servers.*], Cursor mcp.json + hooks.json, …).

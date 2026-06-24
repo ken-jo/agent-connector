@@ -1332,9 +1332,10 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 
 ---
 
-## 6. Supported platforms (42, by hook paradigm)
+## 6. Supported platforms by hook paradigm
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
+Current counts and per-host coverage are canonical at https://agent-connector.ai/coverage.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
 ### `json-stdio` — full hook dispatch (22)

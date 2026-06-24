@@ -314,4 +314,41 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     // referenced product or unrelated MCP domain as if it were our own model.
     expect(launchExamples).not.toMatch(/Headroom|headroom|context-compression|context-cache/i);
   });
+
+  it("public site metadata routes host counts to the coverage matrix", () => {
+    const indexHtml = readFileSync("site/index.html", "utf8");
+    const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
+
+    for (const text of [indexHtml, prerender]) {
+      expect(text).toContain("current AI-agent coverage matrix");
+      expect(text).not.toMatch(/\bacross\s+\d+\s+AI-agent/i);
+    }
+  });
+
+  it("example connector comments foreground the package-first path", () => {
+    const example = readFileSync("examples/acme-db/agent-connector.config.mjs", "utf8");
+    const packageFirstIdx = example.indexOf("Package-first path:");
+    const fallbackIdx = example.indexOf("Framework fallback");
+    expect(packageFirstIdx, "example package-first guidance missing").toBeGreaterThan(-1);
+    expect(fallbackIdx, "example framework fallback guidance missing").toBeGreaterThan(-1);
+    expect(packageFirstIdx).toBeLessThan(fallbackIdx);
+    expect(example.slice(fallbackIdx, fallbackIdx + 120)).toContain("local development/debug only");
+  });
+
+  it("packaging examples foreground the branded package command", () => {
+    const readme = readFileSync("README.md", "utf8");
+    const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
+    const guide = readFileSync("site/src/components/docs/PackagingGuide.tsx", "utf8");
+
+    const readmePackageIdx = readme.indexOf("acme-db package --format all");
+    const readmeFallbackIdx = readme.indexOf("framework fallback for local framework development/debugging only");
+    expect(readmePackageIdx, "README branded package command missing").toBeGreaterThan(-1);
+    expect(readmeFallbackIdx, "README framework package fallback missing").toBeGreaterThan(-1);
+    expect(readmePackageIdx).toBeLessThan(readmeFallbackIdx);
+
+    expect(snippets).toContain("acme-db package --format all");
+    expect(snippets).toContain("framework fallback for local framework development/debugging only");
+    expect(guide).toContain("<Badge variant=\"muted\">acme-db package</Badge>");
+    expect(guide).toContain("Your branded <C>package</C> command");
+  });
 });

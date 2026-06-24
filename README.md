@@ -210,7 +210,7 @@ Same one definition, your choice of distribution.
 content-surface config in place, with no per-platform marketplace submission or
 review. This is the Quick start path above.
 
-**Marketplace plugin** — `agent-connector package` turns the connector into a
+**Marketplace plugin** — your branded `package` command turns the connector into a
 real plugin/extension bundle (manifest + bundled commands, agents, skills,
 hooks, MCP) from one definition. Hooks + MCP keep the telemetry serve-wrapper,
 so a marketplace-installed connector still reports per-tool tokens for its stdio
@@ -236,8 +236,11 @@ so they're excluded from `--format all`) — `mcp-server-json` (an MCP Registry
 
 ```bash
 # emit every host format (mcp-server-json + mcpb are opt-in by name)
-agent-connector package --format all --out ./dist-plugin
-agent-connector package --format gemini-extension --out ./ext   # or just one
+acme-db package --format all --out ./dist-plugin
+acme-db package --format gemini-extension --out ./ext   # or just one
+
+# framework fallback for local framework development/debugging only
+npx @ken-jo/agent-connector package --format all --out ./dist-plugin --connector ./agent-connector.config.mjs
 
 # e.g. Claude Code:  /plugin marketplace add ./dist-plugin/claude-plugin
 #                    /plugin install <connector-id>@agent-connector

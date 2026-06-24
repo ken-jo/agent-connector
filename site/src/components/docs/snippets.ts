@@ -554,16 +554,19 @@ $ acme-db telemetry leaderboard --by tool
 # are filtered to acme-db.`;
 
 export const packageSnippet = `# default format (claude-plugin) → <cwd>/dist-plugin
-agent-connector package
+acme-db package
 
 # pick a format + output dir; preview without writing
-agent-connector package --format gemini-extension --out ./dist --dry-run
+acme-db package --format gemini-extension --out ./dist --dry-run
 
 # emit EVERY feasible format, each into <out>/<format>/
-agent-connector package --format all --out ./dist
+acme-db package --format all --out ./dist
 
 # an unknown format exits 2
-agent-connector package --format bogus   # → invalid --format "bogus" (exit 2)`;
+acme-db package --format bogus   # → invalid --format "bogus" (exit 2)
+
+# framework fallback for local framework development/debugging only
+agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist`;
 
 export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:
 /plugin marketplace add ./dist-plugin
