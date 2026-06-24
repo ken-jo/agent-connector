@@ -558,9 +558,13 @@ describe("packageConnector — npm-plugin", () => {
     expect(pkg.exports).toEqual({ ".": "./index.js" });
     expect(pkg.keywords).toContain("opencode-plugin");
     expect(pkg.keywords).toContain("pi-package");
+    const dependencies = pkg.dependencies as Record<string, string>;
+    expect(dependencies["@ken-jo/agent-connector"]).toMatch(/^\^?\d+\.\d+\.\d+|\*$/);
 
     const index = readFileSync(join(res.pluginDir, "index.js"), "utf8");
     expect(index).toContain("export default async function");
+    expect(index).toContain('FRAMEWORK_PACKAGE_NAME = "@ken-jo/agent-connector"');
+    expect(index).toContain('"dist", "cli.js"');
     // The bridge wires the declared hook events to the universal entrypoint.
     expect(index).toContain('"tool.execute.before"'); // PreToolUse
     expect(index).toContain('"experimental.chat.system.transform"'); // SessionStart

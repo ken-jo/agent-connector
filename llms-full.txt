@@ -47,10 +47,10 @@ Start here:
 ```bash
 npm install @ken-jo/agent-connector        # inside the package that holds your connector
 # author agent-connector.config.{mjs,js,json} with `export default defineConnector({...})`
-npx @ken-jo/agent-connector install --dry-run   # preview create/update/skip/warn per host
-npx @ken-jo/agent-connector install              # deploy to DETECTED hosts (or --targets)
-npx @ken-jo/agent-connector doctor --probe       # live initialize → ping → tools/list
-npx @ken-jo/agent-connector telemetry report --by tool   # YOUR server's per-tool footprint
+acme-db install --dry-run                  # preview create/update/skip/warn per host
+acme-db install                            # deploy to DETECTED hosts (or --targets)
+acme-db doctor --probe                     # live initialize → ping → tools/list
+acme-db telemetry report --by tool         # YOUR server's per-tool footprint
 ```
 
 ### Audience B — the agent-CLI end user (has NOT authored a connector)
@@ -141,9 +141,10 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `id` | `string` | — (required) | Stable connector id. Must match `^[a-z0-9][a-z0-9-]*$` (kebab-case). |
-| `displayName` | `string` | `id` | Human label. |
-| `version` | `string` | `"0.0.0"` | Connector version. |
+| `id` | `string` | package identity metadata | Optional explicit install/runtime alias. Must match `^[a-z0-9][a-z0-9-]*$` (kebab-case) when supplied; omit for normal packaged connectors. |
+| `mcp` | `McpPackageIdentity` | package.json metadata | Optional package identity override when package.json is absent or intentionally different. |
+| `displayName` | `string` | derived id | Optional host-facing label override; omit unless the host should show a different label. |
+| `version` | `string` | package.json version, else `"0.0.0"` | Optional connector version override. Prefer package.json version for packaged connectors. |
 | `server` | `ServerDef` | — | The MCP server to deploy. Omit for a hooks-only / content-only connector. |
 | `hooks` | `HooksConfig` | `{}` | Lifecycle hooks. Omit for a server-only connector. |
 | `telemetry` | `TelemetryConfig` | (defaults below) | Telemetry is ON even if omitted. |
@@ -158,7 +159,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
 
 **Top-level validation rules** (`define-connector.ts`):
-- `config` must be an object; `id` must match the kebab-case regex.
+- `config` must be an object; if supplied, `id` must match the kebab-case regex.
 - A connector must declare **at least one** of `server`, `hooks`, `commands`,
   `skills`, `subagents`, `memory`, `statusline`, `actions` (or a per-platform
   `nativeHooks` / `configPatch` declaration) — else it throws.
@@ -470,7 +471,7 @@ hash-stamped, uninstall-reversible **managed blocks**:
 
 ```
 <!-- agent-connector:begin <connectorId>/<name> hash=<sha256-12> -->
-<!-- Managed by agent-connector for "<connectorId>". Do not edit between these markers: `agent-connector sync` rewrites this block; `agent-connector uninstall <connectorId>` removes it. -->
+<!-- Managed by agent-connector for "<connectorId>". Do not edit between these markers: run your connector package's upgrade/sync command to rewrite this block; run its uninstall command to remove it (framework fallback: `agent-connector uninstall <connectorId>`). -->
 …content…
 <!-- agent-connector:end <connectorId>/<name> -->
 ```
@@ -915,13 +916,12 @@ interface ResolvedConnector {
 import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
-  id: "acme-db",
-  displayName: "Acme DB Tools",
-  version: "1.0.0",
+  // package.json / npm metadata is the source of truth:
+  // name/mcpName/bin/version derive the install id, host label, bin, and version.
   server: {
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@acme/db-mcp"],
+    args: ["-y", "@acme/acme-db-mcp"],
     env: { ACME_DB_DSN: "${env:ACME_DB_DSN}" },
     tools: { include: ["*"] },
     timeoutMs: 30_000,
@@ -1371,13 +1371,18 @@ The quick start **forks by audience** (see §0). Pick your track.
 ```bash
 # agent-connector is an SDK you depend on — no global install required
 npm install @ken-jo/agent-connector          # inside the package that holds your connector
-cd my-mcp-project                 # contains agent-connector.config.mjs (see examples/acme-db)
-npx @ken-jo/agent-connector detect
-npx @ken-jo/agent-connector install --dry-run
-npx @ken-jo/agent-connector install          # touches DETECTED hosts (or explicit --targets)
-npx @ken-jo/agent-connector doctor --probe
-npx @ken-jo/agent-connector telemetry report --by tool   # YOUR wrapped server's per-tool bytes
+cd my-mcp-project                 # package.json exposes your bin, e.g. "acme-db"
+acme-db detect
+acme-db install --dry-run
+acme-db install                              # touches DETECTED hosts (or explicit --targets)
+acme-db doctor --probe
+acme-db telemetry report --by tool           # YOUR wrapped server's per-tool bytes
 ```
+
+Use `npx @ken-jo/agent-connector ... --connector ./agent-connector.config.mjs` only as
+a local framework-development/debug fallback. Published MCP packages should expose
+their own bin and let that branded command drive install, doctor, upgrade, telemetry,
+and uninstall.
 
 `install` targets the hosts actually detected on the machine (or your `--targets` /
 `connector.targets` list), intersected with the registered deploy adapters — there is no

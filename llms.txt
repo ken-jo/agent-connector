@@ -50,19 +50,19 @@ The Quick Start forks by audience — run the track that matches you.
 ### (A) MCP developer — deploy MY MCP everywhere + measure my own per-tool tokens
 
 ```bash
-# agent-connector is an SDK you depend on — no global install required
+# agent-connector is an SDK you depend on — no global framework install required
 npm install @ken-jo/agent-connector             # inside the package that holds your connector
-cd my-mcp-project                    # contains agent-connector.config.mjs
-npx @ken-jo/agent-connector detect              # which hosts are installed here?
-npx @ken-jo/agent-connector install --dry-run   # preview every change, everywhere
-npx @ken-jo/agent-connector install             # deploy across detected hosts (subset of the 42 adapters)
-npx @ken-jo/agent-connector doctor              # per-platform health checks — add --probe for a live MCP handshake (initialize → ping → tools/list)
-npx @ken-jo/agent-connector upgrade             # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
-npx @ken-jo/agent-connector telemetry report --by tool   # per-tool footprint of YOUR wrapped server
-npx @ken-jo/agent-connector uninstall           # full inverse — removes everything install wrote (--purge clears framework state; --dry-run works here too)
+cd my-mcp-project                    # package.json exposes your bin, e.g. "acme-db"
+acme-db detect                                  # which hosts are installed here?
+acme-db install --dry-run                       # preview every change, everywhere
+acme-db install                                 # deploy across detected hosts (subset of the 42 adapters)
+acme-db doctor                                  # per-platform health checks — add --probe for a live MCP handshake (initialize → ping → tools/list)
+acme-db upgrade                                 # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
+acme-db telemetry report --by tool              # per-tool footprint of YOUR wrapped server
+acme-db uninstall                               # full inverse — removes everything install wrote (--purge clears framework state; --dry-run works here too)
 ```
 
-Or ship a branded CLI: `createConnectorCli({ name, connector })` from `agent-connector/cli` exposes every subcommand under your own bin, auto-scoped to your connector (`acme-db install` ≈ `agent-connector install --connector ./agent-connector.config.mjs`; explicit `--connector`/`--connector-id` always overrides).
+Ship that branded CLI with `createConnectorCli({ name, connector })` from `agent-connector/cli`: it exposes every subcommand under your own bin, auto-scoped to your connector (`acme-db install` ≈ `agent-connector install --connector ./agent-connector.config.mjs`; explicit `--connector`/`--connector-id` always overrides). Framework CLI usage (`npx @ken-jo/agent-connector ... --connector ./agent-connector.config.mjs`) is a local development/debug fallback, not the user-facing install path.
 
 ### (B) Agent-CLI user — see the token usage of the agent CLIs I use (no connector)
 
@@ -84,7 +84,7 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 
 ## Key API: defineConnector fields
 
-- `id` (required, kebab-case), `displayName`, `version`.
+- `id?` (optional explicit install/runtime alias; defaults from package identity metadata), `mcp?` (package identity override), `displayName?` (optional host-facing label override), `version?` (defaults from package.json version, else `"0.0.0"`).
 - `server?: ServerDef` — `transport`, `command`/`args`/`env`/`cwd` (stdio) or `url`/`headers`/`auth` (remote), `tools`, `timeoutMs`, `enabled`, `wrapForTelemetry`.
 - `hooks?: HooksConfig` — per event: `{ matcher?, handler(evt) }` (matcher = tool name on tool events incl. PermissionRequest/PostToolUseFailure; agent type on SubagentStart/SubagentStop); handler returns `{ decision: allow|deny|modify|context|ask, reason?, updatedInput?, additionalContext?, updatedOutput? }` or void.
 - `commands?`, `skills?`, `subagents?` — content-only surfaces (files agent-connector owns).
