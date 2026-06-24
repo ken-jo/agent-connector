@@ -15,7 +15,7 @@ import {
 const CONTENT_ID = "coverage-content";
 
 const COVERAGE_DESCRIPTION =
-  "agent-connector deploys one MCP connector across 42 AI-agent CLIs, IDE extensions and apps — see the full per-host coverage matrix with hook paradigm, surfaces and GitHub-stars rank tiers.";
+  "agent-connector lets a branded MCP package deploy across 42 AI-agent CLIs, IDE extensions and apps — see the full per-host coverage matrix with hook paradigm, surfaces and GitHub-stars rank tiers.";
 
 /**
  * /coverage — the dedicated, indexable home of the full interactive coverage

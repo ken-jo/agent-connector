@@ -103,7 +103,7 @@ const pages = [
     route: "/coverage",
     title: "Coverage — agent-connector",
     description:
-      "agent-connector deploys one MCP connector across 42 AI-agent CLIs, IDE extensions and apps — see the full per-host coverage matrix with hook paradigm, surfaces and GitHub-stars rank tiers.",
+      "agent-connector lets a branded MCP package deploy across 42 AI-agent CLIs, IDE extensions and apps — see the full per-host coverage matrix with hook paradigm, surfaces and GitHub-stars rank tiers.",
   },
   // The standalone connector scaffold generator — title/description match what
   // WizardPage sets client-side.
@@ -111,7 +111,7 @@ const pages = [
     route: "/wizard",
     title: "Connector wizard — agent-connector",
     description:
-      "Generate starter defineConnector code for an agent-connector MCP connector — pick your server transport, hook events and surfaces and copy the scaffold.",
+      "Generate package-aware defineConnector code for a branded MCP package — pick your package, transport, hook events and surfaces and copy the scaffold.",
   },
   // The persona chooser — title matches what DocsChooser sets client-side.
   { route: "/docs", title: "Docs — agent-connector", description: DEFAULT_DESCRIPTION },

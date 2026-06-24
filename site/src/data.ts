@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 export const REPO_URL = "https://github.com/ken-jo/agent-connector";
-export const INSTALL_CMD = "npm install @ken-jo/agent-connector";
+export const BRANDED_INSTALL_CMD = "npx @acme/acme-db-mcp install";
 
 /* ------------------------------------------------------------------ */
 /* Hook paradigms                                                      */
@@ -137,7 +137,7 @@ export const pillars: Pillar[] = [
     eyebrow: "Pillar 01",
     title: "One API → 42 platforms",
     summary:
-      "Declare your server, hooks, commands, skills, subagents & memory once with defineConnector. The CLI detects every installed host and renders the right native config in each.",
+      "Declare your server, hooks, commands, skills, subagents & memory once with defineConnector. Your branded package/bin detects every installed host and renders the right native config in each.",
     points: [
       {
         label: "3 hook paradigms",

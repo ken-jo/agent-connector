@@ -6,9 +6,9 @@ export function Cli() {
   return (
     <Section id="cli" className="py-16 sm:py-20">
       <SectionHeading
-        eyebrow="One CLI"
-        title="Detect, deploy, measure"
-        description="Everything idempotent, reversible, and --dry-run-able. One binary drives every host."
+        eyebrow="Branded CLI surface"
+        title="Install, verify, measure"
+        description="Every subcommand can run under your package's bin. The framework binary remains a development fallback and telemetry utility."
       />
 
       <div className="mt-10 flex flex-wrap justify-center gap-2.5">

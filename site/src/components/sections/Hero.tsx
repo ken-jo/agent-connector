@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { GithubIcon } from "@/components/ui/github-icon";
-import { INSTALL_CMD, REPO_URL, platformCount } from "@/data";
+import { BRANDED_INSTALL_CMD, REPO_URL, platformCount } from "@/data";
 
 export function Hero() {
   return (
@@ -42,25 +42,24 @@ export function Hero() {
           </Badge>
 
           <h1 className="animate-fade-up mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
-            Deploy one MCP to{" "}
+            Ship one branded MCP package to{" "}
             <span className="text-gradient">every agent CLI.</span>
           </h1>
 
           <p className="animate-fade-up mt-6 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
             One declarative <code className="font-mono text-foreground">defineConnector</code>{" "}
-            deploys MCP servers, hooks, commands, skills, subagents &amp; memory across{" "}
-            {platformCount} AI-agent platforms — install in place{" "}
-            <span className="text-foreground">or ship it as a marketplace plugin</span> —
-            with default, platform-independent per-tool token telemetry.
+            lives inside your package. Your users run your branded MCP bin across{" "}
+            {platformCount} AI-agent platforms — direct config-write or host marketplace —
+            while agent-connector stays underneath with platform-independent per-tool telemetry.
           </p>
 
           <div className="animate-fade-up mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center">
             <div className="flex h-11 w-full max-w-sm items-center gap-2 rounded-lg border border-border bg-card/70 pl-3.5 pr-1.5 font-mono text-sm shadow-sm backdrop-blur sm:w-auto">
               <Terminal className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 select-all truncate text-foreground">
-                {INSTALL_CMD}
+                {BRANDED_INSTALL_CMD}
               </span>
-              <CopyButton value={INSTALL_CMD} className="ml-auto size-8" />
+              <CopyButton value={BRANDED_INSTALL_CMD} className="ml-auto size-8" />
             </div>
             <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
               <a href={REPO_URL} target="_blank" rel="noreferrer noopener">
@@ -109,7 +108,7 @@ export function Hero() {
           </a>
 
           <p className="animate-fade-up mt-5 text-xs text-muted-foreground">
-            Apache-2.0 licensed · local-first telemetry · marketplace install supported · opt-out anytime
+            Apache-2.0 licensed · developer SDK underneath · local-first telemetry · opt-out anytime
           </p>
 
           <p className="animate-fade-up mt-2 text-xs text-muted-foreground">
