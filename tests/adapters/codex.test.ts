@@ -252,7 +252,7 @@ function buildSkillsConnector(cfg: Partial<ConnectorConfig> = {}): ResolvedConne
 }
 
 /** surfaces: a connector declaring a command + skill (resource) + subagent. */
-function buildSurfacesConnector(): ResolvedConnector {
+function buildSurfacesConnector(subagentExtra?: Record<string, unknown>): ResolvedConnector {
   return defineConnector({
     id: SURFACES_CONNECTOR_ID,
     displayName: "Acme Surfaces",
@@ -265,7 +265,13 @@ function buildSurfacesConnector(): ResolvedConnector {
         resources: { ...SKILL.resources },
       },
     ],
-    subagents: [{ ...SUBAGENT, tools: { allow: [...SUBAGENT.tools.allow] } }],
+    subagents: [
+      {
+        ...SUBAGENT,
+        tools: { allow: [...SUBAGENT.tools.allow] },
+        ...(subagentExtra ? { extra: subagentExtra } : {}),
+      },
+    ],
   });
 }
 
@@ -1234,6 +1240,26 @@ describe("codex adapter — content surfaces", () => {
     expect(toml.description).toBe(SUBAGENT.description);
     expect(toml.developer_instructions).toBe(SUBAGENT.prompt);
     expect(toml.model).toBe("opus");
+  });
+
+  it("installSubagents preserves documented Codex custom-agent extra config keys", () => {
+    ctx = buildCtx(
+      projectDir,
+      buildSurfacesConnector({
+        nickname_candidates: ["Atlas", "Delta"],
+        model_reasoning_effort: "high",
+        sandbox_mode: "read-only",
+      }),
+    );
+
+    codexAdapter.installSubagents!(ctx);
+    const toml = readToml(join(projectDir, ".codex", "agents", "reviewer.toml"));
+
+    expect(toml.name).toBe("reviewer");
+    expect(toml.developer_instructions).toBe(SUBAGENT.prompt);
+    expect(toml.nickname_candidates).toEqual(["Atlas", "Delta"]);
+    expect(toml.model_reasoning_effort).toBe("high");
+    expect(toml.sandbox_mode).toBe("read-only");
   });
 
   it("commands are USER-scope only: project scope yields a single warn (no file)", () => {

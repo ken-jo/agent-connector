@@ -789,6 +789,11 @@ export class CodexAdapter extends BaseAdapter {
    * Render a subagent to a Codex agent TOML file:
    *   { name, description, developer_instructions: prompt, model }.
    * model is omitted when undefined so Codex applies its default.
+   *
+   * Codex custom agent files are config layers, not a closed four-field
+   * manifest. Keep `extra` as the author-controlled escape hatch for documented
+   * custom-agent/config keys such as nickname_candidates, model_reasoning_effort,
+   * sandbox_mode, mcp_servers, and skills.config.
    */
   private renderSubagent(agent: SubagentDef): string {
     const table: Record<string, unknown> = {

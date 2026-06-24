@@ -705,6 +705,7 @@ export interface SkillDef {
   disableModelInvocation?: boolean; // → disable-model-invocation
   /** Extra files bundled beside SKILL.md, relative path → contents. */
   resources?: Record<string, string>; // e.g. { "scripts/run.sh": "...", "references/api.md": "..." }
+  /** Verbatim per-platform frontmatter additions (escape hatch). */
   extra?: Record<string, unknown>;
 }
 
@@ -721,6 +722,13 @@ export interface SubagentDef {
   model?: string;
   /** Coarse permission knob → Cursor readonly, opencode/kilo permission map. */
   readonly?: boolean;
+  /**
+   * Verbatim per-platform subagent manifest additions (escape hatch).
+   *
+   * Markdown/frontmatter hosts merge these as frontmatter. Hosts whose subagent
+   * files are native config/manifests merge them only when that native format is
+   * itself an extensible subagent surface.
+   */
   extra?: Record<string, unknown>;
 }
 
