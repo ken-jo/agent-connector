@@ -143,7 +143,7 @@ skipped: cursor, antigravity, antigravity-cli, trae, warp (requires sync — no 
 # totals are WHOLE-CONVERSATION per agent CLI — NOT per-MCP or per-tool.
 # agent CLIs don't log per-tool token attribution, so usage cannot itemize it.`;
 
-export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector";
+export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
   // package.json / npm metadata is the source of truth.
@@ -520,10 +520,10 @@ agent-connector package --format bogus   # → invalid --format "bogus" (exit 2)
 
 export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:
 /plugin marketplace add ./dist-plugin
-/plugin install my-connector@agent-connector
+/plugin install acme-db@agent-connector
 
 # the wrapped MCP entry in the bundle still routes through the home-bin:
-#   agent-connector serve --connector my-connector --host claude-code -- <real cmd>
+#   agent-connector serve --connector acme-db --host claude-code -- <real cmd>
 # so a marketplace-installed connector STILL reports per-tool tokens.`;
 
 export const surfaceLeaderboardSnippet = `$ agent-connector telemetry leaderboard --by surface

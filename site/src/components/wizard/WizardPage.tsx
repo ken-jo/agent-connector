@@ -105,7 +105,7 @@ const PAD = "  ";
  */
 function generateConnector(state: WizardState): string {
   const lines: string[] = [];
-  lines.push(`import { defineConnector } from ${q(PACKAGE_NAME)};`, "");
+  lines.push(`import { defineConnector } from ${q(`${PACKAGE_NAME}/sdk`)};`, "");
   lines.push("export default defineConnector({");
 
   // ── server ──

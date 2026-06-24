@@ -397,7 +397,7 @@ const CLAUDE_HOOKS_JSON = `// ~/.claude/settings.json
         "hooks": [
           {
             "type": "command",
-            "command": "agent-connector hook claude-code PreToolUse --connector my-connector"
+            "command": "agent-connector hook claude-code PreToolUse --connector acme-db"
           }
         ]
       }
@@ -405,12 +405,12 @@ const CLAUDE_HOOKS_JSON = `// ~/.claude/settings.json
   }
 }`;
 
-const KILO_PLUGIN_JS = `// ~/.config/kilo/plugin/my-connector.js  (+ registered in kilo.jsonc "plugin"[])
+const KILO_PLUGIN_JS = `// ~/.config/kilo/plugin/acme-db.js  (+ registered in kilo.jsonc "plugin"[])
 import { spawnSync } from "node:child_process";
 
 // @kilocode/plugin module: { id, server: (input) => Hooks }
 export default {
-  id: "my-connector",
+  id: "acme-db",
   server: () => ({
     // PreToolUse → tool.execute.before; throw to deny, mutate output.args to modify
     "tool.execute.before": async (input, output) => {
@@ -425,7 +425,7 @@ function runBridge(event, payload) {
   // both hosts dispatch the SAME handler via the one home-bin entrypoint:
   const r = spawnSync(
     "agent-connector",
-    ["hook", "kilo-cli", event, "--connector", "my-connector"],
+    ["hook", "kilo-cli", event, "--connector", "acme-db"],
     { input: JSON.stringify(payload), encoding: "utf8" },
   );
   return JSON.parse(r.stdout || "{}");
@@ -698,10 +698,11 @@ function ClaudeVsKilo() {
 /* The composed Hooks developer-guide section                          */
 /* ------------------------------------------------------------------ */
 
-const SINGLE_WRAPPER_SNIPPET = `import { defineConnector } from "@ken-jo/agent-connector";
+const SINGLE_WRAPPER_SNIPPET = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
-  id: "my-connector",
+  // package.json name/mcpName/bin/version provide identity.
+  // Omit id/displayName/version unless this is a deliberate override.
   hooks: {
     // ONE handler per canonical event — written once.
     PreToolUse: {

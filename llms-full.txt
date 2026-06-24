@@ -161,7 +161,7 @@ Operating model (home-dir-centric, single binary, per-project data):
 ## 2. The public API — `defineConnector(config: ConnectorConfig): ResolvedConnector`
 
 ```ts
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 export default defineConnector({ /* ConnectorConfig */ });
 ```
 
@@ -946,7 +946,7 @@ interface ResolvedConnector {
 ### 2.10 Full example (server + hooks + commands + skills)
 
 ```ts
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
   // package.json / npm metadata is the source of truth:

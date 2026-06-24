@@ -297,7 +297,7 @@ export interface DialectSnippet {
   code: string;
 }
 
-const defineConnectorSource = `import { defineConnector } from "@ken-jo/agent-connector";
+const defineConnectorSource = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
   // package.json name/mcpName/bin/version provide the public identity.

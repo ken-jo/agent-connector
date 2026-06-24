@@ -80,7 +80,7 @@ npm install @ken-jo/agent-connector
 ```js
 // 3. agent-connector.config.mjs — declare your server + hooks once
 import { fileURLToPath } from "node:url";
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
 
@@ -226,7 +226,7 @@ format, or *skip-warns* (never silently drops) where a host can't support it.
 
 ```ts
 import { fileURLToPath } from "node:url";
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 // Resolve your server to an absolute path — host CLIs spawn it from their own CWD.
 const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
