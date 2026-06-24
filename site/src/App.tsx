@@ -30,6 +30,14 @@ const CoveragePage = React.lazy(() =>
     default: m.CoveragePage,
   })),
 );
+// /wizard — the standalone connector scaffold generator. Code-split for the
+// same reason as /coverage: its form + live-preview logic must never land in
+// the landing's initial chunk.
+const WizardPage = React.lazy(() =>
+  import("@/components/wizard/WizardPage").then((m) => ({
+    default: m.WizardPage,
+  })),
+);
 
 function lazyDocs(node: React.ReactNode) {
   return <React.Suspense fallback={null}>{node}</React.Suspense>;
@@ -41,6 +49,8 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       {/* /coverage — the dedicated, indexable full interactive coverage matrix. */}
       <Route path="/coverage" element={lazyDocs(<CoveragePage />)} />
+      {/* /wizard — the standalone connector scaffold generator. */}
+      <Route path="/wizard" element={lazyDocs(<WizardPage />)} />
       {/* /docs is the persona chooser — the fork between the two tracks. */}
       <Route path="/docs" element={lazyDocs(<DocsChooser />)} />
       {/* Static /docs/user and /docs/dev segments outrank /docs/:legacySection
