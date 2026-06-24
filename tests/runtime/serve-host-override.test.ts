@@ -23,20 +23,23 @@ vi.mock("../../src/telemetry/proxy.js", () => ({
   runServeProxy: (opts: RunServeProxyOptions) => proxyMock(opts),
 }));
 
-// A connector record runServe can resolve without touching disk.
+// A connector metadata record runServe can resolve without touching disk.
 vi.mock("../../src/core/load-connector.js", () => ({
-  loadRegisteredConnector: async () => ({
+  readRegisteredMeta: () => ({
     id: "demo",
     displayName: "Demo",
     version: "0.0.0",
-    hooks: {},
     hookEvents: [],
     telemetry: { enabled: true, modelFamilyHint: "auto", measureToolDefs: true },
+    hasServer: true,
+    server: { transport: "stdio", command: "node", args: ["server.js"] },
     commands: [],
     skills: [],
     subagents: [],
+    memory: [],
     platforms: {},
     targets: "auto",
+    modulePath: "/tmp/demo.config.mjs",
   }),
 }));
 

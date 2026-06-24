@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 
 import { detectRuntimeHost } from "../adapters/detect.js";
 import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
-import { loadRegisteredConnector } from "../core/load-connector.js";
+import { readRegisteredMeta } from "../core/load-connector.js";
 import { projectIdentity } from "../core/paths.js";
 import { detectLaunchMethod } from "../core/spawn.js";
 import type { PlatformId } from "../core/types.js";
@@ -107,7 +107,12 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
     process.env.AGENT_CONNECTOR_DATA_DIR = dataDir;
   }
 
-  const connector = await loadRegisteredConnector(connectorId);
+  const connector = readRegisteredMeta(connectorId);
+  if (!connector) {
+    throw new Error(
+      `Connector "${connectorId}" is not registered. Run an install/register step first.`,
+    );
+  }
 
   const id = projectIdentity(process.cwd());
   // Prefer the install TARGET platform baked into the wrapper (--host), but only

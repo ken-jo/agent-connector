@@ -14,7 +14,7 @@
  * We register a REAL connector record under a temp data root, then SIMULATE the
  * env-stripping host by deleting AGENT_CONNECTOR_DATA_DIR before calling runServe.
  * The proxy/store/tokenizer are mocked so no child server is spawned, but
- * loadRegisteredConnector runs for real against the temp root — the true oracle.
+ * readRegisteredMeta runs for real against the temp root — the true oracle.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +51,7 @@ const SAVED = {
 
 let tmpHome: string;
 let overriddenRoot: string;
+let fixtureModulePath: string;
 
 /** A minimal telemetry-on connector whose record we register under the override. */
 function writeFixtureModule(dir: string): string {
@@ -85,6 +86,7 @@ beforeEach(async () => {
   const modPath = writeFixtureModule(overriddenRoot);
   const { connector } = await loadConnectorFromPath(modPath);
   registerConnector(connector, modPath);
+  fixtureModulePath = modPath;
 
   proxyMock.mockClear();
 });
@@ -140,5 +142,30 @@ describe("runServe resolves the connector from --data-dir when the host strips t
       }),
     ).rejects.toThrow(/is not registered/);
     expect(proxyMock).not.toHaveBeenCalled();
+  });
+
+  it("uses registered metadata only, so a broken live config module cannot break MCP startup", async () => {
+    // `serve` only needs telemetry/server metadata for the stdio proxy. It must
+    // not re-import the live config module, because branded packages may resolve
+    // a different @ken-jo/agent-connector copy than the home-bin runtime.
+    writeFileSync(
+      fixtureModulePath,
+      `throw new Error("live config should not be imported during serve");\n`,
+      "utf8",
+    );
+
+    delete process.env.AGENT_CONNECTOR_DATA_DIR;
+
+    const code = await runServe({
+      connectorId: CONNECTOR_ID,
+      serverCommand: "node",
+      serverArgs: ["server.js"],
+      hostPlatformOverride: "codex",
+      dataDir: overriddenRoot,
+    });
+
+    expect(code).toBe(0);
+    expect(proxyMock).toHaveBeenCalledTimes(1);
+    expect(proxyMock.mock.calls.at(-1)![0]!.modelFamilyHint).toBe("auto");
   });
 });
