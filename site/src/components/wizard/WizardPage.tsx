@@ -463,31 +463,40 @@ export function WizardPage() {
                 <legend className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   MCP server
                 </legend>
-                <Field id="wiz-transport" label="Transport">
-                  <div
-                    role="radiogroup"
-                    aria-label="Transport"
-                    className="flex gap-2"
-                  >
+                {/* Native radios give the WAI-ARIA roving-tabindex + arrow-key
+                    pattern for free (single Tab stop, Left/Right moves
+                    selection). The visible buttons are styled <label>s; the
+                    real <input> is sr-only but still focusable, so the focus
+                    ring renders on the label via peer-focus-visible. */}
+                <fieldset className="flex flex-col gap-1.5">
+                  <legend className="mb-1.5 text-sm font-medium text-foreground">
+                    Transport
+                  </legend>
+                  <div className="flex gap-2">
                     {(["stdio", "http"] as const).map((t) => (
-                      <button
+                      <label
                         key={t}
-                        type="button"
-                        role="radio"
-                        aria-checked={state.transport === t}
-                        onClick={() => set("transport", t)}
                         className={cn(
-                          "flex-1 rounded-md border px-3 py-2 font-mono text-sm transition-colors",
+                          "flex flex-1 cursor-pointer items-center justify-center rounded-md border px-3 py-2 font-mono text-sm transition-colors",
+                          "has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
                           state.transport === t
                             ? "border-primary bg-primary/10 text-foreground"
                             : "border-border bg-background text-muted-foreground hover:text-foreground",
                         )}
                       >
+                        <input
+                          type="radio"
+                          name="transport"
+                          value={t}
+                          checked={state.transport === t}
+                          onChange={() => set("transport", t)}
+                          className="sr-only"
+                        />
                         {t}
-                      </button>
+                      </label>
                     ))}
                   </div>
-                </Field>
+                </fieldset>
 
                 {state.transport === "stdio" ? (
                   <>
