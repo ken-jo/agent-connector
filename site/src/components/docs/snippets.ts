@@ -22,6 +22,47 @@ process.exitCode = await createConnectorCli({
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();`;
 
+export const sdkPackageIdentitySnippet = `{
+  "name": "@acme/acme-db-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "mcpName": "io.github.acme/acme-db",
+  "bin": {
+    "acme-db": "./bin.mjs"
+  },
+  "dependencies": {
+    "@ken-jo/agent-connector": "^0.4.94"
+  }
+}`;
+
+export const sdkAuthoringSnippet = `import {
+  defineConnector,
+  defineHook,
+  defineMemory,
+  hostsSupporting,
+} from "@ken-jo/agent-connector/sdk";
+
+export const confirmWrites = defineHook("PreToolUse", {
+  matcher: "acme_write",
+  handler(evt) {
+    return evt.toolName === "acme_write"
+      ? { decision: "ask", reason: "Confirm Acme DB write" }
+      : { decision: "allow" };
+  },
+});
+
+export const acmeGuidance = defineMemory({
+  name: "acme-db-guidance",
+  content: "Prefer readonly Acme DB tools unless the user asks to mutate data.",
+});
+
+export default defineConnector({
+  hooks: { PreToolUse: confirmWrites },
+  memory: [acmeGuidance],
+});
+
+const hookHosts = await hostsSupporting("hooks");`;
+
 /**
  * Optional convenience only: install the CLI globally to try it directly,
  * outside of any connector package. The main user-facing reason is connector-free
@@ -156,7 +197,7 @@ export const brandedPackageJsonSnippet = `{
   },
   "files": ["bin.mjs", "agent-connector.config.mjs"],
   "dependencies": {
-    "@ken-jo/agent-connector": "^0.4.0"
+    "@ken-jo/agent-connector": "^0.4.94"
   }
 }`;
 

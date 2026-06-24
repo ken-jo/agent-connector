@@ -328,7 +328,9 @@ everywhere.
   `capabilitiesOf`, `surfaceSupport`), and an **offline harness**
   (`simulate`, `explain`, `explainHooks`) that runs the real adapter
   parse→handler→format chain to answer *"does my handler actually work on host
-  X?"* before you touch a real host. See
+  X?"* before you touch a real host. Agent-facing guidance is intentionally
+  split into a small router skill plus focused references under
+  [`skills/agent-connector/references`](skills/agent-connector/references). See
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## How it works

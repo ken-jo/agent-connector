@@ -54,6 +54,13 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "optional-global", title: "Optional: use the CLI directly" },
     { id: "from-source", title: "From source" },
   ],
+  sdk: [
+    { id: "sdk-package-identity", title: "Package identity is the source of truth" },
+    { id: "sdk-authoring-imports", title: "Authoring imports" },
+    { id: "sdk-cli-boundary", title: "CLI boundary" },
+    { id: "sdk-audit", title: "What the framework can audit" },
+    { id: "sdk-agent-readiness", title: "Agent-ready references" },
+  ],
   "quick-start": [],
   overview: [
     { id: "qs-user", title: "Run it — zero setup" },

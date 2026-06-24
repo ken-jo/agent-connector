@@ -85,7 +85,7 @@ export function DocsChooser() {
                   <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Quick start · defineConnector · Telemetry
+                  SDK overview · Quick start · Telemetry
                 </p>
               </div>
             </Link>

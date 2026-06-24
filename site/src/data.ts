@@ -300,6 +300,8 @@ export interface DialectSnippet {
 const defineConnectorSource = `import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
+  // package.json name/mcpName/bin/version provide the public identity.
+  // Omit id/displayName/version unless you need a deliberate override.
   server: {
     transport: "stdio",
     command: "npx",

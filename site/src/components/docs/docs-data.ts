@@ -61,6 +61,7 @@ export const tracks: Record<TrackId, TrackDef> = {
         items: [
           { id: "introduction", label: "Introduction" },
           { id: "installation", label: "Installation" },
+          { id: "sdk", label: "SDK overview" },
           { id: "quick-start", label: "Quick start" },
           { id: "embed-cli", label: "Embed it / branded CLI" },
         ],
@@ -171,6 +172,7 @@ export const sectionLabel: Record<string, string> = Object.fromEntries(
 export const legacyRedirects: Record<string, string> = {
   introduction: "/docs/dev/introduction",
   installation: "/docs/dev/installation",
+  sdk: "/docs/dev/sdk",
   "quick-start": "/docs/dev/quick-start",
   "embed-cli": "/docs/dev/embed-cli",
   usage: "/docs/user/usage",
@@ -213,6 +215,8 @@ export const sectionDescription: Record<string, string> = {
     "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across 42 AI-agent platforms with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
   installation:
     "Install agent-connector as a dependency of your MCP package (npm install @ken-jo/agent-connector), then ship a branded CLI/bin such as npx @acme/acme-db-mcp install. Global framework install is for connector-free token telemetry, not normal package installs. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
+  sdk:
+    "The SDK contract for MCP-package authors and AI agents: package.json supplies the public package identity, @ken-jo/agent-connector/sdk supplies defineConnector, typed define* helpers, host capability introspection, and public types, @ken-jo/agent-connector/cli turns that package into a branded installer binary, and llms/skill references give agents task-specific guidance.",
   "quick-start":
     "MCP developers: depend on agent-connector, write defineConnector, then ship a branded MCP package/bin to deploy everywhere — then verify with doctor, heal with upgrade, and reverse with uninstall.",
   overview:
