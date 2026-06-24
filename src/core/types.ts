@@ -9,7 +9,9 @@
  * Grounded in the understand-phase report (docs/research/understand-report.md)
  * and generalized from context-mode's proven 15-platform adapter SPI:
  *   - context-mode hardcoded the served identity ("context-mode"); here the
- *     identity is a parameter the developer supplies via defineConnector().
+ *     identity defaults from the package that ships the connector
+ *     (package.json name/mcpName/bin/version), with defineConnector() overrides
+ *     reserved for legacy configs and explicit multi-instance aliases.
  *   - context-mode's session/memory/FTS domain logic is removed from the SPI.
  *   - MCP server registration is modeled here (root key + format differ per
  *     platform, so adapters must render it — it is NOT "100% portable").
@@ -1152,7 +1154,7 @@ export interface ConnectorConfig {
   id?: string;
   /** Override package identity when package.json is absent or intentionally different. */
   mcp?: McpPackageIdentity;
-  /** Optional host-facing label override; defaults to id. */
+  /** Optional host-facing label override; defaults to the derived install id. */
   displayName?: string;
   /**
    * Optional connector version override. Prefer package.json `version` when the
