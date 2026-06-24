@@ -506,22 +506,29 @@ function filesContaining(dir: string, needle: string): string[] {
  *     drives the Agent Skills surface (writes a SKILL.md only when the connector
  *     declares skills, which this one does not). Its skills-surface roundtrip is
  *     spot-checked separately below.
+ *   • jetbrains-copilot — MCP registration is UI-managed, while hooks/content
+ *     are workspace-scoped .github files. User-scope install must not dirty the
+ *     current repo, so it emits warnings and writes no native file.
  * Any OTHER host writing nothing is a real bug and fails the placement assertion.
  */
-const WRITES_NOTHING_USER_SCOPE = new Set<string>(["pi"]);
+const WRITES_NOTHING_USER_SCOPE = new Set<string>(["pi", "jetbrains-copilot"]);
 
 // Self-policing guard: a host only belongs in WRITES_NOTHING_USER_SCOPE if its
-// adapter genuinely cannot register an MCP server (no writable transports) AND
-// declares no hook events — i.e. it has nothing to write for a server+hooks
-// connector. This stops a future maintainer from quietly adding a host to the
-// set to silence a REAL "writes nothing" placement failure: adding one forces
-// proving the capability justification here.
+// adapter has a concrete user-scope reason for writing no native file. This
+// stops a future maintainer from quietly adding a host to the set to silence a
+// REAL "writes nothing" placement failure.
 describe("WRITES_NOTHING_USER_SCOPE allowlist is capability-justified", () => {
   it.each([...WRITES_NOTHING_USER_SCOPE])(
-    "%s declares no MCP transports and no hook capabilities",
+    "%s has a documented no-file user-scope shape",
     async (platformId) => {
       const adapter = await (ADAPTER_REGISTRY.find((f) => f.id === platformId)!).load();
       const c = adapter.capabilities;
+      if (platformId === "jetbrains-copilot") {
+        expect(c.transports.length, "JetBrains MCP should be UI-managed, not file-backed").toBeGreaterThan(0);
+        expect(c.preToolUse, "JetBrains hooks exist but are workspace-scoped").toBe(true);
+        expect(c.supportsCommands, "JetBrains content exists but is workspace-scoped").toBe(true);
+        return;
+      }
       expect(c.transports, `${platformId} declares MCP transports — it can write a server config`).toEqual([]);
       // The eight always-present hook capability flags must all be false (a host
       // with any of them writes a hook config for our hooks connector).

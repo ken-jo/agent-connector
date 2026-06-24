@@ -328,6 +328,21 @@ describe("jetbrains-copilot adapter render + round-trip", () => {
     );
   });
 
+  it("user-scope installHooks warns instead of writing workspace .github/hooks", () => {
+    const userCtx = buildCtx(projectDir, buildConnector(), "user");
+    const changes = jetbrainsCopilotAdapter.installHooks(userCtx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.detail).toContain("workspace-scoped");
+
+    expect(existsSync(join(projectDir, ".github", "hooks", `${RENDER_CONNECTOR_ID}.json`))).toBe(false);
+
+    const hookCheck = jetbrainsCopilotAdapter
+      .getHealthChecks(userCtx)
+      .find((check) => check.name.includes("hook command registered"));
+    expect(hookCheck?.check().status).toBe("OK");
+  });
+
   it("installHooks is idempotent; uninstallHooks removes our entries (re-read confirms gone)", () => {
     jetbrainsCopilotAdapter.installHooks(ctx);
     const second = jetbrainsCopilotAdapter.installHooks(ctx);
@@ -611,6 +626,23 @@ describe("jetbrains-copilot adapter — content surfaces", () => {
     const { frontmatter } = splitFrontmatter(readFileSync(skillMd, "utf8"));
     expect(frontmatter.name).toBe("pdf-tools");
     expect(frontmatter.description).toBe(SKILL.description);
+  });
+
+  it("user-scope content install warns instead of writing workspace .github files", () => {
+    const userCtx = buildCtx(projectDir, buildContentConnector({ commands: true, skills: true }), "user");
+
+    const commandChanges = jetbrainsCopilotAdapter.installCommands!(userCtx);
+    const skillChanges = jetbrainsCopilotAdapter.installSkills!(userCtx);
+
+    expect(commandChanges[0]?.action).toBe("warn");
+    expect(skillChanges[0]?.action).toBe("warn");
+    expect(commandChanges[0]?.detail).toContain("workspace-scoped");
+    expect(skillChanges[0]?.detail).toContain("workspace-scoped");
+    expect(existsSync(join(projectDir, ".github", "prompts", "deploy.prompt.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".github", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
+
+    const checks = jetbrainsCopilotAdapter.getHealthChecks(userCtx).map((check) => check.check().status);
+    expect(checks.every((status) => status === "OK")).toBe(true);
   });
 
   it("installSubagents routes through BaseAdapter (unsupported) and writes nothing", () => {

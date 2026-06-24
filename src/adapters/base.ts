@@ -1301,7 +1301,14 @@ export abstract class BaseAdapter implements Adapter {
 
   backupSettings(ctx: InstallContext): string | null {
     const files = [...new Set([this.getServerConfigPath(ctx), this.getHookConfigPath(ctx)])].filter(
-      (f) => existsSync(f),
+      (f) => {
+        if (!existsSync(f)) return false;
+        try {
+          return statSync(f).isFile();
+        } catch {
+          return false;
+        }
+      },
     );
     if (files.length === 0) return null;
     if (ctx.dryRun) return null;
