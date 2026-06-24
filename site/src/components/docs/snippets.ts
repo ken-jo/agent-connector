@@ -520,9 +520,12 @@ agent-connector package --format bogus   # → invalid --format "bogus" (exit 2)
 
 export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:
 /plugin marketplace add ./dist-plugin
+# acme-db is the package-derived connector id inside the generated bundle,
+# not an extra id the user enters in defineConnector.
 /plugin install acme-db@agent-connector
 
 # the wrapped MCP entry in the bundle still routes through the home-bin:
+# --connector acme-db is generated from package.json/mcpName during install.
 #   agent-connector serve --connector acme-db --host claude-code -- <real cmd>
 # so a marketplace-installed connector STILL reports per-tool tokens.`;
 

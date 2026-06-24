@@ -389,6 +389,8 @@ function PlatformTabs() {
 /* ------------------------------------------------------------------ */
 
 const CLAUDE_HOOKS_JSON = `// ~/.claude/settings.json
+// --connector acme-db is package-derived during install; it is not another
+// defineConnector({ id }) value users enter by hand.
 {
   "hooks": {
     "PreToolUse": [
@@ -410,6 +412,8 @@ import { spawnSync } from "node:child_process";
 
 // @kilocode/plugin module: { id, server: (input) => Hooks }
 export default {
+  // Generated from package.json name/mcpName/bin. This is the native Kilo
+  // plugin artifact id, not a second defineConnector({ id }) input.
   id: "acme-db",
   server: () => ({
     // PreToolUse → tool.execute.before; throw to deny, mutate output.args to modify
@@ -423,6 +427,8 @@ export default {
 
 function runBridge(event, payload) {
   // both hosts dispatch the SAME handler via the one home-bin entrypoint:
+  // "acme-db" is the package-derived runtime id generated during install,
+  // not another user-entered connector id.
   const r = spawnSync(
     "agent-connector",
     ["hook", "kilo-cli", event, "--connector", "acme-db"],
