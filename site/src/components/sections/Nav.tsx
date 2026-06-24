@@ -9,7 +9,7 @@ import { REPO_URL } from "@/data";
  * Header nav items. Most are landing-section anchors (`href`), resolved via
  * `sectionHref` so they jump back to the landing from any route. A `to` entry
  * is a real react-router route link (rendered as <Link>), so it works from any
- * page — used for the dedicated /coverage matrix page.
+ * page — used for the dedicated /coverage and /wizard pages.
  */
 const links: { label: string; href?: string; to?: string }[] = [
   { href: "#audiences", label: "Who it's for" },
@@ -19,6 +19,7 @@ const links: { label: string; href?: string; to?: string }[] = [
   { href: "#dialects", label: "Dialects" },
   { href: "#telemetry", label: "Telemetry" },
   { to: "/coverage", label: "Coverage" },
+  { to: "/wizard", label: "Wizard" },
 ];
 
 function Logo() {
