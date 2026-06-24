@@ -1,8 +1,48 @@
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+
+type PackageJson = {
+  name?: unknown;
+  bin?: unknown;
+};
+
+const FALLBACK_PACKAGE_NAME = "@ken-jo/agent-connector";
+const FALLBACK_BIN_NAME = "agent-connector";
+
+function frameworkPackageMetadata(): {
+  packageName: string;
+  binName: string;
+} {
+  const fallback = {
+    packageName: FALLBACK_PACKAGE_NAME,
+    binName: FALLBACK_BIN_NAME,
+  };
+
+  try {
+    const pkg = JSON.parse(
+      readFileSync(path.resolve(__dirname, "../package.json"), "utf8"),
+    ) as PackageJson;
+    const packageName =
+      typeof pkg.name === "string" && pkg.name ? pkg.name : fallback.packageName;
+    const bin =
+      typeof pkg.bin === "string"
+        ? pkg.bin
+        : pkg.bin && typeof pkg.bin === "object"
+          ? Object.keys(pkg.bin as Record<string, unknown>)[0]
+          : undefined;
+
+    return {
+      packageName,
+      binName: bin || fallback.binName,
+    };
+  } catch {
+    return fallback;
+  }
+}
 
 // "Last updated" date shown in the docs header. We use the HEAD commit date
 // (the commit the deploy was built from) rather than a version number: a
@@ -22,10 +62,16 @@ function docsBuildDate(): string {
   }
 }
 
+const frameworkPackage = frameworkPackageMetadata();
+
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   define: {
     __DOCS_BUILD_DATE__: JSON.stringify(docsBuildDate()),
+    __AGENT_CONNECTOR_PACKAGE_NAME__: JSON.stringify(
+      frameworkPackage.packageName,
+    ),
+    __AGENT_CONNECTOR_BIN_NAME__: JSON.stringify(frameworkPackage.binName),
   },
   // Absolute base: this is a client-routed SPA, so a relative base ("./") breaks
   // a full load / direct deep link of any 2+-level route (e.g. /docs/hooks-guide

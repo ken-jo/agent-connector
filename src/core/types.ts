@@ -1118,8 +1118,12 @@ export interface PublishConfig {
 
 /** What a developer passes to defineConnector(). */
 export interface ConnectorConfig {
-  /** Stable connector id (kebab-case). Replaces context-mode's hardcoded identity. */
+  /**
+   * Stable MCP server/install id (kebab-case). This is the host MCP config key
+   * and the agent-connector runtime id.
+   */
   id: string;
+  /** Optional host-facing label override; defaults to id. */
   displayName?: string;
   version?: string;
   /** The MCP server to deploy. Omit for a hooks-only connector. */
