@@ -1249,6 +1249,7 @@ describe("codex adapter — content surfaces", () => {
         nickname_candidates: ["Atlas", "Delta"],
         model_reasoning_effort: "high",
         sandbox_mode: "read-only",
+        skills: { config: [{ name: "local-build-reminder", enabled: false }] },
       }),
     );
 
@@ -1260,6 +1261,9 @@ describe("codex adapter — content surfaces", () => {
     expect(toml.nickname_candidates).toEqual(["Atlas", "Delta"]);
     expect(toml.model_reasoning_effort).toBe("high");
     expect(toml.sandbox_mode).toBe("read-only");
+    expect(toml.skills?.config).toEqual([
+      { name: "local-build-reminder", enabled: false },
+    ]);
   });
 
   it("commands are USER-scope only: project scope yields a single warn (no file)", () => {

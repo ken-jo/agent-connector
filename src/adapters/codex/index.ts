@@ -791,9 +791,10 @@ export class CodexAdapter extends BaseAdapter {
    * model is omitted when undefined so Codex applies its default.
    *
    * Codex custom agent files are config layers, not a closed four-field
-   * manifest. Keep `extra` as the author-controlled escape hatch for documented
-   * custom-agent/config keys such as nickname_candidates, model_reasoning_effort,
-   * sandbox_mode, mcp_servers, and skills.config.
+   * manifest. The Codex manual documents required custom-agent keys, plus
+   * optional config keys such as nickname_candidates, model_reasoning_effort,
+   * sandbox_mode, mcp_servers, and skills.config. Keep `extra` as the
+   * author-controlled escape hatch for that native surface.
    */
   private renderSubagent(agent: SubagentDef): string {
     const table: Record<string, unknown> = {

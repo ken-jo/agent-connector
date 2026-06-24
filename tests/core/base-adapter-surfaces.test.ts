@@ -82,7 +82,14 @@ describe("BaseAdapter — unsupported content surfaces (warp)", () => {
     // content surface that exercises BaseAdapter's warn path.
     const connector = defineConnector({
       id: "acme-rich",
-      subagents: [{ name: "a", description: "d", prompt: "p" }],
+      subagents: [
+        {
+          name: "a",
+          description: "d",
+          prompt: "p",
+          extra: { "x-native-only": true },
+        },
+      ],
     });
     const ctx = buildCtx(freshProject(), connector);
 
@@ -94,6 +101,11 @@ describe("BaseAdapter — unsupported content surfaces (warp)", () => {
       expect(changes[0]?.action).toBe("warn");
       expect(changes[0]?.detail).toContain("subagents not supported on warp");
     }
+
+    // Unsupported hosts must not invent a subagent surface just because the
+    // connector supplied host-specific escape-hatch fields.
+    expect(existsSync(join(ctx.projectDir, ".warp", "agents"))).toBe(false);
+    expect(existsSync(join(ctx.projectDir, ".codex", "agents"))).toBe(false);
   });
 });
 
