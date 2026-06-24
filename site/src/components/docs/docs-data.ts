@@ -281,7 +281,13 @@ export const connectorConfigFields: FieldRow[] = [
     notes:
       "Optional package identity override when package.json is absent or intentionally different.",
   },
-  { name: "displayName", type: "string", default: "id", notes: "Human label." },
+  {
+    name: "displayName",
+    type: "string",
+    default: "derived id",
+    notes:
+      "Optional host-facing label override. Omit unless the host should show a label different from the package-derived id.",
+  },
   {
     name: "version",
     type: "string",

@@ -391,7 +391,7 @@ platforms: {
 },`;
 
 export const managedBlockSnippet = `<!-- agent-connector:begin acme-db/memory hash=3f9c2a81d04e -->
-<!-- Managed by agent-connector for "acme-db". Do not edit between these markers: \`agent-connector sync\` rewrites this block; \`agent-connector uninstall acme-db\` removes it. -->
+<!-- Managed by agent-connector for "acme-db". Do not edit between these markers: run your connector package's upgrade/sync command to rewrite this block; run its uninstall command to remove it (framework fallback: \`agent-connector uninstall acme-db\`). -->
 Use the acme-db MCP tools for schema questions; never hand-edit migrations.
 <!-- agent-connector:end acme-db/memory -->`;
 

@@ -375,8 +375,9 @@ export function DefineConnector() {
       <H3 id="validation-rules">Top-level validation rules</H3>
       <List>
         <LI>
-          <C>config</C> must be an object; <C>id</C> must match the kebab-case
-          regex <C>^[a-z0-9][a-z0-9-]*$</C>.
+          <C>config</C> must be an object; if supplied, <C>id</C> must match the
+          kebab-case regex <C>^[a-z0-9][a-z0-9-]*$</C>. Otherwise it is derived
+          from package identity metadata.
         </LI>
         <LI>
           A connector must declare <strong>at least one</strong> of <C>server</C>

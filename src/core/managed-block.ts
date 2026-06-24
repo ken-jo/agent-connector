@@ -101,8 +101,9 @@ export function hashBlockContent(inner: string): string {
 function defaultNotice(connectorId: string): string {
   return (
     `Managed by agent-connector for "${connectorId}". Do not edit between these markers: ` +
-    `\`agent-connector sync\` rewrites this block; ` +
-    `\`agent-connector uninstall ${connectorId}\` removes it.`
+    `run your connector package's upgrade/sync command to rewrite this block; ` +
+    `run its uninstall command to remove it ` +
+    `(framework fallback: \`agent-connector uninstall ${connectorId}\`).`
   );
 }
 

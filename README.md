@@ -164,8 +164,15 @@ agent-connector package --format gemini-extension --out ./ext   # or just one
 > **local install on that same machine/home**. For shared distribution use
 > `npm-plugin` or the MCP standard artifacts, or re-run `package` per machine.
 
-**Let agent-connector drive the host's own install flow** with `install --method
-marketplace`:
+**Let your branded MCP package drive the host's own install flow** with
+`install --method marketplace`:
+
+```bash
+acme-db install --method marketplace
+
+# framework fallback for local framework development/debugging only
+npx @ken-jo/agent-connector install --method marketplace --connector ./agent-connector.config.mjs
+```
 
 - **What it does** — stages the bundle, registers a local marketplace where the
   host has one, then runs the host's plugin-install verb (or, for npm-plugin
