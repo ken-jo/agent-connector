@@ -1,9 +1,18 @@
 {
-  "name": "acme-db-example",
+  "name": "@acme/acme-db-example-mcp",
   "version": "1.0.0",
   "private": true,
   "description": "Minimal runnable acme-db example — a stub MCP server + agent-connector config.",
   "type": "module",
+  "mcpName": "io.github.acme/acme-db",
+  "bin": {
+    "acme-db-example": "./bin.mjs"
+  },
+  "files": [
+    "bin.mjs",
+    "agent-connector.config.mjs",
+    "acme-db-mcp-server.mjs"
+  ],
   "dependencies": {
     "@ken-jo/agent-connector": "../.."
   }
