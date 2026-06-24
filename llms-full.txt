@@ -1122,7 +1122,6 @@ or a global `agent-connector package` CLI. Keep `install`, `doctor`,
 `upgrade`/`update`, `uninstall`, and connector telemetry under the branded MCP
 package/bin. The command emits a marketplace/extension-installable bundle into `--out` (default
 `<cwd>/dist-plugin`), printing the emitted file tree + per-format install
-instructions. Host formats (default `claude-plugin`; `--format all` emits all 9):
 instructions. Host formats (default `claude-plugin`; `--format all` emits all 10):
 claude-plugin · codex-plugin · copilot-plugin · factory-plugin ·
 gemini-extension · qwen-extension · agy-plugin · cursor-plugin · kimi-plugin ·

@@ -55,10 +55,10 @@ acme-db leaderboard                # the 🔌 MCP/plugin + 🛰️ host-native s
 acme-db telemetry report --by tool # acme-db's per-tool token telemetry
 acme-db telemetry leaderboard      # "which acme-db tool costs the most"
 
-# Package the connector as an installable plugin/extension bundle.
-acme-db package --format claude-plugin
+# Package distribution artifacts with the framework CLI.
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format claude-plugin
 
-# Every agent-connector subcommand is available, branded as `acme-db`:
+# Every MCP lifecycle/runtime subcommand is available, branded as `acme-db`:
 acme-db --help
 ```
 

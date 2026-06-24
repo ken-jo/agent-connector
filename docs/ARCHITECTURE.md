@@ -473,12 +473,12 @@ honest per-host reach, offline, before you touch a real host.
 
 ```
 agent-connector detect                       # installed platforms + scope + capabilities + paradigm
-agent-connector install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]   # framework fallback / CI-debug; branded package/bin is the normal user path
+agent-connector install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]   # framework fallback / CI-debug; branded package/bin is the normal MCP lifecycle path
 agent-connector uninstall [--targets ...] [--purge]   # full inverse — removes server + hook registrations; --purge also drops the connector's home state record (+ the shared launcher when none remain)
 agent-connector upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
 agent-connector doctor [--probe]             # per-platform health checks; --probe = live MCP handshake (initialize → ping → tools/list)
 agent-connector status                       # light install-state per host (always exits 0)
-agent-connector package [--format <fmt>|all]      # 9 host bundle formats; mcp-server-json|mcpb = OFFICIAL MCP standard artifacts (opt-in by name)
+agent-connector package [--connector path] [--format <fmt>|all]      # framework tooling: 10 host bundle formats; mcp-server-json|mcpb = OFFICIAL MCP standard artifacts (opt-in by name)
 agent-connector telemetry report|export [...]
 agent-connector usage report|export|leaderboard [...]   # host-native usage from agent CLI logs (read-only)
 agent-connector leaderboard [--since] [--scope] [--connector]   # 🔌 mcp-self + 🖥️ host-scan-logs + 🛰️ host-native-live (never summed)

@@ -340,6 +340,8 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
     const guide = readFileSync("site/src/components/docs/PackagingGuide.tsx", "utf8");
     const wizard = readFileSync("site/src/components/wizard/WizardPage.tsx", "utf8");
+    const brandedExample = readFileSync("examples/branded-cli/README.md", "utf8");
+    const architecture = readFileSync("docs/ARCHITECTURE.md", "utf8");
 
     const readmePackageIdx = readme.indexOf("npx @ken-jo/agent-connector package");
     const readmeGlobalIdx = readme.indexOf("if you installed the framework CLI globally");
@@ -352,6 +354,9 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(snippets).toContain("npx @ken-jo/agent-connector package --connector");
     expect(snippets).toContain("agent-connector package --connector ./agent-connector.config.mjs");
     expect(snippets).not.toContain("acme-db package");
+    expect(brandedExample).toContain("npx @ken-jo/agent-connector package --connector");
+    expect(brandedExample).not.toContain("acme-db package");
+    expect(architecture).toContain("framework tooling: 10 host bundle formats");
     expect(guide).toContain("<Badge variant=\"muted\">npx @ken-jo/agent-connector package</Badge>");
     expect(guide).toContain("Packaging emits distribution artifacts");
     expect(wizard).toContain('title="Add the framework dependency"');
@@ -361,8 +366,9 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     const readme = readFileSync("README.md", "utf8");
     const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
     const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
+    const docsData = readFileSync("site/src/components/docs/docs-data.ts", "utf8");
 
-    for (const text of [readme, snippets, docs]) {
+    for (const text of [readme, snippets, docs, docsData]) {
       expect(text).not.toMatch(/global(?: framework)? install is only for connector-free/i);
       expect(text).not.toMatch(/globally is only an optional path for connector-free/i);
     }
@@ -370,6 +376,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(readme).toContain("connector-free token usage reports or frequent framework tooling");
     expect(snippets).toContain("connector-free usage telemetry or frequent framework tooling");
     expect(docs).toContain("fallback, packaging tool, and connector-free telemetry utility");
+    expect(docsData).toContain("Global framework CLI is for connector-free telemetry or framework tooling");
     expect(docs).toContain("You do <strong>not</strong> need a global install for branded MCP");
   });
 });
