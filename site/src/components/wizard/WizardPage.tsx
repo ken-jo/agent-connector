@@ -12,10 +12,11 @@ import { canonicalEvents } from "@/components/docs/hooks-matrix";
 const CONTENT_ID = "wizard-content";
 
 const WIZARD_DESCRIPTION =
-  "Generate starter defineConnector code for an agent-connector MCP connector — pick your server transport, hook events and surfaces and copy the scaffold.";
+  "Generate starter defineConnector code that wraps an MCP server for every supported agent host — pick your transport, hook events and surfaces and copy the scaffold.";
 
-/** npm package + bin, single-sourced with the real package.json / CLI. */
-const PACKAGE = "@ken-jo/agent-connector";
+/** npm package + bin, injected from the real package.json at build time. */
+const PACKAGE_NAME = __AGENT_CONNECTOR_PACKAGE_NAME__;
+const BIN_NAME = __AGENT_CONNECTOR_BIN_NAME__;
 
 /**
  * The optional surfaces a connector can ship, keyed by the EXACT
@@ -36,8 +37,6 @@ type Transport = "stdio" | "http";
 
 interface WizardState {
   id: string;
-  displayName: string;
-  binName: string;
   transport: Transport;
   command: string;
   args: string;
@@ -50,8 +49,6 @@ interface WizardState {
 
 const INITIAL: WizardState = {
   id: "acme-db",
-  displayName: "Acme DB",
-  binName: "",
   transport: "stdio",
   command: "npx",
   args: "-y, @acme/db-mcp",
@@ -111,12 +108,10 @@ const PAD = "  ";
  */
 function generateConnector(state: WizardState): string {
   const lines: string[] = [];
-  lines.push(`import { defineConnector } from ${q(PACKAGE)};`, "");
+  lines.push(`import { defineConnector } from ${q(PACKAGE_NAME)};`, "");
   lines.push("export default defineConnector({");
 
   lines.push(`${PAD}id: ${q(state.id || "my-connector")},`);
-  if (state.displayName.trim())
-    lines.push(`${PAD}displayName: ${q(state.displayName.trim())},`);
 
   // ── server ──
   lines.push(`${PAD}server: {`);
@@ -340,7 +335,7 @@ function Step({
 /* ------------------------------------------------------------------ */
 
 /**
- * /wizard — a standalone, client-side connector scaffold generator. A single
+ * /wizard — a standalone, client-side MCP wrapper scaffold generator. A single
  * scrollable form drives a live, syntax-highlighted `defineConnector({...})`
  * snippet (the site's shared CodeBlock + CopyButton), grounded field-for-field
  * in the real ConnectorConfig (src/core/types.ts). No backend, no new deps.
@@ -371,8 +366,8 @@ export function WizardPage() {
 
   const generated = React.useMemo(() => generateConnector(state), [state]);
 
-  const installCmd = `npm install ${PACKAGE}`;
-  const deployCmd = `npx ${PACKAGE} install`;
+  const installCmd = `npm install ${PACKAGE_NAME}`;
+  const deployCmd = `npx ${BIN_NAME} install`;
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
@@ -385,16 +380,17 @@ export function WizardPage() {
               Wizard
             </p>
             <h1 className="mt-2 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-              Scaffold a connector
+              Wrap an MCP server
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground">
-              Pick your MCP server transport, hook events and surfaces — this
+              Pick the MCP server id, transport, hook events and surfaces — this
               page generates a copy-paste-valid{" "}
               <code className="font-mono text-sm text-foreground">
                 defineConnector(&#123;…&#125;)
               </code>{" "}
-              starter. Everything runs in your browser; nothing is sent
-              anywhere.
+              starter. Host-facing names come from each host's MCP config, and
+              packaged CLI names come from your package.json bin. Everything
+              runs in your browser; nothing is sent anywhere.
             </p>
           </div>
 
@@ -411,8 +407,8 @@ export function WizardPage() {
                 </legend>
                 <Field
                   id="wiz-id"
-                  label="Connector id"
-                  hint="kebab-case — the stable identifier."
+                  label="MCP server ID"
+                  hint="kebab-case — written as the MCP server key in each host config and reused as the agent-connector install id."
                   error={idError}
                 >
                   <input
@@ -426,33 +422,6 @@ export function WizardPage() {
                     onChange={(e) => set("id", e.target.value)}
                     placeholder="acme-db"
                     aria-invalid={Boolean(idError)}
-                    spellCheck={false}
-                  />
-                </Field>
-                <Field
-                  id="wiz-name"
-                  label="Display name"
-                  hint="Optional human-readable name."
-                >
-                  <input
-                    id="wiz-name"
-                    className={fieldClass}
-                    value={state.displayName}
-                    onChange={(e) => set("displayName", e.target.value)}
-                    placeholder="Acme DB"
-                  />
-                </Field>
-                <Field
-                  id="wiz-bin"
-                  label="Branded bin name"
-                  hint="Optional — used in the deploy command below (defaults to agent-connector)."
-                >
-                  <input
-                    id="wiz-bin"
-                    className={fieldClass}
-                    value={state.binName}
-                    onChange={(e) => set("binName", e.target.value)}
-                    placeholder="agent-connector"
                     spellCheck={false}
                   />
                 </Field>
@@ -664,19 +633,6 @@ export function WizardPage() {
                     description="Renders the native config + hooks for each installed agent platform."
                   />
                 </ol>
-                {state.binName.trim() && state.binName.trim() !== "agent-connector" ? (
-                  <p className="mt-4 text-xs text-muted-foreground">
-                    Once published with your branded bin{" "}
-                    <code className="font-mono text-foreground">
-                      {state.binName.trim()}
-                    </code>
-                    , your users run{" "}
-                    <code className="font-mono text-foreground">
-                      {state.binName.trim()} install
-                    </code>{" "}
-                    instead.
-                  </p>
-                ) : null}
               </div>
             </div>
           </div>
