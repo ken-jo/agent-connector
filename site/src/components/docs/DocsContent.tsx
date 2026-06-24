@@ -137,7 +137,7 @@ export function Installation() {
         tool your connector users install first. Add it to your MCP package,
         then ship a <strong>branded CLI</strong> your users drive directly
         (<C>npx @acme/acme-db-mcp install</C>). The framework command is a developer
-        fallback and a connector-free telemetry utility.
+        fallback, packaging tool, and connector-free telemetry utility.
       </Lead>
       <P>
         Add agent-connector as a dependency of the package that holds your{" "}
@@ -164,12 +164,12 @@ export function Installation() {
         <C>yaml</C>) — no native build. License: Apache-2.0 © KenJo.
       </Callout>
 
-      <H3 id="optional-global">Optional: global token telemetry</H3>
+      <H3 id="optional-global">Optional: global framework CLI</H3>
       <P>
         You do <strong>not</strong> need a global install for branded MCP
-        package installs. Use the framework CLI directly when you want
-        connector-free token telemetry across the agent CLIs you already use,
-        without authoring or installing any connector:
+        package installs. Use the framework CLI directly for connector-free
+        token telemetry across the agent CLIs you already use, or for repeated
+        framework tooling such as <C>package</C>:
       </P>
       <CodeBlock code={S.globalInstallSnippet} language="bash" filename="terminal" />
 

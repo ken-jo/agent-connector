@@ -3,7 +3,8 @@
 /**
  * The primary install: agent-connector is an SDK connector developers depend on.
  * Add it to your connector package, then ship or run your branded MCP package.
- * A global framework install is only for connector-free usage telemetry.
+ * A global framework install is not the branded MCP lifecycle path; use it for
+ * connector-free usage telemetry or frequent framework tooling such as package.
  */
 export const installSnippet = `npm install @ken-jo/agent-connector`;
 
@@ -108,10 +109,11 @@ export default defineConnector({
 
 /**
  * Optional convenience only: install the CLI globally to try it directly,
- * outside of any connector package. The main user-facing reason is connector-free
- * token telemetry across agent CLIs. Not required for the SDK/branded-CLI flow.
+ * outside of any connector package. Use this for connector-free token telemetry
+ * across agent CLIs or repeated framework tooling such as package. Not required
+ * for the SDK/branded-CLI lifecycle flow.
  */
-export const globalInstallSnippet = `# optional — connector-free token telemetry across agent CLIs
+export const globalInstallSnippet = `# optional — connector-free telemetry or repeated framework tooling
 npm i -g @ken-jo/agent-connector
 agent-connector usage report`;
 

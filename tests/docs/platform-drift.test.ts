@@ -356,4 +356,20 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(guide).toContain("Packaging emits distribution artifacts");
     expect(wizard).toContain('title="Add the framework dependency"');
   });
+
+  it("global framework install guidance excludes branded lifecycle but includes framework tooling", () => {
+    const readme = readFileSync("README.md", "utf8");
+    const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
+    const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
+
+    for (const text of [readme, snippets, docs]) {
+      expect(text).not.toMatch(/global(?: framework)? install is only for connector-free/i);
+      expect(text).not.toMatch(/globally is only an optional path for connector-free/i);
+    }
+
+    expect(readme).toContain("connector-free token usage reports or frequent framework tooling");
+    expect(snippets).toContain("connector-free usage telemetry or frequent framework tooling");
+    expect(docs).toContain("fallback, packaging tool, and connector-free telemetry utility");
+    expect(docs).toContain("You do <strong>not</strong> need a global install for branded MCP");
+  });
 });

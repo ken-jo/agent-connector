@@ -51,8 +51,9 @@ agent-connector is an **SDK connector developers depend on**. Add it to the
 package that holds your connector, declare the connector once, then ship a
 branded MCP package/bin such as `npx @acme/acme-db-mcp install` — it deploys to
 every detected agent CLI in that host's own native config. Installing
-`@ken-jo/agent-connector` globally is only an optional path for connector-free
-token usage reports. The linear path is:
+`@ken-jo/agent-connector` globally is not the branded MCP lifecycle path; reserve
+it for connector-free token usage reports or frequent framework tooling such as
+`package`. The linear path is:
 **get a server → declare it → install through your branded package**.
 
 **0. You need an MCP server file first.** The config below points at
@@ -211,8 +212,8 @@ npx @acme/acme-db-mcp install           # write native config in each host
 > current adapter registry shown on [`/coverage`](https://agent-connector.ai/coverage)
 > — there is no "install to every host unconditionally" path.
 > `@ken-jo/agent-connector` is the framework dependency underneath; use it
-> directly for development fallback or connector-free token telemetry, not as
-> the foreground install brand for your users.
+> directly for framework packaging/debugging or connector-free token telemetry,
+> not as the foreground install brand for your users.
 
 ## Ship it: direct install or a marketplace plugin
 
