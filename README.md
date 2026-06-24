@@ -118,6 +118,17 @@ Pick the `server` shape that matches the MCP you are building. The wrapper
 package identity still comes from `package.json`; these examples only describe
 how to start or connect to the actual MCP server.
 
+| Shape | Use when | Minimal launch |
+| --- | --- | --- |
+| Package-runner MCP | The MCP is published as a package. | `npx -y @acme/acme-db-mcp` |
+| Local server-process MCP | The MCP server ships inside your package. | `node ./my-mcp-server.mjs` |
+| Python MCP | The MCP server is Python and should resolve runtime deps at launch. | `uv run --with mcp ./my_mcp_server.py` |
+| CLI-based MCP | An existing executable exposes an MCP serving mode. | `local-tools mcp serve` |
+| Remote server MCP | The MCP is hosted behind an HTTP endpoint. | `https://mcp.example.com/mcp` |
+
+Each snippet below is the `server` field for `defineConnector({ ... })`; only
+the local server-process example needs the `serverPath` helper shown inline.
+
 **Package-runner MCP** — a published package that should be launched with `npx`:
 
 ```js

@@ -280,4 +280,38 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(jsonStdioRow, "README json-stdio table row not found").toBeTruthy();
     expect(jsonStdioRow).toContain("Droid");
   });
+
+  it("README documents every MCP launch shape without external product leakage", () => {
+    const text = readFileSync("README.md", "utf8");
+    const launchExamplesIdx = text.indexOf("### MCP server launch examples");
+    expect(launchExamplesIdx, "README launch examples section missing").toBeGreaterThan(-1);
+    const deployCommandsIdx = text.indexOf("```bash", launchExamplesIdx);
+    expect(deployCommandsIdx, "README deploy command block missing after launch examples").toBeGreaterThan(-1);
+    const launchExamples = text.slice(launchExamplesIdx, deployCommandsIdx);
+
+    for (const phrase of [
+      "Minimal launch",
+      "`npx -y @acme/acme-db-mcp`",
+      "`uv run --with mcp ./my_mcp_server.py`",
+      "Each snippet below is the `server` field",
+      "**Package-runner MCP**",
+      'command: "npx"',
+      "**Local server-process MCP**",
+      'command: "node"',
+      "**Python MCP**",
+      'command: "uv"',
+      'args: ["run", "--with", "mcp", "./my_mcp_server.py"]',
+      "**CLI-based MCP**",
+      'args: ["mcp", "serve"]',
+      "**Remote server MCP**",
+      'transport: "http"',
+    ]) {
+      expect(launchExamples).toContain(phrase);
+    }
+
+    // These strings came from an external reference during design review. The
+    // README should keep the generalized launch-shape contract, not advertise a
+    // referenced product or unrelated MCP domain as if it were our own model.
+    expect(launchExamples).not.toMatch(/Headroom|headroom|context-compression|context-cache/i);
+  });
 });
