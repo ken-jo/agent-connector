@@ -220,7 +220,7 @@ export const sectionDescription: Record<string, string> = {
   "coverage-confidence":
     "Local usage readers report host-logged exact counts; a few are host-estimated (labeled in the CONFIDENCE column, e.g. Kiro char/4). Five synced platforms (cursor, antigravity, antigravity-cli, trae, warp) are reported as skipped — requires sync — unless a local cache already exists.",
   "embed-cli":
-    "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry instead of foregrounding the framework package.",
+    "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ packageJson, connector }) — bin name and version come from package.json, and every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry instead of foregrounding the framework package.",
   "define-connector":
     "defineConnector(config): the write-once surface. Validates eagerly, throws ConnectorConfigError, and returns a fully-defaulted ResolvedConnector.",
   server:

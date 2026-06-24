@@ -13,16 +13,13 @@ export const installSnippet = `npm install @ken-jo/agent-connector`;
  * a framework global install or --connector for branded MCP install commands.
  */
 export const brandedCliSnippet = `#!/usr/bin/env node
-// bin.mjs — your tool's bin, e.g. "acme-db"
-import { fileURLToPath } from "node:url";
+// bin.mjs — your package.json "bin" target, e.g. "acme-db"
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 // run() resolves to the exit code and never calls process.exit — forward it.
 process.exitCode = await createConnectorCli({
-  name: "acme-db",
-  connector: fileURLToPath(
-    new URL("./agent-connector.config.mjs", import.meta.url),
-  ),
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();`;
 
 /**
@@ -164,20 +161,19 @@ export const brandedPackageJsonSnippet = `{
 }`;
 
 /**
- * The branded bin. createConnectorCli({ name, connector }) returns a runner that
- * exposes every agent-connector subcommand under your brand, AUTO-SCOPED to the
- * connector shipped beside it — so the consumer never passes --connector.
+ * The branded bin. createConnectorCli({ packageJson, connector }) returns a
+ * runner that exposes every agent-connector subcommand under your package bin,
+ * AUTO-SCOPED to the connector shipped beside it — so the consumer never passes
+ * --connector.
  */
 export const brandedBinSnippet = `#!/usr/bin/env node
 // bin.mjs
-import { fileURLToPath } from "node:url";
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
-const connector = fileURLToPath(
-  new URL("./agent-connector.config.mjs", import.meta.url),
-);
-
-createConnectorCli({ name: "acme-db", connector })
+createConnectorCli({
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: new URL("./agent-connector.config.mjs", import.meta.url),
+})
   .run()
   .then((code) => { process.exitCode = code; })
   .catch((err) => {

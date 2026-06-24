@@ -12,7 +12,7 @@
  *   • `acme leaderboard` / `acme telemetry leaderboard` scope to the dev
  *     connector id (the seeded OTHER-connector rows are excluded);
  *   • an explicit user `--connector <other>` OVERRIDES the injection;
- *   • `acme --help` brands the usage string with the program name.
+ *   • `acme --help` / `acme --version` use package.json bin/version metadata.
  *
  * A tiny driver script (driver.mjs) builds the CLI from a generated connector
  * config and runs it with argv from the command line, so each case is a real
@@ -35,6 +35,7 @@ let tmpData: string;
 let connectorPath: string;
 let otherConnectorPath: string;
 let driverPath: string;
+let packageJsonPath: string;
 
 // The SDK is exercised through src (tsx), so the driver imports the source.
 const SDK_SRC = join(__dirname, "..", "..", "src", "cli", "sdk.ts");
@@ -64,9 +65,17 @@ export default defineConnector({
 /** The driver: build the branded CLI for the dev connector + run with cli argv. */
 function driverModule(): string {
   return `import { createConnectorCli } from ${JSON.stringify(pathToFileURL(SDK_SRC).href)};
-const cli = createConnectorCli({ name: "acme", connector: ${JSON.stringify(
-    connectorPath,
-  )} });
+const cli = createConnectorCli({
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: new URL("./agent-connector.config.mjs", import.meta.url),
+  passthrough: [{
+    when(argv) { return argv[0] === "legacy"; },
+    run(argv, context) {
+      console.log([context.programName, context.programVersion, ...argv].join(" "));
+      return 7;
+    },
+  }],
+});
 cli.run(process.argv.slice(2)).then((code) => { process.exitCode = code; });
 `;
 }
@@ -77,9 +86,19 @@ beforeEach(() => {
   connectorPath = join(tmpData, "agent-connector.config.mjs");
   otherConnectorPath = join(tmpData, "other.config.mjs");
   driverPath = join(tmpData, "driver.mjs");
+  packageJsonPath = join(tmpData, "package.json");
   writeFileSync(connectorPath, connectorModule("acme-dev"), "utf8");
   writeFileSync(otherConnectorPath, connectorModule("other-conn"), "utf8");
   writeFileSync(driverPath, driverModule(), "utf8");
+  writeFileSync(
+    packageJsonPath,
+    JSON.stringify({
+      name: "@acme/acme-db-mcp",
+      version: "2.3.4",
+      bin: { acme: "./driver.mjs", "acme-sidecar": "./sidecar.mjs" },
+    }),
+    "utf8",
+  );
 });
 
 afterEach(() => {
@@ -204,6 +223,18 @@ describe("createConnectorCli auto-scopes to the developer connector", () => {
     expect(stdout).toContain("usage: acme <command>");
     // The default brand must NOT leak into the branded usage text.
     expect(stdout).not.toContain("agent-connector <command>");
+  });
+
+  it("brands --version with the package.json bin name and package version", () => {
+    const { code, stdout } = runDriver(["--version"]);
+    expect(code).toBe(0);
+    expect(stdout.trim()).toBe("acme 2.3.4");
+  });
+
+  it("runs package passthrough hooks before the agent-connector dispatcher", () => {
+    const { code, stdout } = runDriver(["legacy", "doctor"]);
+    expect(code).toBe(7);
+    expect(stdout.trim()).toBe("acme 2.3.4 legacy doctor");
   });
 
   it("a bare `telemetry` shows its help and does NOT mis-inject a filter (no unknown-sub error)", () => {

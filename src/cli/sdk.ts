@@ -7,13 +7,11 @@
  * delegated and AUTO-SCOPED to the developer's connector:
  *
  *   #!/usr/bin/env node
- *   import { fileURLToPath } from "node:url";
  *   import { createConnectorCli } from "@ken-jo/agent-connector/cli";
  *   createConnectorCli({
- *     name: "acme-db",
- *     connector: fileURLToPath(new URL("./agent-connector.config.mjs", import.meta.url)),
+ *     packageJson: new URL("./package.json", import.meta.url),
+ *     connector: new URL("./agent-connector.config.mjs", import.meta.url),
  *   }).run();
- *   // fileURLToPath, NOT URL.pathname — .pathname yields "/C:/…" on Windows.
  *
  * Then a consumer runs `acme-db install`, `acme-db leaderboard`, `acme-db
  * telemetry`, `acme-db doctor`, etc. — and each one targets the developer's
@@ -21,33 +19,83 @@
  *
  * This module is PURE ARGUMENT TRANSFORMATION: it injects the right --connector
  * (path) or --connector <id> filter when the user did not supply one, then hands
- * off to {@link main} with the developer's program name. It never duplicates any
- * command logic — every behavior still lives in the command modules.
+ * off to {@link main} with the developer's program name/version. It never
+ * duplicates any command logic — every behavior still lives in the command
+ * modules.
  */
+
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, URL } from "node:url";
 
 import { loadConnectorFromPath } from "../core/load-connector.js";
 import { main } from "./app.js";
 
+export type ConnectorCliPath = string | URL;
+
+export interface ConnectorCliContext {
+  /** Resolved brand/bin name shown in usage, errors, and --version output. */
+  programName: string;
+  /** Resolved branded package version shown by --version. */
+  programVersion: string;
+  /** Absolute connector config path injected into connector-targeted commands. */
+  connector: string;
+  /** Lazily resolves the connector id for telemetry/serve/hook scoping. */
+  connectorId(): Promise<string>;
+}
+
+export interface ConnectorCliPassthrough {
+  /**
+   * Return true when this invocation should be handled by custom package logic
+   * instead of the agent-connector command dispatcher.
+   */
+  when(argv: readonly string[], context: ConnectorCliContext): boolean;
+  /** Handle a matched invocation. Return the process exit code. */
+  run(
+    argv: readonly string[],
+    context: ConnectorCliContext,
+  ): number | Promise<number>;
+}
+
 /** Options for {@link createConnectorCli}. */
 export interface CreateConnectorCliOptions {
-  /** The developer's bin/brand name (shown in usage/help, e.g. "acme-db"). */
-  name: string;
   /**
-   * Absolute path to the developer's connector config (.mjs / .js / .json) that
-   * ships inside their package. Injected as `--connector <path>` for the
+   * The developer's bin/brand name (shown in usage/help, e.g. "acme-db").
+   * Prefer `packageJson` for packaged connectors so name/version stay in one
+   * source of truth; this remains available for custom launchers and tests.
+   */
+  name?: string;
+  /**
+   * package.json for the branded connector package. When supplied, the CLI
+   * derives the bin name and version from package metadata.
+   */
+  packageJson?: ConnectorCliPath;
+  /**
+   * Absolute path or file URL to the developer's connector config (.mjs / .js /
+   * .json) that ships inside their package. Injected as `--connector <path>` for
    * connector-targeted subcommands when the user did not pass one.
    */
-  connector: string;
+  connector: ConnectorCliPath;
   /**
    * The connector id used for the telemetry/leaderboard FILTER injection. When
    * omitted it is derived lazily by loading the connector config the first time a
    * telemetry/leaderboard subcommand runs.
    */
   connectorId?: string;
+  /**
+   * Package-specific command escapes that should run before agent-connector's
+   * dispatcher. Use sparingly for legacy/runtime commands that intentionally
+   * live outside the universal connector surface.
+   */
+  passthrough?: readonly ConnectorCliPassthrough[];
 }
 
 /** The runner returned by {@link createConnectorCli}. */
 export interface ConnectorCli {
+  /** Resolved brand/bin name. */
+  name: string;
+  /** Resolved branded package version. */
+  version: string;
   /**
    * Run a branded invocation. `argv` defaults to `process.argv.slice(2)`.
    * Resolves to the process exit code (0 success, non-zero failure).
@@ -138,13 +186,85 @@ function appendFlag(argv: string[], flag: string, value: string): string[] {
   return [...argv, flag, value];
 }
 
+function cleanString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function pathFrom(value: ConnectorCliPath, label: string): string {
+  if (value instanceof URL) return fileURLToPath(value);
+  if (typeof value === "string" && value.trim() !== "") return value;
+  throw new TypeError(`createConnectorCli: \`${label}\` must be a non-empty path or file URL`);
+}
+
+function normalizeBinTarget(target: string): string {
+  return target.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function realPathIfExists(path: string): string | undefined {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+function packageNameToBinName(packageName: string | undefined): string | undefined {
+  if (!packageName) return undefined;
+  if (packageName.startsWith("@")) return cleanString(packageName.split("/")[1]);
+  return cleanString(packageName);
+}
+
+function readPackageCliMetadata(packageJsonPath: string): {
+  name?: string;
+  version?: string;
+} {
+  const parsed = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+    name?: unknown;
+    version?: unknown;
+    bin?: unknown;
+  };
+  const packageName = cleanString(parsed.name);
+  const version = cleanString(parsed.version);
+  const packageBinName = packageNameToBinName(packageName);
+
+  let name: string | undefined;
+  if (typeof parsed.bin === "string") {
+    name = packageBinName;
+  } else if (parsed.bin && typeof parsed.bin === "object" && !Array.isArray(parsed.bin)) {
+    const entries = Object.entries(parsed.bin)
+      .filter(
+        (entry): entry is [string, string] =>
+          cleanString(entry[0]) != null && typeof entry[1] === "string",
+      )
+      .map(([binName, target]) => [binName, normalizeBinTarget(target)] as const);
+    const packageDir = dirname(packageJsonPath);
+    const invokedPath = process.argv[1] ? resolve(process.argv[1]) : undefined;
+    const invoked = invokedPath ? (realPathIfExists(invokedPath) ?? invokedPath) : undefined;
+    name =
+      (invoked
+        ? entries.find(([, target]) => {
+            const targetPath = resolve(packageDir, target);
+            return (realPathIfExists(targetPath) ?? targetPath) === invoked;
+          })?.[0]
+        : undefined) ??
+      (packageBinName ? entries.find(([binName]) => binName === packageBinName)?.[0] : undefined) ??
+      (entries.length === 1 ? entries[0]?.[0] : undefined);
+  }
+
+  return { ...(name ? { name } : {}), ...(version ? { version } : {}) };
+}
+
 export function createConnectorCli(opts: CreateConnectorCliOptions): ConnectorCli {
-  if (typeof opts.name !== "string" || opts.name.trim() === "") {
-    throw new TypeError("createConnectorCli: `name` must be a non-empty string");
+  const packageJsonPath = opts.packageJson ? pathFrom(opts.packageJson, "packageJson") : undefined;
+  const packageMetadata = packageJsonPath ? readPackageCliMetadata(packageJsonPath) : {};
+  const name = cleanString(opts.name) ?? packageMetadata.name;
+  const version = packageMetadata.version;
+
+  if (!name) {
+    throw new TypeError("createConnectorCli: `name` or packageJson-derived bin name is required");
   }
-  if (typeof opts.connector !== "string" || opts.connector.trim() === "") {
-    throw new TypeError("createConnectorCli: `connector` must be a non-empty path");
-  }
+  const programName = name;
+  const connectorPath = pathFrom(opts.connector, "connector");
 
   // Cache the derived id so the connector module is loaded at most once across
   // repeated `.run()` calls in the same process.
@@ -152,18 +272,33 @@ export function createConnectorCli(opts: CreateConnectorCliOptions): ConnectorCl
 
   async function resolveConnectorId(): Promise<string> {
     if (cachedId !== undefined && cachedId !== "") return cachedId;
-    const { connector } = await loadConnectorFromPath(opts.connector);
+    const { connector } = await loadConnectorFromPath(connectorPath);
     cachedId = connector.id;
     return cachedId;
   }
 
   async function run(argv: string[] = process.argv.slice(2)): Promise<number> {
+    const context: ConnectorCliContext = {
+      programName,
+      programVersion: version ?? "0.0.0",
+      connector: connectorPath,
+      connectorId: resolveConnectorId,
+    };
+    for (const passthrough of opts.passthrough ?? []) {
+      if (passthrough.when(argv, context)) {
+        return passthrough.run(argv, context);
+      }
+    }
+
     const command = argv[0];
 
     // No subcommand, a help/version flag, or an unknown command: nothing to scope
     // — hand off verbatim so usage/version is branded and errors stay accurate.
     if (command === undefined || command.startsWith("-")) {
-      return main(argv, { programName: opts.name });
+      return main(
+        argv,
+        version ? { programName, programVersion: version } : { programName },
+      );
     }
 
     let scoped = argv;
@@ -171,7 +306,7 @@ export function createConnectorCli(opts: CreateConnectorCliOptions): ConnectorCl
     if (!hasConnectorFlag(argv)) {
       if (CONFIG_PATH_COMMANDS.has(command)) {
         // Inject the connector CONFIG PATH as the implicit target.
-        scoped = injectAfterCommand(argv, "--connector", opts.connector);
+        scoped = injectAfterCommand(argv, "--connector", connectorPath);
       } else if (ID_HEAD_COMMANDS.has(command)) {
         // serve/hook take the connector ID and pass it to the runtime. Splice it
         // right after the subcommand token so a serve `--` separator and hook's
@@ -188,8 +323,11 @@ export function createConnectorCli(opts: CreateConnectorCliOptions): ConnectorCl
       }
     }
 
-    return main(scoped, { programName: opts.name });
+    return main(
+      scoped,
+      version ? { programName, programVersion: version } : { programName },
+    );
   }
 
-  return { run };
+  return { name: programName, version: version ?? "0.0.0", run };
 }

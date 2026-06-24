@@ -91,10 +91,20 @@ pkg agy-plugin    "$STORE_AGY"
 # dist by absolute path because this wrapper lives under the throwaway dir.
 cat > "$BUILD_DIR/acme-db-cli.mjs" <<EOF
 import { createConnectorCli } from "$SDK";
-createConnectorCli({ name: "acme-db", connector: "$CONN" })
+createConnectorCli({
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: "$CONN",
+})
   .run()
   .then((code) => { process.exitCode = code ?? 0; })
   .catch((err) => { process.stderr.write(\`acme-db: fatal: \${err?.stack ?? err}\n\`); process.exitCode = 1; });
+EOF
+cat > "$BUILD_DIR/package.json" <<'EOF'
+{
+  "name": "@acme/acme-db-mcp",
+  "version": "1.0.0",
+  "bin": { "acme-db": "./acme-db-cli.mjs" }
+}
 EOF
 
 # ── scene bars + brand closer: REAL ANSI bytes ──────────────────────────────

@@ -15,19 +15,19 @@ Four files:
 - `acme-db-mcp-server.mjs` — a minimal stub stdio MCP server (initialize / ping /
   tools/list) standing in for Acme's real server, referenced by the config via
   an absolute `import.meta.url`-derived path.
-- `bin.mjs` — the `acme-db` bin. It calls `createConnectorCli({ name, connector })`
-  from `agent-connector/cli` and runs it.
+- `bin.mjs` — the `acme-db` bin. It calls `createConnectorCli({ packageJson,
+  connector })` from `agent-connector/cli` and runs it. The bin name/version are
+  derived from `package.json`.
 - `package.json` — package identity (`name`, `mcpName`), `bin: { "acme-db":
   "./bin.mjs" }`, and a dependency on `agent-connector`.
 
 ```js
 // bin.mjs (essence)
-import { fileURLToPath } from "node:url";
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 createConnectorCli({
-  name: "acme-db",
-  connector: fileURLToPath(new URL("./agent-connector.config.mjs", import.meta.url)),
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();
 ```
 

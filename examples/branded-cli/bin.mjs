@@ -8,17 +8,11 @@
  * doctor` — and never has to point at the connector with `--connector`.
  */
 
-import { fileURLToPath } from "node:url";
-
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
-const connectorPath = fileURLToPath(
-  new URL("./agent-connector.config.mjs", import.meta.url),
-);
-
 createConnectorCli({
-  name: "acme-db",
-  connector: connectorPath,
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: new URL("./agent-connector.config.mjs", import.meta.url),
 })
   .run()
   .then((code) => {
