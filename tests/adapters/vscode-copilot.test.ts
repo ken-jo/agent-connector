@@ -319,6 +319,21 @@ describe("vscode-copilot adapter render/round-trip", () => {
     );
   });
 
+  it("user-scope installHooks warns instead of writing workspace .github/hooks", () => {
+    const userCtx = buildCtx(projectDir, buildConnector(), "user");
+    const changes = vscodeCopilotAdapter.installHooks(userCtx);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.action).toBe("warn");
+    expect(changes[0]?.detail).toContain("workspace-scoped");
+
+    expect(existsSync(join(projectDir, ".github", "hooks", `${CONNECTOR_ID}.json`))).toBe(false);
+
+    const hookCheck = vscodeCopilotAdapter
+      .getHealthChecks(userCtx)
+      .find((check) => check.name.includes("hook command registered"));
+    expect(hookCheck?.check().status).toBe("OK");
+  });
+
   it("installServer is idempotent — second call yields skip and does not duplicate", () => {
     vscodeCopilotAdapter.installServer(ctx);
     const second = vscodeCopilotAdapter.installServer(ctx);

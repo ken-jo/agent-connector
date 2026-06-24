@@ -25,7 +25,7 @@
  *      shells out to `action pi <id>` — mirrors the OMP fork's action emitter.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -150,6 +150,13 @@ describe("pi adapter — server + hooks skip", () => {
   it("uninstallHooks returns skip", () => {
     const changes = piAdapter.uninstallHooks(ctx);
     expect(changes[0]?.action).toBe("skip");
+  });
+
+  it("backupSettings ignores the ~/.pi config directory", () => {
+    const userCtx = buildCtx(projectDir, buildConnector({ skills: true }), "user");
+    mkdirSync(join(projectDir, ".pi"), { recursive: true });
+
+    expect(piAdapter.backupSettings(userCtx)).toBeNull();
   });
 });
 

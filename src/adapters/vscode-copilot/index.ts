@@ -401,6 +401,16 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
     if (connector.hookEvents.length === 0) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no hooks" }];
     }
+    if (ctx.scope === "user") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          detail:
+            "VS Code Copilot hooks are workspace-scoped (.github/hooks); rerun with --scope project to install hooks.",
+        },
+      ];
+    }
 
     const hooksPath = this.getHookConfigPath(ctx);
     const symlink = this.symlinkPathWarning(hooksPath);
@@ -772,6 +782,12 @@ export class VSCodeCopilotAdapter extends BaseAdapter implements Adapter {
         check: () => {
           if (hookEvents.length === 0) {
             return { status: "OK", detail: "no hooks declared" };
+          }
+          if (ctx.scope === "user") {
+            return {
+              status: "OK",
+              detail: "hooks are workspace-scoped; install them with --scope project",
+            };
           }
           const file = this.readJson<VSCodeHooksFile>(hooksPath);
           if (!file) return { status: "FAIL", detail: `not found: ${hooksPath}` };

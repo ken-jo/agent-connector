@@ -86,6 +86,9 @@ const EVENT_MAP: Partial<Record<HookEventName, string>> = {
   UserPromptSubmit: "UserPromptSubmit",
 };
 
+const WORKSPACE_SCOPE_DETAIL =
+  "JetBrains Copilot hooks and content are workspace-scoped (.github); rerun with --scope project to install them.";
+
 /** A single JetBrains Copilot native hook entry — a flat command object. */
 interface JetBrainsHookEntry {
   type: "command";
@@ -332,6 +335,9 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
             : "connector declares no hooks",
         },
       ];
+    }
+    if (ctx.scope === "user") {
+      return [{ platform: this.id, action: "warn", detail: WORKSPACE_SCOPE_DETAIL }];
     }
 
     const hooksPath = this.getHookConfigPath(ctx);
@@ -580,6 +586,9 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     if (connector.commands.length === 0) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no commands" }];
     }
+    if (ctx.scope === "user") {
+      return [{ platform: this.id, action: "warn", detail: WORKSPACE_SCOPE_DETAIL }];
+    }
     return connector.commands.map((cmd) =>
       this.writeContentFile(
         this.commandPath(ctx, cmd.name),
@@ -622,6 +631,9 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
     }
     if (connector.skills.length === 0) {
       return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    if (ctx.scope === "user") {
+      return [{ platform: this.id, action: "warn", detail: WORKSPACE_SCOPE_DETAIL }];
     }
     const changes: ChangeRecord[] = [];
     for (const skill of connector.skills) {
@@ -703,6 +715,12 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
           if (hookEvents.length === 0) {
             return { status: "OK", detail: "no hooks declared" };
           }
+          if (ctx.scope === "user") {
+            return {
+              status: "OK",
+              detail: "hooks are workspace-scoped; install them with --scope project",
+            };
+          }
           const file = this.readJson<JetBrainsHooksFile>(hooksPath);
           if (!file) return { status: "FAIL", detail: `not found: ${hooksPath}` };
           if (file.version !== JETBRAINS_HOOKS_VERSION) {
@@ -731,7 +749,9 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
       checks.push({
         name: `${this.name}: command ${cmd.name} present`,
         check: () =>
-          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+          ctx.scope === "user"
+            ? { status: "OK", detail: "commands are workspace-scoped; install them with --scope project" }
+            : existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
       });
     }
     for (const skill of ctx.connector.skills) {
@@ -739,7 +759,9 @@ export class JetBrainsCopilotAdapter extends BaseAdapter implements Adapter {
       checks.push({
         name: `${this.name}: skill ${skill.name} present`,
         check: () =>
-          existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
+          ctx.scope === "user"
+            ? { status: "OK", detail: "skills are workspace-scoped; install them with --scope project" }
+            : existsSync(p) ? { status: "OK", detail: p } : { status: "FAIL", detail: `not found: ${p}` },
       });
     }
     return checks;
