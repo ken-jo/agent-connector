@@ -153,6 +153,14 @@ describe("parseRemoteSource — GitHub spec forms", () => {
   it("rejects a single-segment value (no repo)", () => {
     expect(parseRemoteSource("just-a-word")).toBeNull();
   });
+
+  it("rejects dot-segment owner/repo and subpath traversal", () => {
+    expect(parseRemoteSource("../repo/name")).toBeNull();
+    expect(parseRemoteSource("owner/../x")).toBeNull();
+    expect(parseRemoteSource("owner/repo/../../x")).toBeNull();
+    expect(parseRemoteSource("github:owner/repo/../../x")).toBeNull();
+    expect(parseRemoteSource("git@github.com:../repo.git")).toBeNull();
+  });
 });
 
 describe("looksLocal / classifySource — local paths are NOT remote", () => {

@@ -65,6 +65,17 @@ export type SourceSpec =
 
 const GITHUB_SEG = /^[A-Za-z0-9._-]+$/;
 
+function isSafeGitHubSegment(segment: string): boolean {
+  return GITHUB_SEG.test(segment) && segment !== "." && segment !== "..";
+}
+
+function isSafeSubpath(subpath: string | undefined): boolean {
+  if (subpath === undefined || subpath === "") return true;
+  return subpath
+    .split("/")
+    .every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
 /**
  * True when `value` should be treated as a LOCAL path (existing behavior),
  * before any remote-spec parse is attempted. Conservative on purpose: a path
@@ -130,7 +141,7 @@ export function parseRemoteSource(value: string): RemoteSource | null {
     }
     const hash = url.hash.replace(/^#/, "");
     if (hash) ref = hash;
-    if (!GITHUB_SEG.test(owner) || !GITHUB_SEG.test(repo)) return null;
+    if (!isSafeGitHubSegment(owner) || !isSafeGitHubSegment(repo)) return null;
     return cleanRemote({ owner, repo, ref, subpath });
   }
 
@@ -146,7 +157,7 @@ export function parseRemoteSource(value: string): RemoteSource | null {
   const owner = segs[0]!;
   const repo = segs[1]!.replace(/\.git$/, "");
   const subpath = segs.length > 2 ? segs.slice(2).join("/") : undefined;
-  if (!GITHUB_SEG.test(owner) || !GITHUB_SEG.test(repo)) return null;
+  if (!isSafeGitHubSegment(owner) || !isSafeGitHubSegment(repo)) return null;
   return cleanRemote({ owner, repo, ref: refPart, subpath });
 }
 
@@ -164,7 +175,7 @@ function finalizeFromPath(owner: string, repoAndRest: string, _ref: undefined): 
   const segs = pathPart.split("/").filter(Boolean);
   const repo = (segs[0] ?? "").replace(/\.git$/, "");
   const subpath = segs.length > 1 ? segs.slice(1).join("/") : undefined;
-  if (!GITHUB_SEG.test(owner) || !GITHUB_SEG.test(repo)) return null;
+  if (!isSafeGitHubSegment(owner) || !isSafeGitHubSegment(repo)) return null;
   return cleanRemote({ owner, repo, ref, subpath });
 }
 
@@ -188,6 +199,7 @@ export function isSafeRef(ref: string): boolean {
  */
 function cleanRemote(r: RemoteSource): RemoteSource | null {
   if (r.ref !== undefined && !isSafeRef(r.ref)) return null;
+  if (!isSafeSubpath(r.subpath)) return null;
   const out: RemoteSource = { owner: r.owner, repo: r.repo };
   if (r.ref) out.ref = r.ref;
   if (r.subpath && r.subpath !== "") out.subpath = r.subpath;
