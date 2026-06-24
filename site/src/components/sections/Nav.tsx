@@ -5,20 +5,12 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
 import { REPO_URL } from "@/data";
 
-/**
- * Header nav items. Most are landing-section anchors (`href`), resolved via
- * `sectionHref` so they jump back to the landing from any route. A `to` entry
- * is a real react-router route link (rendered as <Link>), so it works from any
- * page — used for the dedicated /coverage and /wizard pages.
- */
 const links: { label: string; href?: string; to?: string }[] = [
-  { href: "#audiences", label: "Who it's for" },
-  { href: "#pillars", label: "Pillars" },
+  { href: "#efficiency", label: "Efficiency" },
+  { href: "#platforms", label: "Coverage" },
   { href: "#surfaces", label: "Surfaces" },
-  { href: "#platforms", label: "Agents" },
-  { href: "#dialects", label: "Dialects" },
   { href: "#telemetry", label: "Telemetry" },
-  { to: "/coverage", label: "Coverage" },
+  { to: "/docs", label: "Docs" },
   { to: "/wizard", label: "Wizard" },
 ];
 
@@ -90,28 +82,6 @@ export function Nav() {
               </a>
             ),
           )}
-          <Link
-            to="/docs"
-            className={cn(
-              "rounded-md px-3 py-2 text-sm transition-colors hover:text-foreground",
-              pathname.startsWith("/docs")
-                ? "font-medium text-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            Docs
-          </Link>
-          <Link
-            to="/docs/user"
-            className={cn(
-              "rounded-md px-3 py-2 text-sm transition-colors hover:text-foreground",
-              pathname.startsWith("/docs/user")
-                ? "font-medium text-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            Usage
-          </Link>
         </nav>
         <div className="flex items-center gap-1.5">
           <ThemeToggle />
