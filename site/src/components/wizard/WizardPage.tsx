@@ -746,7 +746,7 @@ export function WizardPage() {
                 <ol className="mt-4 flex flex-col gap-5">
                   <Step
                     num={1}
-                    title="Install the framework"
+                    title="Add the framework dependency"
                     command={installCmd}
                     description="Add agent-connector to your project."
                   />

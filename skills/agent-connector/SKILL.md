@@ -59,11 +59,16 @@ mirrors developer docs under `/docs/dev`.
 5. Put `createConnectorCli({ packageJson, connector })` in the developer's
    package bin from `@ken-jo/agent-connector/cli`; comment that `packageJson`
    supplies identity while `connector` supplies behavior.
-6. Foreground the developer's brand in user-facing commands:
-   `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, etc.
-7. Use `npx @ken-jo/agent-connector ... --connector` only as a local framework
-   development/debug fallback.
-8. Verify with typecheck/tests, SDK offline harnesses when relevant, then
+6. Foreground the developer's brand in MCP lifecycle/runtime commands:
+   `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, `acme-db upgrade`,
+   `acme-db uninstall`, `acme-db telemetry report`, etc.
+7. Keep framework tooling separate: `package` emits host/MCP distribution
+   artifacts, so document it as `npx @ken-jo/agent-connector package --connector
+   ...` (or global `agent-connector package` for developers who installed the
+   framework CLI).
+8. Use other `npx @ken-jo/agent-connector ... --connector` commands only as a
+   local framework development/debug fallback.
+9. Verify with typecheck/tests, SDK offline harnesses when relevant, then
    `doctor --probe` when a real stdio server/host is available.
 
 ## Hard Do-Nots

@@ -112,6 +112,19 @@ The wiring contract is:
    per-tool traffic. For remote HTTP servers, the host receives the URL where
    supported; there is no stdio process to wrap.
 
+### Command boundary
+
+Keep the two command layers separate:
+
+| Layer | Who runs it | Examples | Purpose |
+| --- | --- | --- | --- |
+| Branded MCP lifecycle | Users of your MCP package | `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, `acme-db upgrade`, `acme-db uninstall`, `acme-db telemetry report --by tool` | Install, verify, update, remove, and inspect telemetry for **your MCP**. |
+| Framework tooling | MCP package developers | `npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs`, `agent-connector package --connector ./agent-connector.config.mjs` | Emit host plugin bundles and MCP distribution artifacts from a connector config. |
+| Connector-free user telemetry | Agent-CLI users with no MCP package | `npx @ken-jo/agent-connector usage report --by platform` | Read host CLI logs read-only for whole-conversation token totals. |
+
+If a command operates the MCP after it is authored, prefer the branded package/bin.
+If a command builds framework distribution artifacts, use the framework CLI.
+
 ### MCP server launch examples
 
 Pick the `server` shape that matches the MCP you are building. The wrapper
@@ -210,11 +223,13 @@ Same one definition, your choice of distribution.
 content-surface config in place, with no per-platform marketplace submission or
 review. This is the Quick start path above.
 
-**Marketplace plugin** — your branded `package` command turns the connector into a
-real plugin/extension bundle (manifest + bundled commands, agents, skills,
-hooks, MCP) from one definition. Hooks + MCP keep the telemetry serve-wrapper,
-so a marketplace-installed connector still reports per-tool tokens for its stdio
-server. `--format all` emits **10 host formats**:
+**Marketplace plugin** — the framework `package` command turns the connector
+into a real plugin/extension bundle (manifest + bundled commands, agents,
+skills, hooks, MCP) from one definition. This is framework tooling, so run it
+with `npx @ken-jo/agent-connector package --connector ...` (or the global
+`agent-connector package` CLI if you use it often). Hooks + MCP keep the
+telemetry serve-wrapper, so a marketplace-installed connector still reports
+per-tool tokens for its stdio server. `--format all` emits **10 host formats**:
 
 | Format | Hosts |
 |---|---|
@@ -236,11 +251,11 @@ so they're excluded from `--format all`) — `mcp-server-json` (an MCP Registry
 
 ```bash
 # emit every host format (mcp-server-json + mcpb are opt-in by name)
-acme-db package --format all --out ./dist-plugin
-acme-db package --format gemini-extension --out ./ext   # or just one
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist-plugin
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format gemini-extension --out ./ext   # or just one
 
-# framework fallback for local framework development/debugging only
-npx @ken-jo/agent-connector package --format all --out ./dist-plugin --connector ./agent-connector.config.mjs
+# if you installed the framework CLI globally, the same command is:
+agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist-plugin
 
 # e.g. Claude Code:  /plugin marketplace add ./dist-plugin/claude-plugin
 #                    /plugin install <connector-id>@agent-connector

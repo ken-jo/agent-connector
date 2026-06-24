@@ -252,11 +252,21 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     }
   });
 
-  it("llms.txt package bullet names every PackageFormat the emitter ships", () => {
+  it("robot docs package command names every PackageFormat the emitter ships", () => {
     const line = bullet(LLMS, "- `package");
     expect(line, "llms.txt is missing the `package` command bullet").toBeTruthy();
+    const fullPackageIdx = LLMS_FULL.indexOf("### package");
+    const fullTelemetryIdx = LLMS_FULL.indexOf("### telemetry", fullPackageIdx);
+    expect(fullPackageIdx, "llms-full.txt is missing the package section").toBeGreaterThan(-1);
+    expect(fullTelemetryIdx, "llms-full.txt package section terminator missing").toBeGreaterThan(-1);
+    const fullPackageSection = LLMS_FULL.slice(fullPackageIdx, fullTelemetryIdx);
+    expect(fullPackageSection).toContain("framework tooling, not a branded MCP lifecycle command");
     for (const fmt of ALL_FORMATS) {
       expect(line, `llms.txt package bullet is missing the "${fmt}" format`).toContain(fmt);
+      expect(
+        fullPackageSection,
+        `llms-full.txt package section is missing the "${fmt}" format`,
+      ).toContain(fmt);
     }
   });
 

@@ -128,10 +128,12 @@ acme-db doctor            # verify — add --probe for a live MCP handshake (ini
 acme-db upgrade           # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
 acme-db leaderboard       # acme-db's token footprint vs the boards
 acme-db telemetry report --by tool   # which of acme-db's tools cost the most tokens
-# distribute? acme-db package — 10 marketplace formats, or --format mcp-server-json | mcpb (see Packaging)
 acme-db uninstall         # full inverse — removes everything install wrote (--purge, --dry-run work too)
 
-# 3b. development fallback only — run the framework from the project:
+# 3b. packaging/distribution artifacts are framework tooling:
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist
+
+# 3c. development fallback only — run the framework from the project:
 npx @ken-jo/agent-connector detect
 npx @ken-jo/agent-connector install --dry-run`;
 
@@ -554,18 +556,18 @@ $ acme-db telemetry leaderboard --by tool
 # are filtered to acme-db.`;
 
 export const packageSnippet = `# default format (claude-plugin) → <cwd>/dist-plugin
-acme-db package
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs
 
 # pick a format + output dir; preview without writing
-acme-db package --format gemini-extension --out ./dist --dry-run
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format gemini-extension --out ./dist --dry-run
 
 # emit EVERY feasible format, each into <out>/<format>/
-acme-db package --format all --out ./dist
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist
 
 # an unknown format exits 2
-acme-db package --format bogus   # → invalid --format "bogus" (exit 2)
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format bogus   # → invalid --format "bogus" (exit 2)
 
-# framework fallback for local framework development/debugging only
+# if you installed the framework CLI globally, drop the npx package prefix:
 agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist`;
 
 export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:

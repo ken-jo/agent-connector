@@ -335,20 +335,25 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(example.slice(fallbackIdx, fallbackIdx + 120)).toContain("local development/debug only");
   });
 
-  it("packaging examples foreground the branded package command", () => {
+  it("packaging examples use framework tooling while MCP lifecycle stays branded", () => {
     const readme = readFileSync("README.md", "utf8");
     const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
     const guide = readFileSync("site/src/components/docs/PackagingGuide.tsx", "utf8");
+    const wizard = readFileSync("site/src/components/wizard/WizardPage.tsx", "utf8");
 
-    const readmePackageIdx = readme.indexOf("acme-db package --format all");
-    const readmeFallbackIdx = readme.indexOf("framework fallback for local framework development/debugging only");
-    expect(readmePackageIdx, "README branded package command missing").toBeGreaterThan(-1);
-    expect(readmeFallbackIdx, "README framework package fallback missing").toBeGreaterThan(-1);
-    expect(readmePackageIdx).toBeLessThan(readmeFallbackIdx);
+    const readmePackageIdx = readme.indexOf("npx @ken-jo/agent-connector package");
+    const readmeGlobalIdx = readme.indexOf("if you installed the framework CLI globally");
+    expect(readmePackageIdx, "README framework package command missing").toBeGreaterThan(-1);
+    expect(readmeGlobalIdx, "README global framework package note missing").toBeGreaterThan(-1);
+    expect(readmePackageIdx).toBeLessThan(readmeGlobalIdx);
 
-    expect(snippets).toContain("acme-db package --format all");
-    expect(snippets).toContain("framework fallback for local framework development/debugging only");
-    expect(guide).toContain("<Badge variant=\"muted\">acme-db package</Badge>");
-    expect(guide).toContain("Your branded <C>package</C> command");
+    expect(readme).toContain("acme-db install --method marketplace");
+    expect(readme).not.toContain("acme-db package");
+    expect(snippets).toContain("npx @ken-jo/agent-connector package --connector");
+    expect(snippets).toContain("agent-connector package --connector ./agent-connector.config.mjs");
+    expect(snippets).not.toContain("acme-db package");
+    expect(guide).toContain("<Badge variant=\"muted\">npx @ken-jo/agent-connector package</Badge>");
+    expect(guide).toContain("Packaging emits distribution artifacts");
+    expect(wizard).toContain('title="Add the framework dependency"');
   });
 });
