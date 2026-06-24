@@ -60,6 +60,17 @@ describe("main(argv, { programName }) branding", () => {
     expect(cap.text()).not.toContain("0.0.0");
   });
 
+  it("uses an embedded CLI's programVersion for --version", async () => {
+    const cap = captureStdout();
+    const code = await main(["--version"], {
+      programName: "acme-db",
+      programVersion: "2.3.4",
+    });
+    cap.restore();
+    expect(code).toBe(0);
+    expect(cap.text().trim()).toBe("acme-db 2.3.4");
+  });
+
   it("brands the unknown-command error on stderr", async () => {
     const cap = captureStderr();
     const code = await main(["nope-not-real"], { programName: "acme-db" });

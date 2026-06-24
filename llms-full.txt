@@ -1419,10 +1419,10 @@ npm run build
 npm run dev -- detect             # run the CLI from source via tsx
 ```
 
-Or ship a branded CLI: `createConnectorCli({ name, connector })` from
-`agent-connector/cli` exposes every subcommand under your own bin, auto-scoped to your
-connector (see `examples/branded-cli`); explicit `--connector`/`--connector-id`
-always overrides.
+Or ship a branded CLI: `createConnectorCli({ packageJson, connector })` from
+`agent-connector/cli` derives the bin/version from `package.json`, exposes every
+subcommand under your own bin, and auto-scopes to your connector (see
+`examples/branded-cli`); explicit `--connector`/`--connector-id` always overrides.
 
 **Package subpaths:** `.` (root — full `define*` family: `defineConnector` +
 `defineStatusline` + `defineAction` + `defineHook` / `defineCommand` / `defineSkill` /

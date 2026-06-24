@@ -56,5 +56,5 @@ per-actor sandbox HOMEs too.
   fire, amber, peach, berry, ocean, aurora, forest, synthwave), so each
   recording comes out in a different color.
 - The branded `acme-db` CLI is built with the public SDK exactly like
-  [`examples/branded-cli/`](../branded-cli/) — `createConnectorCli({ name,
-  connector })`.
+  [`examples/branded-cli/`](../branded-cli/) — `createConnectorCli({
+  packageJson, connector })`.

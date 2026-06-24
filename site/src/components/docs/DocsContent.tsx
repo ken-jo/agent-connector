@@ -270,7 +270,7 @@ export function EmbedCli() {
     >
       <Lead>
         agent-connector is an <strong>SDK a connector developer depends on</strong>
-        . With <C>createConnectorCli(&#123; name, connector &#125;)</C> you expose{" "}
+        . With <C>createConnectorCli(&#123; packageJson, connector &#125;)</C> you expose{" "}
         <strong>every</strong> agent-connector subcommand under your own brand —
         fully delegated and <strong>auto-scoped</strong> to the connector your
         package ships. Your users run <C>&lt;your-tool&gt; install</C> /{" "}

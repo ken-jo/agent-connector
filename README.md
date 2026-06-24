@@ -189,25 +189,22 @@ npx @ken-jo/agent-connector install --method marketplace --connector ./agent-con
 ### Ship a branded CLI
 
 A connector developer can ship their **own** bin instead of having users type
-`agent-connector`. `createConnectorCli({ name, connector })` (from the
-`@ken-jo/agent-connector/cli` export) exposes **every** subcommand under your
-brand, fully delegated and **auto-scoped** to your connector — so your users
-do not need a framework global install or `--connector` for branded MCP
-install/doctor/uninstall. See
+`agent-connector`. `createConnectorCli({ packageJson, connector })` (from the
+`@ken-jo/agent-connector/cli` export) derives the bin name/version from
+`package.json` and exposes **every** subcommand under your brand, fully
+delegated and **auto-scoped** to your connector — so your users do not need a
+framework global install or `--connector` for branded MCP install/doctor/uninstall. See
 [`examples/branded-cli`](examples/branded-cli) for the full, runnable package.
 
 ```js
 #!/usr/bin/env node
 // bin.mjs — every agent-connector subcommand, branded as `acme-db`
-import { fileURLToPath } from "node:url";
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 // run() resolves to the exit code and never calls process.exit
 process.exitCode = await createConnectorCli({
-  name: "acme-db",
-  connector: fileURLToPath(
-    new URL("./agent-connector.config.mjs", import.meta.url),
-  ),
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();
 ```
 

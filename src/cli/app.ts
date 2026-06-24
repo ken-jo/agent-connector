@@ -593,6 +593,11 @@ export interface MainOptions {
    * subcommand's help reads as the developer's tool.
    */
   programName?: string;
+  /**
+   * Version shown by --version. Defaults to agent-connector's own package version.
+   * Embedded branded CLIs pass their package.json version.
+   */
+  programVersion?: string;
 }
 
 export async function main(argv: string[], opts: MainOptions = {}): Promise<number> {
@@ -606,7 +611,7 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
     return command == null ? 1 : 0;
   }
   if (command === "--version" || command === "-v") {
-    print(`${programName} ${resolveOwnVersion()}`);
+    print(`${programName} ${opts.programVersion ?? resolveOwnVersion()}`);
     return 0;
   }
 
