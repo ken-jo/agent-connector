@@ -3,8 +3,9 @@
 /**
  * The primary install: agent-connector is an SDK connector developers depend on.
  * Add it to your connector package, then ship or run your branded MCP package.
- * A global framework install is not the branded MCP lifecycle path; use it for
- * connector-free usage telemetry or frequent framework tooling such as package.
+ * A global framework install is not the branded MCP lifecycle path; guide it to
+ * agent-CLI users for connector-free token telemetry. Developers use package
+ * dependency installs and npx framework tooling from the MCP package.
  */
 export const installSnippet = `npm install @ken-jo/agent-connector`;
 
@@ -110,10 +111,11 @@ export default defineConnector({
 /**
  * Optional convenience only: install the CLI globally to try it directly,
  * outside of any connector package. Use this for connector-free token telemetry
- * across agent CLIs or repeated framework tooling such as package. Not required
- * for the SDK/branded-CLI lifecycle flow.
+ * across agent CLIs. Developers should add the package dependency and run npx
+ * framework tooling from the MCP package. Not required for the SDK/branded-CLI
+ * lifecycle flow.
  */
-export const globalInstallSnippet = `# optional — connector-free telemetry or repeated framework tooling
+export const globalInstallSnippet = `# optional for agent-CLI users — connector-free token telemetry
 npm i -g @ken-jo/agent-connector
 agent-connector usage report`;
 
@@ -569,7 +571,7 @@ npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --f
 # an unknown format exits 2
 npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format bogus   # → invalid --format "bogus" (exit 2)
 
-# if you installed the framework CLI globally, drop the npx package prefix:
+# if you already keep the framework CLI globally installed, drop the npx package prefix:
 agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist`;
 
 export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:

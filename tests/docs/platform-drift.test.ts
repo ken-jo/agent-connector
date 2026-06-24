@@ -344,7 +344,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     const architecture = readFileSync("docs/ARCHITECTURE.md", "utf8");
 
     const readmePackageIdx = readme.indexOf("npx @ken-jo/agent-connector package");
-    const readmeGlobalIdx = readme.indexOf("if you installed the framework CLI globally");
+    const readmeGlobalIdx = readme.indexOf("if you already keep the framework CLI globally installed");
     expect(readmePackageIdx, "README framework package command missing").toBeGreaterThan(-1);
     expect(readmeGlobalIdx, "README global framework package note missing").toBeGreaterThan(-1);
     expect(readmePackageIdx).toBeLessThan(readmeGlobalIdx);
@@ -362,7 +362,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(wizard).toContain('title="Add the framework dependency"');
   });
 
-  it("global framework install guidance excludes branded lifecycle but includes framework tooling", () => {
+  it("global framework install guidance is user telemetry first and excludes branded lifecycle", () => {
     const readme = readFileSync("README.md", "utf8");
     const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
     const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
@@ -373,10 +373,14 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
       expect(text).not.toMatch(/globally is only an optional path for connector-free/i);
     }
 
-    expect(readme).toContain("connector-free token usage reports or frequent framework tooling");
-    expect(snippets).toContain("connector-free usage telemetry or frequent framework tooling");
-    expect(docs).toContain("fallback, packaging tool, and connector-free telemetry utility");
-    expect(docsData).toContain("Global framework CLI is for connector-free telemetry or framework tooling");
+    expect(readme).toContain("global CLI guidance for connector-free token usage reports");
+    expect(readme).not.toContain("connector-free token usage reports or frequent framework tooling");
+    expect(snippets).toContain("agent-CLI users for connector-free token telemetry");
+    expect(snippets).not.toContain("frequent framework tooling such as package");
+    expect(docs).toContain("agent-CLI users use the global");
+    expect(docs).toContain("Developers can");
+    expect(docsData).toContain("Global framework CLI guidance is for connector-free agent token telemetry");
+    expect(docsData).not.toContain("Global framework CLI is for connector-free telemetry or framework tooling");
     expect(docs).toContain("You do <strong>not</strong> need a global install for branded MCP");
   });
 });

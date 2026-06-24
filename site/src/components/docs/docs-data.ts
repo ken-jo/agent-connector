@@ -214,7 +214,7 @@ export const sectionDescription: Record<string, string> = {
   introduction:
     "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across the current AI-agent coverage matrix with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
   installation:
-    "Install agent-connector as a dependency of your MCP package (npm install @ken-jo/agent-connector), then ship a branded CLI/bin such as npx @acme/acme-db-mcp install. Global framework CLI is for connector-free telemetry or framework tooling such as package, not normal branded MCP lifecycle commands. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
+    "Install agent-connector as a dependency of your MCP package (npm install @ken-jo/agent-connector), then ship a branded CLI/bin such as npx @acme/acme-db-mcp install. Global framework CLI guidance is for connector-free agent token telemetry, not normal branded MCP lifecycle commands; developer artifact tooling should use npx @ken-jo/agent-connector ... --connector by default. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   sdk:
     "The SDK contract for MCP-package authors and AI agents: package.json supplies the public package identity, @ken-jo/agent-connector/sdk supplies defineConnector, typed define* helpers, host capability introspection, and public types, @ken-jo/agent-connector/cli turns that package into a branded installer binary, and llms/skill references give agents task-specific guidance.",
   "quick-start":

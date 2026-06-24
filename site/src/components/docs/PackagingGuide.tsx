@@ -154,7 +154,7 @@ export function PackagingGuideSection() {
         </C>
         . Packaging emits distribution artifacts, so it is intentionally a
         framework tool rather than a branded MCP lifecycle command. If you
-        installed the framework CLI globally, use{" "}
+        already keep the framework CLI globally installed, use{" "}
         <C>agent-connector package --connector ./agent-connector.config.mjs</C>.
         The bundle is written under <C>--out</C> (default{" "}
         <C>&lt;cwd&gt;/dist-plugin</C>); <C>--dry-run</C> computes the file tree

@@ -52,8 +52,9 @@ package that holds your connector, declare the connector once, then ship a
 branded MCP package/bin such as `npx @acme/acme-db-mcp install` — it deploys to
 every detected agent CLI in that host's own native config. Installing
 `@ken-jo/agent-connector` globally is not the branded MCP lifecycle path; reserve
-it for connector-free token usage reports or frequent framework tooling such as
-`package`. The linear path is:
+the global CLI guidance for connector-free token usage reports. Framework
+artifact tooling stays developer-facing and normally runs through
+`npx @ken-jo/agent-connector ... --connector`. The linear path is:
 **get a server → declare it → install through your branded package**.
 
 **0. You need an MCP server file first.** The config below points at
@@ -120,7 +121,7 @@ Keep the two command layers separate:
 | Layer | Who runs it | Examples | Purpose |
 | --- | --- | --- | --- |
 | Branded MCP lifecycle | Users of your MCP package | `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, `acme-db upgrade`, `acme-db uninstall`, `acme-db telemetry report --by tool` | Install, verify, update, remove, and inspect telemetry for **your MCP**. |
-| Framework tooling | MCP package developers | `npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs`, `agent-connector package --connector ./agent-connector.config.mjs` | Emit host plugin bundles and MCP distribution artifacts from a connector config. |
+| Framework tooling | MCP package developers | `npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs` | Emit host plugin bundles and MCP distribution artifacts from a connector config. |
 | Connector-free user telemetry | Agent-CLI users with no MCP package | `npx @ken-jo/agent-connector usage report --by platform` | Read host CLI logs read-only for whole-conversation token totals. |
 
 If a command operates the MCP after it is authored, prefer the branded package/bin.
@@ -227,8 +228,9 @@ review. This is the Quick start path above.
 **Marketplace plugin** — the framework `package` command turns the connector
 into a real plugin/extension bundle (manifest + bundled commands, agents,
 skills, hooks, MCP) from one definition. This is framework tooling, so run it
-with `npx @ken-jo/agent-connector package --connector ...` (or the global
-`agent-connector package` CLI if you use it often). Hooks + MCP keep the
+with `npx @ken-jo/agent-connector package --connector ...`. If you already keep
+the framework CLI installed globally, `agent-connector package --connector ...`
+is only the shorter equivalent. Hooks + MCP keep the
 telemetry serve-wrapper, so a marketplace-installed connector still reports
 per-tool tokens for its stdio server. `--format all` emits **10 host formats**:
 
@@ -255,7 +257,7 @@ so they're excluded from `--format all`) — `mcp-server-json` (an MCP Registry
 npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist-plugin
 npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format gemini-extension --out ./ext   # or just one
 
-# if you installed the framework CLI globally, the same command is:
+# if you already keep the framework CLI globally installed, the same command is:
 agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist-plugin
 
 # e.g. Claude Code:  /plugin marketplace add ./dist-plugin/claude-plugin

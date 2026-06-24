@@ -136,8 +136,9 @@ export function Installation() {
         agent-connector is an <strong>SDK you depend on</strong>, not a global
         tool your connector users install first. Add it to your MCP package,
         then ship a <strong>branded CLI</strong> your users drive directly
-        (<C>npx @acme/acme-db-mcp install</C>). The framework command is a developer
-        fallback, packaging tool, and connector-free telemetry utility.
+        (<C>npx @acme/acme-db-mcp install</C>). Developers use the framework
+        command for local fallback or packaging; agent-CLI users use the global
+        CLI for connector-free token telemetry.
       </Lead>
       <P>
         Add agent-connector as a dependency of the package that holds your{" "}
@@ -168,8 +169,9 @@ export function Installation() {
       <P>
         You do <strong>not</strong> need a global install for branded MCP
         package installs. Use the framework CLI directly for connector-free
-        token telemetry across the agent CLIs you already use, or for repeated
-        framework tooling such as <C>package</C>:
+        token telemetry across the agent CLIs you already use. Developers can
+        run framework tooling with <C>npx @ken-jo/agent-connector ...</C> from
+        their MCP package:
       </P>
       <CodeBlock code={S.globalInstallSnippet} language="bash" filename="terminal" />
 
