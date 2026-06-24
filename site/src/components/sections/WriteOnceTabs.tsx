@@ -29,7 +29,7 @@ export function WriteOnceTabs() {
           <span className="h-px flex-1 bg-border" />
           <span className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 font-mono text-xs">
             <ArrowDown className="size-3.5" />
-            agent-connector install
+            npx @acme/acme-db-mcp install
           </span>
           <span className="h-px flex-1 bg-border" />
         </div>

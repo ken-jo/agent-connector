@@ -1,16 +1,16 @@
 /** Code snippets used across the docs. Mirrors llms-full.txt examples. */
 
 /**
- * The primary install: agent-connector is an SDK you depend on, not a global
- * tool. Add it to your connector package, then either ship a branded CLI or run
- * it with npx.
+ * The primary install: agent-connector is an SDK connector developers depend on.
+ * Add it to your connector package, then ship or run your branded MCP package.
+ * A global framework install is only for connector-free usage telemetry.
  */
 export const installSnippet = `npm install @ken-jo/agent-connector`;
 
 /**
  * Ship a branded CLI: createConnectorCli wraps EVERY agent-connector subcommand
- * under your own bin name, auto-scoped to your connector. Your users never run a
- * global install and never type --connector.
+ * under your own bin name, auto-scoped to your connector. Your users do not need
+ * a framework global install or --connector for branded MCP install commands.
  */
 export const brandedCliSnippet = `#!/usr/bin/env node
 // bin.mjs — your tool's bin, e.g. "acme-db"
@@ -27,11 +27,12 @@ process.exitCode = await createConnectorCli({
 
 /**
  * Optional convenience only: install the CLI globally to try it directly,
- * outside of any connector package. Not required for the SDK/branded-CLI flow.
+ * outside of any connector package. The main user-facing reason is connector-free
+ * token telemetry across agent CLIs. Not required for the SDK/branded-CLI flow.
  */
-export const globalInstallSnippet = `# optional — to try the CLI directly, outside a connector package
+export const globalInstallSnippet = `# optional — connector-free token telemetry across agent CLIs
 npm i -g @ken-jo/agent-connector
-agent-connector --help`;
+agent-connector usage report`;
 
 export const quickStartSnippet = `# 1. add agent-connector as a dependency of your connector package
 npm install @ken-jo/agent-connector
@@ -49,9 +50,9 @@ acme-db telemetry report --by tool   # which of acme-db's tools cost the most to
 # distribute? acme-db package — 10 marketplace formats, or --format mcp-server-json | mcpb (see Packaging)
 acme-db uninstall         # full inverse — removes everything install wrote (--purge, --dry-run work too)
 
-# 3b. …or just run it from the project with npx — no global install:
+# 3b. development fallback only — run the framework from the project:
 npx @ken-jo/agent-connector detect
-npx @ken-jo/agent-connector install`;
+npx @ken-jo/agent-connector install --dry-run`;
 
 export const fromSourceSnippet = `npm install
 npm run typecheck
@@ -107,13 +108,13 @@ skipped: cursor, antigravity, antigravity-cli, trae, warp (requires sync — no 
 export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
-  id: "acme-db",
-  displayName: "Acme DB Tools",
-  version: "1.0.0",
+  // package.json / npm metadata is the source of truth.
+  // id/displayName/version are derived from name/mcpName/bin/version unless
+  // you need a multi-instance alias such as "github-octocorp".
   server: {
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@acme/db-mcp"],
+    args: ["-y", "@acme/acme-db-mcp"],
     env: { ACME_DB_DSN: "\${env:ACME_DB_DSN}" },
     tools: { include: ["*"] },
     timeoutMs: 30_000,
@@ -148,9 +149,11 @@ export default defineConnector({
  * package ships its own bin. Installing it links `acme-db` onto the user's PATH.
  */
 export const brandedPackageJsonSnippet = `{
-  "name": "acme-db-tools",
+  "name": "@acme/acme-db-mcp",
   "version": "1.0.0",
+  "description": "Acme DB MCP server with branded install support",
   "type": "module",
+  "mcpName": "io.github.acme/acme-db",
   "bin": {
     "acme-db": "./bin.mjs"
   },
@@ -188,8 +191,8 @@ createConnectorCli({ name: "acme-db", connector })
  * home binary; install/leaderboard/telemetry are scoped to acme-db.
  */
 export const brandedUsageSnippet = `# the consumer installs YOUR package; the acme-db bin is linked.
-# agent-connector itself is never installed globally.
-npm install acme-db-tools
+# no framework global install is needed for branded MCP install commands.
+npm install @acme/acme-db-mcp
 
 # deploy the acme-db connector across every detected agent platform.
 acme-db install                 # auto-scoped — no --connector needed
@@ -236,7 +239,7 @@ export const serverDefSnippet = `interface ServerDef {
   wrapForTelemetry?: boolean;      // default true for stdio
 }`;
 
-/* Per-dialect outputs of `agent-connector install` for the server above. */
+/* Per-dialect outputs of `npx @acme/acme-db-mcp install` for the server above. */
 
 export const claudeCodeOutput = `// ~/.claude.json
 // wrapForTelemetry (default for stdio) wraps the real command behind the
@@ -247,7 +250,7 @@ export const claudeCodeOutput = `// ~/.claude.json
       "type": "stdio",
       "command": "/home/you/.agent-connector/bin/agent-connector",
       "args": ["serve", "--connector", "acme-db", "--scope", "user",
-               "--host", "claude-code", "--", "npx", "-y", "@acme/db-mcp"],
+               "--host", "claude-code", "--", "npx", "-y", "@acme/acme-db-mcp"],
       "env": { "ACME_DB_DSN": "\${ACME_DB_DSN}" }
     }
   }
@@ -258,7 +261,7 @@ export const codexOutput = `# ~/.codex/config.toml
 [mcp_servers.acme-db]
 command = "/home/you/.agent-connector/bin/agent-connector"
 args = ["serve", "--connector", "acme-db", "--scope", "user",
-        "--host", "codex", "--", "npx", "-y", "@acme/db-mcp"]
+        "--host", "codex", "--", "npx", "-y", "@acme/acme-db-mcp"]
 
 [mcp_servers.acme-db.env]
 # \${env:...} is resolved to a literal at install — TOML cannot interpolate;
@@ -273,7 +276,7 @@ export const cursorOutput = `// ~/.cursor/mcp.json
     "acme-db": {
       "command": "/home/you/.agent-connector/bin/agent-connector",
       "args": ["serve", "--connector", "acme-db", "--scope", "user",
-               "--host", "cursor", "--", "npx", "-y", "@acme/db-mcp"],
+               "--host", "cursor", "--", "npx", "-y", "@acme/acme-db-mcp"],
       "env": { "ACME_DB_DSN": "\${env:ACME_DB_DSN}" }
     }
   }
@@ -286,7 +289,7 @@ export const vscodeOutput = `// .vscode/mcp.json
     "acme-db": {
       "command": "/home/you/.agent-connector/bin/agent-connector",
       "args": ["serve", "--connector", "acme-db", "--scope", "user",
-               "--host", "vscode-copilot", "--", "npx", "-y", "@acme/db-mcp"],
+               "--host", "vscode-copilot", "--", "npx", "-y", "@acme/acme-db-mcp"],
       "env": { "ACME_DB_DSN": "\${env:ACME_DB_DSN}" }
     }
   }
@@ -401,7 +404,7 @@ export const telemetrySnippet = `telemetry: {
 }`;
 
 export const serveSnippet = `# a wrapped MCP entry runs the real server behind the telemetry proxy:
-agent-connector serve --connector acme-db -- npx -y @acme/db-mcp`;
+agent-connector serve --connector acme-db -- npx -y @acme/acme-db-mcp`;
 
 export const platformOverrideSnippet = `platforms: {
   warp:   { hooks: false },                 // mcp-only host: skip hooks

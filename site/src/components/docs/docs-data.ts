@@ -210,17 +210,17 @@ export const legacyHashRedirects: Record<string, string> = {
 /** Per-section <meta name="description"> copy (for /docs/<track>/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "The MCP-developer track. Write your MCP server + hooks once with defineConnector and deploy natively across 42 AI-agent platforms with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
+    "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across 42 AI-agent platforms with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
   installation:
-    "Install agent-connector as a dependency of your connector package (npm install @ken-jo/agent-connector), then ship a branded CLI or run it with npx. A global install is an optional convenience for trying the CLI directly. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
+    "Install agent-connector as a dependency of your MCP package (npm install @ken-jo/agent-connector), then ship a branded CLI/bin such as npx @acme/acme-db-mcp install. Global framework install is for connector-free token telemetry, not normal package installs. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   "quick-start":
-    "MCP developers: depend on agent-connector, write defineConnector, then ship a branded CLI or run npx @ken-jo/agent-connector to deploy their MCP everywhere — then verify with doctor, heal with upgrade, and reverse with uninstall.",
+    "MCP developers: depend on agent-connector, write defineConnector, then ship a branded MCP package/bin to deploy everywhere — then verify with doctor, heal with upgrade, and reverse with uninstall.",
   overview:
     "Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup — no defineConnector, no config file, no install — to see the token usage of the agent CLIs you already use, aggregated by CLI, model, project, session, or day.",
   "coverage-confidence":
     "Local usage readers report host-logged exact counts; a few are host-estimated (labeled in the CONFIDENCE column, e.g. Kiro char/4). Five synced platforms (cursor, antigravity, antigravity-cli, trae, warp) are reported as skipped — requires sync — unless a local cache already exists.",
   "embed-cli":
-    "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry without a global install or --connector.",
+    "Embed agent-connector as an SDK and ship your own branded CLI with createConnectorCli({ name, connector }) — every subcommand is delegated and auto-scoped to your connector, so your users run <your-tool> install / leaderboard / telemetry instead of foregrounding the framework package.",
   "define-connector":
     "defineConnector(config): the write-once surface. Validates eagerly, throws ConnectorConfigError, and returns a fully-defaulted ResolvedConnector.",
   server:
@@ -272,16 +272,22 @@ export const connectorConfigFields: FieldRow[] = [
   {
     name: "id",
     type: "string",
-    required: true,
     notes:
-      "Stable connector id. Must match ^[a-z0-9][a-z0-9-]*$ (kebab-case).",
+      "Optional explicit install/runtime alias. Defaults from package identity metadata (`name`, `mcpName`, `bin`); use only for legacy configs or multi-instance aliases.",
+  },
+  {
+    name: "mcp",
+    type: "McpPackageIdentity",
+    notes:
+      "Optional package identity override when package.json is absent or intentionally different.",
   },
   { name: "displayName", type: "string", default: "id", notes: "Human label." },
   {
     name: "version",
     type: "string",
-    default: '"0.0.0"',
-    notes: "Connector version.",
+    default: "package.json version, else \"0.0.0\"",
+    notes:
+      "Optional connector version override. Prefer package.json version for packaged connectors.",
   },
   {
     name: "server",
@@ -355,7 +361,7 @@ export const connectorConfigFields: FieldRow[] = [
     name: "publish",
     type: "PublishConfig",
     notes:
-      'Distribution metadata for the official MCP standard artifacts (package --format mcp-server-json | mcpb): { registryNamespace? (reverse-DNS namespace you own, e.g. "io.github.acme"; server.json name = <namespace>/<id>), packageName? (your REAL published package, e.g. "@acme/db-mcp"), registryBaseUrl? (default https://registry.npmjs.org), author? ({ name, email?, url? } — MCPB requires author.name) }. Describes your real upstream server, NOT the serve wrapper; optional — each format errors only when its required field is missing.',
+      'Distribution metadata for the official MCP standard artifacts (package --format mcp-server-json | mcpb): { registryNamespace? (reverse-DNS namespace you own, e.g. "io.github.acme"; server.json name = <namespace>/<id>), packageName? (your REAL published package, e.g. "@acme/acme-db-mcp"), registryBaseUrl? (default https://registry.npmjs.org), author? ({ name, email?, url? } — MCPB requires author.name) }. Describes your real upstream server, NOT the serve wrapper; optional — each format errors only when its required field is missing.',
   },
 ];
 
@@ -1460,9 +1466,10 @@ export const doctorStatusRows: { status: string; meaning: string }[] = [
 /** Common ConnectorConfigError messages thrown by defineConnector. */
 export const configErrorRows: { message: string; cause: string }[] = [
   {
-    message: "id must be kebab-case matching /^[a-z0-9][a-z0-9-]*$/",
+    message:
+      "id must be kebab-case matching /^[a-z0-9][a-z0-9-]*$/ or derivable from mcp/package metadata",
     cause:
-      "The connector id contains uppercase, underscores, spaces, or a leading dash/digit-only edge case. Use a lowercase kebab-case id.",
+      "The explicit id is invalid, or no id can be inferred from package.json, mcp metadata, or npx-style server args.",
   },
   {
     message:

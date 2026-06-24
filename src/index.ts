@@ -4,10 +4,10 @@
  * Write your MCP server + hooks once:
  *
  *   import { defineConnector } from "@ken-jo/agent-connector";
- *   export default defineConnector({ id: "acme-db", server: {...}, hooks: {...} });
+ *   export default defineConnector({ server: {...}, hooks: {...} });
  *
- * Then `agent-connector install` deploys it across every detected platform and
- * collects platform-independent per-tool token telemetry.
+ * Then `npx @acme/acme-db-mcp install` deploys it across every detected platform
+ * and collects platform-independent per-tool token telemetry.
  */
 
 export {
@@ -24,9 +24,18 @@ export {
   ConnectorConfigError,
 } from "./core/define-connector.js";
 
+export {
+  deriveHostAliasFromPackageName,
+  deriveHostAliasFromMcpName,
+  inferNpmPackageFromServer,
+  resolveMcpPackageIdentity,
+} from "./core/package-metadata.js";
+
 export type {
   ConnectorConfig,
   ResolvedConnector,
+  McpPackageIdentity,
+  ResolvedMcpPackageIdentity,
   ServerDef,
   Transport,
   ToolFilter,

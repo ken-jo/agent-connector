@@ -353,14 +353,13 @@ the default).
 import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
-  id: "acme-db",
-  displayName: "Acme DB Tools",
-  version: "1.0.0",
+  // package.json name/mcpName/bin/version are the default metadata source.
+  // Set id or mcp.hostAlias only for legacy configs or multi-instance aliases.
 
   server: {                                  // declared ONCE, transport-polymorphic
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@acme/db-mcp"],
+    args: ["-y", "@acme/acme-db-mcp"],
     env: { ACME_DB_DSN: "${env:ACME_DB_DSN}" },   // universal ${env:VAR} / ${env:VAR:-default}
     tools: { include: ["*"] },
   },
@@ -486,6 +485,12 @@ agent-connector leaderboard [--since] [--scope] [--connector]   # 🔌 mcp-self 
 agent-connector hook <platform> <event> --connector <id>   # universal hook entrypoint (internal)
 agent-connector serve --connector <id> -- <server cmd...>   # telemetry-wrapping MCP proxy (internal)
 ```
+
+The user-facing install/doctor/uninstall path should normally be the developer's
+branded MCP package/bin, for example `npx @acme/acme-db-mcp install` or
+`acme-db install`. The `agent-connector ...` commands above are the framework
+surface: development fallback, CI/debug entrypoint, marketplace packaging driver,
+internal home-bin target, and connector-free `usage` telemetry utility.
 
 > **Canonical CLI reference:** the docs site `/docs/cli` and `llms-full.txt` §3
 > (kept current; drift-guarded by tests). This block is design context — when

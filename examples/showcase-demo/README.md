@@ -17,9 +17,9 @@ Three actors, each behind a colored bar, then a brand closer:
 2. **② THE MCP's USERS** — each user installs it with **their own CLI's native
    marketplace**, no agent-connector required: live `claude` / `copilot` /
    `codex` / `agy` plugin installs of the packaged bundle.
-3. **③ agent-connector USER** — one command drives **every** CLI you have:
-   `agent-connector install` deploys across all detected hosts at once, and
-   `agent-connector uninstall --purge` removes it with zero residue.
+3. **③ Agent-CLI USER** — no connector is authored or installed. The framework
+   CLI is useful here as a token-usage utility: `agent-connector usage report`
+   reads supported agent CLI logs locally and reports whole-conversation totals.
 
 The code-savings numbers (a real, name-withheld MCP we ported) live in the
 **post text**, not the video — keeps the clip focused on what it *does*.

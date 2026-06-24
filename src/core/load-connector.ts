@@ -32,6 +32,10 @@ import type {
 } from "./types.js";
 import { defineConnector } from "./define-connector.js";
 import { assertNoSymlinkInPath, connectorDir, connectorsDir, ensureDir } from "./paths.js";
+import {
+  readConnectorPackageMetadataNearFile,
+  withConnectorPackageMetadata,
+} from "./package-metadata.js";
 
 /** Candidate config filenames, in resolution-precedence order. */
 const CONFIG_FILENAMES = [
@@ -49,6 +53,8 @@ export interface RegisteredMeta {
   id: string;
   displayName: string;
   version: string;
+  /** Package-derived identity, when available from config or package.json. */
+  mcp?: ResolvedConnector["mcp"];
   /** Absolute path to the source module that produced this connector. */
   modulePath: string;
   telemetry: ResolvedConnector["telemetry"];
@@ -142,24 +148,32 @@ export async function loadConnectorFromPath(
   if (modulePath.endsWith(".json")) {
     const text = readFileSync(modulePath, "utf8");
     const config = JSON.parse(text) as unknown;
-    const connector = defineConnector(config as Parameters<typeof defineConnector>[0]);
+    const connector = await withConnectorPackageMetadata(
+      readConnectorPackageMetadataNearFile(modulePath),
+      async () => defineConnector(config as Parameters<typeof defineConnector>[0]),
+    );
     return { connector, modulePath };
   }
 
   // .mjs / .js — dynamic ESM import. pathToFileURL keeps Windows paths valid.
   const moduleUrl = pathToFileURL(modulePath).href;
-  const mod = (await import(/* @vite-ignore */ moduleUrl)) as {
-    default?: unknown;
-  };
-  const exported = mod.default;
-  if (exported == null) {
-    throw new Error(
-      `Connector module has no default export: ${modulePath}`,
-    );
-  }
-  const connector = isResolvedConnector(exported)
-    ? exported
-    : defineConnector(exported as Parameters<typeof defineConnector>[0]);
+  const connector = await withConnectorPackageMetadata(
+    readConnectorPackageMetadataNearFile(modulePath),
+    async () => {
+      const mod = (await import(/* @vite-ignore */ moduleUrl)) as {
+        default?: unknown;
+      };
+      const exported = mod.default;
+      if (exported == null) {
+        throw new Error(
+          `Connector module has no default export: ${modulePath}`,
+        );
+      }
+      return isResolvedConnector(exported)
+        ? exported
+        : defineConnector(exported as Parameters<typeof defineConnector>[0]);
+    },
+  );
   return { connector, modulePath };
 }
 
@@ -220,6 +234,7 @@ export function registerConnector(
     id: connector.id,
     displayName: connector.displayName,
     version: connector.version,
+    ...(connector.mcp ? { mcp: connector.mcp } : {}),
     modulePath: resolve(modulePath),
     telemetry: connector.telemetry,
     hookEvents: connector.hookEvents,
@@ -312,6 +327,7 @@ export function connectorFromMeta(meta: RegisteredMeta): ResolvedConnector {
     id: meta.id,
     displayName: meta.displayName,
     version: meta.version,
+    ...(meta.mcp ? { mcp: meta.mcp } : {}),
     ...(meta.server ? { server: meta.server } : {}),
     hooks: {},
     hookEvents: meta.hookEvents ?? [],

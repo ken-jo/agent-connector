@@ -1,10 +1,13 @@
 // Example agent-connector definition.
 //
-// Run from this directory:
-//   agent-connector detect            # see which platforms are installed
-//   agent-connector install --dry-run # preview what would be written, everywhere
-//   agent-connector install           # deploy MCP + hooks across all detected hosts
-//   agent-connector telemetry report  # per-tool token footprint, platform-independent
+// Development fallback from this directory:
+//   npx @ken-jo/agent-connector detect
+//   npx @ken-jo/agent-connector install --dry-run
+//
+// Once this config ships inside your branded package/bin, users should run:
+//   npx @acme/acme-db-mcp install
+//   npx @acme/acme-db-mcp doctor
+//   npx @acme/acme-db-mcp telemetry report
 //
 // Write it ONCE here; agent-connector renders it into each host's native dialect
 // (Claude Code mcpServers JSON, Codex TOML [mcp_servers.*], Cursor mcp.json + hooks.json, …).
@@ -23,9 +26,10 @@ const serverPath = fileURLToPath(
 );
 
 export default defineConnector({
-  id: "acme-db",
-  displayName: "Acme DB Tools",
-  version: "1.0.0",
+  // This standalone example is named acme-db-example in package.json, so it
+  // declares the branded package identity explicitly. In a real branded package,
+  // package.json name/mcpName/bin/version are read automatically and this is unnecessary.
+  mcp: { packageName: "@acme/acme-db-mcp" },
 
   // The MCP server — declared once, transport-polymorphic.
   // Replace `node [serverPath]` with your own server's command when you ship the real thing.

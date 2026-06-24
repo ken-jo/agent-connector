@@ -1,18 +1,19 @@
 ---
 name: agent-connector
-description: Two audiences. (A) MCP DEVELOPER — write an MCP server, lifecycle hooks (13 normalized events + a native-event passthrough), slash commands, Agent Skills, subagents, or standing AGENTS.md guidance (memory) ONCE with defineConnector({...}), then install/sync/uninstall them across every detected AI-agent CLI (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, and more — 42 registered deploy adapters) in each host's native config dialect, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
+description: Two audiences. (A) MCP DEVELOPER — add agent-connector as a framework dependency inside a developer-branded MCP package, write the server/hooks/surfaces ONCE with defineConnector({...}), and ship install/doctor/uninstall through the branded package/bin (for example `npx @acme/acme-db-mcp install`) across every detected AI-agent CLI in the 42 registered deploy adapters, with default local-first per-tool token telemetry for YOUR OWN wrapped stdio server. package.json name/mcpName/bin/version are the default metadata source; explicit id/mcp.hostAlias/version are advanced overrides only. (B) AGENT-CLI END USER — with NO connector at all, run `agent-connector usage` to see per-CLI / per-model token totals scanned read-only from each agent CLI's own session logs. Use this when a developer wants one integration to reach many agent hosts and to see which of their own server's tools cost the most context, OR when any agent-CLI user wants whole-conversation token totals per CLI/model with zero setup.
 ---
 
 # agent-connector
 
 agent-connector serves two distinct audiences and the work forks between them:
 
-- **(A) MCP developer** — writes an integration once with `defineConnector()` and
-  deploys their MCP server + lifecycle hooks (+ commands / skills / subagents /
-  memory) across every detected agent CLI. It solves two dev problems: (1) each agent host re-invents
+- **(A) MCP developer** — depends on agent-connector as a framework inside their
+  own branded MCP package, writes an integration once with `defineConnector()`,
+  and ships their MCP server + lifecycle hooks (+ commands / skills / subagents /
+  memory) across every detected agent CLI through their own package/bin. It solves two dev problems: (1) each agent host re-invents
   MCP registration + lifecycle hooks with incompatible config files, root keys, formats
   (JSON/JSONC/TOML/YAML/exported TS), and event names; (2) no host reports per-tool
-  token usage back to an MCP server. Write the integration once; the CLI renders it into
+  token usage back to an MCP server. Write the integration once; the branded CLI renders it into
   each installed host's native dialect and measures the developer's OWN wrapped stdio
   server's per-tool token footprint locally.
 - **(B) Agent-CLI user** — has NOT authored a connector and just runs an agent CLI
@@ -22,15 +23,16 @@ agent-connector serves two distinct audiences and the work forks between them:
   no config file.
 
 The one accuracy-critical line between them: if you BUILD an MCP integration,
-agent-connector deploys it everywhere and measures your own server's per-tool tokens.
-If you just USE agent CLIs, agent-connector reads their logs to show you per-CLI /
+agent-connector is the framework underneath your branded package/bin, which deploys
+it everywhere and measures your own server's per-tool tokens. If you just USE agent CLIs, agent-connector reads their logs to show you per-CLI /
 per-model token totals — whole-conversation only, never itemized per MCP or per tool.
 
 ## When to reach for it
 
 - **(A) MCP developer** wants to ship ONE MCP server (and/or hooks / slash commands /
   Agent Skills / subagents / standing memory guidance) across many agent CLIs without
-  hand-authoring N config dialects → `defineConnector` + `install`.
+  hand-authoring N config dialects → `defineConnector` + a branded package/bin
+  command such as `npx @acme/acme-db-mcp install`.
 - **(A) MCP developer** asks "which of MY OWN server's tools cost the most context?" →
   `telemetry report --by tool` / `telemetry leaderboard --by mcp|tool`. Requires a
   declared connector with a wrapped stdio server (per-tool counts exist only for the
@@ -53,15 +55,14 @@ Create `agent-connector.config.mjs` (or `.js` / `.json`) at the project root:
 import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
-  id: "acme-db",                 // required, kebab-case ^[a-z0-9][a-z0-9-]*$
-  displayName: "Acme DB Tools",
-  version: "1.0.0",
+  // package.json name/mcpName/bin/version are the default metadata source.
+  // Set id or mcp.hostAlias only for legacy configs or multi-instance aliases.
 
   // MCP server — declared once, transport-polymorphic. Omit for a hooks-only connector.
   server: {
     transport: "stdio",          // stdio | http | sse | ws
     command: "npx",              // stdio: command required; remote: url required
-    args: ["-y", "@acme/db-mcp"],
+    args: ["-y", "@acme/acme-db-mcp"],
     env: { ACME_DB_DSN: "${env:ACME_DB_DSN}" }, // universal ${env:VAR} / ${env:VAR:-default}
     tools: { include: ["*"] },
     timeoutMs: 30_000,
@@ -139,7 +140,7 @@ export default defineConnector({
 A connector must declare at least one of `server`, `hooks`, `commands`, `skills`,
 `subagents`, or `memory` (or a per-platform `nativeHooks` / `configPatch`
 declaration). `defineConnector` validates eagerly and throws `ConnectorConfigError`
-on bad ids, non-function handlers, duplicate surface names, oversized skill
+on bad ids or missing derivable package identity, non-function handlers, duplicate surface names, oversized skill
 descriptions (>1024 chars), unsafe skill `resources` paths, memory content over the
 16 KiB hard cap (or containing the literal managed-block marker tokens), a
 `nativeHooks` key that names one of the 13 normalized events (use `hooks` for
@@ -149,19 +150,17 @@ those), or a `configPatch` key in the agent-connector namespace (`hooks*`,
 ## CLI workflow
 
 ```bash
-npm install @ken-jo/agent-connector   # a dependency of your connector package — or run everything via npx @ken-jo/agent-connector
+npm install @ken-jo/agent-connector   # framework dependency of your MCP package
 cd my-mcp-project
 
-agent-connector detect                      # which hosts are installed + scope + capabilities + paradigm
-agent-connector install --dry-run           # preview every change, everywhere (nothing written)
-agent-connector install                     # deploy across detected hosts
-agent-connector install --scope project --targets claude-code,codex   # narrow it
-agent-connector doctor [--probe]            # health checks; --probe spawns the real stdio server: initialize → ping → tools/list; non-zero exit on FAIL
-agent-connector status                      # glanceable install-state, ALWAYS exits 0 — doctor is the gate, status is the glance
-agent-connector upgrade                     # ONE verb: re-render + heal stale pointers + managed-update guidance (aliases: sync, update)
-agent-connector uninstall                   # full inverse — removes everything we wrote
-agent-connector package                     # marketplace bundle, claude-plugin default (10 host formats)
-agent-connector package --format mcp-server-json|mcpb   # official MCP Registry server.json / MCPB bundle — requires the connector's publish{} block; see /docs/dev/packaging
+npx @acme/acme-db-mcp detect                # user-facing path: your branded package/bin
+npx @acme/acme-db-mcp install --dry-run     # preview every change, everywhere (nothing written)
+npx @acme/acme-db-mcp install               # deploy across detected hosts
+npx @acme/acme-db-mcp doctor [--probe]      # health checks; --probe spawns the real stdio server: initialize → ping → tools/list
+npx @acme/acme-db-mcp uninstall             # full inverse — removes everything install wrote
+
+npx @ken-jo/agent-connector install --dry-run --connector ./agent-connector.config.mjs
+# development fallback / CI-debug path; not the foreground install brand for users
 ```
 
 `--scope` is `user` (default) or `project`. `--targets` is a comma-separated
@@ -204,8 +203,9 @@ antigravity, antigravity-cli, trae, warp) are skipped as "requires sync" unless 
 cache already exists.
 
 ```bash
-agent-connector usage report --by platform --since 7d   # whole-conversation totals from CLI logs (also project|session|model|day)
-agent-connector usage leaderboard --by platform         # which CLI/host spent the most (also --by model)
+npm i -g @ken-jo/agent-connector                       # optional: connector-free token telemetry utility
+agent-connector usage report --by platform --since 7d  # whole-conversation totals from CLI logs (also project|session|model|day)
+agent-connector usage leaderboard --by platform        # which CLI/host spent the most (also --by model)
 agent-connector usage export --format csv --out usage.csv
 ```
 

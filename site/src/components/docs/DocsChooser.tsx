@@ -74,10 +74,10 @@ export function DocsChooser() {
                 <strong>You authored a connector with{" "}
                 <C>defineConnector(&#123;...&#125;)</C></strong> (or are about to).
                 You write your MCP server + hooks (and optionally commands,
-                skills, subagents) <strong>once</strong>, then deploy across every
-                detected agent platform — shipping a branded CLI or running{" "}
-                <C>npx @ken-jo/agent-connector</C>. You get per-MCP and per-tool
-                token counts for <strong>your own wrapped server</strong>.
+                skills, subagents) <strong>once</strong>, then ship a branded MCP
+                package/bin such as <C>npx @acme/acme-db-mcp install</C> across
+                every detected agent platform. You get per-MCP and per-tool token
+                counts for <strong>your own wrapped server</strong>.
               </p>
               <div className="mt-auto pt-5">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 group-hover:underline">

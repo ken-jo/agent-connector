@@ -1,5 +1,5 @@
 /**
- * acme-db-tools — the connector Acme ships inside its package.
+ * @acme/acme-db-mcp — the connector Acme ships inside its package.
  *
  * It declares everything once:
  *   • a stdio MCP server (wrapped for per-tool token telemetry),
@@ -22,10 +22,6 @@ const serverPath = fileURLToPath(
 );
 
 export default defineConnector({
-  id: "acme-db",
-  displayName: "Acme DB Tools",
-  version: "1.0.0",
-
   // ── MCP server (stdio) — wrapped for telemetry by default ──
   server: {
     transport: "stdio",

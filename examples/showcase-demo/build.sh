@@ -13,8 +13,8 @@
 #                            (`acme-db install --dry-run` → the ACME-DB banner)
 #   ② THE MCP's USERS      — install via each host's OWN native marketplace
 #                            (live: claude / copilot / codex / agy)
-#   ③ agent-connector USER — one command drives EVERY CLI you have
-#                            (`agent-connector install` / `uninstall --purge`)
+#   ③ Agent-CLI USER      — connector-free token usage across existing CLIs
+#                            (`agent-connector usage report`)
 #
 # Prereqs:
 #   - vhs + ttyd + ffmpeg          (brew install vhs ffmpeg)
@@ -103,11 +103,11 @@ EOF
 # just `cat`s these files DURING a Hide block, so the cat command never shows.
 printf '\033[1;30;46m  \xe2\x91\xa0 MCP DEVELOPER  \xc2\xb7  build your MCP once: server + hooks  \033[0m\n' > "$BUILD_DIR/bar1.txt"
 printf '\033[1;30;42m  \xe2\x91\xa1 THE MCP USERS  \xc2\xb7  install with their OWN CLI \xe2\x80\x94 no agent-connector needed  \033[0m\n' > "$BUILD_DIR/bar2.txt"
-printf '\033[1;30;43m  \xe2\x91\xa2 agent-connector USER  \xc2\xb7  ONE command drives EVERY CLI you have  \033[0m\n' > "$BUILD_DIR/bar3.txt"
+printf '\033[1;30;43m  \xe2\x91\xa2 Agent-CLI USER  \xc2\xb7  token usage, no connector install  \033[0m\n' > "$BUILD_DIR/bar3.txt"
 {
   printf '\n'
-  printf '  \033[1;36magent-connector\033[0m   \033[2;37m\xe2\x80\x94   write your MCP server once \xc2\xb7 ship to every agent CLI\033[0m\n'
-  printf '  \033[2;37mnpm i -g @ken-jo/agent-connector   \xc2\xb7   github.com/ken-jo/agent-connector\033[0m\n'
+  printf '  \033[1;36magent-connector\033[0m   \033[2;37m\xe2\x80\x94   framework for branded MCP packages \xc2\xb7 usage telemetry utility\033[0m\n'
+  printf '  \033[2;37mnpx @acme/acme-db-mcp install   \xc2\xb7   npx @ken-jo/agent-connector usage report\033[0m\n'
   printf '\n'
 } > "$BUILD_DIR/closer.txt"
 
@@ -230,19 +230,16 @@ Enter
 Show
 Sleep 1200ms
 
-Type "# grab a connector project, then deploy it to ALL your CLIs at once:"
+Type "# no connector needed: inspect token usage from the agent CLIs you already use"
 Enter
 Sleep 400ms
-Type "cd acme-db                      # a connector project (agent-connector.config.mjs)"
+Type "agent-connector usage report --by platform --since 7d"
 Enter
-Sleep 300ms
-Type "agent-connector install         # auto-discovers the config -> every CLI at once"
-Enter
-Sleep 3800ms
+Sleep 2500ms
 
-Type "agent-connector uninstall --purge"
+Type "agent-connector usage leaderboard --by model --since 7d"
 Enter
-Sleep 3800ms
+Sleep 2500ms
 
 Hide
 Type "clear"
