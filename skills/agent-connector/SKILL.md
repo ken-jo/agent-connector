@@ -40,7 +40,9 @@ acting:
   "make this easy for AI agents" surfaces.
 
 For exhaustive field-level detail, use `llms-full.txt`. For the short map, use
-`llms.txt`. The public website mirrors these docs under `/docs/dev`.
+`llms.txt`. For current host coverage and platform count, use the website
+`/coverage` page; do not copy a fixed count into this skill. The public website
+mirrors developer docs under `/docs/dev`.
 
 ## Default Agent Procedure
 

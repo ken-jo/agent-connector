@@ -170,10 +170,12 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
   });
 
   // ── Inline registry-count prose (the freshness sweep guards this) ─────────
-  it("every inline registry-count phrase equals the adapter registry length", () => {
+  it("inline registry-count prose stays centralized and current", () => {
     const expected = ADAPTER_REGISTRY.length;
     // sanity: the idioms must actually be present, or the guard guards nothing
-    // (a refactor that renamed every phrasing should make us notice).
+    // (a refactor that renamed every phrasing should make us notice). The skill
+    // stays a small router and must link to canonical coverage/reference pages
+    // instead of carrying another fixed host count.
     const llmsHits = registryCounts(LLMS);
     const skillHits = registryCounts(SKILL);
     expect(
@@ -181,14 +183,16 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
       "llms.txt has no inline registry-count idiom — the guard would be a no-op",
     ).toBeGreaterThanOrEqual(1);
     expect(
-      skillHits.length,
-      "SKILL.md has no inline registry-count idiom — the guard would be a no-op",
-    ).toBeGreaterThanOrEqual(1);
+      skillHits,
+      "SKILL.md should route to canonical coverage/reference docs instead of duplicating a fixed registry count",
+    ).toEqual([]);
+    expect(SKILL).toContain("/coverage");
+    expect(SKILL).toContain("llms.txt");
+    expect(SKILL).toContain("llms-full.txt");
 
     for (const [name, text] of [
       ["llms.txt", LLMS],
       ["llms-full.txt", LLMS_FULL],
-      ["skills/agent-connector/SKILL.md", SKILL],
     ] as const) {
       for (const { num, phrase } of registryCounts(text)) {
         expect(
