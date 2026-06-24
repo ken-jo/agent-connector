@@ -252,6 +252,16 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     }
   });
 
+  it("llms.txt keeps branded lifecycle separate from framework packaging", () => {
+    const line = bullet(LLMS, "- **(A) MCP developer**");
+    expect(line, "llms.txt is missing the MCP developer audience bullet").toBeTruthy();
+    expect(line).toContain("branded lifecycle");
+    expect(line).toContain("through your package/bin");
+    expect(line).toContain("Distribution artifacts use framework tooling");
+    expect(line).toContain("npx @ken-jo/agent-connector package --connector");
+    expect(line).not.toContain("doctor/detect/status, package");
+  });
+
   it("robot docs package command names every PackageFormat the emitter ships", () => {
     const line = bullet(LLMS, "- `package");
     expect(line, "llms.txt is missing the `package` command bullet").toBeTruthy();
