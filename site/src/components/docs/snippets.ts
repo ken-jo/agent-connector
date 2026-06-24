@@ -66,24 +66,44 @@ export default defineConnector({
 
 const hookHosts = await hostsSupporting("hooks");`;
 
-export const cliBackedMcpSnippet = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
+export const serverLaunchShapesSnippet = `import { fileURLToPath } from "node:url";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
-export default defineConnector({
-  // Context-compression MCPs such as Headroom-style tools often ship as a
-  // local CLI. package.json still owns the wrapper identity and bin; this
-  // server block only says how to launch the real MCP process.
-  server: {
+const localServerPath = fileURLToPath(
+  new URL("./my-mcp-server.mjs", import.meta.url),
+);
+
+const serverShapes = {
+  packageRunner: {
     transport: "stdio",
-    command: "headroom",
+    command: "npx",
+    args: ["-y", "@acme/acme-db-mcp"],
+  },
+  localProcess: {
+    transport: "stdio",
+    command: "node",
+    args: [localServerPath],
+  },
+  pythonProcess: {
+    transport: "stdio",
+    command: "uv",
+    args: ["run", "--with", "mcp", "./my_mcp_server.py"],
+  },
+  cliBased: {
+    transport: "stdio",
+    command: "local-tools",
     args: ["mcp", "serve"],
   },
-  memory: [
-    {
-      name: "context-compression-guidance",
-      content:
-        "Use compression for large logs/search results; retrieve originals by hash before making irreversible decisions.",
-    },
-  ],
+  remoteServer: {
+    transport: "http",
+    url: "https://mcp.example.com/mcp",
+  },
+} as const;
+
+export default defineConnector({
+  // Choose the one server shape that matches the MCP you are building.
+  // package.json still owns public identity: name, mcpName, bin, version.
+  server: serverShapes.packageRunner,
 });`;
 
 /**

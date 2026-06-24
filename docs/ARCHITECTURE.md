@@ -350,7 +350,7 @@ the default).
 ## 7. Public API (write once)
 
 ```ts
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
   // package.json name/mcpName/bin/version are the default metadata source.
@@ -473,7 +473,7 @@ honest per-host reach, offline, before you touch a real host.
 
 ```
 agent-connector detect                       # installed platforms + scope + capabilities + paradigm
-agent-connector install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]
+agent-connector install [--scope user|project] [--targets a,b] [--connector path] [--dry-run]   # framework fallback / CI-debug; branded package/bin is the normal user path
 agent-connector uninstall [--targets ...] [--purge]   # full inverse — removes server + hook registrations; --purge also drops the connector's home state record (+ the shared launcher when none remain)
 agent-connector upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
 agent-connector doctor [--probe]             # per-platform health checks; --probe = live MCP handshake (initialize → ping → tools/list)

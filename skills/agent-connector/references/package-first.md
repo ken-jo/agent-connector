@@ -51,14 +51,17 @@ Example:
 
 Use examples that match the MCP's product category:
 
-- Database/API MCP: `@acme/acme-db-mcp`, `mcpName:
-  io.github.acme/acme-db`, bin `acme-db`, server launched by `npx` or a local
-  Node entrypoint, optional write-confirmation hooks.
-- Context-compression MCP, Headroom-style: wrapper package such as
-  `@acme/context-cache-mcp`, `mcpName: io.github.acme/context-cache`, bin
-  `context-cache`, server launched by an existing CLI such as `headroom mcp
-  serve`, and memory/skills explaining compress/retrieve/stats behavior.
-- Remote/SaaS MCP: wrapper package/bin still owns install/doctor/uninstall,
+- Package-runner MCP: wrapper package/bin owns install/doctor/uninstall and
+  `server.command` launches `npx -y <package>`.
+- Local server-process MCP: wrapper package/bin owns install/doctor/uninstall
+  and `server.command` launches `node <server-file>` or another bundled process.
+- Python MCP: wrapper package/bin owns install/doctor/uninstall and
+  `server.command` should usually launch `uv run --with mcp <server.py>`; use
+  direct `python <server.py>` only when the environment is managed elsewhere.
+- CLI-based MCP: wrapper package/bin owns install/doctor/uninstall and
+  `server.command` launches an existing executable such as `local-tools mcp
+  serve`.
+- Remote server MCP: wrapper package/bin still owns install/doctor/uninstall,
   while `server.transport: "http"` points at the remote MCP endpoint.
 
 The package-first rule is the same in all cases. Only the server launch shape
@@ -94,9 +97,17 @@ Development fallback:
 npx @ken-jo/agent-connector install --connector ./agent-connector.config.mjs
 ```
 
+Good for connector-free token telemetry:
+
+```bash
+npm i -g @ken-jo/agent-connector
+agent-connector usage report
+```
+
 Bad as normal user guidance:
 
 ```bash
+# bad as normal user install guidance; use only as framework fallback/debug
 npm i -g @ken-jo/agent-connector
 agent-connector install --connector ./agent-connector.config.mjs
 ```

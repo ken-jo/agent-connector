@@ -948,11 +948,22 @@ interface ResolvedConnector {
 ### 2.10 Full example (server + hooks + commands + skills)
 
 The example below is database-shaped. Do not generalize that into "all MCPs are
-database/write-guard MCPs." For a Headroom-style context-compression MCP, keep
-package identity in `package.json` and launch the real CLI with a server shape
-such as `{ transport: "stdio", command: "headroom", args: ["mcp", "serve"] }`;
-use memory/skills to teach compress/retrieve/stats behavior instead of adding
-irrelevant write-confirmation hooks.
+database/write-guard MCPs." Match the MCP launch shape to the product:
+package-runner MCP (`npx -y <package>`), local Node/process MCP (`node
+<server-file>`), Python MCP (`uv run --with mcp <server.py>` by default, direct
+`python <server.py>` only when the environment is managed elsewhere), CLI-based
+MCP (`<mcp-cli> mcp serve`), or remote server MCP (`transport: "http"` + URL).
+Keep package identity in `package.json`, then add memory/skills only when they
+reflect that MCP's actual behavior.
+
+Framework relationship: `package.json` is public identity, `bin.mjs` exposes the
+developer's branded command via `createConnectorCli({ packageJson, connector })`,
+and `defineConnector({ server })` points at the actual MCP process or remote URL.
+Install renders native host config from that one declaration. Stdio servers are
+launched through the stable home binary (`agent-connector serve ... -- <real
+cmd>`) so per-tool telemetry can be measured; remote HTTP servers are registered
+by URL where the host supports remote MCP and have no local stdio process to
+wrap.
 
 ```ts
 import { defineConnector } from "@ken-jo/agent-connector/sdk";
@@ -989,7 +1000,10 @@ export default defineConnector({
 });
 ```
 
-`agent-connector install` turns the server into, e.g.:
+The normal foreground command is the developer package/bin:
+`npx @acme/acme-db-mcp install` or `acme-db install`. The framework fallback
+`agent-connector install --connector ...` renders the same artifacts during
+local development, CI, or debugging. Either path turns the server into, e.g.:
 
 | Host | What gets written |
 |---|---|

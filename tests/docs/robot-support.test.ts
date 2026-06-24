@@ -97,17 +97,25 @@ async function hostsWithCapability(
 }
 
 describe("robot docs drift guard — llms.txt + llms-full.txt (code is the source of truth)", () => {
-  it("keeps non-database MCP server shapes visible to agents", () => {
+  it("keeps all MCP server launch shapes visible to agents", () => {
     // The docs use acme-db as one concrete sample, but agents must not infer
-    // that every MCP is a database package launched through npx. Headroom-style
-    // context-compression servers are the counterexample that keeps the
-    // package-first contract product-neutral.
-    expect(LLMS).toContain("Headroom-style context-compression MCPs");
-    expect(LLMS).toContain("headroom mcp serve");
-    expect(LLMS_FULL).toContain("Headroom-style context-compression MCP");
-    expect(LLMS_FULL).toContain('command: "headroom"');
+    // that every MCP is a database package launched through npx. The launch
+    // shape list keeps the package-first contract product-neutral.
+    expect(LLMS).toContain("package-runner MCPs");
+    expect(LLMS).toContain("local Node/process MCPs");
+    expect(LLMS).toContain("uv run --with mcp <server.py>");
+    expect(LLMS).toContain("CLI-based MCPs");
+    expect(LLMS).toContain("remote server MCPs");
+    expect(LLMS).toContain("<mcp-cli> mcp serve");
+    expect(LLMS_FULL).toContain("local Node/process MCP");
+    expect(LLMS_FULL).toContain("Python MCP");
+    expect(LLMS_FULL).toContain("remote server MCP");
     expect(SKILL).toContain("packageJson");
-    expect(AUTHORING_REFERENCE).toContain("CLI-backed context MCP, Headroom-style");
+    expect(AUTHORING_REFERENCE).toContain("Package-runner MCP");
+    expect(AUTHORING_REFERENCE).toContain("Local server-process MCP");
+    expect(AUTHORING_REFERENCE).toContain("Python MCP");
+    expect(AUTHORING_REFERENCE).toContain("CLI-based MCP");
+    expect(AUTHORING_REFERENCE).toContain("Remote server MCP");
     expect(PACKAGE_FIRST_REFERENCE).toContain("Balanced Example Families");
   });
 

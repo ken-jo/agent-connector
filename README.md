@@ -98,15 +98,82 @@ export default defineConnector({
 });
 ```
 
-> While developing, `server.command` can be `node` + a local file path (as
-> above); once your server is a published package, switch to `npx` + the package
-> name (`command: "npx", args: ["-y", "@acme/acme-db-mcp"]`) — the form the
-> [site quick-start](https://agent-connector.ai) teaches.
-> For CLI-backed MCPs, keep the same package/bin wrapper but point
-> `server.command` at the real process instead. A context-compression MCP in the
-> style of Headroom would use a shape like `command: "headroom", args: ["mcp",
-> "serve"]`, and would usually add memory/skills about compress/retrieve/stats
-> behavior rather than database write-confirmation hooks.
+The wiring contract is:
+
+1. `package.json` defines the public product identity (`name`, `mcpName`, `bin`,
+   `version`).
+2. `bin.mjs` calls `createConnectorCli({ packageJson, connector })` so every
+   install/doctor/upgrade/uninstall command runs under the developer's brand.
+3. `agent-connector.config.*` uses `defineConnector({ server, ...surfaces })` to
+   describe the real MCP launch shape or remote endpoint.
+4. `install` renders that single declaration into each detected host's native
+   MCP config. For stdio processes, the host points at the stable
+   agent-connector home binary, which launches the real command and can measure
+   per-tool traffic. For remote HTTP servers, the host receives the URL where
+   supported; there is no stdio process to wrap.
+
+### MCP server launch examples
+
+Pick the `server` shape that matches the MCP you are building. The wrapper
+package identity still comes from `package.json`; these examples only describe
+how to start or connect to the actual MCP server.
+
+**Package-runner MCP** — a published package that should be launched with `npx`:
+
+```js
+server: {
+  transport: "stdio",
+  command: "npx",
+  args: ["-y", "@acme/acme-db-mcp"],
+}
+```
+
+**Local server-process MCP** — a bundled server file or binary:
+
+```js
+import { fileURLToPath } from "node:url";
+
+const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
+
+server: {
+  transport: "stdio",
+  command: "node",
+  args: [serverPath],
+}
+```
+
+**Python MCP** — usually run through `uv` so dependencies are resolved with the
+server:
+
+```js
+server: {
+  transport: "stdio",
+  command: "uv",
+  args: ["run", "--with", "mcp", "./my_mcp_server.py"],
+}
+```
+
+Use direct `python ./my_mcp_server.py` only when the runtime environment is
+already managed by your package or deployment wrapper.
+
+**CLI-based MCP** — an existing executable exposes an MCP mode:
+
+```js
+server: {
+  transport: "stdio",
+  command: "local-tools",
+  args: ["mcp", "serve"],
+}
+```
+
+**Remote server MCP** — a hosted MCP endpoint:
+
+```js
+server: {
+  transport: "http",
+  url: "https://mcp.example.com/mcp",
+}
+```
 
 ```bash
 # 4. deploy under your branded MCP package/bin

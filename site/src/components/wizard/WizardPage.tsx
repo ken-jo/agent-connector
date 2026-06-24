@@ -12,7 +12,7 @@ import { canonicalEvents } from "@/components/docs/hooks-matrix";
 const CONTENT_ID = "wizard-content";
 
 const WIZARD_DESCRIPTION =
-  "Generate package-aware defineConnector code for a branded MCP package — pick your package, transport, hook events and surfaces and copy the scaffold.";
+  "Generate package-aware defineConnector code for a branded MCP package — pick your package, launch shape, hook events and surfaces and copy the scaffold.";
 
 /** npm package + bin, injected from the real package.json at build time. */
 const PACKAGE_NAME = __AGENT_CONNECTOR_PACKAGE_NAME__;
@@ -33,9 +33,43 @@ const SURFACES = [
 
 type SurfaceKey = (typeof SURFACES)[number]["key"];
 type Transport = "stdio" | "http";
+type LaunchShape = "package" | "node" | "python" | "cli" | "remote";
+
+const LAUNCH_SHAPES: readonly {
+  key: LaunchShape;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "package",
+    label: "Package runner",
+    hint: "Run a published package with npx.",
+  },
+  {
+    key: "node",
+    label: "Node/local process",
+    hint: "Run a bundled server file or binary.",
+  },
+  {
+    key: "python",
+    label: "Python/uv process",
+    hint: "Run a Python MCP server through uv.",
+  },
+  {
+    key: "cli",
+    label: "CLI-based",
+    hint: "Run an MCP mode exposed by a CLI.",
+  },
+  {
+    key: "remote",
+    label: "Remote server",
+    hint: "Connect to an HTTP MCP endpoint.",
+  },
+] as const;
 
 interface WizardState {
   packageName: string;
+  launchShape: LaunchShape;
   transport: Transport;
   command: string;
   args: string;
@@ -48,6 +82,7 @@ interface WizardState {
 
 const INITIAL: WizardState = {
   packageName: "@acme/acme-db-mcp",
+  launchShape: "package",
   transport: "stdio",
   command: "npx",
   args: "-y",
@@ -121,6 +156,44 @@ function cleanPackageBasename(raw: string): string | undefined {
 function deriveBinName(packageName: string): string {
   const [, scopedBase] = packageName.trim().match(/^@[^/]+\/(.+)$/) ?? [];
   return cleanPackageBasename(scopedBase ?? packageName) ?? "your-mcp";
+}
+
+function withLaunchShape(state: WizardState, launchShape: LaunchShape): WizardState {
+  switch (launchShape) {
+    case "package":
+      return { ...state, launchShape, transport: "stdio", command: "npx", args: "-y" };
+    case "node":
+      return {
+        ...state,
+        launchShape,
+        transport: "stdio",
+        command: "node",
+        args: "./my-mcp-server.mjs",
+      };
+    case "python":
+      return {
+        ...state,
+        launchShape,
+        transport: "stdio",
+        command: "uv",
+        args: "run, --with, mcp, ./my_mcp_server.py",
+      };
+    case "cli":
+      return {
+        ...state,
+        launchShape,
+        transport: "stdio",
+        command: "local-tools",
+        args: "mcp, serve",
+      };
+    case "remote":
+      return {
+        ...state,
+        launchShape,
+        transport: "http",
+        url: state.url || "https://mcp.example.com/mcp",
+      };
+  }
 }
 
 function generateBin(): string {
@@ -404,6 +477,10 @@ export function WizardPage() {
       setState((s) => ({ ...s, [key]: value })),
     [],
   );
+  const setLaunchShape = React.useCallback(
+    (shape: LaunchShape) => setState((s) => withLaunchShape(s, shape)),
+    [],
+  );
 
   const generated = React.useMemo(() => generateConnector(state), [state]);
   const generatedBin = React.useMemo(() => generateBin(), []);
@@ -454,7 +531,7 @@ export function WizardPage() {
                 <Field
                   id="wiz-package"
                   label="MCP package"
-                  hint="Your wrapper package identity. It may launch its own Node MCP package, an existing CLI such as headroom, or a remote endpoint; there is still no separate connector id field."
+                  hint="Your wrapper package identity. The launch shape below decides whether it runs a package, local process, CLI-based MCP, or remote server; there is still no separate connector id field."
                 >
                   <input
                     id="wiz-package"
@@ -479,29 +556,34 @@ export function WizardPage() {
                     ring renders on the label via peer-focus-visible. */}
                 <fieldset className="flex flex-col gap-1.5">
                   <legend className="mb-1.5 text-sm font-medium text-foreground">
-                    Transport
+                    Launch shape
                   </legend>
-                  <div className="flex gap-2">
-                    {(["stdio", "http"] as const).map((t) => (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {LAUNCH_SHAPES.map((shape) => (
                       <label
-                        key={t}
+                        key={shape.key}
                         className={cn(
-                          "flex flex-1 cursor-pointer items-center justify-center rounded-md border px-3 py-2 font-mono text-sm transition-colors",
+                          "flex cursor-pointer flex-col rounded-md border px-3 py-2 transition-colors",
                           "has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-                          state.transport === t
+                          state.launchShape === shape.key
                             ? "border-primary bg-primary/10 text-foreground"
                             : "border-border bg-background text-muted-foreground hover:text-foreground",
                         )}
                       >
                         <input
                           type="radio"
-                          name="transport"
-                          value={t}
-                          checked={state.transport === t}
-                          onChange={() => set("transport", t)}
+                          name="launch-shape"
+                          value={shape.key}
+                          checked={state.launchShape === shape.key}
+                          onChange={() => setLaunchShape(shape.key)}
                           className="sr-only"
                         />
-                        {t}
+                        <span className="text-sm font-medium text-foreground">
+                          {shape.label}
+                        </span>
+                        <span className="mt-0.5 text-xs text-muted-foreground">
+                          {shape.hint}
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -512,7 +594,7 @@ export function WizardPage() {
                     <Field
                       id="wiz-command"
                       label="Command"
-                      hint="The executable that launches your MCP server: npx for Node packages, or an existing CLI such as headroom."
+                      hint="The executable that launches your MCP server: npx for Node packages, or an existing context CLI."
                     >
                       <input
                         id="wiz-command"
@@ -526,7 +608,7 @@ export function WizardPage() {
                     <Field
                       id="wiz-args"
                       label="Runner args"
-                      hint="Comma-separated args. For npx, the package name is appended automatically; for CLI-backed MCPs, use values such as mcp, serve."
+                      hint="Comma-separated args. For npx, the package name is appended automatically; for CLI-based MCPs, use values such as mcp, serve."
                     >
                       <input
                         id="wiz-args"
@@ -556,7 +638,7 @@ export function WizardPage() {
                   <Field
                     id="wiz-url"
                     label="URL"
-                    hint="The remote MCP endpoint."
+                    hint="The remote server MCP endpoint."
                   >
                     <input
                       id="wiz-url"

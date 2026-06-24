@@ -221,18 +221,31 @@ export function SdkOverview() {
         filename="agent-connector.config.mjs"
       />
 
-      <H3 id="sdk-cli-backed-mcp">CLI-backed MCP servers</H3>
+      <H3 id="sdk-server-shapes">MCP server launch shapes</H3>
       <P>
-        Not every MCP starts as a Node package. Context-compression servers such
-        as Headroom-style tools may already expose their own local CLI. Keep the
-        wrapper package&apos;s <C>package.json</C> as the public identity, then
-        point <C>server.command</C> at the real MCP process.
+        Not every MCP starts the same way. A package-runner MCP can launch with{" "}
+        <C>npx -y &lt;package&gt;</C>, a local Node/process MCP can launch with{" "}
+        <C>node &lt;server-file&gt;</C>, a Python MCP should usually launch with{" "}
+        <C>uv run --with mcp &lt;server.py&gt;</C>, a CLI-based MCP can launch an
+        existing executable, and a remote server MCP should use HTTP transport.
+        In all cases, keep the wrapper package&apos;s <C>package.json</C> as the
+        public identity and point the server block at the real MCP process or
+        URL.
       </P>
       <CodeBlock
-        code={S.cliBackedMcpSnippet}
+        code={S.serverLaunchShapesSnippet}
         language="ts"
         filename="agent-connector.config.mjs"
       />
+
+      <Callout title="How the framework wires it">
+        <C>package.json</C> supplies public identity. Your <C>bin.mjs</C> wraps{" "}
+        <C>createConnectorCli</C> under that brand. <C>defineConnector</C> points
+        at the real MCP process or URL. Install then renders native host config
+        from that single declaration. Stdio processes can be launched through the
+        stable home binary for per-tool telemetry; remote HTTP servers are
+        registered by URL where the host supports them.
+      </Callout>
 
       <H3 id="sdk-cli-boundary">CLI boundary</H3>
       <P>
