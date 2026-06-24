@@ -86,6 +86,41 @@ your tools cost" (developer's own wrapped server) with "see what the MCPs you us
 
 ---
 
+## 0.1 Agent authoring contract
+
+When an AI agent is asked to create, modify, review, or document an
+agent-connector integration:
+
+1. Read the target package's `package.json` first.
+2. Treat `package.json` `name`, `mcpName`, `bin`, and `version` as the source of
+   truth for public package identity, MCP identity, host alias/display label,
+   branded command, and connector version.
+3. Do **not** ask for a separate connector id, display name, bin name, or version
+   unless package metadata is absent or the user explicitly needs a
+   legacy/multi-instance override.
+4. Use `@ken-jo/agent-connector/sdk` for new authoring code (`defineConnector`,
+   typed `define*` helpers, `hostsSupporting`, `capabilitiesOf`,
+   `surfaceSupport`). Use `@ken-jo/agent-connector/cli` only inside the
+   developer package's bin via `createConnectorCli({ packageJson, connector })`:
+   `packageJson` supplies public identity; `connector` supplies behavior, so
+   these are two layers rather than duplicate id/display-name inputs.
+5. Foreground the developer's branded MCP package/bin in generated docs and
+   commands: `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, etc.
+   Use `npx @ken-jo/agent-connector ... --connector` only as a local framework
+   development/debug fallback.
+6. Verify before claiming success: run typecheck/tests, use
+   `@ken-jo/agent-connector/sdk/test` (`explain`, `simulate`, `explainHooks`)
+   for offline host behavior when relevant, then run `doctor --probe` for a live
+   stdio MCP handshake when a real host/server is available.
+
+The skill-form entry point is intentionally small and reference-driven:
+`skills/agent-connector/SKILL.md` routes agents to
+`references/package-first.md`, `references/authoring.md`,
+`references/cli-workflow.md`, `references/telemetry.md`, and
+`references/agent-readiness.md`.
+
+---
+
 ## 1. Mental model
 
 Two pillars (see `docs/ARCHITECTURE.md`):
@@ -128,7 +163,7 @@ Operating model (home-dir-centric, single binary, per-project data):
 ## 2. The public API — `defineConnector(config: ConnectorConfig): ResolvedConnector`
 
 ```ts
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 export default defineConnector({ /* ConnectorConfig */ });
 ```
 
@@ -912,12 +947,31 @@ interface ResolvedConnector {
 
 ### 2.10 Full example (server + hooks + commands + skills)
 
+The example below is database-shaped. Do not generalize that into "all MCPs are
+database/write-guard MCPs." Match the MCP launch shape to the product:
+package-runner MCP (`npx -y <package>`), local Node/process MCP (`node
+<server-file>`), Python MCP (`uv run --with mcp <server.py>` by default, direct
+`python <server.py>` only when the environment is managed elsewhere), CLI-based
+MCP (`<mcp-cli> mcp serve`), or remote server MCP (`transport: "http"` + URL).
+Keep package identity in `package.json`, then add memory/skills only when they
+reflect that MCP's actual behavior.
+
+Framework relationship: `package.json` is public identity, `bin.mjs` exposes the
+developer's branded command via `createConnectorCli({ packageJson, connector })`,
+and `defineConnector({ server })` points at the actual MCP process or remote URL.
+Install renders native host config from that one declaration. Stdio servers are
+launched through the stable home binary (`agent-connector serve ... -- <real
+cmd>`) so per-tool telemetry can be measured; remote HTTP servers are registered
+by URL where the host supports remote MCP and have no local stdio process to
+wrap.
+
 ```ts
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
   // package.json / npm metadata is the source of truth:
   // name/mcpName/bin/version derive the install id, host label, bin, and version.
+  // Host-native ids are generated during install; don't copy them back here as id/displayName.
   server: {
     transport: "stdio",
     command: "npx",
@@ -946,7 +1000,10 @@ export default defineConnector({
 });
 ```
 
-`agent-connector install` turns the server into, e.g.:
+The normal foreground command is the developer package/bin:
+`npx @acme/acme-db-mcp install` or `acme-db install`. The framework fallback
+`agent-connector install --connector ...` renders the same artifacts during
+local development, CI, or debugging. Either path turns the server into, e.g.:
 
 | Host | What gets written |
 |---|---|
@@ -1059,16 +1116,21 @@ exists).
 
 ### package
 `agent-connector package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]`
-Emit a marketplace/extension-installable bundle into `--out` (default
+`package` is framework tooling, not a branded MCP lifecycle command: use
+`npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs`
+or a global `agent-connector package` CLI. Keep `install`, `doctor`,
+`upgrade`/`update`, `uninstall`, and connector telemetry under the branded MCP
+package/bin. The command emits a marketplace/extension-installable bundle into `--out` (default
 `<cwd>/dist-plugin`), printing the emitted file tree + per-format install
-instructions. Host formats (default `claude-plugin`; `--format all` emits all 9):
-claude-plugin · codex-plugin · factory-plugin · gemini-extension · qwen-extension ·
-agy-plugin · cursor-plugin · kimi-plugin · npm-plugin. Two OFFICIAL MCP standard
-artifacts are emitted only by explicit name (they require the connector's `publish`
-block and are excluded from `all`): `mcp-server-json` (an MCP Registry server.json,
-schema 2025-12-11, describing your REAL upstream server — not the serve wrapper) and
-`mcpb` (an MCPB manifest, manifest_version 0.3). Bundled hooks + MCP keep the
-home-bin pointer and the telemetry serve-wrapper.
+instructions. Host formats (default `claude-plugin`; `--format all` emits all 10):
+claude-plugin · codex-plugin · copilot-plugin · factory-plugin ·
+gemini-extension · qwen-extension · agy-plugin · cursor-plugin · kimi-plugin ·
+npm-plugin. Two OFFICIAL MCP standard artifacts are emitted only by explicit name
+(they require the connector's `publish` block and are excluded from `all`):
+`mcp-server-json` (an MCP Registry server.json, schema 2025-12-11, describing
+your REAL upstream server — not the serve wrapper) and `mcpb` (an MCPB manifest,
+manifest_version 0.3). Bundled hooks + MCP keep the home-bin pointer and the
+telemetry serve-wrapper.
 
 ### telemetry
 `agent-connector telemetry <report|export|leaderboard> [flags]` — per-MCP token
@@ -1275,9 +1337,10 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 
 ---
 
-## 6. Supported platforms (42, by hook paradigm)
+## 6. Supported platforms by hook paradigm
 
 `PlatformId` is a closed union; the adapter registry has one entry per platform.
+Current counts and per-host coverage are canonical at https://agent-connector.ai/coverage.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
 ### `json-stdio` — full hook dispatch (22)
@@ -1420,8 +1483,9 @@ npm run dev -- detect             # run the CLI from source via tsx
 ```
 
 Or ship a branded CLI: `createConnectorCli({ packageJson, connector })` from
-`agent-connector/cli` derives the bin/version from `package.json`, exposes every
-subcommand under your own bin, and auto-scopes to your connector (see
+`agent-connector/cli` keeps two layers separate: `packageJson` derives the
+public bin/version/name/mcpName, while `connector` points at the behavior file.
+It exposes every subcommand under your own bin and auto-scopes to your connector (see
 `examples/branded-cli`); explicit `--connector`/`--connector-id` always overrides.
 
 **Package subpaths:** `.` (root — full `define*` family: `defineConnector` +

@@ -127,9 +127,9 @@ const s = (
  * uncertain cells default to matching our support — no guessed gaps.
  *
  * Cross-cutting facts:
- *   - memory: 41 of the 42 hosts natively read a rules/memory file (AGENTS.md
- *     or a host-specific equivalent — Amazon Q reads .amazonq/rules, Continue
- *     reads .continue Rules, Windsurf reads .windsurfrules/global rules).
+ *   - memory: nearly every registered host natively reads a rules/memory file
+ *     (AGENTS.md or a host-specific equivalent — Amazon Q reads .amazonq/rules,
+ *     Continue reads .continue Rules, Windsurf reads .windsurfrules/global rules).
  *     hostNative.memory=true everywhere except mistral-vibe (MCP-only, no
  *     rules/memory surface byte-confirmed).
  *   - hooks: the 25 json-stdio/ts-plugin hosts all expose a native hook or
@@ -860,7 +860,7 @@ export const hostSource: Record<string, HostSource> = {
 /**
  * Per-host BRAND COLOR — the host's recognizable primary color, used to tint the
  * host NAME on the landing coverage marquee (CoverageMarquee.tsx). One hex per
- * platform id (all 42 covered; drift-guarded — every platform id must have
+ * platform id (registry-covered and drift-guarded — every platform id must have
  * exactly one entry, see tests/docs/platform-drift.test.ts).
  *
  * LEGIBILITY CONSTRAINT (the marquee renders on a near-black bg in dark mode and

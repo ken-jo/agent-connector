@@ -29,6 +29,14 @@ import * as sdk from "../../src/sdk/index.js";
 const LLMS = readFileSync("llms.txt", "utf8");
 const LLMS_FULL = readFileSync("llms-full.txt", "utf8");
 const SKILL = readFileSync("skills/agent-connector/SKILL.md", "utf8");
+const AUTHORING_REFERENCE = readFileSync(
+  "skills/agent-connector/references/authoring.md",
+  "utf8",
+);
+const PACKAGE_FIRST_REFERENCE = readFileSync(
+  "skills/agent-connector/references/package-first.md",
+  "utf8",
+);
 
 /**
  * Inline registry-count idioms — the prose phrasings that quote the adapter
@@ -37,9 +45,9 @@ const SKILL = readFileSync("skills/agent-connector/SKILL.md", "utf8");
  * number in group 1; the guard asserts it === ADAPTER_REGISTRY.length so a stale
  * "36"/"35"/"40" can never be reintroduced.
  *
- * Deliberately SCOPED to the registry-count idioms only — it must NOT match the
- * AGENTS.md "most supporting hosts" rephrase, paradigm subtotals (22/12/8),
- * byte/line sizes, version strings, or the "N of 42" AGENTS readership ratio.
+ * Deliberately SCOPED to the registry-count idioms only — it must NOT match
+ * paradigm subtotals, byte/line sizes, version strings, or prose that points to
+ * the coverage page as the canonical host-count source.
  */
 const REGISTRY_COUNT_PATTERNS: readonly RegExp[] = [
   /\b(\d+) registered(?: deploy)? adapters?\b/g,
@@ -89,12 +97,37 @@ async function hostsWithCapability(
 }
 
 describe("robot docs drift guard — llms.txt + llms-full.txt (code is the source of truth)", () => {
+  it("keeps all MCP server launch shapes visible to agents", () => {
+    // The docs use acme-db as one concrete sample, but agents must not infer
+    // that every MCP is a database package launched through npx. The launch
+    // shape list keeps the package-first contract product-neutral.
+    expect(LLMS).toContain("package-runner MCPs");
+    expect(LLMS).toContain("local Node/process MCPs");
+    expect(LLMS).toContain("uv run --with mcp <server.py>");
+    expect(LLMS).toContain("CLI-based MCPs");
+    expect(LLMS).toContain("remote server MCPs");
+    expect(LLMS).toContain("<mcp-cli> mcp serve");
+    expect(LLMS_FULL).toContain("local Node/process MCP");
+    expect(LLMS_FULL).toContain("Python MCP");
+    expect(LLMS_FULL).toContain("remote server MCP");
+    expect(SKILL).toContain("packageJson");
+    expect(AUTHORING_REFERENCE).toContain("Package-runner MCP");
+    expect(AUTHORING_REFERENCE).toContain("Local server-process MCP");
+    expect(AUTHORING_REFERENCE).toContain("Python MCP");
+    expect(AUTHORING_REFERENCE).toContain("CLI-based MCP");
+    expect(AUTHORING_REFERENCE).toContain("Remote server MCP");
+    expect(PACKAGE_FIRST_REFERENCE).toContain("Balanced Example Families");
+  });
+
   // ── Paradigm partition (migrated from platform-drift) ────────────────────
-  it("llms.txt paradigm bullets name EXACTLY the registry ids, and the heading count is current", async () => {
+  it("llms.txt paradigm bullets name EXACTLY the registry ids and point counts to coverage", async () => {
     const truth = await registryParadigms();
-    expect(LLMS).toContain(
-      `## Supported platforms by paradigm (${ADAPTER_REGISTRY.length})`,
-    );
+    expect(LLMS).toContain("## Supported platforms by paradigm");
+    expect(LLMS_FULL).toContain("## 6. Supported platforms by hook paradigm");
+    expect(LLMS).toContain("https://agent-connector.ai/coverage");
+    expect(LLMS_FULL).toContain("https://agent-connector.ai/coverage");
+    expect(LLMS).not.toMatch(/^## Supported platforms by paradigm \(\d+\)$/m);
+    expect(LLMS_FULL).not.toMatch(/^## 6\. Supported platforms \(\d+, by hook paradigm\)$/m);
     for (const [paradigm, ids] of Object.entries(truth)) {
       const line = bullet(LLMS, `- \`${paradigm}\``);
       expect(line, `llms.txt is missing the ${paradigm} bullet`).toBeTruthy();
@@ -170,33 +203,25 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
   });
 
   // ── Inline registry-count prose (the freshness sweep guards this) ─────────
-  it("every inline registry-count phrase equals the adapter registry length", () => {
-    const expected = ADAPTER_REGISTRY.length;
-    // sanity: the idioms must actually be present, or the guard guards nothing
-    // (a refactor that renamed every phrasing should make us notice).
+  it("inline registry-count prose routes to coverage instead of duplicating counts", () => {
     const llmsHits = registryCounts(LLMS);
     const skillHits = registryCounts(SKILL);
+    const fullHits = registryCounts(LLMS_FULL);
     expect(
-      llmsHits.length,
-      "llms.txt has no inline registry-count idiom — the guard would be a no-op",
-    ).toBeGreaterThanOrEqual(1);
+      llmsHits,
+      "llms.txt should route host counts to /coverage instead of duplicating a fixed registry count",
+    ).toEqual([]);
     expect(
-      skillHits.length,
-      "SKILL.md has no inline registry-count idiom — the guard would be a no-op",
-    ).toBeGreaterThanOrEqual(1);
-
-    for (const [name, text] of [
-      ["llms.txt", LLMS],
-      ["llms-full.txt", LLMS_FULL],
-      ["skills/agent-connector/SKILL.md", SKILL],
-    ] as const) {
-      for (const { num, phrase } of registryCounts(text)) {
-        expect(
-          num,
-          `${name} quotes a stale registry count: "${phrase}" (expected ${expected})`,
-        ).toBe(expected);
-      }
-    }
+      skillHits,
+      "SKILL.md should route to canonical coverage/reference docs instead of duplicating a fixed registry count",
+    ).toEqual([]);
+    expect(
+      fullHits,
+      "llms-full.txt should keep free-prose registry counts out of prose; paradigm heading counts are guarded separately",
+    ).toEqual([]);
+    expect(SKILL).toContain("/coverage");
+    expect(SKILL).toContain("llms.txt");
+    expect(SKILL).toContain("llms-full.txt");
   });
 
   // ── NEW high-confidence guards ───────────────────────────────────────────
@@ -227,11 +252,31 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     }
   });
 
-  it("llms.txt package bullet names every PackageFormat the emitter ships", () => {
+  it("llms.txt keeps branded lifecycle separate from framework packaging", () => {
+    const line = bullet(LLMS, "- **(A) MCP developer**");
+    expect(line, "llms.txt is missing the MCP developer audience bullet").toBeTruthy();
+    expect(line).toContain("branded lifecycle");
+    expect(line).toContain("through your package/bin");
+    expect(line).toContain("Distribution artifacts use framework tooling");
+    expect(line).toContain("npx @ken-jo/agent-connector package --connector");
+    expect(line).not.toContain("doctor/detect/status, package");
+  });
+
+  it("robot docs package command names every PackageFormat the emitter ships", () => {
     const line = bullet(LLMS, "- `package");
     expect(line, "llms.txt is missing the `package` command bullet").toBeTruthy();
+    const fullPackageIdx = LLMS_FULL.indexOf("### package");
+    const fullTelemetryIdx = LLMS_FULL.indexOf("### telemetry", fullPackageIdx);
+    expect(fullPackageIdx, "llms-full.txt is missing the package section").toBeGreaterThan(-1);
+    expect(fullTelemetryIdx, "llms-full.txt package section terminator missing").toBeGreaterThan(-1);
+    const fullPackageSection = LLMS_FULL.slice(fullPackageIdx, fullTelemetryIdx);
+    expect(fullPackageSection).toContain("framework tooling, not a branded MCP lifecycle command");
     for (const fmt of ALL_FORMATS) {
       expect(line, `llms.txt package bullet is missing the "${fmt}" format`).toContain(fmt);
+      expect(
+        fullPackageSection,
+        `llms-full.txt package section is missing the "${fmt}" format`,
+      ).toContain(fmt);
     }
   });
 

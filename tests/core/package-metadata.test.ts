@@ -63,4 +63,16 @@ describe("MCP package metadata identity derivation", () => {
       }).hostAlias,
     ).toBe("github-octocorp");
   });
+
+  it("prefers an explicit MCP registry name over a package wrapper name", () => {
+    expect(
+      resolveMcpPackageIdentity({
+        mcp: {
+          packageName: "@acme/acme-db-example-mcp",
+          mcpName: "io.github.acme/acme-db",
+          bin: "acme-db-example",
+        },
+      }).hostAlias,
+    ).toBe("acme-db");
+  });
 });

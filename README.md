@@ -7,16 +7,16 @@
 ### Deploy one MCP to every agent CLI.
 
 Write your server + hooks once with `defineConnector()`, then `install` it into
-the native config — or `package` it as a real plugin — across **42 agent CLIs**
+the native config — or `package` it as a real plugin — across every detected agent CLI
 (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
 
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
-![platforms](https://img.shields.io/badge/platforms-42-2563eb)
+[![platform coverage](https://img.shields.io/badge/platform%20coverage-see%20%2Fcoverage-2563eb)](https://agent-connector.ai/coverage)
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
-![install verified](https://img.shields.io/badge/install%20verified-42%2F42-22c55e)
-![headless runtime](https://img.shields.io/badge/headless%20runtime-20%20CLIs%20activated-22c55e)
+[![install verified](https://img.shields.io/badge/install%20verified-registry%20harness-22c55e)](https://agent-connector.ai/coverage)
+[![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
 ![marketplace](https://img.shields.io/badge/package-10%20marketplace%20formats-2563eb)
 ![tests](https://img.shields.io/badge/tests-passing-22c55e)
 
@@ -31,7 +31,7 @@ if you already run an agent CLI and just want token totals, jump straight to
 - [CLI](#cli) — every command at a glance
 - [Token telemetry & usage](#token-telemetry--usage) — per-tool telemetry vs. connector-free `usage`
 - [Publish to the MCP ecosystem](#publish-to-the-mcp-ecosystem) — emit the official MCP standard artifacts
-- [Verification](#verification) — how the 42-platform contract is proven
+- [Verification](#verification) — how the platform coverage contract is proven
 
 <p align="center">
   <a href="examples/showcase-demo/">
@@ -51,8 +51,10 @@ agent-connector is an **SDK connector developers depend on**. Add it to the
 package that holds your connector, declare the connector once, then ship a
 branded MCP package/bin such as `npx @acme/acme-db-mcp install` — it deploys to
 every detected agent CLI in that host's own native config. Installing
-`@ken-jo/agent-connector` globally is only an optional path for connector-free
-token usage reports. The linear path is:
+`@ken-jo/agent-connector` globally is not the branded MCP lifecycle path; reserve
+the global CLI guidance for connector-free token usage reports. Framework
+artifact tooling stays developer-facing and normally runs through
+`npx @ken-jo/agent-connector ... --connector`. The linear path is:
 **get a server → declare it → install through your branded package**.
 
 **0. You need an MCP server file first.** The config below points at
@@ -80,14 +82,15 @@ npm install @ken-jo/agent-connector
 ```js
 // 3. agent-connector.config.mjs — declare your server + hooks once
 import { fileURLToPath } from "node:url";
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
 
 export default defineConnector({
   // package.json / npm metadata is the source of truth. The host alias/runtime
   // id and connector version are derived from name/mcpName/bin/version unless
-  // you need a multi-instance alias.
+  // you need a legacy or multi-instance alias. Host-native ids are generated
+  // during install, so do not copy them back into defineConnector({ id }).
   server: {
     transport: "stdio",
     command: "node",
@@ -97,10 +100,106 @@ export default defineConnector({
 });
 ```
 
-> While developing, `server.command` can be `node` + a local file path (as
-> above); once your server is a published package, switch to `npx` + the package
-> name (`command: "npx", args: ["-y", "@acme/acme-db-mcp"]`) — the form the
-> [site quick-start](https://agent-connector.ai) teaches.
+The wiring contract is:
+
+1. `package.json` defines the public product identity (`name`, `mcpName`, `bin`,
+   `version`).
+2. `bin.mjs` calls `createConnectorCli({ packageJson, connector })` so every
+   install/doctor/upgrade/uninstall command runs under the developer's brand.
+3. `agent-connector.config.*` uses `defineConnector({ server, ...surfaces })` to
+   describe the real MCP launch shape or remote endpoint.
+4. `install` renders that single declaration into each detected host's native
+   MCP config. For stdio processes, the host points at the stable
+   agent-connector home binary, which launches the real command and can measure
+   per-tool traffic. For remote HTTP servers, the host receives the URL where
+   supported; there is no stdio process to wrap.
+
+### Command boundary
+
+Keep the two command layers separate:
+
+| Layer | Who runs it | Examples | Purpose |
+| --- | --- | --- | --- |
+| Branded MCP lifecycle | Users of your MCP package | `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, `acme-db upgrade`, `acme-db uninstall`, `acme-db telemetry report --by tool` | Install, verify, update, remove, and inspect telemetry for **your MCP**. |
+| Framework tooling | MCP package developers | `npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs` | Emit host plugin bundles and MCP distribution artifacts from a connector config. |
+| Connector-free user telemetry | Agent-CLI users with no MCP package | `npx @ken-jo/agent-connector usage report --by platform` | Read host CLI logs read-only for whole-conversation token totals. |
+
+If a command operates the MCP after it is authored, prefer the branded package/bin.
+If a command builds framework distribution artifacts, use the framework CLI.
+
+### MCP server launch examples
+
+Pick the `server` shape that matches the MCP you are building. The wrapper
+package identity still comes from `package.json`; these examples only describe
+how to start or connect to the actual MCP server.
+
+| Shape | Use when | Minimal launch |
+| --- | --- | --- |
+| Package-runner MCP | The MCP is published as a package. | `npx -y @acme/acme-db-mcp` |
+| Local server-process MCP | The MCP server ships inside your package. | `node ./my-mcp-server.mjs` |
+| Python MCP | The MCP server is Python and should resolve runtime deps at launch. | `uv run --with mcp ./my_mcp_server.py` |
+| CLI-based MCP | An existing executable exposes an MCP serving mode. | `local-tools mcp serve` |
+| Remote server MCP | The MCP is hosted behind an HTTP endpoint. | `https://mcp.example.com/mcp` |
+
+Each snippet below is the `server` field for `defineConnector({ ... })`; only
+the local server-process example needs the `serverPath` helper shown inline.
+
+**Package-runner MCP** — a published package that should be launched with `npx`:
+
+```js
+server: {
+  transport: "stdio",
+  command: "npx",
+  args: ["-y", "@acme/acme-db-mcp"],
+}
+```
+
+**Local server-process MCP** — a bundled server file or binary:
+
+```js
+import { fileURLToPath } from "node:url";
+
+const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
+
+server: {
+  transport: "stdio",
+  command: "node",
+  args: [serverPath],
+}
+```
+
+**Python MCP** — usually run through `uv` so dependencies are resolved with the
+server:
+
+```js
+server: {
+  transport: "stdio",
+  command: "uv",
+  args: ["run", "--with", "mcp", "./my_mcp_server.py"],
+}
+```
+
+Use direct `python ./my_mcp_server.py` only when the runtime environment is
+already managed by your package or deployment wrapper.
+
+**CLI-based MCP** — an existing executable exposes an MCP mode:
+
+```js
+server: {
+  transport: "stdio",
+  command: "local-tools",
+  args: ["mcp", "serve"],
+}
+```
+
+**Remote server MCP** — a hosted MCP endpoint:
+
+```js
+server: {
+  transport: "http",
+  url: "https://mcp.example.com/mcp",
+}
+```
 
 ```bash
 # 4. deploy under your branded MCP package/bin
@@ -111,10 +210,11 @@ npx @acme/acme-db-mcp install           # write native config in each host
 
 > `install` targets only the hosts actually **detected** on this machine (or an
 > explicit `--targets` / `connector.targets` list), intersected with the
-> 42-adapter registry — there is no "install to all 42 unconditionally" path.
+> current adapter registry shown on [`/coverage`](https://agent-connector.ai/coverage)
+> — there is no "install to every host unconditionally" path.
 > `@ken-jo/agent-connector` is the framework dependency underneath; use it
-> directly for development fallback or connector-free token telemetry, not as
-> the foreground install brand for your users.
+> directly for framework packaging/debugging or connector-free token telemetry,
+> not as the foreground install brand for your users.
 
 ## Ship it: direct install or a marketplace plugin
 
@@ -125,11 +225,14 @@ Same one definition, your choice of distribution.
 content-surface config in place, with no per-platform marketplace submission or
 review. This is the Quick start path above.
 
-**Marketplace plugin** — `agent-connector package` turns the connector into a
-real plugin/extension bundle (manifest + bundled commands, agents, skills,
-hooks, MCP) from one definition. Hooks + MCP keep the telemetry serve-wrapper,
-so a marketplace-installed connector still reports per-tool tokens for its stdio
-server. `--format all` emits **10 host formats**:
+**Marketplace plugin** — the framework `package` command turns the connector
+into a real plugin/extension bundle (manifest + bundled commands, agents,
+skills, hooks, MCP) from one definition. This is framework tooling, so run it
+with `npx @ken-jo/agent-connector package --connector ...`. If you already keep
+the framework CLI installed globally, `agent-connector package --connector ...`
+is only the shorter equivalent. Hooks + MCP keep the
+telemetry serve-wrapper, so a marketplace-installed connector still reports
+per-tool tokens for its stdio server. `--format all` emits **10 host formats**:
 
 | Format | Hosts |
 |---|---|
@@ -151,8 +254,11 @@ so they're excluded from `--format all`) — `mcp-server-json` (an MCP Registry
 
 ```bash
 # emit every host format (mcp-server-json + mcpb are opt-in by name)
-agent-connector package --format all --out ./dist-plugin
-agent-connector package --format gemini-extension --out ./ext   # or just one
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist-plugin
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format gemini-extension --out ./ext   # or just one
+
+# if you already keep the framework CLI globally installed, the same command is:
+agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist-plugin
 
 # e.g. Claude Code:  /plugin marketplace add ./dist-plugin/claude-plugin
 #                    /plugin install <connector-id>@agent-connector
@@ -203,7 +309,10 @@ import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 // run() resolves to the exit code and never calls process.exit
 process.exitCode = await createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();
 ```
@@ -226,7 +335,7 @@ format, or *skip-warns* (never silently drops) where a host can't support it.
 
 ```ts
 import { fileURLToPath } from "node:url";
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 // Resolve your server to an absolute path — host CLIs spawn it from their own CWD.
 const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
@@ -305,11 +414,12 @@ everywhere.
 ### Memory, statusline, actions, and the SDK
 
 - **`memory`** (aligned with the [AGENTS.md](https://agents.md) standard) — ship
-  standing guidance that lands in `AGENTS.md` on 33 of the 42 hosts; the two that
-  don't read it (Claude Code → `CLAUDE.md`, Gemini CLI → `GEMINI.md`) are wired
-  per their own official docs. Writes are surgical marker-fenced, hash-stamped
-  managed blocks — multiple connectors coexist, bytes outside your markers are
-  never touched, and uninstall excises exactly your blocks.
+  standing guidance into the memory/rules file each host actually reads.
+  AGENTS.md adopters get the standard file; host-specific exceptions such as
+  Claude Code → `CLAUDE.md` and Gemini CLI → `GEMINI.md` are wired per their own
+  official docs. Writes are surgical marker-fenced, hash-stamped managed blocks
+  — multiple connectors coexist, bytes outside your markers are never touched,
+  and uninstall excises exactly your blocks.
 - **`statusline`** (`defineStatusline`) — a live HUD render function the host
   calls on every status refresh. v1 registers Claude Code's `settings.json.statusLine`
   or Qwen Code's `settings.json.ui.statusLine` (set-if-absent, refcounted,
@@ -328,7 +438,9 @@ everywhere.
   `capabilitiesOf`, `surfaceSupport`), and an **offline harness**
   (`simulate`, `explain`, `explainHooks`) that runs the real adapter
   parse→handler→format chain to answer *"does my handler actually work on host
-  X?"* before you touch a real host. See
+  X?"* before you touch a real host. Agent-facing guidance is intentionally
+  split into a small router skill plus focused references under
+  [`skills/agent-connector/references`](skills/agent-connector/references). See
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## How it works
@@ -345,8 +457,9 @@ everywhere.
   only framework-owned state lives under the data-root.
 - **Windows-first correctness.** No symlinks, no POSIX-only assumptions.
 
-**Three hook paradigms**, all install-verified across the 42-platform set
-(see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)):
+**Three hook paradigms**, all install-verified across the registered platform
+set (see [`/coverage`](https://agent-connector.ai/coverage) and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)):
 
 | Paradigm | Platforms |
 |---|---|
@@ -455,14 +568,15 @@ defineConnector({
 
 ## Verification
 
-The full single-API contract is **install-verified across all 42 platforms** by
-a committed registry-driven install-roundtrip harness that, for every adapter,
-drives the real install → uninstall into an isolated HOME and asserts on-disk
-placement + zero residue. A separate committed `scripts/verify-host.mjs` driver
-installs **20 real host CLIs** and verifies install → placement →
-clean-uninstall, and live hook dispatch + telemetry are proven end-to-end on
-several of them. The remaining hosts (IDE extensions / GUI editors with no
-headless CLI) stay covered by the install-roundtrip harness.
+The full single-API contract is **install-verified across the current platform
+registry** by a committed registry-driven install-roundtrip harness that, for
+every adapter, drives the real install → uninstall into an isolated HOME and
+asserts on-disk placement + zero residue. A separate committed
+`scripts/verify-host.mjs` driver installs real host CLIs from the verification
+matrix and checks install → placement → clean-uninstall; live hook dispatch +
+telemetry are proven end-to-end where the host can run headlessly. IDE
+extensions / GUI editors with no headless CLI stay covered by the
+install-roundtrip harness.
 
 **Dogfood result:** porting the real multi-host context-mode plugin to
 `defineConnector` collapsed **~20,322 lines of hand-maintained per-host code down

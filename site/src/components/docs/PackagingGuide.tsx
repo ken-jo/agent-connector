@@ -33,7 +33,7 @@ function TwoWaysToShip() {
           <span className="text-base font-semibold text-foreground">
             Packaged bundle
           </span>
-          <Badge variant="muted">agent-connector package</Badge>
+          <Badge variant="muted">npx @ken-jo/agent-connector package</Badge>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Emit a self-contained marketplace / extension bundle others install
@@ -134,8 +134,8 @@ export function PackagingGuideSection() {
       <Lead>
         There are <strong>two ways to ship</strong> a connector: install it
         directly with your branded package/bin, or emit a marketplace / extension{" "}
-        <strong>bundle</strong> others install through their host&apos;s own
-        plugin flow. The <C>agent-connector package</C> command renders the
+        <strong>bundle</strong> others install through their host&apos;s own plugin
+        flow. The framework <C>package</C> command renders the
         bundle for any of <strong>ten</strong>{/* keep in sync with the host-ecosystem (non-MCP) packageFormatRows: those with format !== "mcp-server-json" && !== "mcpb" */}{" "}
         host ecosystem formats — plus two
         official <strong>MCP standard artifacts</strong> (a registry{" "}
@@ -148,13 +148,17 @@ export function PackagingGuideSection() {
       <H3 id="package-command">The package command</H3>
       <P>
         <C>
-          agent-connector package [--connector &lt;path&gt;] [--format &lt;fmt&gt;]
-          [--out &lt;dir&gt;] [--dry-run]
+          npx @ken-jo/agent-connector package --connector
+          ./agent-connector.config.mjs [--format &lt;fmt&gt;] [--out &lt;dir&gt;]
+          [--dry-run]
         </C>
-        . The connector is resolved from <C>--connector</C>, else auto-discovered
-        by walking up from the project dir (exactly like <C>install</C>). The
-        bundle is written under <C>--out</C> (default <C>&lt;cwd&gt;/dist-plugin</C>
-        ); <C>--dry-run</C> computes the file tree without writing.
+        . Packaging emits distribution artifacts, so it is intentionally a
+        framework tool rather than a branded MCP lifecycle command. If you
+        already keep the framework CLI globally installed, use{" "}
+        <C>agent-connector package --connector ./agent-connector.config.mjs</C>.
+        The bundle is written under <C>--out</C> (default{" "}
+        <C>&lt;cwd&gt;/dist-plugin</C>); <C>--dry-run</C> computes the file tree
+        without writing.
       </P>
       <List>
         <LI>

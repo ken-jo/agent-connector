@@ -92,7 +92,10 @@ pkg agy-plugin    "$STORE_AGY"
 cat > "$BUILD_DIR/acme-db-cli.mjs" <<EOF
 import { createConnectorCli } from "$SDK";
 createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: "$CONN",
 })
   .run()

@@ -269,13 +269,118 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
   // NOTE: the llms.txt / llms-full.txt paradigm-partition assertions moved to
   // tests/docs/robot-support.test.ts (the single home for robot-doc drift).
 
-  it("README badge count is current and Droid sits in the json-stdio row", () => {
+  it("README routes platform-count badges to coverage and Droid sits in the json-stdio row", () => {
     const text = readFileSync("README.md", "utf8");
-    expect(text).toContain(`platforms-${ADAPTER_REGISTRY.length}-`);
+    expect(text).toContain("platform%20coverage-see%20%2Fcoverage");
+    expect(text).toContain("https://agent-connector.ai/coverage");
+    expect(text).not.toContain(`platforms-${ADAPTER_REGISTRY.length}-`);
     expect(text).toContain("tests-passing");
     expect(text).not.toMatch(/tests-\d+%20passing/);
     const jsonStdioRow = text.split("\n").find((l) => l.includes("`json-stdio`") && l.includes("|"));
     expect(jsonStdioRow, "README json-stdio table row not found").toBeTruthy();
     expect(jsonStdioRow).toContain("Droid");
+  });
+
+  it("README documents every MCP launch shape without external product leakage", () => {
+    const text = readFileSync("README.md", "utf8");
+    const launchExamplesIdx = text.indexOf("### MCP server launch examples");
+    expect(launchExamplesIdx, "README launch examples section missing").toBeGreaterThan(-1);
+    const deployCommandsIdx = text.indexOf("```bash", launchExamplesIdx);
+    expect(deployCommandsIdx, "README deploy command block missing after launch examples").toBeGreaterThan(-1);
+    const launchExamples = text.slice(launchExamplesIdx, deployCommandsIdx);
+
+    for (const phrase of [
+      "Minimal launch",
+      "`npx -y @acme/acme-db-mcp`",
+      "`uv run --with mcp ./my_mcp_server.py`",
+      "Each snippet below is the `server` field",
+      "**Package-runner MCP**",
+      'command: "npx"',
+      "**Local server-process MCP**",
+      'command: "node"',
+      "**Python MCP**",
+      'command: "uv"',
+      'args: ["run", "--with", "mcp", "./my_mcp_server.py"]',
+      "**CLI-based MCP**",
+      'args: ["mcp", "serve"]',
+      "**Remote server MCP**",
+      'transport: "http"',
+    ]) {
+      expect(launchExamples).toContain(phrase);
+    }
+
+    // These strings came from an external reference during design review. The
+    // README should keep the generalized launch-shape contract, not advertise a
+    // referenced product or unrelated MCP domain as if it were our own model.
+    expect(launchExamples).not.toMatch(/Headroom|headroom|context-compression|context-cache/i);
+  });
+
+  it("public site metadata routes host counts to the coverage matrix", () => {
+    const indexHtml = readFileSync("site/index.html", "utf8");
+    const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
+
+    for (const text of [indexHtml, prerender]) {
+      expect(text).toContain("current AI-agent coverage matrix");
+      expect(text).not.toMatch(/\bacross\s+\d+\s+AI-agent/i);
+    }
+  });
+
+  it("example connector comments foreground the package-first path", () => {
+    const example = readFileSync("examples/acme-db/agent-connector.config.mjs", "utf8");
+    const packageFirstIdx = example.indexOf("Package-first path:");
+    const fallbackIdx = example.indexOf("Framework fallback");
+    expect(packageFirstIdx, "example package-first guidance missing").toBeGreaterThan(-1);
+    expect(fallbackIdx, "example framework fallback guidance missing").toBeGreaterThan(-1);
+    expect(packageFirstIdx).toBeLessThan(fallbackIdx);
+    expect(example.slice(fallbackIdx, fallbackIdx + 120)).toContain("local development/debug only");
+  });
+
+  it("packaging examples use framework tooling while MCP lifecycle stays branded", () => {
+    const readme = readFileSync("README.md", "utf8");
+    const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
+    const guide = readFileSync("site/src/components/docs/PackagingGuide.tsx", "utf8");
+    const wizard = readFileSync("site/src/components/wizard/WizardPage.tsx", "utf8");
+    const brandedExample = readFileSync("examples/branded-cli/README.md", "utf8");
+    const architecture = readFileSync("docs/ARCHITECTURE.md", "utf8");
+
+    const readmePackageIdx = readme.indexOf("npx @ken-jo/agent-connector package");
+    const readmeGlobalIdx = readme.indexOf("if you already keep the framework CLI globally installed");
+    expect(readmePackageIdx, "README framework package command missing").toBeGreaterThan(-1);
+    expect(readmeGlobalIdx, "README global framework package note missing").toBeGreaterThan(-1);
+    expect(readmePackageIdx).toBeLessThan(readmeGlobalIdx);
+
+    expect(readme).toContain("acme-db install --method marketplace");
+    expect(readme).not.toContain("acme-db package");
+    expect(snippets).toContain("npx @ken-jo/agent-connector package --connector");
+    expect(snippets).toContain("agent-connector package --connector ./agent-connector.config.mjs");
+    expect(snippets).not.toContain("acme-db package");
+    expect(brandedExample).toContain("npx @ken-jo/agent-connector package --connector");
+    expect(brandedExample).not.toContain("acme-db package");
+    expect(architecture).toContain("framework tooling: 10 host bundle formats");
+    expect(guide).toContain("<Badge variant=\"muted\">npx @ken-jo/agent-connector package</Badge>");
+    expect(guide).toContain("Packaging emits distribution artifacts");
+    expect(wizard).toContain('title="Add the framework dependency"');
+  });
+
+  it("global framework install guidance is user telemetry first and excludes branded lifecycle", () => {
+    const readme = readFileSync("README.md", "utf8");
+    const snippets = readFileSync("site/src/components/docs/snippets.ts", "utf8");
+    const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
+    const docsData = readFileSync("site/src/components/docs/docs-data.ts", "utf8");
+
+    for (const text of [readme, snippets, docs, docsData]) {
+      expect(text).not.toMatch(/global(?: framework)? install is only for connector-free/i);
+      expect(text).not.toMatch(/globally is only an optional path for connector-free/i);
+    }
+
+    expect(readme).toContain("global CLI guidance for connector-free token usage reports");
+    expect(readme).not.toContain("connector-free token usage reports or frequent framework tooling");
+    expect(snippets).toContain("agent-CLI users for connector-free token telemetry");
+    expect(snippets).not.toContain("frequent framework tooling such as package");
+    expect(docs).toContain("agent-CLI users use the global");
+    expect(docs).toContain("Developers can");
+    expect(docsData).toContain("Global framework CLI guidance is for connector-free agent token telemetry");
+    expect(docsData).not.toContain("Global framework CLI is for connector-free telemetry or framework tooling");
+    expect(docs).toContain("You do <strong>not</strong> need a global install for branded MCP");
   });
 });

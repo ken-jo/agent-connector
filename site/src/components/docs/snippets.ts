@@ -3,7 +3,9 @@
 /**
  * The primary install: agent-connector is an SDK connector developers depend on.
  * Add it to your connector package, then ship or run your branded MCP package.
- * A global framework install is only for connector-free usage telemetry.
+ * A global framework install is not the branded MCP lifecycle path; guide it to
+ * agent-CLI users for connector-free token telemetry. Developers use package
+ * dependency installs and npx framework tooling from the MCP package.
  */
 export const installSnippet = `npm install @ken-jo/agent-connector`;
 
@@ -18,16 +20,102 @@ import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 // run() resolves to the exit code and never calls process.exit — forward it.
 process.exitCode = await createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 }).run();`;
 
+export const sdkPackageIdentitySnippet = `{
+  "name": "@acme/acme-db-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "mcpName": "io.github.acme/acme-db",
+  "bin": {
+    "acme-db": "./bin.mjs"
+  },
+  "dependencies": {
+    "@ken-jo/agent-connector": "^0.4.94"
+  }
+}`;
+
+export const sdkAuthoringSnippet = `import {
+  defineConnector,
+  defineHook,
+  defineMemory,
+  hostsSupporting,
+} from "@ken-jo/agent-connector/sdk";
+
+export const confirmWrites = defineHook("PreToolUse", {
+  matcher: "acme_write",
+  handler(evt) {
+    return evt.toolName === "acme_write"
+      ? { decision: "ask", reason: "Confirm Acme DB write" }
+      : { decision: "allow" };
+  },
+});
+
+export const acmeGuidance = defineMemory({
+  name: "acme-db-guidance",
+  content: "Prefer readonly Acme DB tools unless the user asks to mutate data.",
+});
+
+export default defineConnector({
+  hooks: { PreToolUse: confirmWrites },
+  memory: [acmeGuidance],
+});
+
+const hookHosts = await hostsSupporting("hooks");`;
+
+export const serverLaunchShapesSnippet = `import { fileURLToPath } from "node:url";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
+
+const localServerPath = fileURLToPath(
+  new URL("./my-mcp-server.mjs", import.meta.url),
+);
+
+const serverShapes = {
+  packageRunner: {
+    transport: "stdio",
+    command: "npx",
+    args: ["-y", "@acme/acme-db-mcp"],
+  },
+  localProcess: {
+    transport: "stdio",
+    command: "node",
+    args: [localServerPath],
+  },
+  pythonProcess: {
+    transport: "stdio",
+    command: "uv",
+    args: ["run", "--with", "mcp", "./my_mcp_server.py"],
+  },
+  cliBased: {
+    transport: "stdio",
+    command: "local-tools",
+    args: ["mcp", "serve"],
+  },
+  remoteServer: {
+    transport: "http",
+    url: "https://mcp.example.com/mcp",
+  },
+} as const;
+
+export default defineConnector({
+  // Choose the one server shape that matches the MCP you are building.
+  // package.json still owns public identity: name, mcpName, bin, version.
+  server: serverShapes.packageRunner,
+});`;
+
 /**
  * Optional convenience only: install the CLI globally to try it directly,
- * outside of any connector package. The main user-facing reason is connector-free
- * token telemetry across agent CLIs. Not required for the SDK/branded-CLI flow.
+ * outside of any connector package. Use this for connector-free token telemetry
+ * across agent CLIs. Developers should add the package dependency and run npx
+ * framework tooling from the MCP package. Not required for the SDK/branded-CLI
+ * lifecycle flow.
  */
-export const globalInstallSnippet = `# optional — connector-free token telemetry across agent CLIs
+export const globalInstallSnippet = `# optional for agent-CLI users — connector-free token telemetry
 npm i -g @ken-jo/agent-connector
 agent-connector usage report`;
 
@@ -44,10 +132,12 @@ acme-db doctor            # verify — add --probe for a live MCP handshake (ini
 acme-db upgrade           # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
 acme-db leaderboard       # acme-db's token footprint vs the boards
 acme-db telemetry report --by tool   # which of acme-db's tools cost the most tokens
-# distribute? acme-db package — 10 marketplace formats, or --format mcp-server-json | mcpb (see Packaging)
 acme-db uninstall         # full inverse — removes everything install wrote (--purge, --dry-run work too)
 
-# 3b. development fallback only — run the framework from the project:
+# 3b. packaging/distribution artifacts are framework tooling:
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist
+
+# 3c. development fallback only — run the framework from the project:
 npx @ken-jo/agent-connector detect
 npx @ken-jo/agent-connector install --dry-run`;
 
@@ -102,12 +192,13 @@ skipped: cursor, antigravity, antigravity-cli, trae, warp (requires sync — no 
 # totals are WHOLE-CONVERSATION per agent CLI — NOT per-MCP or per-tool.
 # agent CLIs don't log per-tool token attribution, so usage cannot itemize it.`;
 
-export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector";
+export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 export default defineConnector({
   // package.json / npm metadata is the source of truth.
   // id/displayName/version are derived from name/mcpName/bin/version unless
   // you need a multi-instance alias such as "github-octocorp".
+  // Host-native ids are generated during install; don't copy them back here.
   server: {
     transport: "stdio",
     command: "npx",
@@ -156,7 +247,7 @@ export const brandedPackageJsonSnippet = `{
   },
   "files": ["bin.mjs", "agent-connector.config.mjs"],
   "dependencies": {
-    "@ken-jo/agent-connector": "^0.4.0"
+    "@ken-jo/agent-connector": "^0.4.94"
   }
 }`;
 
@@ -171,7 +262,10 @@ export const brandedBinSnippet = `#!/usr/bin/env node
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
 
 createConnectorCli({
+  // packageJson supplies public identity: name, mcpName, bin, version.
   packageJson: new URL("./package.json", import.meta.url),
+  // connector supplies behavior: server, hooks, skills, telemetry.
+  // These are two layers, not duplicate id/display-name inputs.
   connector: new URL("./agent-connector.config.mjs", import.meta.url),
 })
   .run()
@@ -466,23 +560,29 @@ $ acme-db telemetry leaderboard --by tool
 # are filtered to acme-db.`;
 
 export const packageSnippet = `# default format (claude-plugin) → <cwd>/dist-plugin
-agent-connector package
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs
 
 # pick a format + output dir; preview without writing
-agent-connector package --format gemini-extension --out ./dist --dry-run
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format gemini-extension --out ./dist --dry-run
 
 # emit EVERY feasible format, each into <out>/<format>/
-agent-connector package --format all --out ./dist
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist
 
 # an unknown format exits 2
-agent-connector package --format bogus   # → invalid --format "bogus" (exit 2)`;
+npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --format bogus   # → invalid --format "bogus" (exit 2)
+
+# if you already keep the framework CLI globally installed, drop the npx package prefix:
+agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist`;
 
 export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:
 /plugin marketplace add ./dist-plugin
-/plugin install my-connector@agent-connector
+# acme-db is the package-derived connector id inside the generated bundle,
+# not an extra id the user enters in defineConnector.
+/plugin install acme-db@agent-connector
 
 # the wrapped MCP entry in the bundle still routes through the home-bin:
-#   agent-connector serve --connector my-connector --host claude-code -- <real cmd>
+# --connector acme-db is generated from package.json/mcpName during install.
+#   agent-connector serve --connector acme-db --host claude-code -- <real cmd>
 # so a marketplace-installed connector STILL reports per-tool tokens.`;
 
 export const surfaceLeaderboardSnippet = `$ agent-connector telemetry leaderboard --by surface

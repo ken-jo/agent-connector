@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * acme-db — Acme's branded CLI, built on agent-connector.
+ * acme-db-example — package-first wrapper for the runnable example.
  *
- * Every agent-connector subcommand is exposed under the `acme-db` brand and
- * AUTO-SCOPED to the connector shipped beside this file. The consumer runs
- * `acme-db install` / `acme-db leaderboard` / `acme-db telemetry` / `acme-db
- * doctor` — and never has to point at the connector with `--connector`.
+ * package.json supplies name, mcpName, bin, and version. This file only exposes
+ * the framework CLI under the package's own bin and auto-scopes commands to the
+ * adjacent connector config.
  */
 
 import { createConnectorCli } from "@ken-jo/agent-connector/cli";
@@ -21,6 +20,6 @@ createConnectorCli({
     process.exitCode = code;
   })
   .catch((err) => {
-    process.stderr.write(`acme-db: fatal: ${err?.stack ?? err}\n`);
+    process.stderr.write(`acme-db-example: fatal: ${err?.stack ?? err}\n`);
     process.exitCode = 1;
   });

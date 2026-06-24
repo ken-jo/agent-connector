@@ -1,8 +1,8 @@
-import { BookText } from "lucide-react";
+import { BookText, Boxes, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { GithubIcon } from "@/components/ui/github-icon";
 import { CopyButton } from "@/components/ui/copy-button";
-import { INSTALL_CMD, REPO_URL } from "@/data";
+import { BRANDED_INSTALL_CMD, REPO_URL } from "@/data";
 
 export function Footer() {
   return (
@@ -40,8 +40,8 @@ export function Footer() {
 
           <div className="flex w-full max-w-xs flex-col items-stretch gap-3 md:w-auto">
             <div className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-3 py-2 font-mono text-xs">
-              <span className="min-w-0 truncate text-foreground">{INSTALL_CMD}</span>
-              <CopyButton value={INSTALL_CMD} className="ml-auto size-7" />
+              <span className="min-w-0 truncate text-foreground">{BRANDED_INSTALL_CMD}</span>
+              <CopyButton value={BRANDED_INSTALL_CMD} className="ml-auto size-7" />
             </div>
             <Link
               to="/docs"
@@ -49,6 +49,20 @@ export function Footer() {
             >
               <BookText className="size-4" />
               Documentation
+            </Link>
+            <Link
+              to="/coverage"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <Boxes className="size-4" />
+              Coverage
+            </Link>
+            <Link
+              to="/wizard"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <Sparkles className="size-4" />
+              Wizard
             </Link>
             <a
               href={REPO_URL}

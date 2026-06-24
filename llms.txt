@@ -12,11 +12,25 @@ Declare once with `defineConnector({...})`; the CLI detects installed hosts, ren
 
 Separately, anyone running an agent CLI (Claude Code / Codex / Cursor / …) — with no connector authored — can run `agent-connector usage` to see how many tokens their agent CLIs are burning, parsed read-only from each host's own logs (per-CLI / per-model / per-session totals, never per-MCP or per-tool).
 
+## Agent authoring contract
+
+When an AI agent is asked to create or modify an agent-connector integration, follow this order:
+
+1. Read `package.json` first. Treat `name`, `mcpName`, `bin`, and `version` as the source of truth for public identity, host alias/display label, branded command, and connector version.
+2. Do NOT ask the user for a separate connector id, display name, bin name, or version unless package metadata is absent or they explicitly need a legacy/multi-instance override.
+3. Import authoring helpers from `@ken-jo/agent-connector/sdk` for new code (`defineConnector`, typed `define*` helpers, `hostsSupporting`, `capabilitiesOf`, `surfaceSupport`). Use `@ken-jo/agent-connector/cli` only inside the package bin via `createConnectorCli({ packageJson, connector })`.
+4. Match the MCP launch shape to the product, not to one sample: package-runner MCPs may use `npx -y <package>`, local Node/process MCPs may use `node <server-file>`, Python MCPs should usually use `uv run --with mcp <server.py>`, CLI-based MCPs may use `<mcp-cli> mcp serve`, and remote server MCPs use `transport: "http"` with a URL.
+5. Keep the framework wiring explicit: `package.json` supplies identity, `bin.mjs` wraps `createConnectorCli`, `defineConnector({ server })` points at the real MCP process/URL, and `install` renders native host config. Stdio processes can be wrapped for per-tool telemetry; remote HTTP servers are registered by URL where supported.
+6. Foreground the developer's branded MCP package/bin in generated docs and MCP lifecycle/runtime commands: `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, etc. The `package` command is framework tooling for distribution artifacts, so document it as `npx @ken-jo/agent-connector package --connector ...` (or global `agent-connector package`). Use other `npx @ken-jo/agent-connector ... --connector` commands only as local framework-development fallbacks.
+7. Validate before claiming success: run typecheck/tests, use `@ken-jo/agent-connector/sdk/test` (`explain`, `simulate`, `explainHooks`) for offline host behavior when relevant, then run `doctor --probe` for a live stdio MCP handshake when a real host/server is available.
+
+Agent-ready inputs are intentionally present in the repo: `llms.txt` (short map), `llms-full.txt` (full contract), and `skills/agent-connector/SKILL.md` (small router). Detailed skill references live under `skills/agent-connector/references/`: `package-first.md`, `authoring.md`, `cli-workflow.md`, `telemetry.md`, and `agent-readiness.md`.
+
 ## Two audiences
 
 agent-connector forks into two tracks. Pick yours before reading on:
 
-- **(A) MCP developer** — you BUILD an MCP integration. Write your server + hooks (+ commands / skills / subagents / memory + status line) once with `defineConnector()`, then deploy across the 42 registered adapters with one CLI. agent-connector wraps your stdio server in its `serve` telemetry proxy, so you get per-MCP and per-tool token counts for **YOUR own server** (the MCP your connector declares + wraps). Owns: `defineConnector`, install/uninstall/upgrade, doctor/detect/status, package, and the `telemetry` command (`--by mcp|tool|surface`).
+- **(A) MCP developer** — you BUILD an MCP integration. Write your server + hooks (+ commands / skills / subagents / memory + status line) once with `defineConnector()`, then deploy across the registered adapters with one CLI. Current host coverage lives at https://agent-connector.ai/coverage. agent-connector wraps your stdio server in its `serve` telemetry proxy, so you get per-MCP and per-tool token counts for **YOUR own server** (the MCP your connector declares + wraps). Owns: `defineConnector`, branded lifecycle (`install`/`uninstall`/`upgrade`, `doctor`/`detect`/`status` through your package/bin), and `telemetry` for your connector (`--by mcp|tool|surface`). Distribution artifacts use framework tooling: `npx @ken-jo/agent-connector package --connector ...`.
 - **(B) Agent-CLI user** — you just USE an agent CLI and have NOT authored a connector. Your entire surface is one connector-free command: `agent-connector usage report|export|leaderboard`, which scans each agent CLI's own session logs read-only. No `defineConnector`, no install, no config file.
 
 The one accuracy-critical boundary: if you BUILD an MCP integration, agent-connector deploys it everywhere and measures **your own server's** per-tool tokens; if you just USE agent CLIs, agent-connector reads their logs to show you **per-CLI / per-model** token totals. The connector-free `usage` path reports WHOLE-CONVERSATION totals grouped by platform | project | session | model | day — it does NOT and cannot itemize cost by individual MCP server or tool, because agent CLIs do not log per-tool token attribution. Per-MCP and per-tool numbers come only from the serve-proxy telemetry that a developer's own connector produces (track A).
@@ -55,14 +69,14 @@ npm install @ken-jo/agent-connector             # inside the package that holds 
 cd my-mcp-project                    # package.json exposes your bin, e.g. "acme-db"
 acme-db detect                                  # which hosts are installed here?
 acme-db install --dry-run                       # preview every change, everywhere
-acme-db install                                 # deploy across detected hosts (subset of the 42 adapters)
+acme-db install                                 # deploy across detected hosts (subset of the current registry)
 acme-db doctor                                  # per-platform health checks — add --probe for a live MCP handshake (initialize → ping → tools/list)
 acme-db upgrade                                 # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
 acme-db telemetry report --by tool              # per-tool footprint of YOUR wrapped server
 acme-db uninstall                               # full inverse — removes everything install wrote (--purge clears framework state; --dry-run works here too)
 ```
 
-Ship that branded CLI with `createConnectorCli({ name, connector })` from `agent-connector/cli`: it exposes every subcommand under your own bin, auto-scoped to your connector (`acme-db install` ≈ `agent-connector install --connector ./agent-connector.config.mjs`; explicit `--connector`/`--connector-id` always overrides). Framework CLI usage (`npx @ken-jo/agent-connector ... --connector ./agent-connector.config.mjs`) is a local development/debug fallback, not the user-facing install path.
+Ship that branded CLI with `createConnectorCli({ packageJson, connector })` from `@ken-jo/agent-connector/cli`: it derives the bin name/version from package metadata and exposes every subcommand under your own bin, auto-scoped to your connector (`acme-db install` ≈ `agent-connector install --connector ./agent-connector.config.mjs`; explicit `--connector`/`--connector-id` always overrides). Framework CLI usage (`npx @ken-jo/agent-connector ... --connector ./agent-connector.config.mjs`) is a local development/debug fallback, not the user-facing install path.
 
 ### (B) Agent-CLI user — see the token usage of the agent CLIs I use (no connector)
 
@@ -84,7 +98,7 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 
 ## Key API: defineConnector fields
 
-- `id?` (optional explicit install/runtime alias; defaults from package identity metadata), `mcp?` (package identity override), `displayName?` (optional host-facing label override), `version?` (defaults from package.json version, else `"0.0.0"`).
+- `id?` (optional explicit install/runtime alias; defaults from package identity metadata), `mcp?` (package identity override), `displayName?` (optional host-facing label override), `version?` (defaults from package.json version, else `"0.0.0"`). For normal packaged connectors, omit all four and let `package.json` drive identity.
 - `server?: ServerDef` — `transport`, `command`/`args`/`env`/`cwd` (stdio) or `url`/`headers`/`auth` (remote), `tools`, `timeoutMs`, `enabled`, `wrapForTelemetry`.
 - `hooks?: HooksConfig` — per event: `{ matcher?, handler(evt) }` (matcher = tool name on tool events incl. PermissionRequest/PostToolUseFailure; agent type on SubagentStart/SubagentStop); handler returns `{ decision: allow|deny|modify|context|ask, reason?, updatedInput?, additionalContext?, updatedOutput? }` or void.
 - `commands?`, `skills?`, `subagents?` — content-only surfaces (files agent-connector owns).
@@ -100,7 +114,7 @@ Validation: throws `ConnectorConfigError` on bad id, non-function handler, missi
 ## CLI commands
 
 - `detect` — list installed platforms, scope, capabilities, hook paradigm.
-- `install [--method direct|marketplace] [--scope user|project] [--targets a,b] [--connector path] [--dry-run] [--force]` — targets the hosts DETECTED on your machine (or the explicit `--targets` / `connector.targets` you name), intersected with the 42-adapter registry; there is no "install to all 42 unconditionally" path (an empty target set just warns). `--method marketplace` (drivable: claude-code, codex, copilot-cli, opencode, kilo, kilo-cli, antigravity, antigravity-cli live-verified on Linux+Windows+macOS; droid, qwen-code driver-shipped; gemini-cli LEGACY — sunsetting toward Antigravity, driver kept for existing installs) drives the host's own plugin flow instead of writing config — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (`claude/codex plugin install`/`add`, `gemini extensions install`, `agy plugin install`), or for npm-plugin hosts write a local `file://` entry into the config plugin array — headless + idempotent, with a guard refusing the same connector by BOTH methods. Other marketplace-format hosts still print manual install commands. `--force` overwrites user-edited memory blocks (hash drift) after a timestamped backup; default is warn-and-leave.
+- `install [--method direct|marketplace] [--scope user|project] [--targets a,b] [--connector path] [--dry-run] [--force]` — targets the hosts DETECTED on your machine (or the explicit `--targets` / `connector.targets` you name), intersected with the current adapter registry shown at https://agent-connector.ai/coverage; there is no "install to every host unconditionally" path (an empty target set just warns). `--method marketplace` (drivable: claude-code, codex, copilot-cli, opencode, kilo, kilo-cli, antigravity, antigravity-cli live-verified on Linux+Windows+macOS; droid, qwen-code driver-shipped; gemini-cli LEGACY — sunsetting toward Antigravity, driver kept for existing installs) drives the host's own plugin flow instead of writing config — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (`claude/codex plugin install`/`add`, `gemini extensions install`, `agy plugin install`), or for npm-plugin hosts write a local `file://` entry into the config plugin array — headless + idempotent, with a guard refusing the same connector by BOTH methods. Other marketplace-format hosts still print manual install commands. `--force` overwrites user-edited memory blocks (hash drift) after a timestamped backup; default is warn-and-leave.
 - `uninstall [--method auto|direct|marketplace] [--connector-id <id>] [--targets …] [--purge] [--dry-run]` — full inverse; `--method auto` (default) reverses whichever method is actually installed; `--purge` also removes registered framework state + the home binary when no connectors remain.
 - `upgrade [--channel stable|latest]` — ONE "bring everything current" verb (aliases: `sync`, `update`): idempotent re-render (identical entries report skip), heals the stable home pointer, prints managed-update guidance (never silent).
 - `doctor [--targets …] [--probe] [--json]` — per-platform health checks; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real stdio server; non-zero exit on FAIL.
@@ -111,7 +125,9 @@ Validation: throws `ConnectorConfigError` on bad id, non-function handler, missi
 - `leaderboard` — unified: 🔌 per-MCP (needs connector + serve traffic) · 🖥️ host/user (the only board with no setup) · 🛰️ live host-native turns (needs the opt-in usage hook, installed only by Gemini-CLI / Antigravity); never summed across boards.
 - `hook`, `serve`, `usage-event`, `statusline`, `action` — internal entrypoints hosts point at.
 
-## Supported platforms by paradigm (42)
+## Supported platforms by paradigm
+
+Current counts and per-host coverage are canonical at https://agent-connector.ai/coverage.
 
 - `json-stdio` (full hook dispatch, 22): codebuddy, claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, droid, openhands, antigravity, antigravity-cli, continue, amazon-q, grok-cli, devin.
 - `mcp-only` (MCP registration only, 12): warp, roo-code, cline, trae, zed, codebuff, mux, pi, windsurf, open-interpreter, junie, mistral-vibe.

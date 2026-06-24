@@ -249,10 +249,10 @@ export function resolveMcpPackageIdentity(input: {
     input.mcp?.packageName ?? inferNpmPackageFromServer(input.server);
   const hostAlias =
     input.mcp?.hostAlias ??
-    (packageName ? deriveHostAliasFromPackageName(packageName) : undefined) ??
     (input.mcp?.mcpName
       ? deriveHostAliasFromMcpName(input.mcp.mcpName)
       : undefined) ??
+    (packageName ? deriveHostAliasFromPackageName(packageName) : undefined) ??
     (input.mcp?.bin ? cleanMcpBasename(input.mcp.bin) : undefined);
 
   return {

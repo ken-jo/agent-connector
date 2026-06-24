@@ -136,8 +136,9 @@ export function Installation() {
         agent-connector is an <strong>SDK you depend on</strong>, not a global
         tool your connector users install first. Add it to your MCP package,
         then ship a <strong>branded CLI</strong> your users drive directly
-        (<C>npx @acme/acme-db-mcp install</C>). The framework command is a developer
-        fallback and a connector-free telemetry utility.
+        (<C>npx @acme/acme-db-mcp install</C>). Developers use the framework
+        command for local fallback or packaging; agent-CLI users use the global
+        CLI for connector-free token telemetry.
       </Lead>
       <P>
         Add agent-connector as a dependency of the package that holds your{" "}
@@ -164,17 +165,134 @@ export function Installation() {
         <C>yaml</C>) — no native build. License: Apache-2.0 © KenJo.
       </Callout>
 
-      <H3 id="optional-global">Optional: global token telemetry</H3>
+      <H3 id="optional-global">Optional: global framework CLI</H3>
       <P>
         You do <strong>not</strong> need a global install for branded MCP
-        package installs. Use the framework CLI directly when you want
-        connector-free token telemetry across the agent CLIs you already use,
-        without authoring or installing any connector:
+        package installs. Use the framework CLI directly for connector-free
+        token telemetry across the agent CLIs you already use. Developers can
+        run framework tooling with <C>npx @ken-jo/agent-connector ...</C> from
+        their MCP package:
       </P>
       <CodeBlock code={S.globalInstallSnippet} language="bash" filename="terminal" />
 
       <H3 id="from-source">From source</H3>
       <CodeBlock code={S.fromSourceSnippet} language="bash" filename="terminal" />
+    </DocSection>
+  );
+}
+
+export function SdkOverview() {
+  return (
+    <DocSection id="sdk" eyebrow="Getting Started" title="SDK overview">
+      <Lead>
+        The SDK is the framework surface for <strong>MCP-package authors</strong>.
+        Your package owns the public identity and binary; agent-connector supplies
+        the authoring API, host adapters, installer, doctor, telemetry wrapper,
+        and packaging machinery underneath that brand.
+      </Lead>
+
+      <H3 id="sdk-package-identity">Package identity is the source of truth</H3>
+      <P>
+        In the normal path, do <strong>not</strong> ask for a separate connector
+        id, display name, binary name, or version. Those values already exist in
+        your package metadata. <C>package.json</C> <C>name</C> / <C>mcpName</C>{" "}
+        identify the MCP server, <C>bin</C> names the command users run, and{" "}
+        <C>version</C> becomes the connector version. Override fields in{" "}
+        <C>defineConnector</C> only for legacy configs or deliberate
+        multi-instance aliases.
+      </P>
+      <CodeBlock
+        code={S.sdkPackageIdentitySnippet}
+        language="json"
+        filename="package.json"
+      />
+
+      <H3 id="sdk-authoring-imports">Authoring imports</H3>
+      <P>
+        New connector packages should reach for{" "}
+        <C>@ken-jo/agent-connector/sdk</C>. It re-exports{" "}
+        <C>defineConnector</C>, the typed <C>define*</C> identity helpers for
+        individual surfaces, host capability helpers such as{" "}
+        <C>hostsSupporting</C>, and the public types. The root package export
+        remains available, but <C>/sdk</C> is the consolidated authoring entry
+        point.
+      </P>
+      <CodeBlock
+        code={S.sdkAuthoringSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+
+      <H3 id="sdk-server-shapes">MCP server launch shapes</H3>
+      <P>
+        Not every MCP starts the same way. A package-runner MCP can launch with{" "}
+        <C>npx -y &lt;package&gt;</C>, a local Node/process MCP can launch with{" "}
+        <C>node &lt;server-file&gt;</C>, a Python MCP should usually launch with{" "}
+        <C>uv run --with mcp &lt;server.py&gt;</C>, a CLI-based MCP can launch an
+        existing executable, and a remote server MCP should use HTTP transport.
+        In all cases, keep the wrapper package&apos;s <C>package.json</C> as the
+        public identity and point the server block at the real MCP process or
+        URL.
+      </P>
+      <CodeBlock
+        code={S.serverLaunchShapesSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+
+      <Callout title="How the framework wires it">
+        <C>package.json</C> supplies public identity. Your <C>bin.mjs</C> wraps{" "}
+        <C>createConnectorCli</C> under that brand. <C>defineConnector</C> points
+        at the real MCP process or URL. Install then renders native host config
+        from that single declaration. Stdio processes can be launched through the
+        stable home binary for per-tool telemetry; remote HTTP servers are
+        registered by URL where the host supports them.
+      </Callout>
+
+      <H3 id="sdk-cli-boundary">CLI boundary</H3>
+      <P>
+        <C>@ken-jo/agent-connector/cli</C> is a separate boundary: use{" "}
+        <C>createConnectorCli</C> in your package&apos;s <C>bin</C> so users run
+        your command, for example <C>acme-db install</C> or{" "}
+        <C>npx @acme/acme-db-mcp install</C>. The framework CLI remains useful
+        for framework development and connector-free usage telemetry, not as the
+        foreground installer brand for your MCP package.
+      </P>
+      <CodeBlock code={S.brandedCliSnippet} language="ts" filename="bin.mjs" />
+
+      <H3 id="sdk-audit">What the framework can audit</H3>
+      <P>
+        Because package metadata and <C>defineConnector</C> are both structured,
+        agent-connector can verify that the package identity, branded bin,
+        install command, MCP server command, and rendered host aliases stay
+        aligned. That audit surface is why the SDK keeps identity in one place
+        instead of asking the wizard or docs reader to duplicate it.
+      </P>
+      <Callout title="Framework first in code, brand first for users">
+        Developers install <C>@ken-jo/agent-connector</C> as a dependency.
+        Users install or run <em>your</em> MCP package. Connector-free token
+        telemetry is the exception where the framework package can be used
+        directly.
+      </Callout>
+
+      <H3 id="sdk-agent-readiness">Agent-ready references</H3>
+      <P>
+        Most connector packages will be scaffolded, reviewed, and repaired by AI
+        agents. The repo therefore ships machine-readable and skill-friendly
+        references: <C>llms.txt</C> for the short route map,{" "}
+        <C>llms-full.txt</C> for the exhaustive contract, and{" "}
+        <C>skills/agent-connector/SKILL.md</C> as a small router into focused
+        files under <C>skills/agent-connector/references/</C>. Agents should read
+        only the reference they need, then validate with SDK offline harnesses,
+        dry-run install plans, and <C>doctor --probe</C> when a real stdio server
+        is available.
+      </P>
+      <P>
+        This mirrors the pattern used by agent-ready toolchains such as
+        shadcn/ui: keep a compact LLM map, read structured project config before
+        generating code, expose a small skill entry point, and reserve deeper
+        reference files for task-specific detail.
+      </P>
     </DocSection>
   );
 }
@@ -273,7 +391,9 @@ export function EmbedCli() {
         . With <C>createConnectorCli(&#123; packageJson, connector &#125;)</C> you expose{" "}
         <strong>every</strong> agent-connector subcommand under your own brand —
         fully delegated and <strong>auto-scoped</strong> to the connector your
-        package ships. Your users run <C>&lt;your-tool&gt; install</C> /{" "}
+        package ships. <C>packageJson</C> supplies public identity;{" "}
+        <C>connector</C> supplies behavior, so these are separate layers rather
+        than duplicate prompts. Your users run <C>&lt;your-tool&gt; install</C> /{" "}
         <C>&lt;your-tool&gt; leaderboard</C> / <C>&lt;your-tool&gt; telemetry</C>{" "}
         without a framework global install or <C>--connector</C> for branded MCP
         install commands.
@@ -808,7 +928,7 @@ export function SurfacesSection() {
 
       <H3 id="memory-targets">AGENTS.md-first: where the block goes</H3>
       <P>
-        <strong>33 of the 42 hosts read the open{" "}
+        <strong>AGENTS.md adopters read the open{" "}
         <a
           className="underline hover:text-foreground"
           href="https://agents.md"
@@ -817,9 +937,9 @@ export function SurfacesSection() {
         >
           AGENTS.md
         </a>{" "}
-        standard</strong> (the Linux Foundation-stewarded &quot;README for
-        agents&quot; format) — so you write the guidance once and it lands in
-        the standard file across every adopter host. agent-connector never flips
+        standard file</strong> (the Linux Foundation-stewarded &quot;README
+        for agents&quot; format) — so you write the guidance once and it lands in
+        the standard file across adopter hosts. agent-connector never flips
         host settings to make AGENTS.md readable (probe-and-respect only), and
         the non-reader hosts are wired per their own official docs — CLAUDE.md
         and GEMINI.md, plus the dedicated rules-dir hosts (.amazonq/rules,
@@ -2176,6 +2296,7 @@ export function Troubleshooting() {
 export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   introduction: Introduction,
   installation: Installation,
+  sdk: SdkOverview,
   "quick-start": QuickStart,
   "embed-cli": EmbedCli,
   "define-connector": DefineConnector,

@@ -12,7 +12,7 @@ import { canonicalEvents } from "@/components/docs/hooks-matrix";
 const CONTENT_ID = "wizard-content";
 
 const WIZARD_DESCRIPTION =
-  "Generate package-aware defineConnector code for a branded MCP package — pick your package, transport, hook events and surfaces and copy the scaffold.";
+  "Generate package-aware defineConnector code for a branded MCP package — pick your package, launch shape, hook events and surfaces and copy the scaffold.";
 
 /** npm package + bin, injected from the real package.json at build time. */
 const PACKAGE_NAME = __AGENT_CONNECTOR_PACKAGE_NAME__;
@@ -33,9 +33,43 @@ const SURFACES = [
 
 type SurfaceKey = (typeof SURFACES)[number]["key"];
 type Transport = "stdio" | "http";
+type LaunchShape = "package" | "node" | "python" | "cli" | "remote";
+
+const LAUNCH_SHAPES: readonly {
+  key: LaunchShape;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "package",
+    label: "Package runner",
+    hint: "Run a published package with npx.",
+  },
+  {
+    key: "node",
+    label: "Node/local process",
+    hint: "Run a bundled server file or binary.",
+  },
+  {
+    key: "python",
+    label: "Python/uv process",
+    hint: "Run a Python MCP server through uv.",
+  },
+  {
+    key: "cli",
+    label: "CLI-based",
+    hint: "Run an MCP mode exposed by a CLI.",
+  },
+  {
+    key: "remote",
+    label: "Remote server",
+    hint: "Connect to an HTTP MCP endpoint.",
+  },
+] as const;
 
 interface WizardState {
   packageName: string;
+  launchShape: LaunchShape;
   transport: Transport;
   command: string;
   args: string;
@@ -48,6 +82,7 @@ interface WizardState {
 
 const INITIAL: WizardState = {
   packageName: "@acme/acme-db-mcp",
+  launchShape: "package",
   transport: "stdio",
   command: "npx",
   args: "-y",
@@ -98,6 +133,83 @@ function q(value: string): string {
 
 const PAD = "  ";
 
+function kebab(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^@/, "")
+    .replace(/[\/_]+/g, "-")
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[^a-zA-Z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+}
+
+function cleanPackageBasename(raw: string): string | undefined {
+  let name = kebab(raw);
+  name = name.replace(/^(mcp-server|server-mcp|server)-/, "");
+  name = name.replace(/-(mcp-server|server-mcp|mcp|server)$/, "");
+  name = name.replace(/^(mcp|server)$/, "");
+  return name || undefined;
+}
+
+function deriveBinName(packageName: string): string {
+  const [, scopedBase] = packageName.trim().match(/^@[^/]+\/(.+)$/) ?? [];
+  return cleanPackageBasename(scopedBase ?? packageName) ?? "your-mcp";
+}
+
+function withLaunchShape(state: WizardState, launchShape: LaunchShape): WizardState {
+  switch (launchShape) {
+    case "package":
+      return { ...state, launchShape, transport: "stdio", command: "npx", args: "-y" };
+    case "node":
+      return {
+        ...state,
+        launchShape,
+        transport: "stdio",
+        command: "node",
+        args: "./my-mcp-server.mjs",
+      };
+    case "python":
+      return {
+        ...state,
+        launchShape,
+        transport: "stdio",
+        command: "uv",
+        args: "run, --with, mcp, ./my_mcp_server.py",
+      };
+    case "cli":
+      return {
+        ...state,
+        launchShape,
+        transport: "stdio",
+        command: "local-tools",
+        args: "mcp, serve",
+      };
+    case "remote":
+      return {
+        ...state,
+        launchShape,
+        transport: "http",
+        url: state.url || "https://mcp.example.com/mcp",
+      };
+  }
+}
+
+function generateBin(): string {
+  const lines: string[] = [];
+  lines.push("#!/usr/bin/env node");
+  lines.push(`import { createConnectorCli } from ${q(`${PACKAGE_NAME}/cli`)};`, "");
+  lines.push("process.exitCode = await createConnectorCli({");
+  lines.push(`${PAD}// packageJson supplies public identity: name, mcpName, bin, version.`);
+  lines.push(`${PAD}packageJson: new URL("./package.json", import.meta.url),`);
+  lines.push(`${PAD}// connector supplies behavior: server, hooks, skills, telemetry.`);
+  lines.push(`${PAD}// These are two layers, not duplicate id/display-name inputs.`);
+  lines.push(`${PAD}connector: new URL("./agent-connector.config.mjs", import.meta.url),`);
+  lines.push("}).run();");
+  return lines.join("\n");
+}
+
 /**
  * Build the `defineConnector({...})` scaffold from the form state. Pure (no
  * React), so it is trivially testable and renders identically server-side.
@@ -105,8 +217,15 @@ const PAD = "  ";
  */
 function generateConnector(state: WizardState): string {
   const lines: string[] = [];
-  lines.push(`import { defineConnector } from ${q(PACKAGE_NAME)};`, "");
+  lines.push(`import { defineConnector } from ${q(`${PACKAGE_NAME}/sdk`)};`, "");
   lines.push("export default defineConnector({");
+  lines.push(`${PAD}// package.json is the source of truth for public identity.`);
+  lines.push(
+    `${PAD}// Omit id/displayName/version here unless you need a legacy or multi-instance override.`,
+  );
+  lines.push(
+    `${PAD}// Host-native ids are generated from package metadata during install.`,
+  );
 
   // ── server ──
   lines.push(`${PAD}server: {`);
@@ -322,7 +441,7 @@ function Step({
           <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
         ) : null}
         <div className="mt-2 flex items-center gap-2">
-          <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-foreground">
+          <code className="min-w-0 flex-1 overflow-x-auto whitespace-pre rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-foreground">
             {command}
           </code>
           <CopyButton value={command} label={`Copy: ${title}`} />
@@ -358,12 +477,19 @@ export function WizardPage() {
       setState((s) => ({ ...s, [key]: value })),
     [],
   );
+  const setLaunchShape = React.useCallback(
+    (shape: LaunchShape) => setState((s) => withLaunchShape(s, shape)),
+    [],
+  );
 
   const generated = React.useMemo(() => generateConnector(state), [state]);
+  const generatedBin = React.useMemo(() => generateBin(), []);
 
   const installCmd = `npm install ${PACKAGE_NAME}`;
-  const packageIdentityCmd = `npm pkg set name=${q(state.packageName.trim() || "@acme/acme-db-mcp")}`;
-  const deployCmd = `npx ${state.packageName.trim() || "<your-mcp-package>"} install`;
+  const packageName = state.packageName.trim() || "@acme/acme-db-mcp";
+  const binName = deriveBinName(packageName);
+  const packageIdentityCmd = `npm pkg set name=${q(packageName)} bin.${binName}=./bin.mjs`;
+  const deployCmd = `npx ${packageName || "<your-mcp-package>"} install`;
   const telemetryCmd = `npx ${PACKAGE_NAME} usage report`;
 
   return (
@@ -405,7 +531,7 @@ export function WizardPage() {
                 <Field
                   id="wiz-package"
                   label="MCP package"
-                  hint="package.json name or npm package. The host alias/runtime id is derived from mcpName/name/bin conventions."
+                  hint="Your wrapper package identity. The launch shape below decides whether it runs a package, local process, CLI-based MCP, or remote server; there is still no separate connector id field."
                 >
                   <input
                     id="wiz-package"
@@ -430,29 +556,34 @@ export function WizardPage() {
                     ring renders on the label via peer-focus-visible. */}
                 <fieldset className="flex flex-col gap-1.5">
                   <legend className="mb-1.5 text-sm font-medium text-foreground">
-                    Transport
+                    Launch shape
                   </legend>
-                  <div className="flex gap-2">
-                    {(["stdio", "http"] as const).map((t) => (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {LAUNCH_SHAPES.map((shape) => (
                       <label
-                        key={t}
+                        key={shape.key}
                         className={cn(
-                          "flex flex-1 cursor-pointer items-center justify-center rounded-md border px-3 py-2 font-mono text-sm transition-colors",
+                          "flex cursor-pointer flex-col rounded-md border px-3 py-2 transition-colors",
                           "has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-                          state.transport === t
+                          state.launchShape === shape.key
                             ? "border-primary bg-primary/10 text-foreground"
                             : "border-border bg-background text-muted-foreground hover:text-foreground",
                         )}
                       >
                         <input
                           type="radio"
-                          name="transport"
-                          value={t}
-                          checked={state.transport === t}
-                          onChange={() => set("transport", t)}
+                          name="launch-shape"
+                          value={shape.key}
+                          checked={state.launchShape === shape.key}
+                          onChange={() => setLaunchShape(shape.key)}
                           className="sr-only"
                         />
-                        {t}
+                        <span className="text-sm font-medium text-foreground">
+                          {shape.label}
+                        </span>
+                        <span className="mt-0.5 text-xs text-muted-foreground">
+                          {shape.hint}
+                        </span>
                       </label>
                     ))}
                   </div>
@@ -463,7 +594,7 @@ export function WizardPage() {
                     <Field
                       id="wiz-command"
                       label="Command"
-                      hint="The executable that launches your MCP server."
+                      hint="The executable that launches your MCP server: npx for Node packages, or an existing context CLI."
                     >
                       <input
                         id="wiz-command"
@@ -477,7 +608,7 @@ export function WizardPage() {
                     <Field
                       id="wiz-args"
                       label="Runner args"
-                      hint="Comma-separated args before the package name. The package is appended automatically for npx."
+                      hint="Comma-separated args. For npx, the package name is appended automatically; for CLI-based MCPs, use values such as mcp, serve."
                     >
                       <input
                         id="wiz-args"
@@ -507,7 +638,7 @@ export function WizardPage() {
                   <Field
                     id="wiz-url"
                     label="URL"
-                    hint="The remote MCP endpoint."
+                    hint="The remote server MCP endpoint."
                   >
                     <input
                       id="wiz-url"
@@ -601,21 +732,29 @@ export function WizardPage() {
               </div>
 
               <div>
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <span className="size-2 rounded-full bg-sky-500" />
+                  Branded bin
+                </div>
+                <CodeBlock code={generatedBin} filename="bin.mjs" language="ts" />
+              </div>
+
+              <div>
                 <h2 className="text-base font-semibold text-foreground">
                   Next steps
                 </h2>
                 <ol className="mt-4 flex flex-col gap-5">
                   <Step
                     num={1}
-                    title="Install the framework"
+                    title="Add the framework dependency"
                     command={installCmd}
                     description="Add agent-connector to your project."
                   />
                   <Step
                     num={2}
-                    title="Set package identity"
+                    title="Set package identity + bin"
                     command={packageIdentityCmd}
-                    description="The host alias/runtime id is derived from package.json name, mcpName, or bin metadata."
+                    description="package.json is the source of truth: name identifies the package, bin names the command users run, and mcpName can refine the host label when present."
                   />
                   <Step
                     num={3}
@@ -625,12 +764,18 @@ export function WizardPage() {
                   />
                   <Step
                     num={4}
+                    title="Save the branded bin"
+                    command="bin.mjs"
+                    description="Paste the generated bin wrapper here; createConnectorCli reads package.json and auto-scopes every command."
+                  />
+                  <Step
+                    num={5}
                     title="Ship or run your branded MCP package"
                     command={deployCmd}
                     description="Your users should run the MCP package/bin, not the framework package, for install/doctor/uninstall."
                   />
                   <Step
-                    num={5}
+                    num={6}
                     title="Optional global usage report"
                     command={telemetryCmd}
                     description="Use the framework command directly for connector-free token telemetry across agent CLIs."

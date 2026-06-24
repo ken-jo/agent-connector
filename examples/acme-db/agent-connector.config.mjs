@@ -1,13 +1,14 @@
 // Example agent-connector definition.
 //
-// Development fallback from this directory:
+// Package-first path:
+//   package.json name/mcpName/bin/version define the identity.
+//   Users run the package bin, e.g. `acme-db-example install`, `doctor`,
+//   and `telemetry report`; a published package can expose the same flow as
+//   `npx @acme/acme-db-mcp install`.
+//
+// Framework fallback from this directory, for local development/debug only:
 //   npx @ken-jo/agent-connector detect
 //   npx @ken-jo/agent-connector install --dry-run
-//
-// Once this config ships inside your branded package/bin, users should run:
-//   npx @acme/acme-db-mcp install
-//   npx @acme/acme-db-mcp doctor
-//   npx @acme/acme-db-mcp telemetry report
 //
 // Write it ONCE here; agent-connector renders it into each host's native dialect
 // (Claude Code mcpServers JSON, Codex TOML [mcp_servers.*], Cursor mcp.json + hooks.json, …).
@@ -17,7 +18,7 @@
 // See https://modelcontextprotocol.io/quickstart/server for the official SDK quickstart.
 
 import { fileURLToPath } from "node:url";
-import { defineConnector } from "@ken-jo/agent-connector";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
 
 // Resolve the bundled stub server to an absolute path: host CLIs spawn MCP
 // servers from their own CWD, so a relative path would not resolve correctly.
@@ -26,11 +27,6 @@ const serverPath = fileURLToPath(
 );
 
 export default defineConnector({
-  // This standalone example is named acme-db-example in package.json, so it
-  // declares the branded package identity explicitly. In a real branded package,
-  // package.json name/mcpName/bin/version are read automatically and this is unnecessary.
-  mcp: { packageName: "@acme/acme-db-mcp" },
-
   // The MCP server — declared once, transport-polymorphic.
   // Replace `node [serverPath]` with your own server's command when you ship the real thing.
   server: {
