@@ -18,12 +18,13 @@ function TwoWaysToShip() {
           <span className="text-base font-semibold text-foreground">
             Direct install
           </span>
-          <Badge variant="muted">agent-connector install</Badge>
+          <Badge variant="muted">npx @acme/acme-db-mcp install</Badge>
         </div>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The CLI detects every installed host and writes each one&apos;s native
-          MCP registration, hook config, and content files in place. The
-          connector lives where you ran it — ideal for your own machine / CI.
+          The branded package CLI detects every installed host and writes each
+          one&apos;s native MCP registration, hook config, and content files in
+          place. The connector lives where you ran it — ideal for your own
+          machine / CI.
         </p>
       </div>
       <div className="rounded-xl border border-border bg-card/40 p-5 shadow-sm">
@@ -132,7 +133,7 @@ export function PackagingGuideSection() {
     >
       <Lead>
         There are <strong>two ways to ship</strong> a connector: install it
-        directly with the CLI, or emit a marketplace / extension{" "}
+        directly with your branded package/bin, or emit a marketplace / extension{" "}
         <strong>bundle</strong> others install through their host&apos;s own
         plugin flow. The <C>agent-connector package</C> command renders the
         bundle for any of <strong>ten</strong>{/* keep in sync with the host-ecosystem (non-MCP) packageFormatRows: those with format !== "mcp-server-json" && !== "mcpb" */}{" "}
@@ -182,7 +183,7 @@ export function PackagingGuideSection() {
         serves, the manifest file(s) it emits, and the user install command. The
         command / skill / subagent markdown is rendered through the{" "}
         <strong>same shared claude-code renderers the live adapters write with</strong>
-        , so an installed plugin and an <C>agent-connector install</C> produce
+        , so an installed plugin and the branded direct install produce
         byte-identical content files.
       </P>
       <FormatsTable />
@@ -191,7 +192,7 @@ export function PackagingGuideSection() {
       <P>
         Hooks use the universal home-bin <C>hook</C> command and the MCP entry is{" "}
         <strong>serve-wrapped with <C>--host &lt;platform&gt;</C></strong> in
-        every bundle — exactly as an <C>agent-connector install</C> would. So a{" "}
+        every bundle — exactly as the branded direct install would. So a{" "}
         <strong>marketplace-installed connector still reports per-tool tokens</strong>
         : the wrapped MCP entry routes through the one stable home binary, and the
         hooks shell back to the same entrypoint, keeping the telemetry

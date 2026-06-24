@@ -1,6 +1,6 @@
 # branded-cli example — ship your own CLI on top of agent-connector
 
-This is a realistic developer package, `acme-db-tools`, that depends on
+This is a realistic developer package, `@acme/acme-db-mcp`, that depends on
 `agent-connector` and ships its **own** branded CLI, `acme-db`. The consumer
 never installs `agent-connector` globally and never types `--connector` — every
 subcommand is auto-scoped to the connector this package ships.
@@ -17,8 +17,8 @@ Four files:
   an absolute `import.meta.url`-derived path.
 - `bin.mjs` — the `acme-db` bin. It calls `createConnectorCli({ name, connector })`
   from `agent-connector/cli` and runs it.
-- `package.json` — `bin: { "acme-db": "./bin.mjs" }` + a dependency on
-  `agent-connector`.
+- `package.json` — package identity (`name`, `mcpName`), `bin: { "acme-db":
+  "./bin.mjs" }`, and a dependency on `agent-connector`.
 
 ```js
 // bin.mjs (essence)

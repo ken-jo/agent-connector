@@ -29,6 +29,10 @@ import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
 import { CONNECTOR_ID_RE, isValidConnectorId } from "./ids.js";
 import {
+  currentConnectorPackageMetadata,
+  resolveMcpPackageIdentity,
+} from "./package-metadata.js";
+import {
   MANAGED_BLOCK_BEGIN_TOKEN,
   MANAGED_BLOCK_END_TOKEN,
   MEMORY_CONTENT_HARD_CAP_BYTES,
@@ -86,9 +90,24 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   if (!config || typeof config !== "object") {
     throw new ConnectorConfigError("config must be an object");
   }
-  if (!isValidConnectorId(config.id)) {
+
+  const packageMetadata = currentConnectorPackageMetadata();
+  const packageIdentity = packageMetadata?.mcp;
+  if (packageIdentity && Object.keys(packageIdentity).length > 0) {
+    config = {
+      ...config,
+      mcp: {
+        ...packageIdentity,
+        ...config.mcp,
+      },
+    };
+  }
+
+  const mcpIdentity = resolveMcpPackageIdentity(config);
+  const connectorId = config.id ?? mcpIdentity.hostAlias;
+  if (!isValidConnectorId(connectorId)) {
     throw new ConnectorConfigError(
-      `id must be kebab-case matching ${CONNECTOR_ID_RE} (got ${JSON.stringify(config.id)})`,
+      `id must be kebab-case matching ${CONNECTOR_ID_RE} or derivable from mcp/package metadata (got ${JSON.stringify(config.id)})`,
     );
   }
   const hasCommands = Array.isArray(config.commands) && config.commands.length > 0;
@@ -182,9 +201,10 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const t = config.telemetry ?? {};
 
   const resolved: ResolvedConnector = {
-    id: config.id,
-    displayName: config.displayName ?? config.id,
-    version: config.version ?? "0.0.0",
+    id: connectorId,
+    ...(Object.keys(mcpIdentity).length > 0 ? { mcp: mcpIdentity } : {}),
+    displayName: config.displayName ?? connectorId,
+    version: config.version ?? packageMetadata?.version ?? "0.0.0",
     ...(config.server ? { server: normalizeServer(config.server) } : {}),
     hooks: config.hooks ?? {},
     hookEvents: declaredEvents(config.hooks),

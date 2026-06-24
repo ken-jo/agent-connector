@@ -1,9 +1,10 @@
 {
-  "name": "acme-db-tools",
+  "name": "@acme/acme-db-mcp",
   "version": "1.0.0",
   "private": true,
   "description": "Acme's database MCP server + hooks, shipped with its own branded CLI on top of agent-connector.",
   "type": "module",
+  "mcpName": "io.github.acme/acme-db",
   "bin": {
     "acme-db": "./bin.mjs"
   },

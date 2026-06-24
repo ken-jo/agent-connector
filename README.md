@@ -47,10 +47,13 @@ if you already run an agent CLI and just want token totals, jump straight to
 
 ## Quick start
 
-agent-connector is an **SDK you depend on**, not a global tool. Add it to the
-package that holds your connector, declare the connector once, then `install` —
-it deploys to every detected agent CLI in that host's own native config. The
-linear path is: **get a server → declare it → install**.
+agent-connector is an **SDK connector developers depend on**. Add it to the
+package that holds your connector, declare the connector once, then ship a
+branded MCP package/bin such as `npx @acme/acme-db-mcp install` — it deploys to
+every detected agent CLI in that host's own native config. Installing
+`@ken-jo/agent-connector` globally is only an optional path for connector-free
+token usage reports. The linear path is:
+**get a server → declare it → install through your branded package**.
 
 **0. You need an MCP server file first.** The config below points at
 `./my-mcp-server.mjs`, so that file must exist before you install. Don't have an
@@ -64,15 +67,27 @@ MCP server yet? Copy
 npm install @ken-jo/agent-connector
 ```
 
+```jsonc
+// 2. package.json — this is the user-facing package identity
+{
+  "name": "@acme/acme-db-mcp",
+  "mcpName": "io.github.acme/acme-db",
+  "bin": { "acme-db": "./bin.mjs" },
+  "dependencies": { "@ken-jo/agent-connector": "^0.4.92" }
+}
+```
+
 ```js
-// 2. agent-connector.config.mjs — declare your server + hooks once
+// 3. agent-connector.config.mjs — declare your server + hooks once
 import { fileURLToPath } from "node:url";
 import { defineConnector } from "@ken-jo/agent-connector";
 
 const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
 
 export default defineConnector({
-  id: "acme-db",
+  // package.json / npm metadata is the source of truth. The host alias/runtime
+  // id and connector version are derived from name/mcpName/bin/version unless
+  // you need a multi-instance alias.
   server: {
     transport: "stdio",
     command: "node",
@@ -88,25 +103,27 @@ export default defineConnector({
 > [site quick-start](https://agent-connector.ai) teaches.
 
 ```bash
-# 3. deploy across the agent CLIs detected on this machine
-npx @ken-jo/agent-connector detect           # which platforms are installed here?
-npx @ken-jo/agent-connector install --dry-run # preview every change first
-npx @ken-jo/agent-connector install           # write native config in each host
+# 4. deploy under your branded MCP package/bin
+npx @acme/acme-db-mcp detect            # which platforms are installed here?
+npx @acme/acme-db-mcp install --dry-run # preview every change first
+npx @acme/acme-db-mcp install           # write native config in each host
 ```
 
 > `install` targets only the hosts actually **detected** on this machine (or an
 > explicit `--targets` / `connector.targets` list), intersected with the
 > 42-adapter registry — there is no "install to all 42 unconditionally" path.
-> A global `npm i -g` is **not** required: `npx @ken-jo/agent-connector …` runs
-> straight from your project.
+> `@ken-jo/agent-connector` is the framework dependency underneath; use it
+> directly for development fallback or connector-free token telemetry, not as
+> the foreground install brand for your users.
 
 ## Ship it: direct install or a marketplace plugin
 
 Same one definition, your choice of distribution.
 
-**Direct install** — `agent-connector install` writes each host's native MCP +
-hook + content-surface config in place, with no per-platform marketplace
-submission or review. This is the Quick start path above.
+**Direct install** — your branded command (`acme-db install`,
+`npx @acme/acme-db-mcp install`) writes each host's native MCP + hook +
+content-surface config in place, with no per-platform marketplace submission or
+review. This is the Quick start path above.
 
 **Marketplace plugin** — `agent-connector package` turns the connector into a
 real plugin/extension bundle (manifest + bundled commands, agents, skills,
@@ -168,7 +185,8 @@ A connector developer can ship their **own** bin instead of having users type
 `agent-connector`. `createConnectorCli({ name, connector })` (from the
 `@ken-jo/agent-connector/cli` export) exposes **every** subcommand under your
 brand, fully delegated and **auto-scoped** to your connector — so your users
-never install agent-connector globally or type `--connector`. See
+do not need a framework global install or `--connector` for branded MCP
+install/doctor/uninstall. See
 [`examples/branded-cli`](examples/branded-cli) for the full, runnable package.
 
 ```js
@@ -210,7 +228,6 @@ import { defineConnector } from "@ken-jo/agent-connector";
 const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
 
 export default defineConnector({
-  id: "acme-db",
   server: {
     transport: "stdio",
     command: "node",           // or "npx", "python", etc. — whatever starts your server
@@ -231,7 +248,7 @@ export default defineConnector({
 });
 ```
 
-`agent-connector install` turns that into, e.g.:
+`npx @acme/acme-db-mcp install` turns that into, e.g.:
 
 | Host | What gets written |
 |---|---|
@@ -408,8 +425,6 @@ published package + author):
 
 ```ts
 defineConnector({
-  id: "acme-db",
-  version: "1.2.0",
   server: { transport: "stdio", command: "npx", args: ["-y", "@acme/acme-db-mcp"] },
   publish: {
     registryNamespace: "io.github.acme", // a namespace YOU proved ownership of

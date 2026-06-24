@@ -105,6 +105,42 @@ describe("defineConnector — normalization of a valid config", () => {
     });
     expect(resolved.server).toBeUndefined();
   });
+
+  it("derives id from MCP package metadata when id is omitted", () => {
+    const resolved = defineConnector({
+      mcp: {
+        packageName: "@acme/acme-db-mcp",
+        mcpName: "io.github.acme/acme-db",
+        bin: "acme-db",
+      },
+      server: {
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@acme/acme-db-mcp"],
+      },
+    });
+
+    expect(resolved.id).toBe("acme-db");
+    expect(resolved.displayName).toBe("acme-db");
+    expect(resolved.mcp).toEqual({
+      packageName: "@acme/acme-db-mcp",
+      mcpName: "io.github.acme/acme-db",
+      bin: "acme-db",
+      hostAlias: "acme-db",
+    });
+  });
+
+  it("derives id from npx package args when mcp metadata is omitted", () => {
+    const resolved = defineConnector({
+      server: { transport: "stdio", command: "npx", args: ["-y", "@sentry/mcp-server"] },
+    });
+
+    expect(resolved.id).toBe("sentry");
+    expect(resolved.mcp).toEqual({
+      packageName: "@sentry/mcp-server",
+      hostAlias: "sentry",
+    });
+  });
 });
 
 describe("defineConnector — hookEvents lists only events with a handler", () => {
@@ -155,7 +191,7 @@ describe("defineConnector — validation errors", () => {
     ).toThrow(ConnectorConfigError);
   });
 
-  it("throws on a missing id", () => {
+  it("throws when id cannot be derived from package metadata", () => {
     expect(() =>
       defineConnector({
         server: { transport: "stdio", command: "node" },

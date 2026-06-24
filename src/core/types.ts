@@ -1116,15 +1116,48 @@ export interface PublishConfig {
   author?: { name: string; email?: string; url?: string };
 }
 
+/**
+ * MCP package identity read from the developer's package.json or from the
+ * wrapped npm package metadata. This is the source of truth for the branded
+ * package/bin that users see; the host MCP key/runtime id can be derived from it
+ * using common MCP package naming conventions.
+ */
+export interface McpPackageIdentity {
+  /** npm package that ships the branded MCP connector or upstream MCP server. */
+  packageName?: string;
+  /** MCP registry canonical name, usually package.json `mcpName`. */
+  mcpName?: string;
+  /** package.json `bin` exposed to users, e.g. "acme-db". */
+  bin?: string;
+  /**
+   * Advanced override for the host MCP config key/runtime id. Omit for the
+   * normal package-derived alias; set only for multi-instance installs.
+   */
+  hostAlias?: string;
+}
+
+export interface ResolvedMcpPackageIdentity extends McpPackageIdentity {
+  /** The derived host MCP config key/runtime id when one can be inferred. */
+  hostAlias?: string;
+}
+
 /** What a developer passes to defineConnector(). */
 export interface ConnectorConfig {
   /**
-   * Stable MCP server/install id (kebab-case). This is the host MCP config key
-   * and the agent-connector runtime id.
+   * Optional stable MCP server/install id (kebab-case). Prefer package.json
+   * identity (`name`, `mcpName`, `bin`) so agent-connector can derive this from
+   * the package that ships the connector. Keep `id` for explicit multi-instance
+   * aliases or legacy configs.
    */
-  id: string;
+  id?: string;
+  /** Override package identity when package.json is absent or intentionally different. */
+  mcp?: McpPackageIdentity;
   /** Optional host-facing label override; defaults to id. */
   displayName?: string;
+  /**
+   * Optional connector version override. Prefer package.json `version` when the
+   * connector config ships inside an npm package.
+   */
   version?: string;
   /** The MCP server to deploy. Omit for a hooks-only connector. */
   server?: ServerDef;
@@ -1169,6 +1202,7 @@ export interface ConnectorConfig {
  */
 export interface ResolvedConnector {
   id: string;
+  mcp?: ResolvedMcpPackageIdentity;
   displayName: string;
   version: string;
   server?: ServerDef;

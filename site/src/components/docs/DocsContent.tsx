@@ -70,9 +70,11 @@ export function Introduction() {
         The <strong>MCP-developer track</strong>. You write your MCP server +
         hooks (and optionally commands, skills, subagents, memory){" "}
         <strong>once</strong> with <C>defineConnector(&#123;...&#125;)</C>, then
-        deploy across every detected agent platform — shipping a branded CLI or
-        running <C>npx @ken-jo/agent-connector</C>. You get per-MCP and per-tool
-        token counts for <strong>your own wrapped server</strong>.
+        deploy across every detected agent platform under your{" "}
+        <strong>branded MCP package</strong>. agent-connector is the framework
+        underneath; your users should see <C>npx @acme/acme-db-mcp install</C>, not a
+        foreground framework brand. You get per-MCP and per-tool token counts
+        for <strong>your own wrapped server</strong>.
       </Lead>
 
       <P>
@@ -102,8 +104,8 @@ export function Introduction() {
           <strong>Single-API multi-platform deployment.</strong> One declarative
           + programmatic <C>defineConnector(&#123;...&#125;)</C> → per-platform
           adapters render it into each host&apos;s native MCP registration, hook
-          config, and content files; one CLI installs/syncs/uninstalls every{" "}
-          <strong>detected</strong> host.
+          config, and content files; your branded package&apos;s CLI
+          installs/syncs/uninstalls every <strong>detected</strong> host.
         </LI>
         <LI>
           <strong>Default per-MCP token telemetry for your own server.</strong>{" "}
@@ -115,8 +117,9 @@ export function Introduction() {
 
       <P>
         It generalizes context-mode&apos;s proven adapter layer into a reusable
-        framework: where context-mode hardcoded the served identity, here the
-        identity is a parameter you supply via <C>defineConnector</C>. It ships{" "}
+        framework: where context-mode hardcoded the served identity, here the MCP
+        package metadata (<C>package.json</C> <C>name</C>, <C>bin</C>, and{" "}
+        <C>mcpName</C>) becomes the source of truth. It ships{" "}
         <strong>{platformCount} registered deploy adapters</strong> grouped into
         three hook paradigms (install targets the hosts detected on your machine,
         or the targets you name — never all {platformCount} unconditionally), and
@@ -131,10 +134,10 @@ export function Installation() {
     <DocSection id="installation" eyebrow="Getting Started" title="Installation">
       <Lead>
         agent-connector is an <strong>SDK you depend on</strong>, not a global
-        tool. Add it to your connector package, then either ship a{" "}
-        <strong>branded CLI</strong> your users drive directly, or run it with{" "}
-        <C>npx</C> from the project. Your consumers never need a separate global
-        install.
+        tool your connector users install first. Add it to your MCP package,
+        then ship a <strong>branded CLI</strong> your users drive directly
+        (<C>npx @acme/acme-db-mcp install</C>). The framework command is a developer
+        fallback and a connector-free telemetry utility.
       </Lead>
       <P>
         Add agent-connector as a dependency of the package that holds your{" "}
@@ -161,12 +164,12 @@ export function Installation() {
         <C>yaml</C>) — no native build. License: Apache-2.0 © KenJo.
       </Callout>
 
-      <H3 id="optional-global">Optional: use the CLI directly</H3>
+      <H3 id="optional-global">Optional: global token telemetry</H3>
       <P>
-        You do <strong>not</strong> need a global install for the SDK flow above
-        — <C>npx @ken-jo/agent-connector …</C> runs it straight from your project. A
-        global install is a convenience only, for trying the CLI by hand outside
-        any connector package:
+        You do <strong>not</strong> need a global install for branded MCP
+        package installs. Use the framework CLI directly when you want
+        connector-free token telemetry across the agent CLIs you already use,
+        without authoring or installing any connector:
       </P>
       <CodeBlock code={S.globalInstallSnippet} language="bash" filename="terminal" />
 
@@ -182,9 +185,9 @@ export function QuickStart() {
       <Lead>
         The <strong>MCP developer</strong> deploying their own MCP everywhere —
         three steps: depend on agent-connector, declare your connector with{" "}
-        <C>defineConnector</C>, then <strong>either</strong> ship a branded CLI{" "}
-        <strong>or</strong> run <C>npx @ken-jo/agent-connector</C> from the
-        project.
+        <C>defineConnector</C>, then ship a branded CLI/package. During
+        development you can still run the framework command from the project as
+        a fallback.
       </Lead>
 
       <Callout title="Just want to see the usage of the CLIs you already use?" tone="note">
@@ -231,7 +234,7 @@ export function QuickStart() {
         <strong>detected</strong> on your machine (or an explicit{" "}
         <C>--targets</C> list), intersected with the {platformCount}-adapter
         registry. The <C>server</C> below points at a published package
-        (<C>command: &quot;npx&quot;</C> + <C>args: [&quot;-y&quot;, &quot;@acme/db-mcp&quot;]</C>);
+        (<C>command: &quot;npx&quot;</C> + <C>args: [&quot;-y&quot;, &quot;@acme/acme-db-mcp&quot;]</C>);
         while you&apos;re still developing, the same field can be{" "}
         <C>command: &quot;node&quot;</C> + a local server-file path (the{" "}
         <C>acme-db-mcp-server.mjs</C> stub above) — then switch to the{" "}
@@ -242,17 +245,17 @@ export function QuickStart() {
         language="ts"
         filename="agent-connector.config.mjs"
       />
-      <Callout title="Two ways to drive it">
+      <Callout title="Branded package first">
         Ship a <strong>branded CLI</strong> so your users run{" "}
         <C>&lt;your-tool&gt; install</C> / <C>&lt;your-tool&gt; leaderboard</C>{" "}
         (auto-scoped to your connector — see{" "}
         <Link className="underline hover:text-foreground" to="/docs/dev/embed-cli">
           Embed it / branded CLI
         </Link>
-        ), or just run <C>npx @ken-jo/agent-connector …</C> from the project. Either way,
-        no separate global install is required. Per-tool telemetry for your own
-        wrapped server is automatic for <strong>stdio</strong> servers; remote
-        servers are registered but not wrapped.
+        ). Use <C>npx @ken-jo/agent-connector …</C> from the project only as a
+        development fallback. Per-tool telemetry for your own wrapped server is
+        automatic for <strong>stdio</strong> servers; remote servers are
+        registered but not wrapped.
       </Callout>
     </DocSection>
   );
@@ -272,7 +275,8 @@ export function EmbedCli() {
         fully delegated and <strong>auto-scoped</strong> to the connector your
         package ships. Your users run <C>&lt;your-tool&gt; install</C> /{" "}
         <C>&lt;your-tool&gt; leaderboard</C> / <C>&lt;your-tool&gt; telemetry</C>{" "}
-        and never install agent-connector globally or type <C>--connector</C>.
+        without a framework global install or <C>--connector</C> for branded MCP
+        install commands.
       </Lead>
 
       <H3 id="embed-package">1. Depend on it + add a bin</H3>
@@ -482,9 +486,9 @@ export function ServerSection() {
 
       <H3 id="per-dialect-output">Per-dialect output</H3>
       <P>
-        For the example server, <C>agent-connector install</C> writes each host&apos;s
-        native shape (hooks land in a sibling settings file, all pointing back to
-        the one stable home binary):
+        For the example server, <C>npx @acme/acme-db-mcp install</C> writes each
+        host&apos;s native shape (hooks land in a sibling settings file, all pointing
+        back to the one stable home binary):
       </P>
       <Tabs defaultValue="claude" className="not-prose">
         <TabsList className="flex h-auto flex-wrap justify-start gap-1">

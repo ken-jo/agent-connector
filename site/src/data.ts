@@ -300,11 +300,10 @@ export interface DialectSnippet {
 const defineConnectorSource = `import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
-  id: "acme-db",
   server: {
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@acme/db-mcp"],
+    args: ["-y", "@acme/acme-db-mcp"],
     env: { ACME_DB_DSN: "\${env:ACME_DB_DSN}" },
   },
   hooks: {
@@ -325,7 +324,7 @@ const claudeCodeJson = `// ~/.claude.json
   "mcpServers": {
     "acme-db": {
       "command": "npx",
-      "args": ["-y", "@acme/db-mcp"],
+      "args": ["-y", "@acme/acme-db-mcp"],
       "env": { "ACME_DB_DSN": "\${env:ACME_DB_DSN}" }
     }
   }
@@ -335,7 +334,7 @@ const claudeCodeJson = `// ~/.claude.json
 const codexToml = `# ~/.codex/config.toml
 [mcp_servers.acme-db]
 command = "npx"
-args = ["-y", "@acme/db-mcp"]
+args = ["-y", "@acme/acme-db-mcp"]
 
 [mcp_servers.acme-db.env]
 ACME_DB_DSN = "\${env:ACME_DB_DSN}"
@@ -347,7 +346,7 @@ const cursorJson = `// ~/.cursor/mcp.json
   "mcpServers": {
     "acme-db": {
       "command": "npx",
-      "args": ["-y", "@acme/db-mcp"],
+      "args": ["-y", "@acme/acme-db-mcp"],
       "env": { "ACME_DB_DSN": "\${env:ACME_DB_DSN}" }
     }
   }

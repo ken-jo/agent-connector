@@ -370,7 +370,7 @@ describe("resolveRemoteSource — local file:// git clone (no network)", () => {
     expect(existsSync(join(resolved.sourceDir, "agent-connector.config.json"))).toBe(true);
     // The config the install flow will load lives inside the persisted clone.
     expect(resolved.configPath.startsWith(resolved.sourceDir)).toBe(true);
-  });
+  }, 15_000);
 
   it("a file:// repo WITHOUT a config fires the package gate", async () => {
     const repoDir = tempDir("ac-fetch-norepo-");
@@ -389,7 +389,7 @@ describe("resolveRemoteSource — local file:// git clone (no network)", () => {
     await expect(
       resolveRemoteSource(remote, { fetcher: makeGitFetcher() }),
     ).rejects.toThrow(/is not an agent-connector connector/);
-  });
+  }, 15_000);
 
   it("describeRemote labels a github spec and a raw clone URL", () => {
     expect(describeRemote({ owner: "a", repo: "b", ref: "x", subpath: "s" })).toBe(

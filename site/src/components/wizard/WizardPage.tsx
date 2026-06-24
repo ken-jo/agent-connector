@@ -12,11 +12,10 @@ import { canonicalEvents } from "@/components/docs/hooks-matrix";
 const CONTENT_ID = "wizard-content";
 
 const WIZARD_DESCRIPTION =
-  "Generate starter defineConnector code that wraps an MCP server for every supported agent host — pick your transport, hook events and surfaces and copy the scaffold.";
+  "Generate package-aware defineConnector code for a branded MCP package — pick your package, transport, hook events and surfaces and copy the scaffold.";
 
 /** npm package + bin, injected from the real package.json at build time. */
 const PACKAGE_NAME = __AGENT_CONNECTOR_PACKAGE_NAME__;
-const BIN_NAME = __AGENT_CONNECTOR_BIN_NAME__;
 
 /**
  * The optional surfaces a connector can ship, keyed by the EXACT
@@ -36,7 +35,7 @@ type SurfaceKey = (typeof SURFACES)[number]["key"];
 type Transport = "stdio" | "http";
 
 interface WizardState {
-  id: string;
+  packageName: string;
   transport: Transport;
   command: string;
   args: string;
@@ -48,10 +47,10 @@ interface WizardState {
 }
 
 const INITIAL: WizardState = {
-  id: "acme-db",
+  packageName: "@acme/acme-db-mcp",
   transport: "stdio",
   command: "npx",
-  args: "-y, @acme/db-mcp",
+  args: "-y",
   env: "ACME_DB_DSN=${env:ACME_DB_DSN}",
   url: "https://mcp.acme.dev/sse",
   surfaces: {
@@ -66,8 +65,6 @@ const INITIAL: WizardState = {
   hookEvents: { PreToolUse: true },
   telemetryOff: false,
 };
-
-const KEBAB_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 /** Split a comma-separated list into trimmed, non-empty entries. */
 function splitList(raw: string): string[] {
@@ -111,14 +108,19 @@ function generateConnector(state: WizardState): string {
   lines.push(`import { defineConnector } from ${q(PACKAGE_NAME)};`, "");
   lines.push("export default defineConnector({");
 
-  lines.push(`${PAD}id: ${q(state.id || "my-connector")},`);
-
   // ── server ──
   lines.push(`${PAD}server: {`);
   if (state.transport === "stdio") {
     lines.push(`${PAD}${PAD}transport: "stdio",`);
     lines.push(`${PAD}${PAD}command: ${q(state.command || "npx")},`);
     const args = splitList(state.args);
+    if (
+      (state.command || "npx") === "npx" &&
+      state.packageName.trim() &&
+      !args.includes(state.packageName.trim())
+    ) {
+      args.push(state.packageName.trim());
+    }
     if (args.length) {
       lines.push(`${PAD}${PAD}args: [${args.map(q).join(", ")}],`);
     }
@@ -357,17 +359,12 @@ export function WizardPage() {
     [],
   );
 
-  const idError =
-    state.id.trim() === ""
-      ? "Required."
-      : KEBAB_RE.test(state.id.trim())
-        ? undefined
-        : "Must be kebab-case (lowercase letters, digits and single dashes).";
-
   const generated = React.useMemo(() => generateConnector(state), [state]);
 
   const installCmd = `npm install ${PACKAGE_NAME}`;
-  const deployCmd = `npx ${BIN_NAME} install`;
+  const packageIdentityCmd = `npm pkg set name=${q(state.packageName.trim() || "@acme/acme-db-mcp")}`;
+  const deployCmd = `npx ${state.packageName.trim() || "<your-mcp-package>"} install`;
+  const telemetryCmd = `npx ${PACKAGE_NAME} usage report`;
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
@@ -380,17 +377,17 @@ export function WizardPage() {
               Wizard
             </p>
             <h1 className="mt-2 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-              Wrap an MCP server
+              Wrap a branded MCP package
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground">
-              Pick the MCP server id, transport, hook events and surfaces — this
+              Pick the MCP package, transport, hook events and surfaces — this
               page generates a copy-paste-valid{" "}
               <code className="font-mono text-sm text-foreground">
                 defineConnector(&#123;…&#125;)
               </code>{" "}
-              starter. Host-facing names come from each host's MCP config, and
-              packaged CLI names come from your package.json bin. Everything
-              runs in your browser; nothing is sent anywhere.
+              starter. Host-facing aliases and branded CLI names are derived
+              from package metadata by default. Everything runs in your browser;
+              nothing is sent anywhere.
             </p>
           </div>
 
@@ -406,22 +403,16 @@ export function WizardPage() {
                   Basics
                 </legend>
                 <Field
-                  id="wiz-id"
-                  label="MCP server ID"
-                  hint="kebab-case — written as the MCP server key in each host config and reused as the agent-connector install id."
-                  error={idError}
+                  id="wiz-package"
+                  label="MCP package"
+                  hint="package.json name or npm package. The host alias/runtime id is derived from mcpName/name/bin conventions."
                 >
                   <input
-                    id="wiz-id"
-                    className={cn(
-                      fieldClass,
-                      idError &&
-                        "border-destructive focus-visible:ring-destructive",
-                    )}
-                    value={state.id}
-                    onChange={(e) => set("id", e.target.value)}
-                    placeholder="acme-db"
-                    aria-invalid={Boolean(idError)}
+                    id="wiz-package"
+                    className={fieldClass}
+                    value={state.packageName}
+                    onChange={(e) => set("packageName", e.target.value)}
+                    placeholder="@acme/acme-db-mcp"
                     spellCheck={false}
                   />
                 </Field>
@@ -485,15 +476,15 @@ export function WizardPage() {
                     </Field>
                     <Field
                       id="wiz-args"
-                      label="Args"
-                      hint="Comma-separated, in order."
+                      label="Runner args"
+                      hint="Comma-separated args before the package name. The package is appended automatically for npx."
                     >
                       <input
                         id="wiz-args"
                         className={fieldClass}
                         value={state.args}
                         onChange={(e) => set("args", e.target.value)}
-                        placeholder="-y, @acme/db-mcp"
+                        placeholder="-y"
                         spellCheck={false}
                       />
                     </Field>
@@ -622,15 +613,27 @@ export function WizardPage() {
                   />
                   <Step
                     num={2}
+                    title="Set package identity"
+                    command={packageIdentityCmd}
+                    description="The host alias/runtime id is derived from package.json name, mcpName, or bin metadata."
+                  />
+                  <Step
+                    num={3}
                     title="Save the file"
                     command="agent-connector.config.ts"
                     description="Paste the generated code into this file (or your project's connector entry) and finish the TODOs."
                   />
                   <Step
-                    num={3}
-                    title="Deploy across every detected host"
+                    num={4}
+                    title="Ship or run your branded MCP package"
                     command={deployCmd}
-                    description="Renders the native config + hooks for each installed agent platform."
+                    description="Your users should run the MCP package/bin, not the framework package, for install/doctor/uninstall."
+                  />
+                  <Step
+                    num={5}
+                    title="Optional global usage report"
+                    command={telemetryCmd}
+                    description="Use the framework command directly for connector-free token telemetry across agent CLIs."
                   />
                 </ol>
               </div>

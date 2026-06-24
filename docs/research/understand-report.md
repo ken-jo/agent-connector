@@ -116,15 +116,14 @@ import { defineConnector } from "@ken-jo/agent-connector";
 
 export default defineConnector({
   // ── Identity (replaces context-mode's hardcoded "context-mode") ──
-  id: "acme-db",
-  displayName: "Acme DB Tools",
-  version: "1.0.0",
+  // package.json name/mcpName/bin/version are the default metadata source.
+  // Set id or mcp.hostAlias only for legacy configs or multi-instance aliases.
 
   // ── MCP server: declared ONCE, transport-polymorphic ──
   server: {
     transport: "stdio",
     command: "npx",
-    args: ["-y", "@acme/db-mcp"],
+    args: ["-y", "@acme/acme-db-mcp"],
     env: { ACME_DB_DSN: "${env:ACME_DB_DSN}" },   // universal ${env:VAR}; adapters re-render
     // For remote instead:
     // transport: "http", url: "${env:ACME_URL:-https://api.acme.com}/mcp",
