@@ -37,6 +37,17 @@ const PACKAGE_FIRST_REFERENCE = readFileSync(
   "skills/agent-connector/references/package-first.md",
   "utf8",
 );
+const SITE_PACKAGE = JSON.parse(readFileSync("site/package.json", "utf8")) as {
+  scripts?: Record<string, string>;
+};
+const SITE_AGENT_ASSET_COPY_SCRIPT = readFileSync(
+  "site/scripts/copy-agent-assets.mjs",
+  "utf8",
+);
+const DEPLOY_SITE_WORKFLOW = readFileSync(
+  ".github/workflows/deploy-site.yml",
+  "utf8",
+);
 
 /**
  * Inline registry-count idioms — the prose phrasings that quote the adapter
@@ -97,6 +108,16 @@ async function hostsWithCapability(
 }
 
 describe("robot docs drift guard — llms.txt + llms-full.txt (code is the source of truth)", () => {
+  it("publishes agent-readable docs in the website artifact", () => {
+    expect(SITE_PACKAGE.scripts?.build).toContain("scripts/copy-agent-assets.mjs");
+    expect(SITE_AGENT_ASSET_COPY_SCRIPT).toContain('"llms.txt"');
+    expect(SITE_AGENT_ASSET_COPY_SCRIPT).toContain('"llms-full.txt"');
+    expect(SITE_AGENT_ASSET_COPY_SCRIPT).toContain('"skills/agent-connector"');
+    expect(DEPLOY_SITE_WORKFLOW).toContain('"llms.txt"');
+    expect(DEPLOY_SITE_WORKFLOW).toContain('"llms-full.txt"');
+    expect(DEPLOY_SITE_WORKFLOW).toContain('"skills/agent-connector/**"');
+  });
+
   it("keeps all MCP server launch shapes visible to agents", () => {
     // The docs use acme-db as one concrete sample, but agents must not infer
     // that every MCP is a database package launched through npx. The launch

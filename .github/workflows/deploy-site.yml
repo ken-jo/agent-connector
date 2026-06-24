@@ -11,6 +11,9 @@ on:
     branches: [main]
     paths:
       - "site/**"
+      - "llms.txt"
+      - "llms-full.txt"
+      - "skills/agent-connector/**"
       - ".github/workflows/deploy-site.yml"
   workflow_dispatch:
 
