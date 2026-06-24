@@ -898,7 +898,7 @@ export function SurfacesSection() {
 
       <H3 id="memory-targets">AGENTS.md-first: where the block goes</H3>
       <P>
-        <strong>33 of the 42 hosts read the open{" "}
+        <strong>AGENTS.md adopters read the open{" "}
         <a
           className="underline hover:text-foreground"
           href="https://agents.md"
@@ -907,9 +907,9 @@ export function SurfacesSection() {
         >
           AGENTS.md
         </a>{" "}
-        standard</strong> (the Linux Foundation-stewarded &quot;README for
-        agents&quot; format) — so you write the guidance once and it lands in
-        the standard file across every adopter host. agent-connector never flips
+        standard file</strong> (the Linux Foundation-stewarded &quot;README
+        for agents&quot; format) — so you write the guidance once and it lands in
+        the standard file across adopter hosts. agent-connector never flips
         host settings to make AGENTS.md readable (probe-and-respect only), and
         the non-reader hosts are wired per their own official docs — CLAUDE.md
         and GEMINI.md, plus the dedicated rules-dir hosts (.amazonq/rules,

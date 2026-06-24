@@ -269,9 +269,11 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
   // NOTE: the llms.txt / llms-full.txt paradigm-partition assertions moved to
   // tests/docs/robot-support.test.ts (the single home for robot-doc drift).
 
-  it("README badge count is current and Droid sits in the json-stdio row", () => {
+  it("README routes platform-count badges to coverage and Droid sits in the json-stdio row", () => {
     const text = readFileSync("README.md", "utf8");
-    expect(text).toContain(`platforms-${ADAPTER_REGISTRY.length}-`);
+    expect(text).toContain("platform%20coverage-see%20%2Fcoverage");
+    expect(text).toContain("https://agent-connector.ai/coverage");
+    expect(text).not.toContain(`platforms-${ADAPTER_REGISTRY.length}-`);
     expect(text).toContain("tests-passing");
     expect(text).not.toMatch(/tests-\d+%20passing/);
     const jsonStdioRow = text.split("\n").find((l) => l.includes("`json-stdio`") && l.includes("|"));

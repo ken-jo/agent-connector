@@ -212,7 +212,7 @@ export const legacyHashRedirects: Record<string, string> = {
 /** Per-section <meta name="description"> copy (for /docs/<track>/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across 42 AI-agent platforms with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
+    "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across the current AI-agent coverage matrix with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
   installation:
     "Install agent-connector as a dependency of your MCP package (npm install @ken-jo/agent-connector), then ship a branded CLI/bin such as npx @acme/acme-db-mcp install. Global framework install is for connector-free token telemetry, not normal package installs. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   sdk:
@@ -234,7 +234,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 13 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts (33 of 42, the open agents.md standard), and on the non-AGENTS.md exception CLAUDE.md (Claude Code); the dedicated-file rules hosts each get an agent-connector-owned file in their rules dir — .clinerules/agent-connector.md (Cline; project DIRECTORY form, user ~/Documents/Cline/Rules — skip-warns when .clinerules is a single FILE), .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf) — plus GEMINI.md for Gemini CLI. Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; emitted for claude-code and antigravity-cli (top-level statusLine) and qwen-code (nested ui.statusLine), other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; host affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw fork, which inherits openclaw's emitter), other hosts skip-warn).",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts, and host-native exception files such as CLAUDE.md (Claude Code), GEMINI.md (Gemini CLI), .clinerules/agent-connector.md (Cline; project DIRECTORY form, user ~/Documents/Cline/Rules — skip-warns when .clinerules is a single FILE), .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf). Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; emitted for claude-code and antigravity-cli (top-level statusLine) and qwen-code (nested ui.statusLine), other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; host affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw fork, which inherits openclaw's emitter), other hosts skip-warn).",
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, `agent-connector package` emits any of 10 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -248,9 +248,9 @@ export const sectionDescription: Record<string, string> = {
   privacy:
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
-  // keep in sync with the adapter registry (ADAPTER_REGISTRY.length = 42)
+  // Keep the current count out of prose; /coverage is the canonical count source.
   platforms:
-    "The 42 supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin.",
+    "The supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin. Current counts live on /coverage.",
   "add-a-platform":
     "Adding a platform is one registry entry plus one adapter — the framework's core design guarantee.",
   "operating-model":
@@ -1274,7 +1274,7 @@ export const sharedFlags: { flag: string; desc: string }[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Platforms (42, by paradigm — llms-full §6)                           */
+/* Platforms (by paradigm — llms-full §6, counts canonical on /coverage) */
 /* ------------------------------------------------------------------ */
 
 export interface PlatformEntry {

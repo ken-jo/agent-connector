@@ -37,9 +37,9 @@ const SKILL = readFileSync("skills/agent-connector/SKILL.md", "utf8");
  * number in group 1; the guard asserts it === ADAPTER_REGISTRY.length so a stale
  * "36"/"35"/"40" can never be reintroduced.
  *
- * Deliberately SCOPED to the registry-count idioms only — it must NOT match the
- * AGENTS.md "most supporting hosts" rephrase, paradigm subtotals (22/12/8),
- * byte/line sizes, version strings, or the "N of 42" AGENTS readership ratio.
+ * Deliberately SCOPED to the registry-count idioms only — it must NOT match
+ * paradigm subtotals, byte/line sizes, version strings, or prose that points to
+ * the coverage page as the canonical host-count source.
  */
 const REGISTRY_COUNT_PATTERNS: readonly RegExp[] = [
   /\b(\d+) registered(?: deploy)? adapters?\b/g,
@@ -90,11 +90,11 @@ async function hostsWithCapability(
 
 describe("robot docs drift guard — llms.txt + llms-full.txt (code is the source of truth)", () => {
   // ── Paradigm partition (migrated from platform-drift) ────────────────────
-  it("llms.txt paradigm bullets name EXACTLY the registry ids, and the heading count is current", async () => {
+  it("llms.txt paradigm bullets name EXACTLY the registry ids and point counts to coverage", async () => {
     const truth = await registryParadigms();
-    expect(LLMS).toContain(
-      `## Supported platforms by paradigm (${ADAPTER_REGISTRY.length})`,
-    );
+    expect(LLMS).toContain("## Supported platforms by paradigm");
+    expect(LLMS).toContain("https://agent-connector.ai/coverage");
+    expect(LLMS).not.toMatch(/^## Supported platforms by paradigm \(\d+\)$/m);
     for (const [paradigm, ids] of Object.entries(truth)) {
       const line = bullet(LLMS, `- \`${paradigm}\``);
       expect(line, `llms.txt is missing the ${paradigm} bullet`).toBeTruthy();
@@ -170,37 +170,25 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
   });
 
   // ── Inline registry-count prose (the freshness sweep guards this) ─────────
-  it("inline registry-count prose stays centralized and current", () => {
-    const expected = ADAPTER_REGISTRY.length;
-    // sanity: the idioms must actually be present, or the guard guards nothing
-    // (a refactor that renamed every phrasing should make us notice). The skill
-    // stays a small router and must link to canonical coverage/reference pages
-    // instead of carrying another fixed host count.
+  it("inline registry-count prose routes to coverage instead of duplicating counts", () => {
     const llmsHits = registryCounts(LLMS);
     const skillHits = registryCounts(SKILL);
+    const fullHits = registryCounts(LLMS_FULL);
     expect(
-      llmsHits.length,
-      "llms.txt has no inline registry-count idiom — the guard would be a no-op",
-    ).toBeGreaterThanOrEqual(1);
+      llmsHits,
+      "llms.txt should route host counts to /coverage instead of duplicating a fixed registry count",
+    ).toEqual([]);
     expect(
       skillHits,
       "SKILL.md should route to canonical coverage/reference docs instead of duplicating a fixed registry count",
     ).toEqual([]);
+    expect(
+      fullHits,
+      "llms-full.txt should keep free-prose registry counts out of prose; paradigm heading counts are guarded separately",
+    ).toEqual([]);
     expect(SKILL).toContain("/coverage");
     expect(SKILL).toContain("llms.txt");
     expect(SKILL).toContain("llms-full.txt");
-
-    for (const [name, text] of [
-      ["llms.txt", LLMS],
-      ["llms-full.txt", LLMS_FULL],
-    ] as const) {
-      for (const { num, phrase } of registryCounts(text)) {
-        expect(
-          num,
-          `${name} quotes a stale registry count: "${phrase}" (expected ${expected})`,
-        ).toBe(expected);
-      }
-    }
   });
 
   // ── NEW high-confidence guards ───────────────────────────────────────────

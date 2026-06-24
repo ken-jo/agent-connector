@@ -7,16 +7,16 @@
 ### Deploy one MCP to every agent CLI.
 
 Write your server + hooks once with `defineConnector()`, then `install` it into
-the native config — or `package` it as a real plugin — across **42 agent CLIs**
+the native config — or `package` it as a real plugin — across every detected agent CLI
 (Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
 
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
-![platforms](https://img.shields.io/badge/platforms-42-2563eb)
+[![platform coverage](https://img.shields.io/badge/platform%20coverage-see%20%2Fcoverage-2563eb)](https://agent-connector.ai/coverage)
 ![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
-![install verified](https://img.shields.io/badge/install%20verified-42%2F42-22c55e)
-![headless runtime](https://img.shields.io/badge/headless%20runtime-20%20CLIs%20activated-22c55e)
+[![install verified](https://img.shields.io/badge/install%20verified-registry%20harness-22c55e)](https://agent-connector.ai/coverage)
+[![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
 ![marketplace](https://img.shields.io/badge/package-10%20marketplace%20formats-2563eb)
 ![tests](https://img.shields.io/badge/tests-passing-22c55e)
 
@@ -31,7 +31,7 @@ if you already run an agent CLI and just want token totals, jump straight to
 - [CLI](#cli) — every command at a glance
 - [Token telemetry & usage](#token-telemetry--usage) — per-tool telemetry vs. connector-free `usage`
 - [Publish to the MCP ecosystem](#publish-to-the-mcp-ecosystem) — emit the official MCP standard artifacts
-- [Verification](#verification) — how the 42-platform contract is proven
+- [Verification](#verification) — how the platform coverage contract is proven
 
 <p align="center">
   <a href="examples/showcase-demo/">
@@ -111,7 +111,8 @@ npx @acme/acme-db-mcp install           # write native config in each host
 
 > `install` targets only the hosts actually **detected** on this machine (or an
 > explicit `--targets` / `connector.targets` list), intersected with the
-> 42-adapter registry — there is no "install to all 42 unconditionally" path.
+> current adapter registry shown on [`/coverage`](https://agent-connector.ai/coverage)
+> — there is no "install to every host unconditionally" path.
 > `@ken-jo/agent-connector` is the framework dependency underneath; use it
 > directly for development fallback or connector-free token telemetry, not as
 > the foreground install brand for your users.
@@ -305,11 +306,12 @@ everywhere.
 ### Memory, statusline, actions, and the SDK
 
 - **`memory`** (aligned with the [AGENTS.md](https://agents.md) standard) — ship
-  standing guidance that lands in `AGENTS.md` on 33 of the 42 hosts; the two that
-  don't read it (Claude Code → `CLAUDE.md`, Gemini CLI → `GEMINI.md`) are wired
-  per their own official docs. Writes are surgical marker-fenced, hash-stamped
-  managed blocks — multiple connectors coexist, bytes outside your markers are
-  never touched, and uninstall excises exactly your blocks.
+  standing guidance into the memory/rules file each host actually reads.
+  AGENTS.md adopters get the standard file; host-specific exceptions such as
+  Claude Code → `CLAUDE.md` and Gemini CLI → `GEMINI.md` are wired per their own
+  official docs. Writes are surgical marker-fenced, hash-stamped managed blocks
+  — multiple connectors coexist, bytes outside your markers are never touched,
+  and uninstall excises exactly your blocks.
 - **`statusline`** (`defineStatusline`) — a live HUD render function the host
   calls on every status refresh. v1 registers Claude Code's `settings.json.statusLine`
   or Qwen Code's `settings.json.ui.statusLine` (set-if-absent, refcounted,
@@ -347,8 +349,9 @@ everywhere.
   only framework-owned state lives under the data-root.
 - **Windows-first correctness.** No symlinks, no POSIX-only assumptions.
 
-**Three hook paradigms**, all install-verified across the 42-platform set
-(see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)):
+**Three hook paradigms**, all install-verified across the registered platform
+set (see [`/coverage`](https://agent-connector.ai/coverage) and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)):
 
 | Paradigm | Platforms |
 |---|---|
@@ -457,14 +460,15 @@ defineConnector({
 
 ## Verification
 
-The full single-API contract is **install-verified across all 42 platforms** by
-a committed registry-driven install-roundtrip harness that, for every adapter,
-drives the real install → uninstall into an isolated HOME and asserts on-disk
-placement + zero residue. A separate committed `scripts/verify-host.mjs` driver
-installs **20 real host CLIs** and verifies install → placement →
-clean-uninstall, and live hook dispatch + telemetry are proven end-to-end on
-several of them. The remaining hosts (IDE extensions / GUI editors with no
-headless CLI) stay covered by the install-roundtrip harness.
+The full single-API contract is **install-verified across the current platform
+registry** by a committed registry-driven install-roundtrip harness that, for
+every adapter, drives the real install → uninstall into an isolated HOME and
+asserts on-disk placement + zero residue. A separate committed
+`scripts/verify-host.mjs` driver installs real host CLIs from the verification
+matrix and checks install → placement → clean-uninstall; live hook dispatch +
+telemetry are proven end-to-end where the host can run headlessly. IDE
+extensions / GUI editors with no headless CLI stay covered by the
+install-roundtrip harness.
 
 **Dogfood result:** porting the real multi-host context-mode plugin to
 `defineConnector` collapsed **~20,322 lines of hand-maintained per-host code down
