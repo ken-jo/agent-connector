@@ -6,6 +6,54 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "No reliable base commit; keeping windows-smoke enabled." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          mapfile -t files < <(git diff --name-only "$base" "$head")
+          docs_only=true
+          for file in "${files[@]}"; do
+            case "$file" in
+              *.md|*.mdx|CHANGELOG|LICENSE|docs/*|llms.txt|llms-full.txt|skills/*|site/*|tests/docs/*)
+                ;;
+              *)
+                docs_only=false
+                ;;
+            esac
+          done
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Change classification"
+            echo ""
+            echo "docs_only=$docs_only"
+            echo ""
+            printf -- "- %s\n" "${files[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   core:
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +90,8 @@ jobs:
         working-directory: site
 
   windows-smoke:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     # Native-Windows is a hard project constraint (no symlink installs, .cmd
     # launcher, PATHEXT spawn). The full suite is Windows-green; run it on
     # windows-latest so regressions surface in CI, not on user machines.
