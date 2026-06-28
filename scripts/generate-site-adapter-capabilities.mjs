@@ -10,15 +10,31 @@
 
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptFile = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(scriptFile), "..");
 const outFile = path.join(repoRoot, "site", "src", "adapter-capabilities.generated.ts");
 
+function resolveTsxImport() {
+  const requireFromRoot = createRequire(import.meta.url);
+  const requireFromSite = createRequire(path.join(repoRoot, "site", "package.json"));
+
+  for (const requireFrom of [requireFromRoot, requireFromSite]) {
+    try {
+      return pathToFileURL(requireFrom.resolve("tsx")).href;
+    } catch {
+      // Try the next install layout.
+    }
+  }
+
+  throw new Error("Unable to resolve tsx. Run npm ci in the repository root or site directory.");
+}
+
 if (process.env.AGENT_CONNECTOR_CAPABILITY_GENERATOR_TSX !== "1") {
-  const result = spawnSync(process.execPath, ["--import", "tsx", scriptFile], {
+  const result = spawnSync(process.execPath, ["--import", resolveTsxImport(), scriptFile], {
     cwd: repoRoot,
     env: {
       ...process.env,
