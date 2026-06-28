@@ -81,7 +81,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            site/package-lock.json
+      - run: npm ci
       - run: npm ci
         working-directory: site
       - run: npx tsc -b
