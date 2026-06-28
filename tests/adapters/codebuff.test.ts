@@ -37,7 +37,7 @@
  * (Memory surface lives in tests/core/memory-surface.test.ts.)
  */
 
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -50,6 +50,7 @@ import codebuffAdapter from "../../src/adapters/codebuff/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { readJson, splitFrontmatter } from "../support/fs.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // Shared env isolation (HOME/USERPROFILE/data-root + the env-ref vars the MCP
 // render + env-ref slices mutate) + the same-rules-for-every-host baseline
@@ -134,7 +135,7 @@ describe("codebuff adapter — skills surface", () => {
     const outside = join(projectDir, "outside-scripts");
     mkdirSync(skillDir, { recursive: true });
     mkdirSync(outside, { recursive: true });
-    symlinkSync(outside, join(skillDir, "scripts"));
+    if (!symlinkOrSkipTest(outside, join(skillDir, "scripts"), "dir")) return;
 
     const changes = codebuffAdapter.installSkills!(ctx);
     const resource = join(skillDir, "scripts", "extract.sh");
@@ -366,7 +367,7 @@ describe("codebuff adapter — subagents surface", () => {
     const link = agentPath(projectDir, "doc-writer");
     mkdirSync(join(projectDir, ".agents"), { recursive: true });
     writeFileSync(victim, "original", "utf8");
-    symlinkSync(victim, link);
+    if (!symlinkOrSkipTest(victim, link)) return;
 
     const changes = codebuffAdapter.installSubagents!(ctx);
     const linkChange = changes.find((c) => c.path === link);
@@ -380,7 +381,7 @@ describe("codebuff adapter — subagents surface", () => {
     const link = agentPath(projectDir, "doc-writer");
     mkdirSync(join(projectDir, ".agents"), { recursive: true });
     writeFileSync(victim, "original", "utf8");
-    symlinkSync(victim, link);
+    if (!symlinkOrSkipTest(victim, link)) return;
 
     const changes = codebuffAdapter.uninstallSubagents!(ctx);
     const linkChange = changes.find((c) => c.path === link);

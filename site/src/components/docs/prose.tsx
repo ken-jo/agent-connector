@@ -83,10 +83,28 @@ export function H3({
   );
 }
 
-export function H4({ children }: { children: React.ReactNode }) {
+export function H4({
+  id,
+  children,
+}: {
+  id?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <h4 className="mt-6 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-      {children}
+    <h4
+      id={id}
+      className="group mt-6 scroll-mt-24 text-sm font-semibold uppercase tracking-wide text-muted-foreground"
+    >
+      {id ? (
+        <>
+          <a href={`#${id}`} className="hover:underline">
+            {children}
+          </a>
+          <HeadingAnchor id={id} />
+        </>
+      ) : (
+        children
+      )}
     </h4>
   );
 }

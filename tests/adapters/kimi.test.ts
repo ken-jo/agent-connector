@@ -26,7 +26,7 @@
  * readJson.
  */
 
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import TOML from "@iarna/toml";
@@ -54,6 +54,7 @@ import {
 } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { readJson, splitFrontmatter } from "../support/fs.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // ── shared fixtures ──────────────────────────────────────────────────────────
 
@@ -348,7 +349,7 @@ describe("kimi adapter render + round-trip", () => {
     const before = "[outside]\nkeep = true\n";
     mkdirSync(dirname(hookPath), { recursive: true });
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, hookPath);
+    if (!symlinkOrSkipTest(outside, hookPath)) return;
 
     const changes = kimiAdapter.installHooks(ctx);
 

@@ -14,8 +14,8 @@ import { DEFAULT_DESCRIPTION, setMetaDescription } from "./meta";
 
 /**
  * One docs page within a track: /docs/<track>/:section. With no :section
- * param (/docs/user, /docs/dev) it renders the track's first section — the
- * track home — so the page is never blank.
+ * param (/docs/guides, /docs/user, /docs/dev) it renders the track's first
+ * section — the track home — so the page is never blank.
  */
 export function DocsPage({ track }: { track: TrackId }) {
   const { section } = useParams<{ section?: string }>();

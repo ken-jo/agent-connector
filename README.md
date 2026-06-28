@@ -75,7 +75,7 @@ npm install @ken-jo/agent-connector
   "name": "@acme/acme-db-mcp",
   "mcpName": "io.github.acme/acme-db",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "@ken-jo/agent-connector": "^0.4.94" }
+  "dependencies": { "@ken-jo/agent-connector": "^0.4.97" }
 }
 ```
 
@@ -204,6 +204,7 @@ server: {
 ```bash
 # 4. deploy under your branded MCP package/bin
 npx @acme/acme-db-mcp detect            # which platforms are installed here?
+npx @acme/acme-db-mcp audit             # catch package/bin/connector identity drift
 npx @acme/acme-db-mcp install --dry-run # preview every change first
 npx @acme/acme-db-mcp install           # write native config in each host
 ```
@@ -224,6 +225,11 @@ Same one definition, your choice of distribution.
 `npx @acme/acme-db-mcp install`) writes each host's native MCP + hook +
 content-surface config in place, with no per-platform marketplace submission or
 review. This is the Quick start path above.
+
+Framework fallback can also install a connector source directly when you are
+testing distribution intake: `github:owner/repo`, `npm:@scope/package@version`,
+or an `archive:` / direct `.tgz` source. Every fetched source is cached under
+`~/.agent-connector/sources/` and must contain `agent-connector.config.*`.
 
 **Marketplace plugin** — the framework `package` command turns the connector
 into a real plugin/extension bundle (manifest + bundled commands, agents,
@@ -474,12 +480,13 @@ Adding a platform = **one registry entry + one adapter**.
 | Command | Purpose |
 |---|---|
 | `detect` | List installed platforms, scopes, capabilities, hook paradigm. |
-| `install [--scope …] [--targets …] [--method …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces across targets. |
+| `install [<source>] [--scope …] [--targets …] [--method …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces. `<source>` may be local, GitHub/git, `npm:<package>[@version]`, or `.tgz`/`archive:`. |
 | `uninstall [--targets …] [--purge] [--method …]` | Full inverse — removes everything we wrote; `--purge` also clears framework state. |
 | `upgrade [--channel …]` | Re-render host config + heal stale pointers + refresh the home binary (alias: `update`, `sync`); never a silent self-update. |
 | `doctor [--probe] [--explain]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake, `--explain` prints the per-`(host, event)` hook honor matrix. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
 | `package [--format <fmt>\|all]` | Emit a host plugin bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
+| `audit [--strict]` | Pre-install package identity lint: package name/version/bin, runtime dependency, connector id/version drift, and publish `files` coverage. |
 | `action <platform> <id> [--connector <id>]` | Run a declared action from the shell. |
 | `telemetry report [--by …] [--since …] [--connector <id>]` | Per-tool token footprint of **your connector's own wrapped server**. Stdio servers only. |
 | `telemetry export [--format …] [--connector <id>]` | Raw aggregate records for your wrapped server. |
@@ -591,9 +598,8 @@ npm run typecheck
 npm run build
 npm run dev -- detect     # run the CLI from source via tsx
 
-# Tests: scope + single-fork (NOT bare `npm test` — it OOMs low-RAM machines).
-npx vitest run --pool=forks --poolOptions.forks.singleFork=true --poolOptions.forks.maxForks=1 \
-  tests/adapters/<host>.test.ts
+# Tests: scope + single-fork (useful on low-RAM machines).
+npm run test:single -- tests/adapters/<host>.test.ts
 ```
 
 ## Contributing

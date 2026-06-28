@@ -36,7 +36,7 @@
  * source's choice — readJson is JSON only); JSON files use readJson.
  */
 
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import TOML from "@iarna/toml";
@@ -59,6 +59,7 @@ import codexAdapter from "../../src/adapters/codex/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { readJson, splitFrontmatter } from "../support/fs.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // ── shared fixtures ──────────────────────────────────────────────────────────
 
@@ -380,7 +381,7 @@ describe("codex adapter render/round-trip", () => {
     const before = "[outside]\nkeep = true\n";
     mkdirSync(join(projectDir, ".codex"), { recursive: true });
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, tomlPath);
+    if (!symlinkOrSkipTest(outside, tomlPath)) return;
 
     const changes = codexAdapter.installServer(ctx);
 

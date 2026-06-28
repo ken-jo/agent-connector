@@ -15,12 +15,10 @@ import { DEFAULT_DESCRIPTION, setMetaDescription } from "./meta";
 const CONTENT_ID = "docs-content";
 
 /**
- * /docs — the persona chooser. The docs fork into two audience tracks at the
- * route level; this page IS the fork: two whole-card links into /docs/dev and
- * /docs/user, with the one accuracy-critical boundary between them stated
- * right here at the fork as a standalone amber callout. ⌘K search works from
- * here too. The full interactive coverage matrix lives on its own dedicated
- * /coverage page (linked from the header nav), not here.
+ * /docs — the docs chooser. The docs fork into route-level guides, developer,
+ * and user tracks; this page is the fork. ⌘K search works from here too. The
+ * full interactive coverage matrix lives on its own dedicated /coverage page
+ * (linked from the header nav), not here.
  */
 export function DocsChooser() {
   const { open: searchOpen, setOpen: setSearchOpen } = useDocsSearch();
@@ -35,7 +33,7 @@ export function DocsChooser() {
     <div className="flex min-h-dvh flex-col bg-background">
       <SkipLink targetId={CONTENT_ID} />
       <Nav />
-      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-14 sm:py-20">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-14 sm:py-20">
         <div id={CONTENT_ID} tabIndex={-1} className="scroll-mt-24 outline-none">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -43,7 +41,7 @@ export function DocsChooser() {
                 Docs
               </p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-                Two audiences, two tracks
+                Start with the right docs track
               </h1>
             </div>
             <DocsSearchButton
@@ -52,12 +50,43 @@ export function DocsChooser() {
             />
           </div>
           <p className="mt-4 max-w-2xl leading-relaxed text-muted-foreground">
-            Pick yours — they don&apos;t overlap. Building an MCP integration is
-            one track; just watching what your agent CLIs burn is the other.
+            New to agent-connector? Start with Guides. They explain the
+            agent-connector concepts, the MCP concepts underneath them, and what
+            each surface does inside the host CLIs you target.
           </p>
 
-          <div className="mt-10 grid gap-4 md:grid-cols-2">
-            {/* Card A — MCP developer → /docs/dev. Each card is ONE whole link. */}
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
+            {/* Card A — beginner guides. Each card is ONE whole link. */}
+            <Link
+              to="/docs/guides/mcp-beginner"
+              className="group flex flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm transition-colors hover:border-foreground/30 hover:bg-card/70"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <span aria-hidden className="text-lg">
+                  📘
+                </span>
+                <span className="text-base font-semibold text-foreground">
+                  New to agent-connector
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed text-foreground/90">
+                <strong>You are learning the concepts.</strong> Start with MCP
+                roles and the agent-connector layer around them: how servers,
+                hooks, HUD/statusline, actions, commands, skills, subagents, and
+                memory behave inside each supported host CLI.
+              </p>
+              <div className="mt-auto pt-5">
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 group-hover:underline">
+                  Read the agent-connector guide
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  MCP basics · Host roles · Surfaces
+                </p>
+              </div>
+            </Link>
+
+            {/* Card B — MCP package developer → /docs/dev */}
             <Link
               to="/docs/dev"
               className="group flex flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm transition-colors hover:border-foreground/30 hover:bg-card/70"
@@ -67,30 +96,27 @@ export function DocsChooser() {
                   🔌
                 </span>
                 <span className="text-base font-semibold text-foreground">
-                  MCP developer
+                  MCP package developer
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-foreground/90">
-                <strong>You authored a connector with{" "}
-                <C>defineConnector(&#123;...&#125;)</C></strong> (or are about to).
-                You write your MCP server + hooks (and optionally commands,
-                skills, subagents) <strong>once</strong>, then ship a branded MCP
-                package/bin such as <C>npx @acme/acme-db-mcp install</C> across
-                every detected agent platform. You get per-MCP and per-tool token
-                counts for <strong>your own wrapped server</strong>.
+                <strong>You already know the server shape</strong> and need the
+                SDK contract: <C>defineConnector</C>, server definitions, hooks,
+                surfaces, packaging, telemetry, CLI commands, and platform
+                reference.
               </p>
               <div className="mt-auto pt-5">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 group-hover:underline">
-                  Start the developer track
+                  Open developer reference
                   <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  SDK overview · Quick start · Telemetry
+                  SDK · Packaging · Telemetry
                 </p>
               </div>
             </Link>
 
-            {/* Card B — agent-CLI user → /docs/user */}
+            {/* Card C — agent-CLI user → /docs/user */}
             <Link
               to="/docs/user"
               className="group flex flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm transition-colors hover:border-foreground/30 hover:bg-card/70"
@@ -148,7 +174,7 @@ export function DocsChooser() {
       </main>
       <Footer />
 
-      {/* ⌘K command palette (spans both tracks) */}
+      {/* ⌘K command palette (spans all docs tracks) */}
       <DocsSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
     </div>
   );

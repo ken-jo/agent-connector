@@ -4,6 +4,13 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
+import {
+  adapterCapabilityCount,
+  adapterCapabilityProfiles,
+  generatedSurfaceKeys,
+  generatedSurfaceLabels,
+  type GeneratedSurfaceKey,
+} from "@/adapter-capabilities.generated";
 // Single source of truth for the host count (= platforms.length, drift-guarded
 // against ADAPTER_REGISTRY) so doc prose can never rot from the registry again.
 import { platformCount } from "@/data";
@@ -58,6 +65,235 @@ import {
 } from "./docs-data";
 import { HooksGuideSection } from "./HooksGuide";
 import { PackagingGuideSection } from "./PackagingGuide";
+
+const mcp101ArchitectureFlow = `User asks a question
+        |
+        v
+Agent host (chat app / IDE / CLI)
+        |
+        | 1. Host shows the model available MCP capabilities
+        |    - tools: actions the model may request
+        |    - resources: readable context
+        |    - prompts: reusable task templates
+        v
+Model decides: "I should call schema_summary"
+        |
+        | 2. Host applies its approval / policy / UI rules
+        v
+MCP client inside the host
+        |
+        | 3. JSON-RPC over stdio or HTTP
+        v
+Your MCP server process
+        |
+        | 4. Validate arguments, call your app/database/API
+        v
+Tool result content
+        |
+        | 5. Host gives result back to the model
+        v
+Model writes the final answer to the user`;
+
+const mcp101ServerLifecycleFlow = `Host starts server process
+  -> server connects to transport
+  -> host initializes protocol session
+  -> server advertises capabilities
+  -> host requests tool/resource/prompt lists
+  -> user asks a task
+  -> model selects a tool
+  -> host sends tools/call
+  -> server validates input
+  -> server runs your handler
+  -> server returns content or error
+  -> host gives result to the model`;
+
+const mcp101ToolCallFlow = `tools/list
+  Host: "What tools do you provide?"
+  Server: [{ name, description, inputSchema }]
+
+tools/call
+  Host: "Call schema_summary with { table: 'users' }"
+  Server:
+    1. Check the tool name
+    2. Validate the arguments
+    3. Run only the allowed operation
+    4. Return compact content
+    5. Throw a clear error for bad input`;
+
+const mcp101HookFlow = `Host lifecycle event
+  -> adapter normalizes host-specific payload
+  -> connector hook handler receives one event shape
+  -> handler returns a response
+  -> adapter translates response back to host-native format
+  -> host continues, blocks, warns, or adds context`;
+
+const connectorConceptsFlow = `Plain MCP server works in one host
+        |
+        v
+defineConnector({ server, optional surfaces })
+        |
+        v
+agent-connector installer detects selected hosts
+        |
+        v
+Per-host adapters render native config
+  - MCP server registration
+  - hook bridge where the host supports hooks
+  - commands / skills / subagents / memory files
+  - statusline / actions affordances where wired
+        |
+        v
+doctor verifies the installed shape per host`;
+
+const hostHooksParadigmFlow = `Connector declares a normalized hook handler
+        |
+        v
+Target host adapter decides the hook paradigm
+        |
+        +-- json-stdio: host config calls the home-bin hook command
+        |
+        +-- ts-plugin: generated plugin module imports/dispatches handlers
+        |
+        +-- mcp-only: no host hook layer, so hooks skip with a warning
+        |
+        v
+Handler returns context / allow / block / warn where supported`;
+
+const statuslineFlow = `Host UI asks for a statusline render
+        |
+        v
+Adapter calls agent-connector statusline runtime
+        |
+        v
+statusline.render(ctx) returns short text
+        |
+        v
+Host displays it in its native HUD/statusline area`;
+
+const actionsFlow = `User invokes a host action
+        |
+        v
+Host affordance calls the agent-connector action entrypoint
+        |
+        v
+Runtime resolves connector + action id
+        |
+        v
+action.run(ctx) executes deliberate user command
+        |
+        v
+Result is returned to the host affordance`;
+
+const specialSurfacesFlow = `Static content surfaces
+  commands  -> host slash-command files
+  skills    -> host skill directories
+  subagents -> host agent definitions
+  memory    -> host rules / memory files
+
+Runtime handler surfaces
+  server     -> MCP tools/resources/prompts
+  hooks      -> host lifecycle callbacks
+  statusline -> host UI render callback
+  actions    -> user-invoked action handlers`;
+
+const mcp101ServerSnippet = `// my-mcp-server.mjs
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+
+const server = new Server(
+  { name: "acme-db", version: "0.1.0" },
+  { capabilities: { tools: {} } },
+);
+
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "schema_summary",
+      description: "Return a short summary of the database schema.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          table: { type: "string", description: "Optional table name" },
+        },
+      },
+    },
+  ],
+}));
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  if (request.params.name !== "schema_summary") {
+    throw new Error(\`Unknown tool: \${request.params.name}\`);
+  }
+  const table = request.params.arguments?.table;
+  return {
+    content: [
+      {
+        type: "text",
+        text: table ? \`Schema summary for \${table}\` : "Schema summary for all tables",
+      },
+    ],
+  };
+});
+
+await server.connect(new StdioServerTransport());`;
+
+const mcp101PackageSnippet = `{
+  "name": "@acme/acme-db-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}`;
+
+const mcp101HostConfigSnippet = `{
+  "mcpServers": {
+    "acme-db": {
+      "command": "node",
+      "args": ["/absolute/path/to/my-mcp-server.mjs"]
+    }
+  }
+}`;
+
+const mcp101AgentConnectorDropSnippet = `// agent-connector.config.mjs
+import { fileURLToPath } from "node:url";
+import { defineConnector } from "@ken-jo/agent-connector/sdk";
+
+const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
+
+export default defineConnector({
+  server: {
+    transport: "stdio",
+    command: "node",
+    args: [serverPath],
+  },
+});`;
+
+const mcp101VerifySnippet = `npm install
+node my-mcp-server.mjs
+# In another terminal, use MCP Inspector or one host's MCP settings to call schema_summary.`;
+
+const generatedCapabilitySummaryRows: {
+  key: GeneratedSurfaceKey;
+  label: string;
+  count: number;
+}[] = generatedSurfaceKeys.map((key) => ({
+  key,
+  label: generatedSurfaceLabels[key],
+  count: adapterCapabilityProfiles.filter((p) => p.surfaces[key]).length,
+}));
+
+const generatedSurfaceHostNames = (key: GeneratedSurfaceKey): string[] =>
+  adapterCapabilityProfiles
+    .filter((p) => p.surfaces[key])
+    .map((p) => p.name);
+
+const statuslineHostNames = generatedSurfaceHostNames("statusline");
+const actionHostNames = generatedSurfaceHostNames("actions");
 
 /* ================================================================== */
 /* Getting Started                                                     */
@@ -124,6 +360,1057 @@ export function Introduction() {
         three hook paradigms (install targets the hosts detected on your machine,
         or the targets you name — never all {platformCount} unconditionally), and
         is Windows-first (no symlinks, no POSIX-only assumptions).
+      </P>
+    </DocSection>
+  );
+}
+
+export function McpBeginnerGuide() {
+  return (
+    <DocSection id="mcp-beginner" eyebrow="Guides" title="Agent-connector beginner guide">
+      <Lead>
+        This page is for developers who are new to agent-connector and need the
+        MCP concepts underneath it. Start with the protocol roles, then learn
+        how agent-connector maps servers, hooks, HUD/statusline, actions,
+        commands, skills, subagents, and memory into the host CLIs you target.
+      </Lead>
+
+      <Callout title="What MCP is">
+        MCP is a standard way for an agent host to talk to external capability
+        providers. Your server exposes tools, resources, or prompts; the host
+        decides when to show them to the model and when a user must approve a
+        call. The protocol is the boundary between those two sides.
+      </Callout>
+
+      <P>
+        For the canonical protocol reference, keep the{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://modelcontextprotocol.io/docs/getting-started/intro"
+          rel="noreferrer"
+          target="_blank"
+        >
+          official MCP docs
+        </a>{" "}
+        open while you build. This page is the short practical path for a first
+        implementation.
+      </P>
+
+      <Callout title="What this Guides track teaches">
+        The Guides track is the concept bridge. It explains MCP basics, the
+        agent-connector distribution layer, and what each connector surface does
+        inside a host CLI: what the model can call, what the host triggers, what
+        the user invokes, what the host UI renders, and what files the host
+        loads as standing context.
+      </Callout>
+
+      <figure className="not-prose mt-8 overflow-hidden rounded-xl border border-border bg-card/40">
+        <img
+          src="/docs/mcp-beginner-architecture.svg"
+          alt="MCP architecture diagram showing a user, agent host, embedded MCP client, transport, MCP server, and application data boundary"
+          width={1280}
+          height={720}
+          className="aspect-video w-full object-cover"
+        />
+        <figcaption className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+          The host owns the conversation. Your MCP server owns capabilities. The
+          transport is only the protocol pipe between them.
+        </figcaption>
+      </figure>
+
+      <H3 id="mcp-architecture-map">Architecture map: who owns what?</H3>
+      <P>
+        Beginners often confuse the model, the host, and the MCP server. Keep
+        them separate. The model decides whether a capability is useful, the host
+        mediates approval and sends protocol messages, and your server validates
+        input before touching your app, database, or files.
+      </P>
+      <CodeBlock code={mcp101ArchitectureFlow} language="text" filename="mcp-flow.txt" />
+
+      <H3 id="mcp-terms">1. Learn the nouns before writing code</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Term</Th>
+            <Th>Meaning</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>
+              <Code>MCP server</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              Your process or remote endpoint. It advertises capabilities and
+              handles requests from the host.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Host</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The agent app that loads the server, shows its capabilities to the
+              model, and mediates user approval.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Tool</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              A callable function with a name, description, JSON input schema,
+              and result content. Start here; tools are the easiest surface to
+              test.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Resource</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              Data the host can read from your server, such as a file-like URI
+              or application state. Use it when the model needs context, not an
+              action.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Prompt</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              A reusable prompt template your server can offer to the host. It
+              is not the same thing as a tool call.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Transport</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              How the host reaches your server. Most local packages use{" "}
+              <Code>stdio</Code>; hosted servers usually use streamable HTTP.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Client</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The protocol peer inside the host. Most beginners do not write a
+              client; they write a server and let a host connect to it.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="mcp-first-surface">2. Pick the first surface deliberately</H3>
+      <P>
+        MCP has multiple surfaces, but a beginner should not start with all of
+        them. Choose the smallest surface that proves the idea, then add the
+        others only when the product shape demands them.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Surface</Th>
+            <Th>Use it when</Th>
+            <Th>Beginner advice</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>
+              <Code>Tool</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The model needs to ask your app to do something: query, calculate,
+              fetch, search, summarize, or mutate.
+            </Td>
+            <Td className="text-muted-foreground">
+              Start here with one read-only tool.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Resource</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The model needs context that can be read by URI: documents,
+              records, workspace state, logs, or generated reports.
+            </Td>
+            <Td className="text-muted-foreground">
+              Add after the first tool works; resources are context, not
+              commands.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Prompt</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              You want to offer a reusable workflow prompt with named arguments.
+            </Td>
+            <Td className="text-muted-foreground">
+              Add when users keep asking the same task in the same shape.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="mcp-tool-contract">3. Design one good tool contract</H3>
+      <P>
+        A tool is a product API for an agent. The host and model only see the
+        name, description, input schema, and result. Small wording choices change
+        whether the model calls the tool correctly.
+      </P>
+      <List>
+        <LI>
+          Use an action-oriented, stable name such as <C>schema_summary</C>, not
+          a vague name such as <C>run</C> or <C>query</C>.
+        </LI>
+        <LI>
+          Write the description as a decision rule: when should the model call
+          this tool, and what will it get back?
+        </LI>
+        <LI>
+          Keep the input schema narrow. Prefer explicit fields and enums over
+          free-form strings.
+        </LI>
+        <LI>
+          Return compact, structured text first. Add large payloads, binary
+          data, or multi-step workflows later.
+        </LI>
+        <LI>
+          Decide the failure shape now: unknown tool, invalid argument, missing
+          auth, timeout, and upstream unavailable should produce predictable
+          errors.
+        </LI>
+      </List>
+      <CodeBlock code={mcp101ToolCallFlow} language="text" filename="tool-call-flow.txt" />
+      <Callout title="The model requests, your server decides">
+        The model may ask for a tool call, but your server is still responsible
+        for validation and authorization. Treat every argument as untrusted input
+        even when it came through a friendly host UI.
+      </Callout>
+
+      <H3 id="mcp-server-first">4. Build the smallest useful server</H3>
+      <P>
+        Keep the first server boring: one read-only tool, one clear description,
+        one input object, and one deterministic text result. Avoid auth,
+        databases, writes, background jobs, and remote deployment until this
+        local loop works.
+      </P>
+      <CodeBlock code={mcp101ServerSnippet} language="ts" filename="my-mcp-server.mjs" />
+
+      <Callout title="stdio rule that saves hours" tone="warn">
+        A stdio MCP server uses stdout for protocol messages. Do not print debug
+        logs to stdout; write logs to stderr or a file. Random stdout text can
+        corrupt the JSON-RPC stream and make the host look broken.
+      </Callout>
+
+      <H3 id="mcp-server-runtime">How an MCP server actually runs</H3>
+      <P>
+        An MCP server is not a web page and not an agent. It is a capability
+        process. The host starts it, performs a protocol handshake, asks what the
+        server can do, and later sends specific requests such as{" "}
+        <C>tools/call</C>. Your server should stay boring: declare capability,
+        validate input, run the handler, return content, repeat.
+      </P>
+      <CodeBlock code={mcp101ServerLifecycleFlow} language="text" filename="server-lifecycle.txt" />
+
+      <H4 id="mcp-server-owns">What your server owns</H4>
+      <List>
+        <LI>
+          <strong>Capability metadata.</strong> Tool names, descriptions,
+          schemas, resource URIs, and prompt templates.
+        </LI>
+        <LI>
+          <strong>Validation.</strong> Never trust the model to send safe input.
+          Check required fields, enum values, paths, identifiers, and sizes.
+        </LI>
+        <LI>
+          <strong>Application boundary.</strong> Your server is the only side
+          that should touch your database, local files, third-party APIs, or
+          private business logic.
+        </LI>
+        <LI>
+          <strong>Result shape.</strong> Return enough context for the model to
+          answer, but avoid dumping raw tables, secrets, or huge payloads.
+        </LI>
+      </List>
+
+      <H4 id="mcp-host-owns">What the host owns</H4>
+      <List>
+        <LI>
+          It chooses when to expose your server&apos;s capabilities to the model.
+        </LI>
+        <LI>
+          It handles user approval, UI affordances, and host-specific policy.
+        </LI>
+        <LI>
+          It decides how errors are shown to the user and whether a failed tool
+          call should be retried.
+        </LI>
+        <LI>
+          It injects the tool result back into the model&apos;s conversation.
+        </LI>
+      </List>
+
+      <H3 id="mcp-package-identity">5. Add only the package metadata you need</H3>
+      <P>
+        For a first local server, the package only needs ESM and the MCP SDK.
+        Package branding, bins, publishing, and multi-host installers can wait
+        until you have one host successfully calling one tool.
+      </P>
+      <CodeBlock code={mcp101PackageSnippet} language="json" filename="package.json" />
+
+      <H3 id="mcp-connect">6. Connect it to one host</H3>
+      <P>
+        Every host has its own settings file or UI, but the core launch shape is
+        the same: give the host a server name, command, and args. Use an absolute
+        path first so you are debugging MCP behavior, not path resolution.
+      </P>
+      <CodeBlock code={mcp101HostConfigSnippet} language="json" filename="host MCP settings" />
+
+      <H3 id="mcp-verify">7. Verify one call before adding features</H3>
+      <P>
+        The first success criterion is simple: the host lists the server, sees
+        the <C>schema_summary</C> tool, and returns the expected text from one
+        call. After that, test bad input, unknown tool names, and restart
+        behavior.
+      </P>
+      <CodeBlock code={mcp101VerifySnippet} language="bash" filename="terminal" />
+
+      <H3 id="mcp-debug-loop">8. Debug in this order</H3>
+      <P>
+        MCP failures are easier to isolate if you test one boundary at a time.
+        Do not change the server, host config, and package shape in the same
+        debugging pass.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Check</Th>
+            <Th>What it proves</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>node my-mcp-server.mjs</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The process starts without import, syntax, or missing dependency
+              errors.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">Tool list</Td>
+            <Td className="text-muted-foreground">
+              The host can launch the server and read its advertised tool
+              metadata.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">One valid call</Td>
+            <Td className="text-muted-foreground">
+              JSON input, handler routing, and result serialization all work.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">One invalid call</Td>
+            <Td className="text-muted-foreground">
+              Your errors are understandable and do not crash the server.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">Restart host</Td>
+            <Td className="text-muted-foreground">
+              The config is durable and not dependent on a dev shell session.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="mcp-safety">9. Add safety before writes</H3>
+      <P>
+        Write tools are where MCP stops being a demo and starts touching user
+        state. Add them only after read tools are stable, then make approval,
+        scoping, and auditability explicit.
+      </P>
+      <List>
+        <LI>
+          Keep secrets out of tool arguments and results. Read credentials from
+          the environment, keychain, or the host&apos;s secret mechanism.
+        </LI>
+        <LI>
+          Scope dangerous tools to one project, account, database, or workspace
+          rather than a whole machine.
+        </LI>
+        <LI>
+          Prefer dry-run and preview outputs before mutation. Show the exact
+          thing that will change.
+        </LI>
+        <LI>
+          Treat model-provided text as untrusted input. Validate paths, SQL,
+          shell arguments, URLs, and identifiers before use.
+        </LI>
+        <LI>
+          Give every write operation a clear success message and a recoverable
+          error message.
+        </LI>
+      </List>
+
+      <Callout title="Common first MCP mistakes" tone="warn">
+        Starting with a write tool. Vague tool descriptions. Loose schemas that
+        accept anything. Logging to stdout. Depending on relative paths before
+        the server works. Assuming every host exposes the same UI, approval
+        flow, or error messages.
+      </Callout>
+
+      <H3 id="mcp-hooks">Hooks: the layer around MCP, not the MCP server itself</H3>
+      <P>
+        Hooks are easy to misunderstand because they feel like tools. They are
+        different. A tool is a capability the model can request through MCP. A
+        hook is a host lifecycle callback: the host says something happened, and
+        your integration can add context, warn, allow, block, or record a
+        measurement depending on what that host supports.
+      </P>
+      <CodeBlock code={mcp101HookFlow} language="text" filename="hook-flow.txt" />
+
+      <H4 id="mcp-hooks-when">When hooks run</H4>
+      <P>
+        Hook timing is host-specific, but the mental model is stable: hooks run
+        around host events. Common examples are session start, before or after a
+        tool call, permission request, compacting context, or subagent lifecycle
+        events. Some hosts expose many lifecycle points; some expose none.
+      </P>
+
+      <H4 id="mcp-hooks-vs-tools">Hooks vs tools</H4>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Question</Th>
+            <Th>Tool</Th>
+            <Th>Hook</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Who initiates it?</Td>
+            <Td className="text-muted-foreground">
+              The model requests it through the host.
+            </Td>
+            <Td className="text-muted-foreground">
+              The host emits it when a lifecycle event happens.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Is it MCP core?</Td>
+            <Td className="text-muted-foreground">Yes, tools are an MCP surface.</Td>
+            <Td className="text-muted-foreground">
+              No. Hooks are host/plugin surfaces that agent-connector can
+              normalize where hosts support them.
+            </Td>
+          </tr>
+          <tr>
+            <Td>What should it do?</Td>
+            <Td className="text-muted-foreground">
+              Perform a bounded capability and return result content.
+            </Td>
+            <Td className="text-muted-foreground">
+              Add policy, context, telemetry, warnings, or host-side decisions
+              around an event.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Beginner rule</Td>
+            <Td className="text-muted-foreground">
+              Build one read-only tool first.
+            </Td>
+            <Td className="text-muted-foreground">
+              Add hooks only after the MCP server is working in one host.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <Callout title="Do not put core safety only in hooks" tone="warn">
+        Hooks are not universal across hosts. If an operation must be safe, put
+        the hard validation in the MCP server handler itself. Hooks can add
+        extra host-side policy, but they should not be the only line of defense.
+      </Callout>
+
+      <H3 id="mcp-next">Add agent-connector only after the server works</H3>
+      <P>
+        Once your neutral MCP server works in one host, agent-connector becomes
+        the distribution layer: one declaration can render that same server into
+        many host configs and add optional telemetry, skills, hooks, and install
+        checks. It should not be the first thing you debug.
+      </P>
+      <CodeBlock
+        code={mcp101AgentConnectorDropSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+      <P>
+        After that, move to{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/quick-start">
+          Quick start
+        </Link>{" "}
+        for the framework-specific flow, or{" "}
+        <Link className="underline hover:text-foreground" to="/wizard">
+          use the wizard
+        </Link>{" "}
+        when you want a package-specific scaffold.
+      </P>
+
+      <Callout title="Next guide pages">
+        The rest of this Guides track explains the agent-connector-specific
+        layer around a working MCP server and what each piece can do in host
+        CLIs:{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/connector-concepts">
+          how agent-connector fits
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/host-hooks">
+          host hooks by CLI
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/hud-statusline">
+          HUD/statusline
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/actions-guide">
+          actions
+        </Link>
+        , and{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/special-surfaces">
+          commands, skills, subagents, and memory
+        </Link>
+        .
+      </Callout>
+    </DocSection>
+  );
+}
+
+export function ConnectorConceptsGuide() {
+  return (
+    <DocSection
+      id="connector-concepts"
+      eyebrow="Guides"
+      title="How agent-connector fits"
+    >
+      <Lead>
+        agent-connector is not the MCP protocol and not a replacement for your
+        MCP server. It starts after a plain MCP server works: it packages that
+        server, renders host-native installs, and adds optional host surfaces
+        such as hooks, commands, skills, subagents, memory, statusline, actions,
+        and telemetry.
+      </Lead>
+
+      <H3 id="connector-boundary">The boundary: MCP first, connector second</H3>
+      <P>
+        A beginner should make one server work in one host before adding
+        agent-connector. MCP proves the capability contract. agent-connector
+        proves the distribution and host-integration contract.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Layer</Th>
+            <Th>Owns</Th>
+            <Th>Beginner question</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>MCP server</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              Tools, resources, prompts, argument validation, and application
+              access.
+            </Td>
+            <Td className="text-muted-foreground">
+              Can one host call one useful capability?
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>agent-connector</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              Package identity, per-host config rendering, hook bridges, content
+              surfaces, statusline/actions dispatch, doctor checks, and local
+              telemetry.
+            </Td>
+            <Td className="text-muted-foreground">
+              Can the same package install cleanly across hosts?
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="connector-distribution-layer">The distribution layer</H3>
+      <P>
+        <C>defineConnector</C> is the declaration that says, &quot;this package
+        exposes this MCP server and these optional host surfaces.&quot; From that
+        declaration, adapters render the native shape each host expects instead
+        of forcing every host into one invented config format.
+      </P>
+      <CodeBlock
+        code={connectorConceptsFlow}
+        language="text"
+        filename="connector-flow.txt"
+      />
+
+      <H3 id="connector-install-pipeline">What install actually does</H3>
+      <List>
+        <LI>
+          <strong>Resolve package identity.</strong> The package name, version,
+          bin, and optional MCP metadata become the public connector identity.
+        </LI>
+        <LI>
+          <strong>Detect or target hosts.</strong> The installer works against
+          detected hosts or the explicit <C>--targets</C> list, not every known
+          platform blindly.
+        </LI>
+        <LI>
+          <strong>Render native files.</strong> MCP config, plugin manifests,
+          command files, skill folders, rules files, and hook bridge entries are
+          written in the host&apos;s own dialect.
+        </LI>
+        <LI>
+          <strong>Point runtime hooks at one home binary.</strong> Hook,
+          statusline, action, and serve-wrapper dispatch go through the stable
+          home binary so upgrades do not require rewriting every handler.
+        </LI>
+        <LI>
+          <strong>Verify with doctor.</strong> Installation is followed by
+          host-specific checks that distinguish pass, warn, and fail states.
+        </LI>
+      </List>
+
+      <H3 id="connector-when-not">When not to add it yet</H3>
+      <P>
+        Do not reach for agent-connector while the basic server contract is
+        still unclear. If the tool name, schema, stdout behavior, result shape,
+        or first host config is broken, fix MCP first. Add the connector layer
+        when the next problem is distribution, cross-host parity, hooks, content
+        surfaces, or telemetry for your package.
+      </P>
+    </DocSection>
+  );
+}
+
+export function HostHooksGuide() {
+  return (
+    <DocSection id="host-hooks" eyebrow="Guides" title="Host hooks by CLI">
+      <Lead>
+        Hooks are host lifecycle callbacks, not MCP tool calls. The hard part is
+        that each CLI exposes hooks differently. agent-connector groups those
+        differences into paradigms so a connector author can write one normalized
+        handler and still get honest per-host behavior.
+      </Lead>
+
+      <H3 id="hook-mental-model">The hook mental model</H3>
+      <P>
+        A hook runs because the host emitted an event: session started, a tool
+        is about to run, a permission decision is needed, a tool failed, context
+        was compacted, or a subagent changed state. The model does not choose a
+        hook the way it chooses an MCP tool.
+      </P>
+      <CodeBlock
+        code={hostHooksParadigmFlow}
+        language="text"
+        filename="hook-paradigms.txt"
+      />
+
+      <H3 id="hook-paradigm-map">CLI behavior by hook paradigm</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Paradigm</Th>
+            <Th>How it works</Th>
+            <Th>Hosts in this repo</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>json-stdio</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The host calls a configured command. agent-connector receives a
+              JSON payload on the home-bin hook entrypoint, normalizes it, runs
+              your handler, and prints the host&apos;s expected response shape.
+            </Td>
+            <Td className="text-muted-foreground">
+              {jsonStdioPlatforms.map((p) => p.name).join(", ")}
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>ts-plugin</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The package emits a host plugin/module. That module exports the
+              lifecycle functions the host expects and dispatches into the
+              connector runtime.
+            </Td>
+            <Td className="text-muted-foreground">
+              {tsPluginPlatforms.map((p) => p.name).join(", ")}
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>mcp-only</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              The host can register MCP servers but exposes no hook layer to
+              agent-connector. Declared hooks are skipped with a warning instead
+              of pretending to run.
+            </Td>
+            <Td className="text-muted-foreground">
+              {mcpOnlyPlatforms.map((p) => p.name).join(", ")}
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="hook-dispatch-flow">What happens during dispatch</H3>
+      <List>
+        <LI>
+          The host emits a native lifecycle payload in its own format.
+        </LI>
+        <LI>
+          The adapter converts that payload into one normalized event shape where
+          the host has a matching concept.
+        </LI>
+        <LI>
+          The connector hook handler receives the event and returns context,
+          allow/block, warning text, or another supported response.
+        </LI>
+        <LI>
+          The adapter translates that response back to the native host contract.
+        </LI>
+        <LI>
+          If the host cannot support that event or response, the installer and
+          doctor surface the limitation as a warning or unavailable capability.
+        </LI>
+      </List>
+
+      <H3 id="hook-safety-rules">Beginner safety rules</H3>
+      <Callout title="Hooks are additive policy, not your only guardrail" tone="warn">
+        If a tool can delete files, run SQL, or mutate production state, the MCP
+        tool handler itself must validate the operation. Hooks can add host-side
+        policy and UX, but an MCP-only host may never run them.
+      </Callout>
+      <List>
+        <LI>
+          Keep hook handlers fast. A hook sits on the host&apos;s interaction path.
+        </LI>
+        <LI>
+          Return small context. Large hook output becomes model context or host
+          UI noise.
+        </LI>
+        <LI>
+          Treat hook payloads as host-specific observations, not guaranteed
+          universal state.
+        </LI>
+        <LI>
+          Test one host from each paradigm before claiming cross-host behavior.
+        </LI>
+      </List>
+    </DocSection>
+  );
+}
+
+export function HudStatuslineGuide() {
+  return (
+    <DocSection id="hud-statusline" eyebrow="Guides" title="HUD / statusline">
+      <Lead>
+        A HUD or statusline is a host UI surface. It is not an MCP tool, not a
+        resource, and not something the model calls. The host asks for a short
+        render result, and agent-connector dispatches your{" "}
+        <C>statusline.render(ctx)</C> handler where that host supports it.
+      </Lead>
+
+      <H3 id="hud-not-mcp">Why it is separate from MCP</H3>
+      <P>
+        MCP moves capability messages between a host and a server. A statusline
+        is the host displaying state to a human: current connector, project,
+        token state, warning flags, or another compact signal. It belongs in the
+        host UI layer, not in the MCP server&apos;s tool list.
+      </P>
+      <CodeBlock code={statuslineFlow} language="text" filename="statusline-flow.txt" />
+
+      <H3 id="hud-render-context">The render callback</H3>
+      <P>
+        The connector declares one statusline surface. At runtime, the host
+        adapter asks the home binary to resolve the connector and call{" "}
+        <C>render(ctx)</C>. The handler should be deterministic, quick, and
+        short enough for the host&apos;s native status area.
+      </P>
+      <List>
+        <LI>
+          Use it for glanceable state, not instructions or long explanations.
+        </LI>
+        <LI>
+          Avoid network calls; status UI may refresh often and should not block
+          the host.
+        </LI>
+        <LI>
+          Return plain text unless a host-specific adapter explicitly supports
+          richer output.
+        </LI>
+      </List>
+
+      <H3 id="hud-supported-hosts">Where it is wired today</H3>
+      <P>
+        Generated adapter metadata currently marks statusline support in{" "}
+        <strong>
+          {statuslineHostNames.length} / {adapterCapabilityCount}
+        </strong>{" "}
+        adapters:
+      </P>
+      <P>{statuslineHostNames.join(", ") || "No statusline hosts are wired."}</P>
+      <Callout>
+        Unsupported hosts should skip this surface with a clear warning. That is
+        expected behavior, not a failed MCP install.
+      </Callout>
+
+      <H3 id="hud-design-rules">Design rules for beginners</H3>
+      <List>
+        <LI>
+          Make the first version a single stable sentence or compact counter.
+        </LI>
+        <LI>
+          Keep it useful without interaction. Actions belong in the actions
+          surface, not in statusline text.
+        </LI>
+        <LI>
+          Never put secrets, raw prompts, or raw tool arguments in a HUD.
+        </LI>
+      </List>
+    </DocSection>
+  );
+}
+
+export function ActionsGuide() {
+  return (
+    <DocSection id="actions-guide" eyebrow="Guides" title="Actions">
+      <Lead>
+        Actions are deliberate user-invoked commands exposed through
+        agent-connector&apos;s runtime. They are useful when a human wants a
+        button/menu/command affordance, but the operation is not a model-selected
+        MCP tool and not a lifecycle hook.
+      </Lead>
+
+      <H3 id="actions-not-tools">Actions vs tools vs hooks</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Surface</Th>
+            <Th>Who starts it?</Th>
+            <Th>Use it for</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>MCP tool</Code>
+            </Td>
+            <Td className="text-muted-foreground">The model requests it through the host.</Td>
+            <Td className="text-muted-foreground">
+              Capabilities the model may need while answering.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>Hook</Code>
+            </Td>
+            <Td className="text-muted-foreground">The host emits a lifecycle event.</Td>
+            <Td className="text-muted-foreground">
+              Policy, context, telemetry, and host-side decisions around events.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>Action</Code>
+            </Td>
+            <Td className="text-muted-foreground">The user invokes an affordance.</Td>
+            <Td className="text-muted-foreground">
+              Intentional commands such as refresh, open report, repair install,
+              clear cache, or run a package-specific workflow.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="actions-dispatch-flow">The dispatch flow</H3>
+      <CodeBlock code={actionsFlow} language="text" filename="actions-flow.txt" />
+      <P>
+        The important beginner distinction is authority: an action is a human
+        command, so its UX should make the operation obvious before it runs. If
+        the model should decide when to call something, it belongs in MCP tools.
+      </P>
+
+      <H3 id="actions-supported-hosts">Where host affordances are wired today</H3>
+      <P>
+        Generated adapter metadata currently marks action affordance support in{" "}
+        <strong>
+          {actionHostNames.length} / {adapterCapabilityCount}
+        </strong>{" "}
+        adapters:
+      </P>
+      <P>{actionHostNames.join(", ") || "No action hosts are wired."}</P>
+
+      <H3 id="actions-design-rules">Design rules for beginners</H3>
+      <List>
+        <LI>
+          Name actions like UI commands: <C>refresh-index</C>,{" "}
+          <C>open-dashboard</C>, <C>repair-install</C>.
+        </LI>
+        <LI>
+          Keep action output concise and user-facing. It is not a tool result
+          optimized for model reasoning.
+        </LI>
+        <LI>
+          Do not hide dangerous writes behind vague labels. Use confirmations or
+          dry-run previews where the host affordance supports them.
+        </LI>
+        <LI>
+          Provide a CLI fallback path for important operations because not every
+          host exposes action affordances yet.
+        </LI>
+      </List>
+    </DocSection>
+  );
+}
+
+export function SpecialSurfacesGuide() {
+  return (
+    <DocSection
+      id="special-surfaces"
+      eyebrow="Guides"
+      title="Commands, skills, subagents & memory"
+    >
+      <Lead>
+        agent-connector can ship more than an MCP server. Some surfaces are
+        static files the host loads as context or commands; others are runtime
+        handlers. Understanding that split keeps beginner docs from treating
+        every feature as MCP.
+      </Lead>
+
+      <H3 id="surfaces-map">The surface map</H3>
+      <CodeBlock
+        code={specialSurfacesFlow}
+        language="text"
+        filename="surface-map.txt"
+      />
+
+      <H3 id="static-vs-runtime">Static content vs runtime handlers</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Surface</Th>
+            <Th>Kind</Th>
+            <Th>Beginner mental model</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>commands</Code>
+            </Td>
+            <Td className="text-muted-foreground">Static host files</Td>
+            <Td className="text-muted-foreground">
+              Slash-command prompts or command definitions the host loads from
+              disk.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>skills</Code>
+            </Td>
+            <Td className="text-muted-foreground">Static host files</Td>
+            <Td className="text-muted-foreground">
+              Reusable skill instructions and resources, usually loaded by a
+              skill-aware host.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>subagents</Code>
+            </Td>
+            <Td className="text-muted-foreground">Static host files</Td>
+            <Td className="text-muted-foreground">
+              Named agent roles or prompts rendered into each host&apos;s native
+              agent directory.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>memory</Code>
+            </Td>
+            <Td className="text-muted-foreground">Static managed blocks</Td>
+            <Td className="text-muted-foreground">
+              Standing instructions written into the file that host actually
+              reads for project/user memory.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>statusline</Code>
+            </Td>
+            <Td className="text-muted-foreground">Runtime UI handler</Td>
+            <Td className="text-muted-foreground">
+              A short render callback for host HUD/statusline UI.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>actions</Code>
+            </Td>
+            <Td className="text-muted-foreground">Runtime user command handler</Td>
+            <Td className="text-muted-foreground">
+              A deliberate user-invoked operation exposed by host affordances or
+              a CLI fallback.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="memory-rules">Memory is the easiest surface to overuse</H3>
+      <P>
+        Memory should hold durable guidance the host should remember, not
+        temporary task state. agent-connector writes managed blocks with markers
+        so installs, upgrades, and uninstalls can update its own content without
+        taking ownership of the entire file.
+      </P>
+      <List>
+        <LI>
+          Put universal project behavior in memory only when every future task
+          should see it.
+        </LI>
+        <LI>
+          Keep large tutorials in docs or skills, not memory.
+        </LI>
+        <LI>
+          Treat host-specific memory target differences as adapter concerns.
+        </LI>
+      </List>
+
+      <H3 id="surface-expansion-path">A sane expansion path</H3>
+      <P>
+        For a new package, start with the MCP server, then add surfaces only
+        when they solve a user-visible problem. A practical order is: one tool,
+        one host install, one doctor pass, then commands or skills for repeated
+        workflows, memory for durable guidance, hooks for lifecycle policy,
+        statusline for glanceable state, and actions for user-invoked commands.
       </P>
     </DocSection>
   );
@@ -263,10 +1550,13 @@ export function SdkOverview() {
       <H3 id="sdk-audit">What the framework can audit</H3>
       <P>
         Because package metadata and <C>defineConnector</C> are both structured,
-        agent-connector can verify that the package identity, branded bin,
-        install command, MCP server command, and rendered host aliases stay
-        aligned. That audit surface is why the SDK keeps identity in one place
-        instead of asking the wizard or docs reader to duplicate it.
+        <C>audit</C> can verify that the package identity, branded bin, install
+        command, MCP server command, runtime dependency, and rendered host
+        aliases stay aligned before users install anything. In a branded package
+        that means <C>acme-db audit</C>; from the framework CLI it is{" "}
+        <C>agent-connector audit --connector ./agent-connector.config.mjs</C>.
+        That audit surface is why the SDK keeps identity in one place instead
+        of asking the wizard or docs reader to duplicate it.
       </P>
       <Callout title="Framework first in code, brand first for users">
         Developers install <C>@ken-jo/agent-connector</C> as a dependency.
@@ -2014,6 +3304,30 @@ export function PlatformsSection() {
           See the full interactive coverage matrix on the dedicated coverage page →
         </Link>
       </P>
+      <H3 id="generated-capability-snapshot">Generated capability snapshot</H3>
+      <P>
+        The support counts below are generated from the adapter registry before
+        the site builds. They describe what agent-connector wires today; the
+        host-native gap/provenance notes stay separate on the coverage matrix.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Surface</Th>
+            <Th>Adapters wired</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {generatedCapabilitySummaryRows.map((row) => (
+            <tr key={row.key}>
+              <Td className="whitespace-nowrap font-medium">{row.label}</Td>
+              <Td className="text-muted-foreground">
+                <Code>{row.count}</Code> / <Code>{adapterCapabilityCount}</Code>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
       {/* counts derive from the entry lists (which the drift-guard test pins
           to the adapter registry) so they can never rot independently again. */}
       <PlatformTable
@@ -2294,6 +3608,12 @@ export function Troubleshooting() {
  * packaging).
  */
 export const sectionRegistry: Record<string, () => React.JSX.Element> = {
+  "mcp-beginner": McpBeginnerGuide,
+  "connector-concepts": ConnectorConceptsGuide,
+  "host-hooks": HostHooksGuide,
+  "hud-statusline": HudStatuslineGuide,
+  "actions-guide": ActionsGuide,
+  "special-surfaces": SpecialSurfacesGuide,
   introduction: Introduction,
   installation: Installation,
   sdk: SdkOverview,

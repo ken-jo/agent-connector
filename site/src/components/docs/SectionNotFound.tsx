@@ -7,7 +7,7 @@ import { sectionPath, trackIds, tracks, type TrackId } from "./docs-data";
 /**
  * "Section not found" — shown when /docs/:legacySection or
  * /docs/<track>/:section references an unknown id. Keeps the docs chrome
- * (nav + footer) and offers BOTH tracks' real section lists as a recovery
+ * (nav + footer) and offers all tracks' real section lists as a recovery
  * path instead of a hard bounce to the home page. `track` scopes the message
  * when the miss happened inside a track route.
  */

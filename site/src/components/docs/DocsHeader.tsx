@@ -27,9 +27,9 @@ function groupOf(track: TrackId, id: string): string | undefined {
 
 /**
  * Parse a `?from=<track>/<section>` referrer into a validated back-link target,
- * or null when it is absent / malformed / points into the SAME track (no
- * persona boundary was crossed, so no banner). Used to surface a lightweight
- * "you followed a link out of your track into a shared page" banner.
+ * or null when it is absent / malformed / points into the SAME track (no track
+ * boundary was crossed, so no banner). Used to surface a lightweight "you
+ * followed a link out of your track into a shared page" banner.
  */
 function parseCrossTrackFrom(
   fromParam: string | null,
@@ -40,10 +40,11 @@ function parseCrossTrackFrom(
   if (slash < 0) return null;
   const track = fromParam.slice(0, slash);
   const section = fromParam.slice(slash + 1);
-  if (track !== "user" && track !== "dev") return null;
-  if (track === currentTrack) return null;
-  if (!trackSectionIds[track].has(section)) return null;
-  return { track, section };
+  if (!Object.prototype.hasOwnProperty.call(trackSectionIds, track)) return null;
+  const sourceTrack = track as TrackId;
+  if (sourceTrack === currentTrack) return null;
+  if (!trackSectionIds[sourceTrack].has(section)) return null;
+  return { track: sourceTrack, section };
 }
 
 /**

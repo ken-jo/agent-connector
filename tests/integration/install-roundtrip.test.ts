@@ -66,6 +66,7 @@ const SAVED = {
   HOME: process.env.HOME,
   USERPROFILE: process.env.USERPROFILE,
   APPDATA: process.env.APPDATA,
+  LOCALAPPDATA: process.env.LOCALAPPDATA,
   XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
   XDG_DATA_HOME: process.env.XDG_DATA_HOME,
   CODEX_HOME: process.env.CODEX_HOME,
@@ -192,6 +193,7 @@ beforeEach(() => {
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
   process.env.APPDATA = join(tmpHome, "AppData", "Roaming");
+  process.env.LOCALAPPDATA = join(tmpHome, "AppData", "Local");
   process.env.XDG_CONFIG_HOME = join(tmpHome, ".config");
   process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
   delete process.env.AGENT_CONNECTOR_TELEMETRY;
@@ -208,6 +210,7 @@ afterEach(() => {
     ["HOME", "HOME"],
     ["USERPROFILE", "USERPROFILE"],
     ["APPDATA", "APPDATA"],
+    ["LOCALAPPDATA", "LOCALAPPDATA"],
     ["XDG_CONFIG_HOME", "XDG_CONFIG_HOME"],
     ["XDG_DATA_HOME", "XDG_DATA_HOME"],
     ["CODEX_HOME", "CODEX_HOME"],
@@ -438,11 +441,15 @@ describe("install → uninstall roundtrip across claude-code, codex, cursor", ()
 function writtenFiles(changes: ChangeRecord[]): string[] {
   const seen = new Set<string>();
   for (const c of changes) {
-    if ((c.action === "create" || c.action === "update") && c.path) {
+    if ((c.action === "create" || c.action === "update") && c.path && !isFrameworkBackup(c.path)) {
       seen.add(c.path);
     }
   }
   return [...seen];
+}
+
+function isFrameworkBackup(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(`${tmpData.replace(/\\/g, "/")}/backups/`);
 }
 
 /**

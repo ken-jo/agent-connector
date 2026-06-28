@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.97 — 2026-06-29
+
+Release preparation for the public docs and Windows-safe verification path.
+
+### Added
+
+- Added the beginner guide surface for agent-connector and MCP concepts, with room to expand host CLI roles, hooks, HUD behavior, actions, and special features.
+- Added release status and package-audit generated surfaces used by the site and release checks.
+
+### Fixed
+
+- Made symlink-focused tests tolerate local environments that cannot create symlinks, while preserving the existing assertions when symlink setup is available.
+- Isolated Windows `APPDATA` and `LOCALAPPDATA` in the shared test harness and registry roundtrip tests so adapter tests cannot read or write real user config roots.
+- Kept framework backup files out of native placement assertions in install/uninstall roundtrip coverage.
+
 ## 0.4.91 — 2026-06-21
 
 The **surface-broadening** release: **7 new host platforms (35 → 42)** plus wider coverage of

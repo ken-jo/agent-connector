@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/fetch-coverage-stars.mjs",
+    "prebuild": "node ../scripts/generate-site-adapter-capabilities.mjs && node ../scripts/generate-site-verification-results.mjs && node ../scripts/generate-site-release-status.mjs && node scripts/fetch-coverage-stars.mjs",
     "build": "tsc -b && vite build && node scripts/copy-agent-assets.mjs && node scripts/prerender.mjs",
     "fetch-stars": "node scripts/fetch-coverage-stars.mjs",
     "prerender": "node scripts/prerender.mjs",

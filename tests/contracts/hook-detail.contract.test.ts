@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { ADAPTER_REGISTRY } from "../../src/adapters/registry.js";
@@ -28,6 +28,7 @@ import type { ChangeRecord, HookEventName, ResolvedConnector } from "../../src/c
 
 import { buildCtx, freshProject, isolateEnv } from "../support/env.js";
 import { supportsEvent } from "../support/events.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // A connector declaring MORE events than any single ts-plugin host maps, in
 // canonical order: every host maps a strict subset, so each exercises both the
@@ -114,7 +115,7 @@ describe("ts-plugin installHooks detail reports MAPPED events only (every ts-plu
       const outside = join(projectDir, `${adapter.id}-outside-plugin.js`);
       const before = "outside plugin target\n";
       writeFileSync(outside, before, "utf8");
-      symlinkSync(outside, pluginPath);
+      if (!symlinkOrSkipTest(outside, pluginPath)) return;
 
       const changes = adapter.installHooks!(ctx);
 

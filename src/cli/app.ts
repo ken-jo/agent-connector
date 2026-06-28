@@ -495,6 +495,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   sync: () => import("./commands/upgrade.js"),
   update: () => import("./commands/upgrade.js"),
   package: () => import("./commands/package.js"),
+  audit: () => import("./commands/audit.js"),
   doctor: () => import("./commands/doctor.js"),
   status: () => import("./commands/status.js"),
   telemetry: () => import("./commands/telemetry.js"),
@@ -531,7 +532,7 @@ const COMMAND_USAGE: Record<string, string> = {
   detect: "detect [--json] [--project <dir>]",
   install:
     "install [<source>] [--method direct|marketplace] [--connector <source>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--force] [--quiet]\n" +
-    "  <source>    a local path OR a remote GitHub connector: owner/repo[/subpath][#ref], a github.com URL (incl. /tree/<ref>/<sub>), git@github.com:owner/repo, or github:owner/repo. Remote sources are fetched to ~/.agent-connector/sources/ and must be an agent-connector package (have an agent-connector.config.{mjs,js,json}).",
+    "  <source>    a local path OR a remote connector source: owner/repo[/subpath][#ref], a github.com URL (incl. /tree/<ref>/<sub>), git@github.com:owner/repo, github:owner/repo, npm:<package>[@version], archive:<path-or-url>, or a direct .tgz/.tar.gz URL/path. Remote sources are fetched to ~/.agent-connector/sources/ and must be an agent-connector package (have an agent-connector.config.{mjs,js,json}).",
   uninstall:
     "uninstall [--method auto|direct|marketplace] [--connector <path>] [--connector-id <id>] [--scope user|project] [--targets a,b] [--project <dir>] [--dry-run] [--purge] [--quiet]",
   upgrade:
@@ -540,6 +541,8 @@ const COMMAND_USAGE: Record<string, string> = {
   update: "update — alias of upgrade (see `upgrade --help`)",
   package:
     "package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]",
+  audit:
+    "audit [--connector <path>] [--package-json <path>] [--project <dir>] [--json] [--strict]",
   doctor:
     "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--explain] [--json] [--heal] [--dry-run] [--quiet]\n" +
     "  --explain   per-(host,event) hook honor matrix (honored/degraded/dropped). Exit non-zero ONLY when an explicitly-targeted host DEGRADES a declared event (fires it but silently won't honor the reply); dropped/mcp-only hosts and fleet-wide (targets:auto) gaps are informational (exit 0).",
@@ -574,6 +577,7 @@ commands:
   uninstall    Remove a connector's registrations (--method auto reverses whichever method is actually installed).
   upgrade      Bring everything current: re-render host config + heal the home pointer + managed update guidance (alias: update, sync).
   package      Emit a marketplace/extension bundle (10 host formats, or the standard artifacts mcp-server-json | mcpb).
+  audit        Check branded package identity before install/publish.
   doctor       Health-check every detected platform; non-zero exit on any failure.
   status       Light install-state summary: which connectors are present on which hosts (always exits 0).
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).

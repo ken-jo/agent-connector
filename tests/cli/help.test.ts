@@ -35,6 +35,7 @@ const EVERY_COMMAND = [
   "sync",
   "update",
   "package",
+  "audit",
   "doctor",
   "status",
   "telemetry",

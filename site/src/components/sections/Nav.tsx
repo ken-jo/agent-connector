@@ -12,6 +12,7 @@ const links: { label: string; href?: string; to?: string }[] = [
   { href: "#telemetry", label: "Telemetry" },
   { to: "/docs", label: "Docs" },
   { to: "/wizard", label: "Wizard" },
+  { to: "/blog", label: "Blog" },
 ];
 
 function Logo() {

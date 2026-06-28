@@ -46,7 +46,7 @@
  * spawn — but they share this file's ONE hoisted mock.
  */
 
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -61,6 +61,7 @@ import ocAdapter from "../../src/adapters/opencode/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { readJson, splitFrontmatter } from "../support/fs.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // node:child_process mock — hoisted above every import by vitest.
@@ -504,7 +505,7 @@ describe("opencode adapter (ts-plugin) render", () => {
     const serverPath = join(projectDir, "opencode.json");
     const before = `${JSON.stringify({ outside: true }, null, 2)}\n`;
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, serverPath);
+    if (!symlinkOrSkipTest(outside, serverPath)) return;
 
     const changes = ocAdapter.installServer(ctx);
 

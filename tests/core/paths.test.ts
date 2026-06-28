@@ -6,7 +6,6 @@ import {
   writeFileSync,
   statSync,
   readFileSync,
-  symlinkSync,
   existsSync,
   realpathSync,
 } from "node:fs";
@@ -25,6 +24,7 @@ import {
   telemetryPath,
 } from "../../src/core/paths.js";
 import { vitestFsAllow } from "../../vitest.config.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 const ORIG_HOME = process.env.HOME;
 const ORIG_USERPROFILE = process.env.USERPROFILE;
@@ -156,7 +156,7 @@ describe("ensureHomeBin", () => {
     process.env.AGENT_CONNECTOR_DATA_DIR = tmpData;
     const outside = join(tmpData, "outside-bin");
     mkdirSync(outside, { recursive: true });
-    symlinkSync(outside, join(tmpData, "bin"), "dir");
+    if (!symlinkOrSkipTest(outside, join(tmpData, "bin"), "dir")) return;
 
     expect(() => ensureHomeBin("/opt/cli.js", "/usr/bin/node")).toThrow(/symbolic link/i);
     expect(existsSync(join(outside, "agent-connector"))).toBe(false);

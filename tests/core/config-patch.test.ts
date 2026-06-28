@@ -31,7 +31,6 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,6 +54,7 @@ import {
 import claudeAdapter, {
   claudeSensitiveKeyViolation,
 } from "../../src/adapters/claude-code/index.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 import type { InstallContext } from "../../src/adapters/spi.js";
 import type {
   ConfigPatchDef,
@@ -343,7 +343,7 @@ describe("claude-code adapter — installConfigPatches", () => {
     const outside = join(tmpData, "outside-settings.json");
     const before = "{}\n";
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, settingsPath());
+    if (!symlinkOrSkipTest(outside, settingsPath())) return;
 
     const connector = patchConnector("cp-link", [WIDGET_PATCH]);
     const changes = claudeAdapter.installConfigPatches(buildCtx(connector));

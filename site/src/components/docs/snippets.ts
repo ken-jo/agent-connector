@@ -126,6 +126,7 @@ npm install @ken-jo/agent-connector
 
 # 3a. ship a branded CLI so YOUR users drive it (auto-scoped, no --connector):
 acme-db detect            # list installed hosts + paradigms
+acme-db audit             # catch package/bin/connector identity drift
 acme-db install --dry-run # preview the diff
 acme-db install           # write native configs everywhere
 acme-db doctor            # verify — add --probe for a live MCP handshake (initialize → ping → tools/list)

@@ -10,7 +10,7 @@
  *     redirect) for EVERY real route — a copy of the built index.html with
  *     route-specific <title>, meta description, canonical, and og/twitter
  *     tags. The SPA hydrates over it on load.
- *  2. Writes noindex stubs for the legacy pre-track /docs/<id> URLs: each
+ *  2. Writes noindex stubs for legacy /docs URLs: each
  *     carries <link rel="canonical"> to its new tracked URL plus
  *     <meta name="robots" content="noindex"> (the SPA client-redirects on
  *     load), so old indexed links resolve 200 without competing in the index.
@@ -63,6 +63,7 @@ function loadTsDataModule(relPath) {
 }
 
 const docsData = loadTsDataModule("src/components/docs/docs-data.ts");
+const blogData = loadTsDataModule("src/components/blog/blog-data.ts");
 const meta = loadTsDataModule("src/components/docs/meta.ts");
 
 const {
@@ -73,6 +74,7 @@ const {
   sectionDescription,
   legacyRedirects,
 } = docsData;
+const { blogPosts } = blogData;
 const DEFAULT_DESCRIPTION = meta.DEFAULT_DESCRIPTION;
 
 for (const [name, value] of Object.entries({
@@ -82,6 +84,7 @@ for (const [name, value] of Object.entries({
   sectionLabel,
   sectionDescription,
   legacyRedirects,
+  blogPosts,
   DEFAULT_DESCRIPTION,
 })) {
   if (!value) throw new Error(`docs-data export missing: ${name}`);
@@ -103,7 +106,7 @@ const pages = [
     route: "/coverage",
     title: "Coverage — agent-connector",
     description:
-      "agent-connector lets a branded MCP package deploy across the current AI-agent CLI, IDE extension and app coverage matrix — see per-host hook paradigm, surfaces and GitHub-stars rank tiers.",
+      "agent-connector public coverage highlights closed-source flagship hosts and 1k+ star open-source agent hosts, with per-host hook paradigm, surfaces, and rank tiers.",
   },
   // The standalone connector scaffold generator — title/description match what
   // WizardPage sets client-side.
@@ -113,9 +116,23 @@ const pages = [
     description:
       "Generate package-aware defineConnector code for a branded MCP package — pick your package, transport, hook events and surfaces and copy the scaffold.",
   },
+  {
+    route: "/blog",
+    title: "Blog — agent-connector",
+    description:
+      "agent-connector blog is being built. This temporary post verifies routing, RSS, and image rendering before real articles are published.",
+  },
   // The persona chooser — title matches what DocsChooser sets client-side.
   { route: "/docs", title: "Docs — agent-connector", description: DEFAULT_DESCRIPTION },
 ];
+
+for (const post of blogPosts) {
+  pages.push({
+    route: `/blog/${post.slug}`,
+    title: `${post.title} — agent-connector blog`,
+    description: post.description,
+  });
+}
 
 for (const trackId of trackIds) {
   const track = tracks[trackId];
@@ -142,6 +159,18 @@ const legacyStubs = Object.entries(legacyRedirects).map(([id, target]) => ({
   title: `${sectionLabel[target.split("/").pop()] ?? "Docs"} — agent-connector docs`,
   description: sectionDescription[target.split("/").pop()] || DEFAULT_DESCRIPTION,
 }));
+
+/** Moved tracked URLs → 200 noindex stubs canonicalized to the new URL. */
+const movedRouteStubs = [
+  {
+    route: "/docs/dev/mcp-101",
+    target: "/docs/guides/mcp-beginner",
+    title: `${sectionLabel["mcp-beginner"]} — agent-connector docs`,
+    description: sectionDescription["mcp-beginner"] || DEFAULT_DESCRIPTION,
+  },
+];
+
+const noindexStubs = [...legacyStubs, ...movedRouteStubs];
 
 /* ------------------------------------------------------------------ */
 /* og.png generation (best-effort)                                      */
@@ -268,6 +297,14 @@ async function generateOgImage() {
 const escapeHtml = (s) =>
   s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
+const escapeXml = (s) =>
+  s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+
 /** Replace one <meta …> tag's content attribute; throws if the tag is absent. */
 function setMeta(html, attr, key, content) {
   // [^>]* matches newlines too — the source tags are multi-line formatted.
@@ -366,6 +403,48 @@ function sitemapXml(lastmod) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 
+function rssDate(date) {
+  return new Date(`${date}T00:00:00.000Z`).toUTCString();
+}
+
+function blogPostUrl(post) {
+  return `${ORIGIN}/blog/${post.slug}`;
+}
+
+function feedXml() {
+  const lastBuildDate = rssDate(blogPosts[0]?.date ?? buildDate());
+  const items = blogPosts
+    .map((post) => {
+      const url = blogPostUrl(post);
+      return [
+        "    <item>",
+        `      <title>${escapeXml(post.title)}</title>`,
+        `      <link>${url}</link>`,
+        `      <guid isPermaLink="true">${url}</guid>`,
+        `      <description>${escapeXml(post.description)}</description>`,
+        `      <category>${escapeXml(post.category)}</category>`,
+        `      <pubDate>${rssDate(post.date)}</pubDate>`,
+        "    </item>",
+      ].join("\n");
+    })
+    .join("\n");
+
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<rss version="2.0">',
+    "  <channel>",
+    "    <title>agent-connector blog</title>",
+    `    <link>${ORIGIN}/blog</link>`,
+    "    <description>agent-connector blog is being built. This temporary feed verifies routing, RSS, and image rendering before real articles are published.</description>",
+    "    <language>en</language>",
+    `    <lastBuildDate>${lastBuildDate}</lastBuildDate>`,
+    items,
+    "  </channel>",
+    "</rss>",
+    "",
+  ].join("\n");
+}
+
 /* ------------------------------------------------------------------ */
 /* Main                                                                 */
 /* ------------------------------------------------------------------ */
@@ -381,7 +460,7 @@ const hasOgImage = await generateOgImage();
 for (const page of pages) {
   writeRoute(page.route, renderPage(builtHtml, page, hasOgImage));
 }
-for (const stub of legacyStubs) {
+for (const stub of noindexStubs) {
   writeRoute(
     stub.route,
     renderPage(
@@ -399,8 +478,9 @@ for (const stub of legacyStubs) {
 }
 
 writeFileSync(path.join(distDir, "sitemap.xml"), sitemapXml(buildDate()));
+writeFileSync(path.join(distDir, "feed.xml"), feedXml());
 
 console.log(
-  `[prerender] wrote ${pages.length} pages + ${legacyStubs.length} legacy noindex stubs + sitemap.xml` +
+  `[prerender] wrote ${pages.length} pages + ${noindexStubs.length} noindex stubs + sitemap.xml + feed.xml` +
     (hasOgImage ? " + og.png" : " (no og.png)"),
 );

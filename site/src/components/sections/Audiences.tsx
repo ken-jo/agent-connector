@@ -7,10 +7,10 @@ import { platformCount } from "@/data";
 const USAGE_CMD = "npx @ken-jo/agent-connector usage report";
 
 /**
- * Two-card persona router directly under the hero. Card A routes MCP
- * developers into the quick start; card B routes agent-CLI end users straight
- * to the connector-free `usage` command — whole-conversation totals per
- * CLI/model, never per-tool (the accuracy boundary the docs repeat).
+ * Two-card persona router directly under the hero. Card A routes
+ * agent-connector beginners into the root-level guide track; card B routes
+ * agent-CLI end users straight to the connector-free `usage` command —
+ * whole-conversation totals per CLI/model, never per-tool.
  */
 export function Audiences() {
   return (
@@ -19,10 +19,10 @@ export function Audiences() {
         eyebrow="Who it's for"
         title={
           <>
-            Two audiences, <span className="text-gradient">two tracks</span>
+            Learn first, <span className="text-gradient">then pick a track</span>
           </>
         }
-        description="Pick yours — they don't overlap. Building an MCP integration is one track; just watching what your agent CLIs burn is the other."
+        description="New to agent-connector starts in Guides: MCP concepts, connector concepts, and what each surface does inside host CLIs."
       />
 
       <div className="mt-12 grid gap-6 md:grid-cols-2">
@@ -37,19 +37,17 @@ export function Audiences() {
             </span>
           </div>
           <p className="text-sm leading-relaxed text-foreground/90">
-            Write your MCP server + hooks <strong>once</strong> with{" "}
-            <code className="font-mono text-foreground">defineConnector</code>{" "}
-            and deploy across {platformCount} agent platforms. Your
-            connector&apos;s serve-proxy telemetry reports{" "}
-            <strong>per-MCP / per-tool</strong> token cost for the server it
-            declares and wraps — <em>see what your tools cost</em>.
+            Start with a neutral MCP server: one read-only tool, one clear
+            schema, one host config, and one verified call. After that,
+            agent-connector can distribute it across {platformCount} agent
+            platforms and report per-tool telemetry for the server it wraps.
           </p>
           <div className="mt-auto pt-5">
             <Link
-              to="/docs/dev"
+              to="/docs/guides/mcp-beginner"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
             >
-              Start the developer track
+              Read the agent-connector beginner guide
               <ArrowRight className="size-4" />
             </Link>
           </div>

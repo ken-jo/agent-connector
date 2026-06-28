@@ -67,9 +67,9 @@ export async function run(argv: string[]): Promise<number> {
   const projectDir = values.project ?? process.cwd();
 
   // A connector source may arrive as the first positional or via --connector,
-  // and may be a LOCAL path (today's behavior) or a REMOTE GitHub spec
-  // (owner/repo[/sub][#ref], a github URL, git@…, github:…). The positional and
-  // the flag are equivalent; reject ambiguity when both name a source.
+  // and may be a LOCAL path or a REMOTE source spec (GitHub/raw git, npm:, or
+  // archive tarball). The positional and the flag are equivalent; reject
+  // ambiguity when both name a source.
   const positionalSource = positionals[0];
   if (positionalSource != null && values.connector != null) {
     return fail("pass a connector source as EITHER the positional <source> OR --connector, not both.");
@@ -93,8 +93,8 @@ export async function run(argv: string[]): Promise<number> {
   const spec = source != null ? classifySource(source) : null;
   if (source != null && spec == null) {
     return fail(
-      `"${source}" is not a local path or a recognizable GitHub source ` +
-        "(owner/repo[/subpath][#ref], a github.com URL, git@github.com:…, or github:owner/repo).",
+      `"${source}" is not a local path or a recognizable connector source ` +
+        "(owner/repo[/subpath][#ref], github URL, git URL, npm:<package>[@version], archive:<path-or-url>, or .tgz/.tar.gz).",
     );
   }
   if (spec != null && spec.kind === "remote") {
@@ -108,7 +108,7 @@ export async function run(argv: string[]): Promise<number> {
     const configPath = source ?? findConnectorConfig(projectDir);
     if (!configPath) {
       return fail(
-        "no connector config found. Pass a <source> (local path or owner/repo) or " +
+        "no connector config found. Pass a <source> (local path, owner/repo, npm:<package>, or archive tarball) or " +
           "--connector <path>, or add an agent-connector.config.{mjs,js,json} to your project.",
       );
     }

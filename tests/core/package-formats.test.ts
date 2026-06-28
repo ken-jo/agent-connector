@@ -24,7 +24,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,6 +43,7 @@ import { readTomlString } from "../../src/core/toml.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
 import cursorAdapter from "../../src/adapters/cursor/index.js";
 import { buildCtx } from "../support/env.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 const HOME_BIN = "/fake/stable/.agent-connector/bin/agent-connector";
 const CONNECTOR_ID = "acme-connector";
@@ -189,7 +189,7 @@ describe("packageConnector — codex-plugin", () => {
     mkdirSync(pluginDir, { recursive: true });
     mkdirSync(outside, { recursive: true });
     writeFileSync(victim, "original", "utf8");
-    symlinkSync(outside, join(pluginDir, ".codex-plugin"));
+    if (!symlinkOrSkipTest(outside, join(pluginDir, ".codex-plugin"), "dir")) return;
 
     expect(() =>
       packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN }),

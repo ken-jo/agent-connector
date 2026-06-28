@@ -4,18 +4,37 @@ import { Nav } from "@/components/sections/Nav";
 import { Footer } from "@/components/sections/Footer";
 import { SkipLink } from "@/components/ui/skip-link";
 import { setMetaDescription } from "@/components/docs/meta";
-import { platformCount } from "@/data";
+import { releaseStatus } from "@/release-status.generated";
 import {
   CoverageWall,
   ParadigmLegend,
   SurfaceLegend,
   TierLegend,
 } from "@/components/coverage-wall/CoverageWall";
+import {
+  PUBLIC_OSS_STAR_FLOOR,
+  publicCoverageCount,
+  publicCoverageSurfaceCounts,
+  publicVerificationCounts,
+} from "@/components/coverage-wall/public-coverage";
 
 const CONTENT_ID = "coverage-content";
 
 const COVERAGE_DESCRIPTION =
-  "agent-connector lets a branded MCP package deploy across the current AI-agent CLI, IDE extension and app coverage matrix — see per-host hook paradigm, surfaces and GitHub-stars rank tiers.";
+  "agent-connector public coverage highlights closed-source flagship hosts and 1k+ star open-source agent hosts, with per-host hook paradigm, surfaces, and rank tiers.";
+
+const localVersion: string = releaseStatus.localVersion;
+const npmLatest: string | null = releaseStatus.npmLatest;
+const githubFetchStatus: string = releaseStatus.githubFetchStatus;
+
+const versionBadge =
+  npmLatest === localVersion
+    ? "published"
+    : npmLatest
+      ? "pending publish"
+      : "npm unknown";
+
+const githubReleaseLabel = releaseStatus.githubLatest ?? "unavailable";
 
 /**
  * /coverage — the dedicated, indexable home of the full interactive coverage
@@ -44,13 +63,13 @@ export function CoveragePage() {
               Coverage
             </p>
             <h1 className="mt-2 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-              Works with {platformCount} agents
+              Works with {publicCoverageCount} production-relevant agents
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground">
-              Every agent shows exactly which surfaces agent-connector installs,
-              straight from its adapter — and which surfaces the host offers that
-              we haven&apos;t wired yet. Filter by tier or surface; each card
-              links to its setup guide.
+              This public matrix highlights closed-source flagship hosts and
+              open-source hosts with at least {PUBLIC_OSS_STAR_FLOOR.toLocaleString()} GitHub
+              stars. Each card shows the surfaces agent-connector installs, and
+              which host-native surfaces are still gaps.
             </p>
           </div>
 
@@ -60,14 +79,143 @@ export function CoveragePage() {
             <TierLegend />
           </div>
 
+          <div
+            className="mx-auto mt-8 grid max-w-4xl grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8"
+            aria-label="Generated adapter capability summary"
+          >
+            {publicCoverageSurfaceCounts.map((surface) => (
+              <div
+                key={surface.key}
+                className="rounded-lg border border-border bg-card/45 px-3 py-2 text-center"
+                title={`${surface.label}: ${surface.count} public hosts are wired by agent-connector`}
+              >
+                <div className="font-mono text-lg font-semibold tabular-nums text-foreground">
+                  {surface.count}
+                </div>
+                <div className="mt-0.5 truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {surface.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mx-auto mt-8 max-w-4xl border-t border-border/60 pt-6">
+            <p className="text-center font-mono text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Verification ladder
+            </p>
+            <div
+              className="mt-3 grid gap-2 sm:grid-cols-3"
+              aria-label="Public host verification levels"
+            >
+              {publicVerificationCounts.map((level) => (
+                <div
+                  key={level.key}
+                  className="rounded-lg border border-border bg-card/45 px-4 py-3"
+                  title={level.description}
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-mono text-xs font-semibold uppercase tracking-wide text-foreground">
+                      {level.label}
+                    </span>
+                    <span className="font-mono text-xl font-semibold tabular-nums text-foreground">
+                      {level.count}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {level.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mx-auto mt-8 max-w-4xl border-t border-border/60 pt-6">
+            <p className="text-center font-mono text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Release hygiene
+            </p>
+            <div
+              className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4"
+              aria-label="Release hygiene status"
+            >
+              <a
+                href={releaseStatus.repoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-border bg-card/45 px-4 py-3 transition-colors hover:border-foreground/40"
+              >
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Repository
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold text-foreground">
+                  v{localVersion}
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  package.json source version
+                </p>
+              </a>
+              <a
+                href={releaseStatus.npmPackageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-border bg-card/45 px-4 py-3 transition-colors hover:border-foreground/40"
+              >
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  npm latest
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold text-foreground">
+                  {npmLatest ? `v${npmLatest}` : "unknown"}
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  {versionBadge}
+                </p>
+              </a>
+              <a
+                href={releaseStatus.githubReleaseUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-border bg-card/45 px-4 py-3 transition-colors hover:border-foreground/40"
+              >
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  GitHub release
+                </div>
+                <div className="mt-1 truncate font-mono text-lg font-semibold text-foreground">
+                  {githubReleaseLabel}
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  {githubFetchStatus === "ok"
+                    ? "latest release snapshot"
+                    : "API snapshot unavailable"}
+                </p>
+              </a>
+              <a
+                href={releaseStatus.githubActionsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-border bg-card/45 px-4 py-3 transition-colors hover:border-foreground/40"
+              >
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  CI workflows
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold text-foreground">
+                  {releaseStatus.ciWorkflow.present && releaseStatus.deployWorkflow.present
+                    ? "present"
+                    : "missing"}
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  CI + site deploy workflow files
+                </p>
+              </a>
+            </div>
+          </div>
+
           <div className="mt-8">
             <CoverageWall />
           </div>
 
           <p className="mx-auto mt-8 max-w-2xl text-center text-xs text-muted-foreground">
-            Surface profiles are drift-tested against the adapter registry — the
-            wall can&apos;t claim what an adapter doesn&apos;t ship, and a lit
-            chip always implies the host natively offers that surface.
+            Surface profiles are drift-tested against the full adapter registry.
+            Lower-star early adapters stay supported in code and reference docs,
+            but are omitted here to keep the public support list focused.
           </p>
         </div>
       </main>

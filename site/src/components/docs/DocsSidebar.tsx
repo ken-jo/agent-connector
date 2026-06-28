@@ -2,7 +2,7 @@ import * as React from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeftRight, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { tracks, type TrackId } from "./docs-data";
+import { trackIds, tracks, type TrackId } from "./docs-data";
 
 interface DocsSidebarProps {
   activeId: string;
@@ -13,7 +13,7 @@ interface DocsSidebarProps {
 
 /**
  * Collapse state is persisted per track — group titles like "Getting Started"
- * could otherwise collide across the two tracks' sidebars.
+ * could otherwise collide across tracks' sidebars.
  */
 const storageKey = (track: TrackId) =>
   `agent-connector.docs.collapsed-groups.${track}`;
@@ -37,7 +37,7 @@ export function DocsSidebar({
   className,
 }: DocsSidebarProps) {
   const navGroups = tracks[track].groups;
-  const otherTrack: TrackId = track === "dev" ? "user" : "dev";
+  const otherTracks = trackIds.filter((id) => id !== track);
   const [collapsed, setCollapsed] = React.useState<Set<string>>(() =>
     typeof window === "undefined" ? new Set() : readCollapsed(track),
   );
@@ -71,21 +71,26 @@ export function DocsSidebar({
 
   return (
     <nav aria-label="Docs sections" className={cn("text-sm", className)}>
-      {/* Track header — which audience this sidebar belongs to + a ONE-CLICK
-          toggle straight into the other track's home (no chooser round-trip). */}
+      {/* Track header — which docs track this sidebar belongs to + quick links
+          to the other track homes (no chooser round-trip). */}
       <div className="mb-5 px-3">
         <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-foreground">
           <span aria-hidden>{tracks[track].glyph}</span> {tracks[track].label}{" "}
           track
         </p>
-        <Link
-          to={tracks[otherTrack].basePath}
-          onClick={onNavigate}
-          className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeftRight className="size-3" />
-          Switch to the {tracks[otherTrack].label} track
-        </Link>
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+          {otherTracks.map((otherTrack) => (
+            <Link
+              key={otherTrack}
+              to={tracks[otherTrack].basePath}
+              onClick={onNavigate}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeftRight className="size-3" />
+              {tracks[otherTrack].label}
+            </Link>
+          ))}
+        </div>
       </div>
       <ul className="space-y-5">
         {navGroups.map((group) => {

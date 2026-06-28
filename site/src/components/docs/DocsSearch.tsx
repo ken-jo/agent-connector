@@ -93,8 +93,8 @@ export function DocsSearchButton({
 
 /**
  * Result-group headings carry the track label so every result row has visible
- * track context, e.g. "MCP developer · Core API". Order matches the chooser
- * (dev first) then each track's sidebar.
+ * track context, e.g. "MCP developer · Core API". Order follows docs-data and
+ * then each track's sidebar.
  */
 const groupOrder = trackIds.flatMap((t) =>
   tracks[t].groups.map((g) => `${tracks[t].label} · ${g.title}`),

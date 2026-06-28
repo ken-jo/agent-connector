@@ -1,9 +1,8 @@
-import { ArrowRight, BookText, Terminal } from "lucide-react";
+import { ArrowRight, BookText, Terminal, WandSparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
-import { GithubIcon } from "@/components/ui/github-icon";
 import { BRANDED_INSTALL_CMD, REPO_URL, platformCount } from "@/data";
 
 export function Hero() {
@@ -62,11 +61,11 @@ export function Hero() {
               <CopyButton value={BRANDED_INSTALL_CMD} className="ml-auto size-8" />
             </div>
             <Button asChild size="lg" className="w-full gap-2 sm:w-auto">
-              <a href={REPO_URL} target="_blank" rel="noreferrer noopener">
-                <GithubIcon className="size-4" />
-                View on GitHub
+              <Link to="/wizard">
+                <WandSparkles className="size-4" />
+                Generate scaffold
                 <ArrowRight className="size-4" />
-              </a>
+              </Link>
             </Button>
             <Button
               asChild
@@ -74,9 +73,9 @@ export function Hero() {
               variant="outline"
               className="w-full gap-2 sm:w-auto"
             >
-              <Link to="/docs">
+              <Link to="/docs/guides/mcp-beginner">
                 <BookText className="size-4" />
-                Read the docs
+                Beginner guide
               </Link>
             </Button>
           </div>

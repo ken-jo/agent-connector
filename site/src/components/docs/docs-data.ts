@@ -2,9 +2,10 @@
  * docs-data — data-driven nav structure + field tables for the SDK docs.
  * Content is grounded in llms-full.txt and src/core/types.ts. Do not invent API.
  *
- * The docs fork into two audience TRACKS at the route level: /docs/dev (MCP
- * developer) and /docs/user (agent-CLI user). Each track owns its own sidebar
- * nav, pager order, and home page; /docs itself is the persona chooser.
+ * The docs fork into three route-level tracks: /docs/guides for neutral
+ * beginner-oriented concepts, /docs/dev for MCP package authors, and /docs/user
+ * for connector-free agent-CLI usage. Each track owns its own sidebar nav,
+ * pager order, and home page; /docs itself is the chooser.
  *
  * IMPORTANT: this module MUST stay import-free — the prerender step
  * (scripts/prerender.mjs → loadTsDataModule) evaluates it in isolation with a
@@ -14,7 +15,7 @@
  */
 
 /* ------------------------------------------------------------------ */
-/* Sidebar navigation — two audience tracks                            */
+/* Sidebar navigation — docs tracks                                    */
 /* ------------------------------------------------------------------ */
 
 export interface NavItem {
@@ -29,18 +30,18 @@ export interface NavGroup {
 }
 
 /**
- * The two audience tracks. NOTE: "user" and "dev" are RESERVED section ids —
- * the static /docs/user and /docs/dev track routes shadow /docs/:legacySection,
- * so a section may never be named either. Section ids are NEVER renamed
- * (legacy /docs/<id> URLs redirect 1:1 into their track), and section ids +
- * heading anchor ids must stay globally unique across BOTH tracks (they key
- * the search haystack and the cmdk value).
+ * NOTE: "guides", "user", and "dev" are RESERVED section ids — the static
+ * /docs/<track> routes shadow /docs/:legacySection, so a section may never be
+ * named either. Section ids are NEVER renamed (legacy /docs/<id> URLs redirect
+ * 1:1 into their track), and section ids + heading anchor ids must stay
+ * globally unique across ALL tracks (they key the search haystack and the cmdk
+ * value).
  */
-export type TrackId = "user" | "dev";
+export type TrackId = "guides" | "user" | "dev";
 
 export interface TrackDef {
   id: TrackId;
-  /** Human label ("MCP developer" / "Agent-CLI user"). */
+  /** Human label ("Guides" / "MCP developer" / "Agent-CLI user"). */
   label: string;
   /** Emoji glyph used wherever the track is named. */
   glyph: string;
@@ -50,6 +51,30 @@ export interface TrackDef {
 }
 
 export const tracks: Record<TrackId, TrackDef> = {
+  guides: {
+    id: "guides",
+    label: "Guides",
+    glyph: "📘",
+    basePath: "/docs/guides",
+    groups: [
+      {
+        title: "Start here",
+        items: [
+          { id: "mcp-beginner", label: "Agent-connector beginner guide" },
+        ],
+      },
+      {
+        title: "Agent-connector concepts",
+        items: [
+          { id: "connector-concepts", label: "How agent-connector fits" },
+          { id: "host-hooks", label: "Host hooks by CLI" },
+          { id: "hud-statusline", label: "HUD / statusline" },
+          { id: "actions-guide", label: "Actions" },
+          { id: "special-surfaces", label: "Commands, skills, subagents & memory" },
+        ],
+      },
+    ],
+  },
   dev: {
     id: "dev",
     label: "MCP developer",
@@ -126,17 +151,19 @@ export const tracks: Record<TrackId, TrackDef> = {
   },
 };
 
-/** Canonical track iteration order (dev first — matches the chooser cards). */
-export const trackIds: TrackId[] = ["dev", "user"];
+/** Canonical track iteration order (matches the chooser cards). */
+export const trackIds: TrackId[] = ["guides", "dev", "user"];
 
 /** Flat ordered section ids per track (the pager's linear reading order). */
 export const trackOrder: Record<TrackId, string[]> = {
+  guides: tracks.guides.groups.flatMap((g) => g.items.map((i) => i.id)),
   dev: tracks.dev.groups.flatMap((g) => g.items.map((i) => i.id)),
   user: tracks.user.groups.flatMap((g) => g.items.map((i) => i.id)),
 };
 
 /** Valid section ids per track — detects unknown :section params per route. */
 export const trackSectionIds: Record<TrackId, ReadonlySet<string>> = {
+  guides: new Set(trackOrder.guides),
   dev: new Set(trackOrder.dev),
   user: new Set(trackOrder.user),
 };
@@ -171,6 +198,13 @@ export const sectionLabel: Record<string, string> = Object.fromEntries(
  */
 export const legacyRedirects: Record<string, string> = {
   introduction: "/docs/dev/introduction",
+  "mcp-101": "/docs/guides/mcp-beginner",
+  "mcp-beginner": "/docs/guides/mcp-beginner",
+  "connector-concepts": "/docs/guides/connector-concepts",
+  "host-hooks": "/docs/guides/host-hooks",
+  "hud-statusline": "/docs/guides/hud-statusline",
+  "actions-guide": "/docs/guides/actions-guide",
+  "special-surfaces": "/docs/guides/special-surfaces",
   installation: "/docs/dev/installation",
   sdk: "/docs/dev/sdk",
   "quick-start": "/docs/dev/quick-start",
@@ -213,12 +247,24 @@ export const legacyHashRedirects: Record<string, string> = {
 export const sectionDescription: Record<string, string> = {
   introduction:
     "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across the current AI-agent coverage matrix with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
+  "mcp-beginner":
+    "A beginner guide for developers new to agent-connector: MCP architecture and protocol terms, how agent-connector maps servers, hooks, HUD/statusline, actions, commands, skills, subagents, and memory into host CLIs, plus first-host verification and safety checks.",
+  "connector-concepts":
+    "Where agent-connector starts after a plain MCP server already works: package identity, one connector declaration, host adapter rendering, telemetry wrapping, and cross-host verification.",
+  "host-hooks":
+    "A beginner-friendly map of host hook behavior by CLI paradigm: json-stdio hook commands, TypeScript plugin bridges, MCP-only hosts, event normalization, decision responses, and safe fallback rules.",
+  "hud-statusline":
+    "How the HUD/statusline surface works: a host UI render callback outside MCP, where it is wired, when it updates, what context it receives, and how unsupported hosts skip safely.",
+  "actions-guide":
+    "How agent-connector actions work: deliberate user-invoked handlers dispatched through the home binary, how they differ from MCP tools and hooks, and where host affordances can expose them.",
+  "special-surfaces":
+    "A beginner map of the non-MCP authoring surfaces: slash commands, skills, subagents, memory, statusline, and actions, grouped by static content files versus runtime handlers.",
   installation:
     "Install agent-connector as a dependency of your MCP package (npm install @ken-jo/agent-connector), then ship a branded CLI/bin such as npx @acme/acme-db-mcp install. Global framework CLI guidance is for connector-free agent token telemetry, not normal branded MCP lifecycle commands; developer artifact tooling should use npx @ken-jo/agent-connector ... --connector by default. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   sdk:
     "The SDK contract for MCP-package authors and AI agents: package.json supplies the public package identity, @ken-jo/agent-connector/sdk supplies defineConnector, typed define* helpers, host capability introspection, and public types, @ken-jo/agent-connector/cli turns that package into a branded installer binary, and llms/skill references give agents task-specific guidance.",
   "quick-start":
-    "MCP developers: depend on agent-connector, write defineConnector, then ship a branded MCP package/bin to deploy everywhere — then verify with doctor, heal with upgrade, and reverse with uninstall.",
+    "MCP developers: depend on agent-connector, write defineConnector, run audit, then ship a branded MCP package/bin to deploy everywhere — verify with doctor, heal with upgrade, and reverse with uninstall.",
   overview:
     "Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup — no defineConnector, no config file, no install — to see the token usage of the agent CLIs you already use, aggregated by CLI, model, project, session, or day.",
   "coverage-confidence":
@@ -247,7 +293,7 @@ export const sectionDescription: Record<string, string> = {
     "Three origin-labeled boards that measure different things and are never summed, each with its own prerequisite: 🔌 MCP/plugin needs an MCP-developer connector + serve traffic (your own wrapped server), 🛰️ host-native turns needs the opt-in usage hook (Gemini/Antigravity only), 🖥️ host/user works with no setup. Agent-CLI users should use `usage` as the connector-free entry point.",
   privacy:
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
-  cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, doctor, status, telemetry, usage, and leaderboard.",
+  cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, audit, doctor, status, telemetry, usage, and leaderboard.",
   // Keep the current count out of prose; /coverage is the canonical count source.
   platforms:
     "The supported hosts, grouped by hook paradigm: json-stdio, mcp-only, and ts-plugin. Current counts live on /coverage.",
@@ -1138,9 +1184,9 @@ export const cliCommands: CliCommand[] = [
   {
     name: "install",
     signature:
-      "agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]",
+      "agent-connector install [<source>] [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]",
     summary:
-      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. --method marketplace (drivable: claude-code, codex, opencode, kilo, kilo-cli, antigravity, antigravity-cli + droid, qwen-code + gemini-cli[legacy, sunsetting→Antigravity]) drives the host's own plugin flow instead — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (claude/codex `plugin install`/`add`, `gemini extensions install`, `agy plugin install`) or write a local `file://` entry for npm-plugin hosts (opencode/kilo) — with a guard refusing a double install by both methods; `uninstall --method auto` reverses whichever is present. Live-verified on Linux, native Windows, AND macOS (claude/codex/agy across all three; opencode npm-local on Linux+Windows; gemini on Linux/macOS, degrades to an actionable warn on gemini ≥0.41's folder-trust gate); other marketplace-format hosts print manual commands. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
+      "Per target: backup settings → render server config → if hooks & paradigm≠mcp-only, synthesize the entrypoint + write hook config + set exec bit → write command/skill/subagent files → upsert memory managed blocks (last among the content surfaces) → register in the plugin registry. Prints a readable diff plus warnings and a summary tally. Idempotent and reversible. The optional <source> may be a local path, GitHub/raw git source, npm:<package>[@version], archive:<path-or-url>, or a direct .tgz/.tar.gz source; fetched sources are cached under ~/.agent-connector/sources/ and must contain agent-connector.config.*. --method marketplace (drivable: claude-code, codex, opencode, kilo, kilo-cli, antigravity, antigravity-cli + droid, qwen-code + gemini-cli[legacy, sunsetting→Antigravity]) drives the host's own plugin flow instead — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (claude/codex `plugin install`/`add`, `gemini extensions install`, `agy plugin install`) or write a local `file://` entry for npm-plugin hosts (opencode/kilo) — with a guard refusing a double install by both methods; `uninstall --method auto` reverses whichever is present. Live-verified on Linux, native Windows, AND macOS (claude/codex/agy across all three; opencode npm-local on Linux+Windows; gemini on Linux/macOS, degrades to an actionable warn on gemini ≥0.41's folder-trust gate); other marketplace-format hosts print manual commands. --force overwrites USER-EDITED memory blocks (hash drift) after a timestamped backup; default is warn-and-leave. Exit code 1 if any change is a warn, else 0.",
   },
   {
     name: "upgrade",
@@ -1189,6 +1235,13 @@ export const cliCommands: CliCommand[] = [
         desc: "Compute the file tree without writing anything.",
       },
     ],
+  },
+  {
+    name: "audit",
+    signature:
+      "agent-connector audit [--connector <path>] [--package-json <path>] [--project <dir>] [--json] [--strict]",
+    summary:
+      "Pre-install lint for branded MCP packages. It loads the connector, reads the nearest package.json, then checks that package name/version/bin, @ken-jo/agent-connector runtime dependency, connector id/version, and publish files coverage describe one coherent product identity. Warnings stay exit 0 by default; --strict turns warnings into exit 1 for CI.",
   },
   {
     name: "telemetry",

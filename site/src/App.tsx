@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Navigate, Routes, Route } from "react-router-dom";
 import { Landing } from "@/components/Landing";
 import { NotFound } from "@/components/NotFound";
 
@@ -38,6 +38,16 @@ const WizardPage = React.lazy(() =>
     default: m.WizardPage,
   })),
 );
+const BlogPage = React.lazy(() =>
+  import("@/components/blog/BlogPage").then((m) => ({
+    default: m.BlogPage,
+  })),
+);
+const BlogPostPage = React.lazy(() =>
+  import("@/components/blog/BlogPostPage").then((m) => ({
+    default: m.BlogPostPage,
+  })),
+);
 
 function lazyDocs(node: React.ReactNode) {
   return <React.Suspense fallback={null}>{node}</React.Suspense>;
@@ -51,16 +61,30 @@ export default function App() {
       <Route path="/coverage" element={lazyDocs(<CoveragePage />)} />
       {/* /wizard — the standalone connector scaffold generator. */}
       <Route path="/wizard" element={lazyDocs(<WizardPage />)} />
-      {/* /docs is the persona chooser — the fork between the two tracks. */}
+      <Route path="/blog" element={lazyDocs(<BlogPage />)} />
+      <Route path="/blog/:slug" element={lazyDocs(<BlogPostPage />)} />
+      {/* /docs is the chooser — the fork between guides, dev, and user tracks. */}
       <Route path="/docs" element={lazyDocs(<DocsChooser />)} />
-      {/* Static /docs/user and /docs/dev segments outrank /docs/:legacySection
+      {/* Static /docs/guides, /docs/user, and /docs/dev segments outrank /docs/:legacySection
           under react-router v6 route ranking, so order here is not load-bearing. */}
+      <Route
+        path="/docs/guides"
+        element={lazyDocs(<DocsPage track="guides" />)}
+      />
+      <Route
+        path="/docs/guides/:section"
+        element={lazyDocs(<DocsPage track="guides" />)}
+      />
       <Route path="/docs/user" element={lazyDocs(<DocsPage track="user" />)} />
       <Route
         path="/docs/user/:section"
         element={lazyDocs(<DocsPage track="user" />)}
       />
       <Route path="/docs/dev" element={lazyDocs(<DocsPage track="dev" />)} />
+      <Route
+        path="/docs/dev/mcp-101"
+        element={<Navigate to="/docs/guides/mcp-beginner" replace />}
+      />
       <Route
         path="/docs/dev/:section"
         element={lazyDocs(<DocsPage track="dev" />)}

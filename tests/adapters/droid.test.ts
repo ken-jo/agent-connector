@@ -26,7 +26,6 @@ import {
   mkdirSync,
   readFileSync,
   statSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +46,7 @@ import droidAdapter from "../../src/adapters/droid/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { readJson, splitFrontmatter } from "../support/fs.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // ── shared fixtures ──────────────────────────────────────────────────────────
 
@@ -638,7 +638,7 @@ describe("droid — actions emitter", () => {
     const before = "#!/usr/bin/env sh\necho outside\n";
     mkdirSync(join(projectDir, ".factory", "commands"), { recursive: true });
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, path);
+    if (!symlinkOrSkipTest(outside, path)) return;
 
     const changes = droidAdapter.installActions!(ctx);
 

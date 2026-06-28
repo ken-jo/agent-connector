@@ -23,7 +23,7 @@
  * continue-hooks.test.ts (the Claude-compatible hooks layer).
  */
 
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { parse, stringify } from "yaml";
@@ -36,6 +36,7 @@ import continueAdapter from "../../src/adapters/continue/index.js";
 import { buildCtx, freshHomeProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { splitFrontmatter } from "../support/fs.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // The MCP/memory connector id (former continue.test.ts) and the hooks connector
 // id (former continue-hooks.test.ts) are the same literal; kept as one constant.
@@ -364,7 +365,7 @@ describe("continue adapter — MCP install (array, user scope)", () => {
     const before = stringify({ outside: true });
     mkdirSync(join(home, ".continue"), { recursive: true });
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, path);
+    if (!symlinkOrSkipTest(outside, path)) return;
 
     const changes = continueAdapter.installServer(ctx);
 
@@ -599,7 +600,7 @@ describe("continue adapter — memory (.continue/rules/agent-connector.md)", () 
     const before = "# outside memory\n";
     mkdirSync(join(projectDir, ".continue", "rules"), { recursive: true });
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, memFile());
+    if (!symlinkOrSkipTest(outside, memFile())) return;
 
     const ctx = buildCtx(projectDir, buildConnector(), "project");
     const changes = continueAdapter.installMemory(ctx);

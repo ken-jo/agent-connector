@@ -1,16 +1,17 @@
 /**
  * core/fetch-source — resolve an `install <source>` argument that may be a
- * LOCAL path OR a REMOTE GitHub spec into a local connector-config path.
+ * LOCAL path OR a REMOTE package/source spec into a local connector-config path.
  *
  * Responsibilities (MVP):
  *   1. CLASSIFY a source string as local-path vs. remote GitHub spec. A value
  *      that exists on disk, or that looks like a filesystem path (starts with
  *      `.`, `/`, `~`, a `file://` URL, or a Windows drive/UNC), stays LOCAL and
  *      keeps today's behavior. Everything else is parsed as a remote spec.
- *   2. PARSE the supported GitHub forms into { owner, repo, ref?, subpath? }:
+ *   2. PARSE the supported remote forms:
  *        owner/repo · owner/repo#ref · owner/repo/sub · owner/repo/sub#ref
  *        github:owner/repo · https://github.com/owner/repo[/tree/ref/sub]
  *        git@github.com:owner/repo.git · the .git suffix on any of the above.
+ *        npm:<package>[@version] · archive:<path-or-url> · *.tgz / *.tar.gz
  *   3. FETCH + PERSIST the repo to a STABLE cache dir under the data-root
  *      (`sources/<owner>__<repo>[__<ref>]/`), NOT a temp dir, so a connector
  *      with a local stdio server keeps resolving after install. Re-fetch updates
@@ -29,12 +30,14 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { findConnectorConfig, loadConnectorFromPath } from "./load-connector.js";
 import { sourcesDir } from "./paths.js";
@@ -46,6 +49,11 @@ import type { ResolvedConnector } from "./types.js";
 export interface RemoteSource {
   owner: string;
   repo: string;
+  /**
+   * Non-git source kind. Omitted for GitHub/raw-git sources to preserve the
+   * original object shape used by tests and callers.
+   */
+  sourceKind?: "npm" | "archive";
   /** Branch / tag / commit. Undefined → the repo default branch. */
   ref?: string;
   /** Sub-directory inside the repo holding the connector config. */
@@ -56,6 +64,12 @@ export interface RemoteSource {
    * tarball fallback is unavailable (we can only `git clone` it).
    */
   cloneUrl?: string;
+  /** npm package spec for sourceKind:"npm", e.g. "@acme/db-mcp@1.2.3". */
+  packageSpec?: string;
+  /** npm package name without version/tag, e.g. "@acme/db-mcp". */
+  packageName?: string;
+  /** Tarball path or URL for sourceKind:"archive". */
+  archiveUrl?: string;
 }
 
 /** The classification of an `install <source>` argument. */
@@ -64,6 +78,8 @@ export type SourceSpec =
   | { kind: "remote"; remote: RemoteSource };
 
 const GITHUB_SEG = /^[A-Za-z0-9._-]+$/;
+const NPM_UNSCOPED_NAME_RE = /^[a-z0-9][a-z0-9._~-]*$/i;
+const NPM_SCOPE_RE = /^@[a-z0-9][a-z0-9._~-]*$/i;
 
 function isSafeGitHubSegment(segment: string): boolean {
   return GITHUB_SEG.test(segment) && segment !== "." && segment !== "..";
@@ -235,6 +251,81 @@ export function parseGitUrl(value: string): RemoteSource | null {
   return out;
 }
 
+/** Parse an explicit npm source: npm:<package>[@version-or-tag]. */
+export function parseNpmSource(value: string): RemoteSource | null {
+  const raw = value.trim();
+  if (!raw.startsWith("npm:")) return null;
+  const spec = raw.slice("npm:".length).trim();
+  if (spec === "" || /\s/.test(spec) || spec.startsWith("-")) return null;
+
+  let packageName: string;
+  if (spec.startsWith("@")) {
+    const match = spec.match(/^(@[^/@\s]+\/[^/@\s]+)(?:@([^/\s]+))?$/);
+    if (!match) return null;
+    packageName = match[1]!;
+  } else {
+    const match = spec.match(/^([^/@\s]+)(?:@([^/\s]+))?$/);
+    if (!match) return null;
+    packageName = match[1]!;
+  }
+
+  const parts = packageName.startsWith("@") ? packageName.split("/") : [packageName];
+  if (parts.length === 2) {
+    if (!NPM_SCOPE_RE.test(parts[0]!) || !NPM_UNSCOPED_NAME_RE.test(parts[1]!)) {
+      return null;
+    }
+  } else if (parts.length === 1) {
+    if (!NPM_UNSCOPED_NAME_RE.test(parts[0]!)) return null;
+  } else {
+    return null;
+  }
+
+  return {
+    sourceKind: "npm",
+    owner: "npm",
+    repo: packageName.replace(/^@/, "").replace(/\//g, "__"),
+    packageName,
+    packageSpec: spec,
+  };
+}
+
+function stripQueryAndHash(value: string): string {
+  return value.split(/[?#]/, 1)[0] ?? value;
+}
+
+function archivePathname(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.pathname;
+  } catch {
+    return value;
+  }
+}
+
+function isTarballLike(value: string): boolean {
+  const p = stripQueryAndHash(archivePathname(value)).toLowerCase();
+  return p.endsWith(".tgz") || p.endsWith(".tar.gz");
+}
+
+/** Parse a tarball archive source: archive:<path-or-url> or direct *.tgz/*.tar.gz. */
+export function parseArchiveSource(value: string): RemoteSource | null {
+  const raw = value.trim();
+  const explicit = raw.startsWith("archive:");
+  const source = explicit ? raw.slice("archive:".length).trim() : raw;
+  if (source === "") return null;
+  if (!explicit && !isTarballLike(source)) return null;
+
+  const pathish = stripQueryAndHash(archivePathname(source));
+  const base = basename(pathish).replace(/\.tar\.gz$/i, "").replace(/\.tgz$/i, "");
+  const repo = base || "source";
+  return {
+    sourceKind: "archive",
+    owner: "archive",
+    repo,
+    archiveUrl: source,
+  };
+}
+
 /**
  * Classify an `install <source>` argument. A raw git clone URL (file://, ssh://,
  * git@…) or a GitHub spec is REMOTE (a fetch); a local FILESYSTEM path (existing
@@ -242,6 +333,10 @@ export function parseGitUrl(value: string): RemoteSource | null {
  * behavior. Returns null when a non-local value is NOT a recognizable remote.
  */
 export function classifySource(value: string): SourceSpec | null {
+  const npm = parseNpmSource(value);
+  if (npm) return { kind: "remote", remote: npm };
+  const archive = parseArchiveSource(value);
+  if (archive) return { kind: "remote", remote: archive };
   // A raw git clone URL (incl. file://) is always a FETCH, never a config path —
   // even though file:// is "path-shaped" it names a clonable repo, not a config.
   const gitUrl = parseGitUrl(value);
@@ -253,6 +348,9 @@ export function classifySource(value: string): SourceSpec | null {
 
 /** The clone URL for a remote source (its raw cloneUrl, else the github URL). */
 export function cloneUrl(r: RemoteSource): string {
+  if (r.sourceKind === "npm" || r.sourceKind === "archive") {
+    throw new Error(`${describeRemote(r)} is not a git clone source`);
+  }
   return r.cloneUrl ?? `https://github.com/${r.owner}/${r.repo}.git`;
 }
 
@@ -265,6 +363,12 @@ export function tarballUrl(r: RemoteSource): string {
 /** The STABLE cache directory a remote source is fetched into. */
 export function sourceCacheDir(r: RemoteSource): string {
   const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, "-");
+  if (r.sourceKind === "npm") {
+    return join(sourcesDir(), `npm__${safe(r.packageName ?? r.repo)}__${shortHash(r.packageSpec ?? r.repo)}`);
+  }
+  if (r.sourceKind === "archive") {
+    return join(sourcesDir(), `archive__${safe(r.repo)}__${shortHash(r.archiveUrl ?? r.repo)}`);
+  }
   // A raw clone URL hashes its full URL into the key so two different file://
   // repos that share an owner/repo basename never collide in the cache.
   const base = r.cloneUrl
@@ -303,6 +407,9 @@ function gitAvailable(): boolean {
  */
 export function makeGitFetcher(urlFor: (r: RemoteSource) => string = cloneUrl): Fetcher {
   return (remote, dest) => {
+    if (remote.sourceKind === "npm" || remote.sourceKind === "archive") {
+      throw new Error(`${describeRemote(remote)} is not a git clone source`);
+    }
     if (!gitAvailable()) {
       throw new Error(
         "git is required to fetch a remote connector source but was not found on PATH. " +
@@ -337,8 +444,10 @@ async function tarballFetch(remote: RemoteSource, dest: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`failed to download ${url}: HTTP ${res.status} ${res.statusText}`);
   }
-  const buf = Buffer.from(await res.arrayBuffer());
+  await extractTarballBuffer(Buffer.from(await res.arrayBuffer()), dest);
+}
 
+function extractTarballBuffer(buf: Buffer, dest: string): void {
   const work = join(tmpdir(), `ac-src-${process.pid}-${Date.now()}`);
   mkdirSync(work, { recursive: true });
   const tarPath = join(work, "source.tar.gz");
@@ -361,6 +470,73 @@ async function tarballFetch(remote: RemoteSource, dest: string): Promise<void> {
   rmSync(work, { recursive: true, force: true });
 }
 
+async function archiveFetch(remote: RemoteSource, dest: string): Promise<void> {
+  const source = remote.archiveUrl;
+  if (!source) throw new Error("archive source is missing archiveUrl");
+
+  if (/^https?:\/\//i.test(source)) {
+    const res = await fetch(source);
+    if (!res.ok) {
+      throw new Error(`failed to download ${source}: HTTP ${res.status} ${res.statusText}`);
+    }
+    await extractTarballBuffer(Buffer.from(await res.arrayBuffer()), dest);
+    return;
+  }
+
+  const archivePath = source.startsWith("file://") ? fileURLToPath(source) : source;
+  if (!existsSync(archivePath)) {
+    throw new Error(`archive source not found: ${source}`);
+  }
+  extractTarballBuffer(readFileSync(archivePath), dest);
+}
+
+function npmAvailable(): boolean {
+  try {
+    execFileSync("npm", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function npmFetch(remote: RemoteSource, dest: string): Promise<void> {
+  const spec = remote.packageSpec;
+  if (!spec) throw new Error("npm source is missing packageSpec");
+  if (!npmAvailable()) {
+    throw new Error(
+      `npm is required to fetch npm:${spec} but was not found on PATH. ` +
+        "Install npm, or pass a local --connector <path>.",
+    );
+  }
+
+  const work = join(tmpdir(), `ac-npm-${process.pid}-${Date.now()}`);
+  mkdirSync(work, { recursive: true });
+  let stdout: string;
+  try {
+    stdout = execFileSync(
+      "npm",
+      ["pack", spec, "--pack-destination", work, "--silent"],
+      { encoding: "utf8" },
+    );
+  } catch (err) {
+    rmSync(work, { recursive: true, force: true });
+    throw new Error(
+      `failed to fetch npm:${spec}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const packed = stdout.trim().split(/\r?\n/).filter(Boolean).pop();
+  if (!packed) {
+    rmSync(work, { recursive: true, force: true });
+    throw new Error(`failed to fetch npm:${spec}: npm pack produced no tarball`);
+  }
+  const tarPath = isAbsolute(packed) ? packed : join(work, packed);
+  try {
+    extractTarballBuffer(readFileSync(tarPath), dest);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
 /**
  * The default network fetcher: `git clone` when git is on PATH, otherwise the
  * codeload tarball fallback (github.com sources only — a raw clone URL can only
@@ -368,6 +544,14 @@ async function tarballFetch(remote: RemoteSource, dest: string): Promise<void> {
  * applicable path works.
  */
 export const gitFetcher: Fetcher = async (remote, dest) => {
+  if (remote.sourceKind === "npm") {
+    await npmFetch(remote, dest);
+    return;
+  }
+  if (remote.sourceKind === "archive") {
+    await archiveFetch(remote, dest);
+    return;
+  }
   if (gitAvailable()) {
     makeGitFetcher()(remote, dest);
     return;
@@ -491,6 +675,8 @@ function findConfigWithin(dir: string): string | null {
 
 /** A human label for a remote source used in error messages. */
 export function describeRemote(r: RemoteSource): string {
+  if (r.sourceKind === "npm") return `npm:${r.packageSpec ?? r.repo}`;
+  if (r.sourceKind === "archive") return `archive:${r.archiveUrl ?? r.repo}`;
   let s = r.cloneUrl ?? `${r.owner}/${r.repo}`;
   if (r.subpath) s += `/${r.subpath}`;
   if (r.ref) s += `#${r.ref}`;

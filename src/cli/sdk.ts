@@ -122,6 +122,7 @@ const CONFIG_PATH_COMMANDS: ReadonlySet<string> = new Set([
   "doctor",
   "status",
   "package",
+  "audit",
 ]);
 
 /**

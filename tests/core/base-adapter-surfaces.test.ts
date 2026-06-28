@@ -13,7 +13,7 @@
  * createAdapterSuite). Adopts the shared harness (tests/support/env).
  */
 
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -31,6 +31,7 @@ import type {
 import warpAdapter from "../../src/adapters/warp/index.js";
 
 import { buildCtx, freshProject, isolateEnv, tempDir } from "../support/env.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 isolateEnv();
 
@@ -242,7 +243,7 @@ describe("BaseAdapter — malformed JSON root-key guard (warn-skip, file preserv
     const link = join(dir, "mcp.json");
     const before = `${JSON.stringify({ outside: true }, null, 2)}\n`;
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, link);
+    if (!symlinkOrSkipTest(outside, link)) return;
 
     const change = probe.upsert(link, ROOT_KEY, "acme-db", { command: "node" });
 

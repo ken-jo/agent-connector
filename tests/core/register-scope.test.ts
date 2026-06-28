@@ -18,7 +18,6 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,6 +29,7 @@ import {
   readRegisteredMeta,
   registerConnector,
 } from "../../src/core/load-connector.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 const DIST_INDEX = join(__dirname, "..", "..", "dist", "index.js");
 const CONN_ID = "reg-scope";
@@ -107,7 +107,7 @@ describe("registerConnector scope persistence", () => {
     const outside = join(tmpData, "outside-record");
     mkdirSync(outside, { recursive: true });
     mkdirSync(join(tmpData, "connectors"), { recursive: true });
-    symlinkSync(outside, join(tmpData, "connectors", CONN_ID), "dir");
+    if (!symlinkOrSkipTest(outside, join(tmpData, "connectors", CONN_ID), "dir")) return;
 
     expect(() => registerConnector(connector, modPath)).toThrow(/symbolic link/i);
     expect(existsSync(join(outside, "connector.json"))).toBe(false);

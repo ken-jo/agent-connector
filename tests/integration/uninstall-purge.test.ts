@@ -24,7 +24,6 @@ import {
   mkdtempSync,
   mkdirSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,6 +44,7 @@ import {
 import { claudeStagingRoot } from "../../src/core/marketplace-state.js";
 import { homeBinPath } from "../../src/core/paths.js";
 import type { InstallResult } from "../../src/core/types.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 const DIST_INDEX = join(__dirname, "..", "..", "dist", "index.js");
 
@@ -291,7 +291,7 @@ describe("uninstall --purge deregisters the connector record + home-bin", () => 
     try {
       mkdirSync(join(tmpData, "connectors"), { recursive: true });
       writeFileSync(join(outside, "keep.txt"), "keep\n", "utf8");
-      symlinkSync(outside, join(tmpData, "connectors", CONNECTOR_ID), "dir");
+      if (!symlinkOrSkipTest(outside, join(tmpData, "connectors", CONNECTOR_ID), "dir")) return;
 
       const result: InstallResult = {
         connectorId: CONNECTOR_ID,

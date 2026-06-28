@@ -22,7 +22,7 @@
  * lifecycle across the registry.
  */
 
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -46,6 +46,7 @@ import grokAdapter from "../../src/adapters/grok-cli/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { readJson } from "../support/fs.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 const CONNECTOR_ID = "acme-db";
 const ENV_VAR = "ACME_DB_DSN";
@@ -292,7 +293,7 @@ describe("grok-cli adapter", () => {
     mkdirSync(join(home, ".grok"), { recursive: true });
     const real = join(home, "real-settings.json");
     writeFileSync(real, "{}");
-    symlinkSync(real, path);
+    if (!symlinkOrSkipTest(real, path)) return;
     const changes = grokAdapter.installServer(buildCtx(projectDir, buildConnector(), "user"));
     expect(changes[0]!.action).toBe("warn");
     expect(readFileSync(real, "utf8")).toBe("{}");

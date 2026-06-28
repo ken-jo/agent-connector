@@ -1,4 +1,4 @@
-import { BookText, Boxes, Sparkles } from "lucide-react";
+import { BookText, Boxes, Newspaper, Plug, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { GithubIcon } from "@/components/ui/github-icon";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -51,6 +51,13 @@ export function Footer() {
               Documentation
             </Link>
             <Link
+              to="/docs/guides/mcp-beginner"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <Plug className="size-4" />
+              Agent-connector beginner guide
+            </Link>
+            <Link
               to="/coverage"
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
             >
@@ -63,6 +70,13 @@ export function Footer() {
             >
               <Sparkles className="size-4" />
               Wizard
+            </Link>
+            <Link
+              to="/blog"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              <Newspaper className="size-4" />
+              Blog
             </Link>
             <a
               href={REPO_URL}

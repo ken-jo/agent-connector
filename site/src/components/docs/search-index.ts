@@ -1,6 +1,6 @@
 /**
  * Static docs search index, built once at module load from the data-driven
- * track/nav structure. One palette spans BOTH audience tracks. Two tiers of
+ * track/nav structure. One palette spans all docs tracks. Two tiers of
  * results:
  *  - "section" entries: the per-track docs sections (sidebar pages).
  *  - "heading" entries: the H3 sub-headings inside each section (anchor ids),
@@ -11,7 +11,7 @@
  * `id="..."` anchors authored in DocsContent.tsx — keep them in sync.
  *
  * INVARIANT: section ids AND heading anchor ids must stay GLOBALLY unique
- * across BOTH tracks — each entry's id is the cmdk item `value` and the
+ * across all tracks — each entry's id is the cmdk item `value` and the
  * `searchHaystack` key, so a collision would shadow a result.
  */
 
@@ -24,7 +24,7 @@ import {
 } from "./docs-data";
 
 export interface SearchEntry {
-  /** Anchor id to navigate to (globally unique across both tracks). */
+  /** Anchor id to navigate to (globally unique across all docs tracks). */
   id: string;
   /** Display title for the result row. */
   title: string;
@@ -49,6 +49,55 @@ export interface SearchEntry {
 const sectionHeadings: Record<string, { id: string; title: string }[]> = {
   introduction: [
     { id: "two-pillars", title: "Two pillars" },
+  ],
+  "mcp-beginner": [
+    { id: "mcp-architecture-map", title: "Architecture map: who owns what?" },
+    { id: "mcp-terms", title: "Learn the nouns before writing code" },
+    { id: "mcp-first-surface", title: "Pick the first surface deliberately" },
+    { id: "mcp-tool-contract", title: "Design one good tool contract" },
+    { id: "mcp-server-first", title: "Build the smallest useful server" },
+    { id: "mcp-server-runtime", title: "How an MCP server actually runs" },
+    { id: "mcp-server-owns", title: "What your server owns" },
+    { id: "mcp-host-owns", title: "What the host owns" },
+    { id: "mcp-package-identity", title: "Add only the package metadata you need" },
+    { id: "mcp-connect", title: "Connect it to one host" },
+    { id: "mcp-verify", title: "Verify one call before adding features" },
+    { id: "mcp-debug-loop", title: "Debug in this order" },
+    { id: "mcp-safety", title: "Add safety before writes" },
+    { id: "mcp-hooks", title: "Hooks: the layer around MCP" },
+    { id: "mcp-hooks-when", title: "When hooks run" },
+    { id: "mcp-hooks-vs-tools", title: "Hooks vs tools" },
+    { id: "mcp-next", title: "Add agent-connector only after the server works" },
+  ],
+  "connector-concepts": [
+    { id: "connector-boundary", title: "The boundary: MCP first, connector second" },
+    { id: "connector-distribution-layer", title: "The distribution layer" },
+    { id: "connector-install-pipeline", title: "What install actually does" },
+    { id: "connector-when-not", title: "When not to add it yet" },
+  ],
+  "host-hooks": [
+    { id: "hook-mental-model", title: "The hook mental model" },
+    { id: "hook-paradigm-map", title: "CLI behavior by hook paradigm" },
+    { id: "hook-dispatch-flow", title: "What happens during dispatch" },
+    { id: "hook-safety-rules", title: "Beginner safety rules" },
+  ],
+  "hud-statusline": [
+    { id: "hud-not-mcp", title: "Why it is separate from MCP" },
+    { id: "hud-render-context", title: "The render callback" },
+    { id: "hud-supported-hosts", title: "Where it is wired today" },
+    { id: "hud-design-rules", title: "Design rules for beginners" },
+  ],
+  "actions-guide": [
+    { id: "actions-not-tools", title: "Actions vs tools vs hooks" },
+    { id: "actions-dispatch-flow", title: "The dispatch flow" },
+    { id: "actions-supported-hosts", title: "Where host affordances are wired today" },
+    { id: "actions-design-rules", title: "Design rules for beginners" },
+  ],
+  "special-surfaces": [
+    { id: "surfaces-map", title: "The surface map" },
+    { id: "static-vs-runtime", title: "Static content vs runtime handlers" },
+    { id: "memory-rules", title: "Memory is the easiest surface to overuse" },
+    { id: "surface-expansion-path", title: "A sane expansion path" },
   ],
   installation: [
     { id: "optional-global", title: "Optional: use the CLI directly" },
@@ -158,8 +207,8 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
 };
 
 /**
- * Flat, ordered search index: dev track first, then user (matching the
- * chooser card order); each section followed by its headings.
+ * Flat, ordered search index: track order follows docs-data; each section is
+ * followed by its headings.
  */
 export const searchIndex: SearchEntry[] = trackIds.flatMap((t) =>
   tracks[t].groups.flatMap((group) =>

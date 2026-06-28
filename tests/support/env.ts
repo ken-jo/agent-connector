@@ -38,12 +38,14 @@ export function tempDir(prefix = "ac-test-"): string {
 /**
  * Shape A (most adapters): one temp dir that is BOTH HOME and the project dir —
  * project-scoped writes land under it, user-scoped writes under the same HOME.
- * Sets HOME / USERPROFILE / data-root. Returns the dir.
+ * Sets HOME / USERPROFILE / Windows+XDG config roots / data-root. Returns the dir.
  */
 export function freshProject(prefix = "ac-test-"): string {
   const dir = tempDir(prefix);
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
+  process.env.APPDATA = join(dir, "AppData", "Roaming");
+  process.env.LOCALAPPDATA = join(dir, "AppData", "Local");
   // Sandbox $XDG_CONFIG_HOME to the temp HOME. Equivalent to the unset-fallback
   // (xdgConfigHome() → join(homedir(), ".config")) on a clean box, but explicit so
   // an XDG-honoring adapter (kilo / kilo-cli / crush …) resolves user-scope paths
@@ -65,6 +67,7 @@ export function freshHomeProject(prefix = "ac-test-"): { home: string; projectDi
   process.env.HOME = home;
   process.env.USERPROFILE = home;
   process.env.APPDATA = join(home, "AppData", "Roaming");
+  process.env.LOCALAPPDATA = join(home, "AppData", "Local");
   process.env.XDG_CONFIG_HOME = join(home, ".config");
   process.env.AGENT_CONNECTOR_DATA_DIR = join(home, ".agent-connector");
   const projectDir = join(home, "project");
@@ -113,6 +116,7 @@ export function isolateEnv(extraKeys: readonly string[] = []): void {
     "HOME",
     "USERPROFILE",
     "APPDATA",
+    "LOCALAPPDATA",
     "XDG_CONFIG_HOME",
     "AGENT_CONNECTOR_DATA_DIR",
     ...extraKeys,

@@ -27,7 +27,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -56,6 +55,7 @@ import hermesAdapter from "../../src/adapters/hermes/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN, tempDir } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
 import { splitFrontmatter } from "../support/fs.js";
+import { symlinkOrSkipTest } from "../support/symlink.js";
 
 // ── shared fixtures ──────────────────────────────────────────────────────────
 
@@ -336,7 +336,7 @@ describe("hermes adapter render + round-trip", () => {
     const before = "outside: true\n";
     mkdirSync(dirname(serverPath), { recursive: true });
     writeFileSync(outside, before, "utf8");
-    symlinkSync(outside, serverPath);
+    if (!symlinkOrSkipTest(outside, serverPath)) return;
 
     const changes = hermesAdapter.installServer(ctx);
 

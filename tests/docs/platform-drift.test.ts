@@ -16,14 +16,24 @@
  * paradigm row.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
 import { ADAPTER_REGISTRY } from "../../src/adapters/registry.js";
 import {
+  adapterCapabilityCount,
+  adapterCapabilityProfiles,
+} from "../../site/src/adapter-capabilities.generated.js";
+import {
+  hostVerificationCount,
+  hostVerificationResults,
+} from "../../site/src/host-verification.generated.js";
+import { releaseStatus } from "../../site/src/release-status.generated.js";
+import {
   jsonStdioPlatforms,
   mcpOnlyPlatforms,
+  tracks,
   tsPluginPlatforms,
 } from "../../site/src/components/docs/docs-data.js";
 import {
@@ -227,6 +237,52 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     }
   });
 
+  it("generated adapter capability snapshot matches the loaded registry", async () => {
+    expect(adapterCapabilityCount).toBe(ADAPTER_REGISTRY.length);
+    expect(adapterCapabilityProfiles.map((p) => p.id)).toEqual(
+      ADAPTER_REGISTRY.map((f) => f.id),
+    );
+
+    for (const factory of ADAPTER_REGISTRY) {
+      const adapter = await factory.load();
+      const profile = adapterCapabilityProfiles.find((p) => p.id === factory.id);
+      expect(profile, `generated capability snapshot is missing "${factory.id}"`).toBeTruthy();
+      const caps = adapter.capabilities;
+      expect(profile).toEqual({
+        id: factory.id,
+        name: adapter.name,
+        paradigm: adapter.paradigm,
+        surfaces: {
+          mcp: caps.transports.length > 0,
+          hooks: adapter.paradigm !== "mcp-only",
+          commands: caps.supportsCommands ?? false,
+          skills: caps.supportsSkills ?? false,
+          subagents: caps.supportsSubagents ?? false,
+          memory: caps.supportsMemory ?? false,
+          statusline: caps.supportsStatusline ?? false,
+          actions: caps.supportsActions ?? false,
+        },
+      });
+    }
+  });
+
+  it("generated host verification snapshot partitions the registry ids", () => {
+    expect(hostVerificationCount).toBe(ADAPTER_REGISTRY.length);
+    expect(hostVerificationResults.map((row) => row.host).sort()).toEqual(
+      ADAPTER_REGISTRY.map((f) => f.id).sort(),
+    );
+  });
+
+  it("generated release status snapshot matches local package and workflow files", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+    expect(releaseStatus.packageName).toBe(pkg.name);
+    expect(releaseStatus.localVersion).toBe(pkg.version);
+    expect(releaseStatus.ciWorkflow.present).toBe(true);
+    expect(releaseStatus.deployWorkflow.present).toBe(true);
+    expect(readFileSync(releaseStatus.ciWorkflow.path, "utf8")).toContain("npm run typecheck");
+    expect(readFileSync(releaseStatus.deployWorkflow.path, "utf8")).toContain("npm run build");
+  });
+
   it("site nativeHooks prose count and list match adapter capabilities", async () => {
     const nativeHookIds: string[] = [];
     for (const factory of ADAPTER_REGISTRY) {
@@ -318,11 +374,81 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
   it("public site metadata routes host counts to the coverage matrix", () => {
     const indexHtml = readFileSync("site/index.html", "utf8");
     const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
+    const sitePackage = JSON.parse(readFileSync("site/package.json", "utf8"));
 
     for (const text of [indexHtml, prerender]) {
       expect(text).toContain("current AI-agent coverage matrix");
       expect(text).not.toMatch(/\bacross\s+\d+\s+AI-agent/i);
     }
+    expect(sitePackage.scripts.prebuild).toContain(
+      "generate-site-adapter-capabilities.mjs",
+    );
+    expect(sitePackage.scripts.prebuild).toContain(
+      "generate-site-verification-results.mjs",
+    );
+    expect(sitePackage.scripts.prebuild).toContain(
+      "generate-site-release-status.mjs",
+    );
+  });
+
+  it("blog discovery exposes an RSS feed from the prerendered blog data", () => {
+    const indexHtml = readFileSync("site/index.html", "utf8");
+    const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
+    const blogData = readFileSync("site/src/components/blog/blog-data.ts", "utf8");
+    const blogPage = readFileSync("site/src/components/blog/BlogPage.tsx", "utf8");
+    const blogPostPage = readFileSync("site/src/components/blog/BlogPostPage.tsx", "utf8");
+
+    expect(indexHtml).toContain('type="application/rss+xml"');
+    expect(indexHtml).toContain('href="https://agent-connector.ai/feed.xml"');
+    expect(prerender).toContain("blogPosts");
+    expect(prerender).toContain("feed.xml");
+    expect(blogData).toContain('slug: "building"');
+    expect(blogData).toContain('title: "BUILDING..."');
+    expect(blogData).toContain('src: "/blog/building-cover.svg"');
+    expect(blogData).not.toContain("mcp-implementation-starts-with-product-identity");
+    expect(blogPage).toContain('href="/feed.xml"');
+    expect(blogPage).toContain("post.heroImage.src");
+    expect(blogPostPage).toContain("post.heroImage.caption");
+    expect(existsSync("site/public/blog/building-cover.svg")).toBe(true);
+  });
+
+  it("agent-connector beginner guide lives in the root Guides track and stays expandable", () => {
+    const guideIds = tracks.guides.groups.flatMap((group) => group.items.map((item) => item.id));
+    const devIds = tracks.dev.groups.flatMap((group) => group.items.map((item) => item.id));
+    const app = readFileSync("site/src/App.tsx", "utf8");
+    const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
+    const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
+
+    expect(tracks.guides.basePath).toBe("/docs/guides");
+    expect(guideIds).toEqual([
+      "mcp-beginner",
+      "connector-concepts",
+      "host-hooks",
+      "hud-statusline",
+      "actions-guide",
+      "special-surfaces",
+    ]);
+    expect(devIds).not.toContain("mcp-beginner");
+    expect(devIds).not.toContain("mcp-101");
+    expect(app).toContain('path="/docs/guides"');
+    expect(app).toContain('to="/docs/guides/mcp-beginner"');
+    expect(app).toContain('path="/docs/dev/mcp-101"');
+    expect(prerender).toContain('route: "/docs/dev/mcp-101"');
+    expect(docs).toContain('DocSection id="mcp-beginner"');
+    expect(docs).toContain('eyebrow="Guides" title="Agent-connector beginner guide"');
+    expect(docs).toContain("new to agent-connector");
+    expect(docs).toContain("MCP concepts underneath it");
+    expect(docs).toContain("what each connector surface does");
+    expect(docs).toContain("/docs/mcp-beginner-architecture.svg");
+    expect(docs).toContain("Architecture map: who owns what?");
+    expect(docs).toContain("How an MCP server actually runs");
+    expect(docs).toContain("Hooks: the layer around MCP, not the MCP server itself");
+    expect(docs).toContain("Add agent-connector only after the server works");
+    expect(docs).toContain('title="Host hooks by CLI"');
+    expect(docs).toContain('title="HUD / statusline"');
+    expect(docs).toContain('title="Actions"');
+    expect(docs).toContain('title="Commands, skills, subagents & memory"');
+    expect(existsSync("site/public/docs/mcp-beginner-architecture.svg")).toBe(true);
   });
 
   it("example connector comments foreground the package-first path", () => {

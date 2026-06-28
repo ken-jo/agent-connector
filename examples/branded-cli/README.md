@@ -45,8 +45,9 @@ After `npm install` in this directory (which links the `acme-db` bin):
 ```bash
 # Deploy the acme-db connector across every detected agent platform.
 # Auto-scoped: no --connector needed.
-acme-db install
+acme-db audit                      # catch package/bin/connector identity drift
 acme-db install --dry-run          # preview the plan, nothing written
+acme-db install                    # write native config
 acme-db sync                       # idempotent re-install
 acme-db doctor                     # health-check every platform for acme-db
 

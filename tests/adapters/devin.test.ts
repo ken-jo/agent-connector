@@ -119,7 +119,7 @@ describe("devin adapter — detection", () => {
   isolateEnv();
 
   it("reports not-installed on a clean home", () => {
-    const projectDir = freshProject();
+    const { projectDir } = freshHomeProject("ac-devin-detect-");
     const d = devinAdapter.detectInstalled(projectDir);
     expect(d.id).toBe("devin");
     expect(d.paradigm).toBe("json-stdio");
@@ -161,7 +161,11 @@ describe("devin adapter — MCP server render", () => {
   });
 
   it("installServer (user scope) targets the adapter's user config.json (~/.config/devin on POSIX, %APPDATA%\\devin on Windows)", () => {
-    const userCtx = buildCtx(projectDir, buildRenderConnector(), "user");
+    const isolated = freshHomeProject("ac-devin-user-");
+    const userCtx = buildCtx(isolated.projectDir, buildRenderConnector(), {
+      scope: "user",
+      dataRoot: process.env.AGENT_CONNECTOR_DATA_DIR ?? join(isolated.home, ".agent-connector"),
+    });
     devinAdapter.installServer(userCtx);
     // Assert against the adapter's OWN per-platform resolution (path-agnostic,
     // mirrors windsurf/amazon-q user-scope tests) — hardcoding the POSIX

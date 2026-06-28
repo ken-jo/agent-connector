@@ -3,7 +3,6 @@ import { ExternalLink, Github } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
-import coverageStars from "@/coverage-stars.generated.json";
 import {
   byParadigmFamilyName,
   formatStars,
@@ -11,9 +10,7 @@ import {
   handlerChips,
   hostLinks,
   hostLinkUrl,
-  hostSource,
   paradigms,
-  platforms,
   STAR_TIERS,
   surfaceChips,
   surfaceState,
@@ -23,6 +20,10 @@ import {
   type PlatformSurfaces,
   type SurfaceState,
 } from "@/data";
+import {
+  publicCoveragePlatforms,
+  starsForPlatform,
+} from "@/components/coverage-wall/public-coverage";
 
 /**
  * The detailed rank-tier coverage wall, extracted out of the landing into a
@@ -45,18 +46,9 @@ const HANDLER_DOC: Record<"statusline" | "actions", string> = {
   actions: "/docs/dev/surfaces#actions",
 };
 
-/** Build-fetched stargazers counts ({ "owner/name": stars }). */
-const STARS: Record<string, number> = coverageStars;
-
-/** The stargazers count for a host id (undefined if closed / no repo). */
-function starsFor(id: string): number | undefined {
-  const src = hostSource[id];
-  return src && "repo" in src ? STARS[src.repo] : undefined;
-}
-
 /** The coverage tier for a host id, resolving its fetched star count. */
 function coverageTierFor(id: string): CoverageTier {
-  return tierOf(id, starsFor(id));
+  return tierOf(id, starsForPlatform(id));
 }
 
 /**
@@ -226,7 +218,7 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
   const litHandlers = handlerChips.filter((c) => platform.surfaces[c.key]);
   const tier = coverageTierFor(platform.id);
   const style = tierStyle[tier];
-  const stars = starsFor(platform.id);
+  const stars = starsForPlatform(platform.id);
   const tierTitle =
     tier === "frontier"
       ? "Frontier — closed-source flagship"
@@ -355,7 +347,7 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
  * (closed → Frontier; OSS → GitHub-stars tier), computed at render from the
  * build-fetched star snapshot.
  */
-const wallPlatforms: Platform[] = [...platforms].sort(byParadigmFamilyName);
+const wallPlatforms: Platform[] = [...publicCoveragePlatforms].sort(byParadigmFamilyName);
 
 /**
  * The eight surface filter tags — the 6 content surfaces + the 2
@@ -368,8 +360,11 @@ const SURFACE_TAGS: { key: keyof PlatformSurfaces; label: string }[] = [
 ];
 const SURFACE_KEYS = SURFACE_TAGS.map((t) => t.key);
 
-/** All tiers in display order (Frontier first, then Challenger → Bronze). */
-const ALL_TIERS: CoverageTier[] = ["frontier", ...STAR_TIERS.map((t) => t.tier)];
+/** Tiers represented by public coverage hosts, in display order. */
+const ALL_COVERAGE_TIERS: CoverageTier[] = ["frontier", ...STAR_TIERS.map((t) => t.tier)];
+const ALL_TIERS: CoverageTier[] = ALL_COVERAGE_TIERS.filter(
+  (tier) => wallPlatforms.some((p) => coverageTierFor(p.id) === tier),
+);
 
 type FilterMode = "surface" | "tier";
 

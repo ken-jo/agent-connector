@@ -28,7 +28,9 @@ import {
   isSafeRef,
   looksLocal,
   makeGitFetcher,
+  parseArchiveSource,
   parseGitUrl,
+  parseNpmSource,
   parseRemoteSource,
   resolveRemoteSource,
   sourceCacheDir,
@@ -231,6 +233,57 @@ describe("parseGitUrl — raw clone URLs (file://, ssh, scp)", () => {
   });
 });
 
+describe("parseNpmSource / parseArchiveSource — registry and tarball specs", () => {
+  it("parses npm:<package> and npm:<package>@version", () => {
+    expect(parseNpmSource("npm:acme-db-mcp")).toMatchObject({
+      sourceKind: "npm",
+      packageName: "acme-db-mcp",
+      packageSpec: "acme-db-mcp",
+    });
+    expect(parseNpmSource("npm:@acme/acme-db-mcp@1.2.3")).toMatchObject({
+      sourceKind: "npm",
+      packageName: "@acme/acme-db-mcp",
+      packageSpec: "@acme/acme-db-mcp@1.2.3",
+    });
+  });
+
+  it("rejects npm specs that could be npm flags or malformed names", () => {
+    expect(parseNpmSource("npm:--registry=https://evil")).toBeNull();
+    expect(parseNpmSource("npm:@scope")).toBeNull();
+    expect(parseNpmSource("npm:bad name")).toBeNull();
+  });
+
+  it("classifies npm:<package> as a remote source", () => {
+    const spec = classifySource("npm:@acme/acme-db-mcp@latest");
+    expect(spec?.kind).toBe("remote");
+    expect(spec?.kind === "remote" && spec.remote.sourceKind).toBe("npm");
+  });
+
+  it("parses explicit archive: sources and direct tarball paths/URLs", () => {
+    expect(parseArchiveSource("archive:https://example.com/acme.tgz")).toMatchObject({
+      sourceKind: "archive",
+      archiveUrl: "https://example.com/acme.tgz",
+      repo: "acme",
+    });
+    expect(parseArchiveSource("https://example.com/acme.tar.gz")).toMatchObject({
+      sourceKind: "archive",
+      archiveUrl: "https://example.com/acme.tar.gz",
+      repo: "acme",
+    });
+    expect(parseArchiveSource("./acme.tgz")).toMatchObject({
+      sourceKind: "archive",
+      archiveUrl: "./acme.tgz",
+      repo: "acme",
+    });
+  });
+
+  it("keeps a non-tarball file:// URL as a raw git clone URL", () => {
+    expect(parseArchiveSource("file:///tmp/repo")).toBeNull();
+    expect(classifySource("file:///tmp/repo")?.kind).toBe("remote");
+    expect(parseGitUrl("file:///tmp/repo")?.cloneUrl).toBe("file:///tmp/repo");
+  });
+});
+
 describe("sourceCacheDir — stable, collision-free", () => {
   it("keys github sources by owner__repo[__ref] under sources/", () => {
     const noRef = sourceCacheDir({ owner: "ken-jo", repo: "agent-connector" });
@@ -243,6 +296,13 @@ describe("sourceCacheDir — stable, collision-free", () => {
     const a = sourceCacheDir({ owner: "x", repo: "repo", cloneUrl: "file:///a/repo" });
     const b = sourceCacheDir({ owner: "x", repo: "repo", cloneUrl: "file:///b/repo" });
     expect(a).not.toBe(b);
+  });
+
+  it("keys npm and archive sources by kind + hash", () => {
+    const npm = sourceCacheDir(parseNpmSource("npm:@acme/acme-db-mcp@1.0.0")!);
+    expect(npm).toContain(join("sources", "npm__"));
+    const archive = sourceCacheDir(parseArchiveSource("archive:https://example.com/acme.tgz")!);
+    expect(archive).toContain(join("sources", "archive__acme__"));
   });
 });
 
@@ -324,6 +384,44 @@ describe("resolveRemoteSource — package gate", () => {
     const resolved = await resolveRemoteSource(remote, { fetcher });
     expect(resolved.connector.id).toBe("db-connector");
     expect(resolved.connectorDir.endsWith(join("packages", "db"))).toBe(true);
+  });
+
+  it("resolves an npm: source through the same package gate with an injected fetcher", async () => {
+    const fetcher: Fetcher = (_remote, dest) => {
+      mkdirSync(dest, { recursive: true });
+      writeFileSync(
+        join(dest, "agent-connector.config.json"),
+        JSON.stringify({
+          id: "npm-connector",
+          version: "1.0.0",
+          server: { transport: "stdio", command: "npx", args: ["-y", "@npm/mcp"] },
+        }),
+        "utf8",
+      );
+    };
+    const remote = parseNpmSource("npm:@acme/npm-connector@1.0.0")!;
+    const resolved = await resolveRemoteSource(remote, { fetcher });
+    expect(resolved.connector.id).toBe("npm-connector");
+    expect(describeRemote(remote)).toBe("npm:@acme/npm-connector@1.0.0");
+  });
+
+  it("resolves an archive source through the same package gate with an injected fetcher", async () => {
+    const fetcher: Fetcher = (_remote, dest) => {
+      mkdirSync(dest, { recursive: true });
+      writeFileSync(
+        join(dest, "agent-connector.config.json"),
+        JSON.stringify({
+          id: "archive-connector",
+          version: "1.0.0",
+          server: { transport: "stdio", command: "node", args: ["server.mjs"] },
+        }),
+        "utf8",
+      );
+    };
+    const remote = parseArchiveSource("archive:https://example.com/archive-connector.tgz")!;
+    const resolved = await resolveRemoteSource(remote, { fetcher });
+    expect(resolved.connector.id).toBe("archive-connector");
+    expect(describeRemote(remote)).toBe("archive:https://example.com/archive-connector.tgz");
   });
 });
 

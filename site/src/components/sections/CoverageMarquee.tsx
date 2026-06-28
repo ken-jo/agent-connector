@@ -8,10 +8,13 @@ import {
   formFactorShort,
   hostSource,
   paradigms,
-  platformCount,
-  platforms,
   type Platform,
 } from "@/data";
+import {
+  PUBLIC_OSS_STAR_FLOOR,
+  publicCoverageCount,
+  publicCoveragePlatforms,
+} from "@/components/coverage-wall/public-coverage";
 
 /**
  * Landing coverage teaser — a lightweight, dependency-free auto-scrolling
@@ -43,7 +46,7 @@ import {
  */
 
 /** Comparator-ordered hosts, split into two interleaved rows of similar length. */
-const ordered: Platform[] = [...platforms].sort(byParadigmFamilyName);
+const ordered: Platform[] = [...publicCoveragePlatforms].sort(byParadigmFamilyName);
 const rowA: Platform[] = ordered.filter((_, i) => i % 2 === 0);
 const rowB: Platform[] = ordered.filter((_, i) => i % 2 === 1);
 
@@ -141,10 +144,10 @@ export function CoverageMarquee() {
         title={
           <>
             Works with{" "}
-            <span className="text-gradient">{platformCount} agents</span>
+            <span className="text-gradient">{publicCoverageCount} agents</span>
           </>
         }
-        description="One connector deploys across every detected agent CLI, IDE extension, and app — Claude Code to Codex to Cursor and beyond."
+        description={`One connector deploys across the agent CLIs, IDE extensions, and apps that matter most first: closed-source flagships plus open-source hosts with ${PUBLIC_OSS_STAR_FLOOR.toLocaleString()}+ GitHub stars.`}
       />
 
       {/* Edge fade masks: a left/right gradient mask so chips dissolve at the

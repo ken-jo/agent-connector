@@ -20,8 +20,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { tempDir } from "../support/env.js";
@@ -117,6 +117,30 @@ function makeNoConfigRepo(): string {
   return pathToFileURL(repoDir).href;
 }
 
+/** Create a local .tgz source containing an agent-connector config; return path. */
+function makeConnectorArchive(): string {
+  const srcDir = tempDir("ac-archive-src-");
+  const outDir = tempDir("ac-archive-out-");
+  cleanup.push(srcDir, outDir);
+  const pkgDir = join(srcDir, "package");
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(
+    join(pkgDir, "agent-connector.config.json"),
+    JSON.stringify({
+      id: "archive-smoke-connector",
+      displayName: "Archive Smoke Connector",
+      version: "1.0.0",
+      server: { transport: "stdio", command: "npx", args: ["-y", "@archive/mcp"] },
+    }),
+    "utf8",
+  );
+  const archivePath = join(outDir, "archive-smoke-connector.tgz");
+  execFileSync("tar", ["-czf", archivePath, "-C", srcDir, "package"], {
+    stdio: "ignore",
+  });
+  return archivePath;
+}
+
 describe("cli install <remote-source> (built dist/cli.js, file:// git fixture)", () => {
   it("fetches + GATES + plans an install for claude-code,codex (dry-run)", () => {
     const projectDir = tempDir("ac-remote-proj-");
@@ -185,5 +209,29 @@ describe("cli install <remote-source> (built dist/cli.js, file:// git fixture)",
 
     expect(code).not.toBe(0);
     expect(stderr).toMatch(/EITHER .* OR/);
+  });
+
+  it("fetches + GATES + plans an install from a local .tgz archive source", () => {
+    const projectDir = tempDir("ac-archive-proj-");
+    cleanup.push(projectDir);
+    const archivePath = makeConnectorArchive();
+
+    const { code, stdout } = runCli([
+      "install",
+      archivePath,
+      "--dry-run",
+      "--targets",
+      "claude-code",
+      "--project",
+      projectDir,
+    ]);
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("archive-smoke-connector");
+    expect(stdout).toContain("v1.0.0");
+    expect(stdout).toContain("(dry-run — nothing written)");
+    const sourcesRoot = join(tmpData, "sources");
+    const cached = readdirSync(sourcesRoot);
+    expect(cached.some((entry) => entry.startsWith("archive__archive-smoke-connector__"))).toBe(true);
   });
 });
