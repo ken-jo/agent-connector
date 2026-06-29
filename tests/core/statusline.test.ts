@@ -7,12 +7,10 @@
  *     is a legal sole payload; statusline survives resolution as a live handler.
  *   • spawn helpers — buildHomeBinStatuslineCommand / isHomeBinStatuslineCommand
  *     (the ` statusline ` verb + shared-prefix-id anchoring).
- *   • claude-code adapter — capabilities.supportsStatusline === true;
- *     installStatusline writes the ownership-tracked settings.json.statusLine
- *     (ledger row, prior absent) via the SAME ledger as configPatch; idempotent
- *     re-install; uninstall reverses (last-owner-verified); a pre-existing non-AC
- *     statusLine is NEVER clobbered (skip-warn); per-platform false skips;
- *     parseStatusInput maps Claude's stdin JSON; formatStatusOutput → exit 0.
+ *   • supporting adapters — capabilities.supportsStatusline === true means the
+ *     adapter owns a concrete status-line config path, writes through an
+ *     ownership ledger, never clobbers a pre-existing non-AC statusline, honors
+ *     per-platform false, parses host stdin JSON, and formats an exit-0 reply.
  *   • a non-supporting adapter (codex) → installStatusline skip-warns (never silent).
  *   • CLI — the `statusline` command is registered (and its --help never crashes).
  *

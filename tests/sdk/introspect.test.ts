@@ -3,10 +3,10 @@
  *
  * Asserts the surface predicates resolve against REAL adapter capabilities:
  *   • capabilitiesOf — known host vs unknown id;
- *   • hostsSupporting — configPatch is v1 claude-code-only; statusline is claude-code + qwen-code + antigravity-cli;
- *     actions is the emitter set (droid + hermes + warp + the ts-plugin slash-command
- *     hosts nemoclaw/omp/openclaw); memory is broad (the AGENTS.md-first surface),
- *     and the result is sorted;
+ *   • hostsSupporting — configPatch is v1 claude-code-only; statusline is
+ *     claude-code + qwen-code + antigravity-cli; actions is the concrete emitter
+ *     set (droid, hermes, kiro, nemoclaw, omp, openclaw, pi, warp, zed); memory
+ *     is broad (the AGENTS.md-first surface), and the result is sorted;
  *   • surfaceSupport — the convenience boolean, including the unknown-id case.
  */
 

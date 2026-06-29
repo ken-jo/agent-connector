@@ -16,7 +16,7 @@ export function DocsTable({
   return (
     <div
       className={cn(
-        "not-prose my-6 overflow-x-auto rounded-xl border border-border bg-card/40 shadow-sm",
+        "docs-table-shell not-prose overflow-x-auto rounded-xl border border-border bg-card/40 shadow-sm",
         className,
       )}
     >

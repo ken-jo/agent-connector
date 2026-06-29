@@ -10,7 +10,8 @@
  *   • spawn helpers — buildHomeBinActionCommand / isHomeBinActionCommand (the
  *     ` action ` verb + shared-prefix-id anchoring).
  *   • install — adapters with no action affordance honestly skip-warn when actions
- *     are declared (droid/hermes/warp now emit); all skip silently when none declared.
+ *     are declared; verified emitter adapters write host-native triggers; all skip
+ *     silently when none are declared.
  *   • CLI — the `action` command is registered (and its --help never crashes).
  *
  * Isolation: HOME + AGENT_CONNECTOR_DATA_DIR point at fresh temp dirs and are
@@ -310,12 +311,12 @@ describe("spawn — action command helpers", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// install = honest skip-warn on permanent-gap hosts (droid/hermes/warp emit)
+// install = honest skip-warn on permanent-gap hosts; emitter hosts are covered separately
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("install — actions skip-warn on a permanent-gap host", () => {
   it("a permanent-gap host (claude-code/codex/gemini-cli) does NOT advertise supportsActions", () => {
-    // The emitters (droid/hermes/warp) DO set this — see actions-emit.test.ts.
+    // The emitter hosts DO set this — see actions-emit.test.ts.
     expect(claudeAdapter.capabilities.supportsActions ?? false).toBe(false);
     expect(codexAdapter.capabilities.supportsActions ?? false).toBe(false);
     expect(geminiAdapter.capabilities.supportsActions ?? false).toBe(false);

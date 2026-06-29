@@ -64,6 +64,15 @@ export const tracks: Record<TrackId, TrackDef> = {
         ],
       },
       {
+        title: "Learning path",
+        items: [
+          { id: "beginner-demo-lab", label: "Beginner demo lab" },
+          { id: "first-mcp-server", label: "Build your first MCP server" },
+          { id: "connect-first-host", label: "Connect your first host" },
+          { id: "first-connector-surfaces", label: "Add connector surfaces" },
+        ],
+      },
+      {
         title: "Agent-connector concepts",
         items: [
           { id: "connector-concepts", label: "How agent-connector fits" },
@@ -200,6 +209,10 @@ export const legacyRedirects: Record<string, string> = {
   introduction: "/docs/dev/introduction",
   "mcp-101": "/docs/guides/mcp-beginner",
   "mcp-beginner": "/docs/guides/mcp-beginner",
+  "beginner-demo-lab": "/docs/guides/beginner-demo-lab",
+  "first-mcp-server": "/docs/guides/first-mcp-server",
+  "connect-first-host": "/docs/guides/connect-first-host",
+  "first-connector-surfaces": "/docs/guides/first-connector-surfaces",
   "connector-concepts": "/docs/guides/connector-concepts",
   "host-hooks": "/docs/guides/host-hooks",
   "hud-statusline": "/docs/guides/hud-statusline",
@@ -249,6 +262,14 @@ export const sectionDescription: Record<string, string> = {
     "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across the current AI-agent coverage matrix with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
   "mcp-beginner":
     "A beginner guide for developers new to agent-connector: MCP architecture and protocol terms, how agent-connector maps servers, hooks, HUD/statusline, actions, commands, skills, subagents, and memory into host CLIs, plus first-host verification and safety checks.",
+  "beginner-demo-lab":
+    "A copy-paste beginner lab for building one demo MCP server, running a smoke-test script, opening MCP Inspector, customizing tool data, adding agent-connector statusline/actions, and capturing docs-ready demo screenshots.",
+  "first-mcp-server":
+    "A hands-on first MCP server guide using the current official TypeScript SDK style: McpServer, registerTool, Zod input schemas, outputSchema, structuredContent, stdio transport, and MCP Inspector verification.",
+  "connect-first-host":
+    "A beginner guide for connecting one working MCP server to one host CLI: absolute command/args launch shape, Windows path handling, host verification, and boundary-based troubleshooting.",
+  "first-connector-surfaces":
+    "A staged guide for adding agent-connector after a plain MCP server works: server-only defineConnector first, then statusline, actions, hooks, static content surfaces, and per-surface verification.",
   "connector-concepts":
     "Where agent-connector starts after a plain MCP server already works: package identity, one connector declaration, host adapter rendering, telemetry wrapping, and cross-host verification.",
   "host-hooks":
@@ -398,7 +419,7 @@ export const connectorConfigFields: FieldRow[] = [
     name: "actions",
     type: "ActionDef[]",
     notes:
-      "User-invokable actions dispatched by `agent-connector action`; v1 ships the dispatch backbone only (no host affordance yet). Omit when none.",
+      "User-invokable actions dispatched by `agent-connector action`; supporting adapters emit native host affordances, unsupported hosts skip-warn. Omit when none.",
   },
   {
     name: "platforms",

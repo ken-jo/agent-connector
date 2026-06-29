@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.98 — 2026-06-30
+
+Documentation and site polish for the beginner onboarding release.
+
+### Added
+
+- Added deeper beginner guide pages and a demo-lab path for first MCP server, host connection, hooks, HUD/statusline, actions, commands, skills, subagents, and memory concepts.
+- Added a dedicated `/telemetry` page and header entry so token telemetry can be linked independently from the landing page.
+- Added public coverage filtering that keeps the homepage focused on closed-source flagship hosts and 1k+ star open-source hosts while preserving the full registry in developer docs.
+
+### Changed
+
+- Renamed the header matrix entry to Coverage, simplified header navigation, and split the footer into a three-column layout.
+- Refined docs sidebar typography, table/code-block spacing, and beginner copy structure for easier scanning.
+- Expanded statusline and action surfaces across supported host CLIs with matching runtime and SDK tests.
+
+### Fixed
+
+- Removed stale public host-count copy after filtering lower-star adapters from public-facing coverage.
+- Preserved package audit and release status checks across the site build after the docs and routing changes.
+
 ## 0.4.97 — 2026-06-29
 
 Release preparation for the public docs and Windows-safe verification path.

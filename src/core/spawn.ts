@@ -192,13 +192,14 @@ export function isHomeBinStatuslineCommand(
 }
 
 /**
- * Build the home-bin action command a future host affordance (slash command /
- * keybinding) points at:
+ * Build the home-bin action command a host affordance (workflow, task, slash
+ * command, keybinding) points at:
  *   "<homeBin>" action <platformId> <actionId> --connector <id>
  * Mirrors {@link buildHomeBinStatuslineCommand} (the same single-home-binary
  * indirection) but routes to the `action` entrypoint, which re-imports the
- * connector and runs the named action's run(ctx). v1 ships only this command
- * builder + the runtime verb; no adapter EMITS the affordance yet.
+ * connector and runs the named action's run(ctx). Adapters with a verified
+ * native trigger surface emit this command into that surface; other hosts can
+ * still use the same command manually.
  */
 export function buildHomeBinActionCommand(
   homeBinPath: string,

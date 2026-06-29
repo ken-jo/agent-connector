@@ -2,7 +2,7 @@ import { ArrowRight, Terminal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Section, SectionHeading } from "@/components/sections/Section";
-import { platformCount } from "@/data";
+import { publicCoverageCount } from "@/components/coverage-wall/public-coverage";
 
 const USAGE_CMD = "npx @ken-jo/agent-connector usage report";
 
@@ -39,8 +39,9 @@ export function Audiences() {
           <p className="text-sm leading-relaxed text-foreground/90">
             Start with a neutral MCP server: one read-only tool, one clear
             schema, one host config, and one verified call. After that,
-            agent-connector can distribute it across {platformCount} agent
-            platforms and report per-tool telemetry for the server it wraps.
+            agent-connector can distribute it across {publicCoverageCount}
+            production-relevant agent platforms and report per-tool telemetry
+            for the server it wraps.
           </p>
           <div className="mt-auto pt-5">
             <Link

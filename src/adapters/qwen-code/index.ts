@@ -274,13 +274,13 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     supportsCommands: true,
     supportsSkills: true,
     supportsSubagents: true,
-    // Statusline surface: qwen-code is the 2nd v1 host (after claude-code).
-    // installStatusline wires settings.json `ui.statusLine` = {type:"command",
-    // command:<home-bin statusline cmd>} through the SAME refcounted ownership
-    // ledger as configPatch (never clobbers a ui.statusLine agent-connector does
-    // not own). The key is NESTED here (`ui.statusLine`), unlike claude-code's
-    // top-level `statusLine`. Confirmed config key + stdin payload against the
-    // qwen-code status-line docs (shipped v0.14.3, PR #2923).
+    // Statusline surface: Qwen uses settings.json `ui.statusLine` =
+    // {type:"command", command:<home-bin statusline cmd>}, through the SAME
+    // refcounted ownership ledger as configPatch (never clobbers a ui.statusLine
+    // agent-connector does not own). The key is NESTED here (`ui.statusLine`),
+    // unlike Claude Code / agy top-level `statusLine`. Confirmed config key +
+    // stdin payload against the qwen-code status-line docs (shipped v0.14.3,
+    // PR #2923).
     supportsStatusline: true,
     // Native passthrough: Qwen's 16-event surface includes 3 host-specific events
     // with NO canonical HookEventName analog — TodoCreated / TodoCompleted /

@@ -1,19 +1,19 @@
 import { ArrowRight, Check, Minus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Section, SectionHeading } from "@/components/sections/Section";
-import { platformCount } from "@/data";
+import { publicCoverageCount } from "@/components/coverage-wall/public-coverage";
 
 /**
  * The efficiency / "the math" section — the impact pitch. Quantifies the work
  * agent-connector does for you: one ~60-line connector definition replaces the
  * ~23,000 lines of per-platform integration logic (one adapter per supported
- * host — platformCount of them) you would otherwise hand-author and maintain.
- * Numbers are grounded in the repo itself (src/adapters non-test LOC vs an
- * example connector).
+ * public coverage host) you would otherwise hand-author and maintain. Numbers
+ * are grounded in the repo itself (src/adapters non-test LOC vs an example
+ * connector).
  */
 
 const stats = [
-  { value: String(platformCount), label: "platforms" },
+  { value: String(publicCoverageCount), label: "agents" },
   { value: "6", label: "surfaces" },
   { value: "3", label: "hook paradigms" },
   { value: "+1", label: "line to add a host" },

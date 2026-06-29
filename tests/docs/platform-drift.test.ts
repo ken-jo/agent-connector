@@ -20,6 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { BaseAdapter } from "../../src/adapters/base.js";
 import { ADAPTER_REGISTRY } from "../../src/adapters/registry.js";
 import {
   adapterCapabilityCount,
@@ -266,6 +267,39 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     }
   });
 
+  it("supporting statusline/action adapters override the BaseAdapter skip-warn defaults", async () => {
+    for (const factory of ADAPTER_REGISTRY) {
+      const adapter = await factory.load();
+      if (adapter.capabilities.supportsStatusline ?? false) {
+        expect(
+          adapter.installStatusline,
+          `${factory.id} advertises supportsStatusline but uses BaseAdapter.installStatusline`,
+        ).not.toBe(BaseAdapter.prototype.installStatusline);
+        expect(
+          adapter.uninstallStatusline,
+          `${factory.id} advertises supportsStatusline but uses BaseAdapter.uninstallStatusline`,
+        ).not.toBe(BaseAdapter.prototype.uninstallStatusline);
+        expect(typeof adapter.parseStatusInput, `${factory.id} missing parseStatusInput`).toBe(
+          "function",
+        );
+        expect(typeof adapter.formatStatusOutput, `${factory.id} missing formatStatusOutput`).toBe(
+          "function",
+        );
+      }
+
+      if (adapter.capabilities.supportsActions ?? false) {
+        expect(
+          adapter.installActions,
+          `${factory.id} advertises supportsActions but uses BaseAdapter.installActions`,
+        ).not.toBe(BaseAdapter.prototype.installActions);
+        expect(
+          adapter.uninstallActions,
+          `${factory.id} advertises supportsActions but uses BaseAdapter.uninstallActions`,
+        ).not.toBe(BaseAdapter.prototype.uninstallActions);
+      }
+    }
+  });
+
   it("generated host verification snapshot partitions the registry ids", () => {
     expect(hostVerificationCount).toBe(ADAPTER_REGISTRY.length);
     expect(hostVerificationResults.map((row) => row.host).sort()).toEqual(
@@ -375,11 +409,48 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     const indexHtml = readFileSync("site/index.html", "utf8");
     const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
     const sitePackage = JSON.parse(readFileSync("site/package.json", "utf8"));
+    const publicSectionFiles = [
+      "site/src/components/sections/Hero.tsx",
+      "site/src/components/sections/Audiences.tsx",
+      "site/src/components/sections/Efficiency.tsx",
+    ];
+    const nav = readFileSync("site/src/components/sections/Nav.tsx", "utf8");
+    const landing = readFileSync("site/src/components/Landing.tsx", "utf8");
+    const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
 
     for (const text of [indexHtml, prerender]) {
       expect(text).toContain("current AI-agent coverage matrix");
       expect(text).not.toMatch(/\bacross\s+\d+\s+AI-agent/i);
     }
+    for (const file of publicSectionFiles) {
+      const text = readFileSync(file, "utf8");
+      expect(text, `${file} must use the public coverage count`).toContain(
+        "publicCoverageCount",
+      );
+      expect(text, `${file} must not expose the full internal registry count`).not.toContain(
+        "platformCount",
+      );
+    }
+    expect(docs).toContain("publicCoverageCount} production-relevant agents");
+    expect(docs).toContain("publicCapabilityProfiles.length");
+    expect(docs).toContain("internal full registry currently has");
+    expect(docs).not.toContain("{platformCount} registered deploy adapters");
+    expect(docs).not.toContain("{platformCount}-adapter");
+    expect(docs).not.toContain("{statuslineHostNames.length} / {adapterCapabilityCount}");
+    expect(docs).not.toContain("{actionHostNames.length} / {adapterCapabilityCount}");
+    for (const label of ["Home", "Coverage", "Telemetry", "Docs", "Wizard", "Blog"]) {
+      expect(nav).toContain(`label: "${label}"`);
+    }
+    for (const removed of ["Efficiency", "Matrix", "Surfaces"]) {
+      expect(nav).not.toContain(`label: "${removed}"`);
+    }
+    expect(nav).toContain('to === "/" ? pathname === "/" : pathname.startsWith(to)');
+    expect(nav).toContain('to: "/coverage", label: "Coverage"');
+    expect(nav).toContain('to: "/telemetry", label: "Telemetry"');
+    expect(landing).toContain("useLocation");
+    expect(landing).toContain("document.title = LANDING_TITLE");
+    expect(landing).toContain("setMetaDescription(DEFAULT_DESCRIPTION)");
+    expect(landing).toContain("target.scrollIntoView");
     expect(sitePackage.scripts.prebuild).toContain(
       "generate-site-adapter-capabilities.mjs",
     );
@@ -417,11 +488,16 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     const devIds = tracks.dev.groups.flatMap((group) => group.items.map((item) => item.id));
     const app = readFileSync("site/src/App.tsx", "utf8");
     const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
+    const sidebar = readFileSync("site/src/components/docs/DocsSidebar.tsx", "utf8");
     const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
 
     expect(tracks.guides.basePath).toBe("/docs/guides");
     expect(guideIds).toEqual([
       "mcp-beginner",
+      "beginner-demo-lab",
+      "first-mcp-server",
+      "connect-first-host",
+      "first-connector-surfaces",
       "connector-concepts",
       "host-hooks",
       "hud-statusline",
@@ -435,20 +511,90 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(app).toContain('path="/docs/dev/mcp-101"');
     expect(prerender).toContain('route: "/docs/dev/mcp-101"');
     expect(docs).toContain('DocSection id="mcp-beginner"');
+    expect(docs).toContain('DocSection id="beginner-demo-lab"');
     expect(docs).toContain('eyebrow="Guides" title="Agent-connector beginner guide"');
+    expect(docs).toContain('title="Beginner demo lab"');
+    expect(docs).toContain("npm run demo");
+    expect(docs).toContain("scripts/demo-smoke.mjs");
+    expect(docs).toContain("Capture docs-ready demo screenshots");
+    expect(readFileSync("site/src/components/docs/DocsTable.tsx", "utf8")).toContain(
+      "docs-table-shell",
+    );
+    expect(readFileSync("site/src/index.css", "utf8")).toContain(
+      ".docs-table-shell + .docs-table-shell",
+    );
+    expect(readFileSync("site/src/components/ui/code-block.tsx", "utf8")).toContain(
+      "docs-code-block",
+    );
+    expect(readFileSync("site/src/index.css", "utf8")).toContain(
+      ".docs-code-block + .docs-code-block",
+    );
     expect(docs).toContain("new to agent-connector");
     expect(docs).toContain("MCP concepts underneath it");
     expect(docs).toContain("what each connector surface does");
     expect(docs).toContain("/docs/mcp-beginner-architecture.svg");
     expect(docs).toContain("Architecture map: who owns what?");
     expect(docs).toContain("How an MCP server actually runs");
+    expect(docs).toContain('title="Build your first MCP server"');
+    expect(docs).toContain('title="Connect your first host"');
+    expect(docs).toContain('title="Add your first connector surfaces"');
+    expect(docs).toContain("McpServer");
+    expect(docs).toContain("registerTool");
+    expect(docs).toContain("structuredContent");
+    expect(docs).toContain("@modelcontextprotocol/sdk@^1.29.0");
+    expect(docs).toContain("@modelcontextprotocol/inspector");
     expect(docs).toContain("Hooks: the layer around MCP, not the MCP server itself");
     expect(docs).toContain("Add agent-connector only after the server works");
     expect(docs).toContain('title="Host hooks by CLI"');
+    expect(docs).toContain("Official host surfaces to know first");
+    expect(docs).toContain("https://docs.anthropic.com/en/docs/claude-code/hooks");
+    expect(docs).toContain("https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md");
+    expect(docs).toContain("https://developers.openai.com/codex/hooks/");
+    expect(docs).toContain("https://opencode.ai/docs/plugins/");
+    expect(docs).toContain("agent-connector hook claude-code PreToolUse --connector acme-db");
+    expect(docs).toContain("tool.execute.before");
     expect(docs).toContain('title="HUD / statusline"');
+    expect(docs).toContain("Cross-validation for supported hosts");
+    expect(docs).toContain("https://docs.anthropic.com/en/docs/claude-code/statusline");
+    expect(docs).toContain("https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/status-line.md");
+    expect(docs).toContain("defineStatusline");
+    expect(docs).toContain("agent-connector statusline claude-code --connector acme-db");
     expect(docs).toContain('title="Actions"');
+    expect(docs).toContain("Cross-validation for action hosts");
+    expect(docs).toContain("agent-connector action warp refresh-index --connector acme-db");
+    expect(docs).toContain("OpenCode plugin model");
     expect(docs).toContain('title="Commands, skills, subagents & memory"');
+    expect(sidebar).toContain("items-start");
+    expect(sidebar).toContain("min-w-0 flex-1 text-left");
+    expect(sidebar).toContain("text-[0.78rem]");
+    expect(sidebar).toContain("text-[0.68rem]");
+    expect(sidebar).toContain("text-[0.82rem] leading-5");
     expect(existsSync("site/public/docs/mcp-beginner-architecture.svg")).toBe(true);
+  });
+
+  it("guide support evidence tables cover every generated statusline/action host", () => {
+    const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
+    const statuslineBlock = docs.slice(
+      docs.indexOf("const statuslineCrossValidationRows"),
+      docs.indexOf("const actionCrossValidationRows"),
+    );
+    const actionBlock = docs.slice(
+      docs.indexOf("const actionCrossValidationRows"),
+      docs.indexOf("/* ================================================================== */"),
+    );
+
+    for (const profile of adapterCapabilityProfiles.filter((p) => p.surfaces.statusline)) {
+      expect(
+        statuslineBlock,
+        `statusline evidence table omits generated support host "${profile.name}"`,
+      ).toContain(`host: "${profile.name}"`);
+    }
+    for (const profile of adapterCapabilityProfiles.filter((p) => p.surfaces.actions)) {
+      expect(
+        actionBlock,
+        `action evidence table omits generated support host "${profile.name}"`,
+      ).toContain(`host: "${profile.name}"`);
+    }
   });
 
   it("example connector comments foreground the package-first path", () => {

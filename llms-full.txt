@@ -734,14 +734,14 @@ the host or the user points at it directly.
 - These are NOT fail-open/fail-safe-silent — an action the user explicitly triggered
   should report errors, not swallow them.
 
-**v1 is the DISPATCH BACKBONE ONLY.** Install skip-warns on every host: there is no
-host affordance emitter yet (binding a slash command / keybinding to the verb requires
-generated IDE extensions, a later phase). Authors can invoke the verb manually or wire
-it externally; the connector declares the actions and the runtime dispatches them — the
-host-side trigger surface is deferred.
+**Dispatch + verified emitters.** The stable dispatch verb works for every host when
+invoked directly, and adapters with a verified native trigger surface emit host
+affordances: droid, hermes, kiro, omp, openclaw, pi, warp, and zed, plus the nemoclaw
+fork. Hosts without a verified emission target skip-warn instead of pretending to
+support a native trigger.
 
-**Introspection:** `explain()` emits one row per action per host (support `"skip-warn"`
-everywhere in v1 — the dispatch verb is present but the host emitter is not). `simulate()`
+**Introspection:** `explain()` emits one row per action per host (`"native"` only for
+verified emitter hosts; `"skip-warn"` elsewhere). `simulate()`
 does **NOT** cover actions: an action takes no host payload and has no host-honor verdict
 (the dispatch is unconditional — intentional).
 
@@ -1213,8 +1213,8 @@ newer per-event flags `permissionRequest` / `postToolUseFailure` /
 the content-surface flags `supportsCommands` / `supportsSkills` /
 `supportsSubagents` / `supportsMemory`, and the handler/escape-hatch surface
 flags `supportsStatusline` / `supportsConfigPatch` / `supportsNativeHooks` /
-`supportsActions` (current counts: statusline 2, configPatch 1, nativeHooks 14,
-actions 7; unsupported adapters skip-warn).
+`supportsActions` (current counts: statusline 3, configPatch 1, nativeHooks 14,
+actions 9; unsupported adapters skip-warn).
 
 `InstallScope` is the normalized, low→high-precedence enum
 `{ system, user, project, profile, managed }`; each adapter maps it to a concrete

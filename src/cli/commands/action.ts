@@ -3,9 +3,9 @@
  *
  *   agent-connector action <platform> <actionId> --connector <id>
  *
- * A future host affordance (slash command / keybinding) points at the single
- * stable home binary (via core/spawn.buildHomeBinActionCommand). This command
- * parses the positionals + --connector, dispatches through runAction, writes any
+ * A host-native affordance or a manual command points at the single stable home
+ * binary (via core/spawn.buildHomeBinActionCommand). This command parses the
+ * positionals + --connector, dispatches through runAction, writes any
  * stdout/stderr the action produced, and exits with its code. It reads NO stdin
  * (an action takes no host payload, unlike a hook or status line).
  *

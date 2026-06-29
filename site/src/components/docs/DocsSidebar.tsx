@@ -70,29 +70,29 @@ export function DocsSidebar({
   );
 
   return (
-    <nav aria-label="Docs sections" className={cn("text-sm", className)}>
+    <nav aria-label="Docs sections" className={cn("text-[0.82rem]", className)}>
       {/* Track header — which docs track this sidebar belongs to + quick links
           to the other track homes (no chooser round-trip). */}
       <div className="mb-5 px-3">
-        <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-foreground">
+        <p className="font-mono text-[0.78rem] font-semibold uppercase leading-4 tracking-[0.16em] text-foreground">
           <span aria-hidden>{tracks[track].glyph}</span> {tracks[track].label}{" "}
           track
         </p>
-        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+        <div className="mt-2 flex flex-col gap-1">
           {otherTracks.map((otherTrack) => (
             <Link
               key={otherTrack}
               to={tracks[otherTrack].basePath}
               onClick={onNavigate}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex items-center gap-1.5 text-[0.82rem] leading-5 text-muted-foreground transition-colors hover:text-foreground"
             >
-              <ArrowLeftRight className="size-3" />
+              <ArrowLeftRight className="size-3.5 shrink-0" />
               {tracks[otherTrack].label}
             </Link>
           ))}
         </div>
       </div>
-      <ul className="space-y-5">
+      <ul className="space-y-6">
         {navGroups.map((group) => {
           // Open when not explicitly collapsed, OR when it owns the active item.
           const isOpen =
@@ -105,20 +105,20 @@ export function DocsSidebar({
                 onClick={() => toggle(group.title)}
                 aria-expanded={isOpen}
                 aria-controls={panelId}
-                className="group/btn mb-2 flex w-full items-center gap-1.5 px-3 font-mono text-[0.7rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+                className="group/btn mb-2.5 flex w-full items-start gap-1.5 px-3 text-left font-mono text-[0.68rem] font-semibold uppercase leading-4 tracking-[0.15em] text-muted-foreground transition-colors hover:text-foreground"
               >
                 <ChevronRight
                   className={cn(
-                    "size-3 shrink-0 transition-transform",
+                    "mt-0.5 size-3 shrink-0 transition-transform",
                     isOpen && "rotate-90",
                   )}
                 />
-                {group.title}
+                <span className="min-w-0 flex-1 text-left">{group.title}</span>
               </button>
               {isOpen ? (
                 <ul
                   id={panelId}
-                  className="space-y-0.5 border-l border-border"
+                  className="space-y-1 border-l border-border"
                 >
                   {group.items.map((item) => {
                     const active = item.id === activeId;
@@ -129,7 +129,7 @@ export function DocsSidebar({
                           onClick={onNavigate}
                           aria-current={active ? "page" : undefined}
                           className={cn(
-                            "-ml-px block border-l-2 py-1.5 pl-4 pr-3 transition-colors",
+                            "-ml-px block border-l-2 py-1.5 pl-4 pr-3 text-[0.82rem] leading-5 transition-colors",
                             active
                               ? "border-foreground font-medium text-foreground"
                               : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",

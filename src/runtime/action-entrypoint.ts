@@ -1,10 +1,11 @@
 /**
  * runtime/action-entrypoint — the universal user-invokable action dispatcher.
  *
- * A future host affordance (slash command / keybinding) points at the single
- * stable home binary (`<homeBin> action <platformId> <actionId> --connector
- * <id>`, built by core/spawn.buildHomeBinActionCommand). The CLI parses the
- * flags and calls {@link runAction}. This module:
+ * A host-native affordance (workflow, task, slash command, keybinding) or a
+ * manual command points at the single stable home binary (`<homeBin> action
+ * <platformId> <actionId> --connector <id>`, built by
+ * core/spawn.buildHomeBinActionCommand). The CLI parses the flags and calls
+ * {@link runAction}. This module:
  *
  *   1. Loads the registered connector (live run handler) and the host adapter.
  *   2. Builds the shared {@link HostCtx} (host + the adapter's capabilities; NO
@@ -20,9 +21,9 @@
  * swallowing its failure would leave the user staring at nothing, unable to
  * tell the action ran.)
  *
- * NOTE (follow-up): no telemetry is recorded for action runs in v1 (out of
- * scope), and no adapter EMITS the affordance yet — v1 ships the dispatch
- * backbone only.
+ * NOTE: no telemetry is recorded for action runs in v1 (out of scope). Adapters
+ * with a verified native trigger surface emit host affordances; unsupported
+ * hosts can still call this stable dispatch verb manually.
  */
 
 import type {

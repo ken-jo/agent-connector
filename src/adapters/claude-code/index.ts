@@ -185,8 +185,8 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     // (set-if-absent leaf keys in settings.json, refcounted ownership ledger,
     // sensitive-key denylist — see SENSITIVE_KEY_RULES below).
     supportsConfigPatch: true,
-    // Statusline surface: claude-code is the ONLY v1 host. installStatusline
-    // wires settings.json.statusLine = {type:"command", command:<home-bin
+    // Statusline surface: Claude Code uses a top-level settings.json.statusLine
+    // command. installStatusline wires {type:"command", command:<home-bin
     // statusline cmd>} through the SAME set-if-absent ownership ledger as
     // configPatch (never clobbers a statusLine agent-connector does not own).
     supportsStatusline: true,

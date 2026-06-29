@@ -1,3 +1,9 @@
+import * as React from "react";
+import { useLocation } from "react-router-dom";
+import {
+  DEFAULT_DESCRIPTION,
+  setMetaDescription,
+} from "@/components/docs/meta";
 import { SkipLink } from "@/components/ui/skip-link";
 import { Nav } from "@/components/sections/Nav";
 import { Hero } from "@/components/sections/Hero";
@@ -13,7 +19,30 @@ import { Cli } from "@/components/sections/Cli";
 import { HowItWorks } from "@/components/sections/HowItWorks";
 import { Footer } from "@/components/sections/Footer";
 
+const LANDING_TITLE = "agent-connector — Deploy one MCP to every agent CLI";
+
 export function Landing() {
+  const { hash } = useLocation();
+
+  React.useEffect(() => {
+    document.title = LANDING_TITLE;
+    setMetaDescription(DEFAULT_DESCRIPTION);
+
+    const id = hash.replace(/^#/, "");
+    if (!id) {
+      window.scrollTo({ top: 0 });
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(id);
+      if (target) {
+        target.scrollIntoView({ block: "start" });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [hash]);
+
   return (
     <div className="relative min-h-dvh bg-background">
       <SkipLink />

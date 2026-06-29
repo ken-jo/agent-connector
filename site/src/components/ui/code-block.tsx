@@ -41,7 +41,7 @@ export function CodeBlock({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-border bg-card/60 shadow-sm backdrop-blur",
+        "docs-code-block overflow-hidden rounded-xl border border-border bg-card/60 shadow-sm backdrop-blur",
         className,
       )}
     >

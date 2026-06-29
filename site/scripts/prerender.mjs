@@ -108,6 +108,12 @@ const pages = [
     description:
       "agent-connector public coverage highlights closed-source flagship hosts and 1k+ star open-source agent hosts, with per-host hook paradigm, surfaces, and rank tiers.",
   },
+  {
+    route: "/telemetry",
+    title: "Telemetry — agent-connector",
+    description:
+      "agent-connector token telemetry shows local-first, platform-independent per-tool cost leaderboards for MCP servers, hooks, actions, and host usage.",
+  },
   // The standalone connector scaffold generator — title/description match what
   // WizardPage sets client-side.
   {

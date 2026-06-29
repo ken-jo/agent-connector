@@ -11,9 +11,15 @@ import {
   generatedSurfaceLabels,
   type GeneratedSurfaceKey,
 } from "@/adapter-capabilities.generated";
-// Single source of truth for the host count (= platforms.length, drift-guarded
-// against ADAPTER_REGISTRY) so doc prose can never rot from the registry again.
+// `platformCount` is the internal full adapter registry. Public-facing guide
+// prose uses the production-relevant coverage count instead, so low-star OSS
+// hosts can stay supported without becoming marketing noise.
 import { platformCount } from "@/data";
+import {
+  PUBLIC_OSS_STAR_FLOOR,
+  publicCapabilityProfiles,
+  publicCoverageCount,
+} from "@/components/coverage-wall/public-coverage";
 import {
   DocSection,
   H3,
@@ -82,7 +88,7 @@ Model decides: "I should call schema_summary"
         v
 MCP client inside the host
         |
-        | 3. JSON-RPC over stdio or HTTP
+        | 3. JSON-RPC over stdio or Streamable HTTP
         v
 Your MCP server process
         |
@@ -95,21 +101,22 @@ Tool result content
 Model writes the final answer to the user`;
 
 const mcp101ServerLifecycleFlow = `Host starts server process
-  -> server connects to transport
-  -> host initializes protocol session
-  -> server advertises capabilities
-  -> host requests tool/resource/prompt lists
+  -> server connects to stdio or Streamable HTTP transport
+  -> host sends initialize with its client capabilities
+  -> server replies with protocol version + server capabilities
+  -> host requests tools/list, resources/list, or prompts/list
   -> user asks a task
   -> model selects a tool
+  -> host applies approval / policy
   -> host sends tools/call
   -> server validates input
   -> server runs your handler
-  -> server returns content or error
+  -> server returns content + optional structuredContent
   -> host gives result to the model`;
 
 const mcp101ToolCallFlow = `tools/list
   Host: "What tools do you provide?"
-  Server: [{ name, description, inputSchema }]
+  Server: [{ name, title?, description, inputSchema, outputSchema? }]
 
 tools/call
   Host: "Call schema_summary with { table: 'users' }"
@@ -117,8 +124,9 @@ tools/call
     1. Check the tool name
     2. Validate the arguments
     3. Run only the allowed operation
-    4. Return compact content
-    5. Throw a clear error for bad input`;
+    4. Return compact text content
+    5. Include structuredContent when the host/model benefits from JSON
+    6. Throw a clear error for bad input`;
 
 const mcp101HookFlow = `Host lifecycle event
   -> adapter normalizes host-specific payload
@@ -197,56 +205,62 @@ Runtime handler surfaces
   actions    -> user-invoked action handlers`;
 
 const mcp101ServerSnippet = `// my-mcp-server.mjs
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
-const server = new Server(
-  { name: "acme-db", version: "0.1.0" },
-  { capabilities: { tools: {} } },
+const server = new McpServer({ name: "acme-db", version: "0.1.0" });
+
+server.registerTool(
+  "schema_summary",
+  {
+    title: "Schema summary",
+    description: "Return a short, read-only summary of the database schema.",
+    inputSchema: {
+      table: z.string().min(1).optional().describe("Optional table name"),
+    },
+    outputSchema: {
+      summary: z.string(),
+      table: z.string().optional(),
+    },
+  },
+  async ({ table }) => {
+    const structuredContent = {
+      table,
+      summary: table
+        ? \`Schema summary for \${table}: id, email, created_at\`
+        : "Schema summary for all tables: users, orders, invoices",
+    };
+
+    return {
+      structuredContent,
+      content: [{ type: "text", text: structuredContent.summary }],
+    };
+  },
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: "schema_summary",
-      description: "Return a short summary of the database schema.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          table: { type: "string", description: "Optional table name" },
-        },
-      },
-    },
-  ],
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.name !== "schema_summary") {
-    throw new Error(\`Unknown tool: \${request.params.name}\`);
-  }
-  const table = request.params.arguments?.table;
-  return {
-    content: [
-      {
-        type: "text",
-        text: table ? \`Schema summary for \${table}\` : "Schema summary for all tables",
-      },
-    ],
-  };
-});
-
 await server.connect(new StdioServerTransport());`;
+
+const mcpFirstServerSetupSnippet = `mkdir acme-db-mcp
+cd acme-db-mcp
+npm init -y
+npm install @modelcontextprotocol/sdk@^1.29.0 zod@^3`;
+
+const mcpInspectorSnippet = `npx -y @modelcontextprotocol/inspector node ./my-mcp-server.mjs
+
+# In Inspector:
+# 1. Connect to the stdio server.
+# 2. Open Tools.
+# 3. Call schema_summary with:
+#    { "table": "users" }`;
 
 const mcp101PackageSnippet = `{
   "name": "@acme/acme-db-mcp",
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
   }
 }`;
 
@@ -254,7 +268,7 @@ const mcp101HostConfigSnippet = `{
   "mcpServers": {
     "acme-db": {
       "command": "node",
-      "args": ["/absolute/path/to/my-mcp-server.mjs"]
+      "args": ["/absolute/path/to/acme-db-mcp/my-mcp-server.mjs"]
     }
   }
 }`;
@@ -274,8 +288,437 @@ export default defineConnector({
 });`;
 
 const mcp101VerifySnippet = `npm install
-node my-mcp-server.mjs
-# In another terminal, use MCP Inspector or one host's MCP settings to call schema_summary.`;
+npx -y @modelcontextprotocol/inspector node ./my-mcp-server.mjs
+
+# Then connect the same absolute node + args pair in one host.
+# Success means the host lists schema_summary and one call returns text
+# plus structuredContent instead of crashing or writing protocol logs to stdout.`;
+
+const firstHostLaunchFlow = `One host settings file or UI
+  -> server name: acme-db
+  -> command: node
+  -> args: [absolute path to my-mcp-server.mjs]
+  -> host starts the process
+  -> initialize handshake
+  -> tools/list shows schema_summary
+  -> one tools/call returns expected result`;
+
+const firstHostWindowsPathSnippet = `{
+  "mcpServers": {
+    "acme-db": {
+      "command": "node",
+      "args": ["D:/work/acme-db-mcp/my-mcp-server.mjs"]
+    }
+  }
+}`;
+
+const connectorSurfaceStarterSnippet = `import {
+  defineAction,
+  defineConnector,
+  defineStatusline,
+} from "@ken-jo/agent-connector/sdk";
+import { fileURLToPath } from "node:url";
+
+const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
+
+const statusline = defineStatusline({
+  description: "Show acme-db MCP usage state.",
+  render(ctx) {
+    const calls = ctx.usage?.calls ?? 0;
+    return \`acme-db: \${calls} tool calls\`;
+  },
+});
+
+const refreshIndex = defineAction({
+  id: "refresh-index",
+  description: "Refresh the local schema index.",
+  async run(ctx) {
+    return { message: \`Refreshed schema index for \${ctx.host}\` };
+  },
+});
+
+export default defineConnector({
+  server: { transport: "stdio", command: "node", args: [serverPath] },
+  statusline,
+  actions: [refreshIndex],
+});`;
+
+const hookConnectorPolicySnippet = `import {
+  defineConnector,
+  defineHook,
+} from "@ken-jo/agent-connector/sdk";
+
+const guardRiskyWrites = defineHook("PreToolUse", {
+  matcher: "Bash|Write|Edit|apply_patch|mcp__acme_db__.*",
+  handler(evt) {
+    const input = JSON.stringify(evt.toolInput ?? {});
+
+    if (evt.toolName === "Bash" && /\\brm\\s+-rf\\b/.test(input)) {
+      return {
+        decision: "deny",
+        reason: "rm -rf is blocked by acme-db policy.",
+      };
+    }
+
+    if (evt.toolName.startsWith("mcp__acme_db__")) {
+      return {
+        decision: "context",
+        additionalContext: "acme-db MCP tools are read-only in this connector.",
+      };
+    }
+  },
+});
+
+export default defineConnector({
+  server: { transport: "stdio", command: "node", args: ["./my-mcp-server.mjs"] },
+  hooks: { PreToolUse: guardRiskyWrites },
+});`;
+
+const claudeHookSettingsSnippet = `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-connector hook claude-code PreToolUse --connector acme-db"
+          }
+        ]
+      }
+    ]
+  }
+}`;
+
+const geminiHookSettingsSnippet = `{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-connector hook gemini-cli PreToolUse --connector acme-db"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "agent-connector hook gemini-cli PostToolUse --connector acme-db"
+          }
+        ]
+      }
+    ]
+  }
+}`;
+
+const codexHookSettingsSnippet = `{
+  "PreToolUse": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "agent-connector hook codex PreToolUse --connector acme-db"
+        }
+      ],
+      "matcher": "Bash|apply_patch|mcp__acme_db__.*"
+    }
+  ]
+}`;
+
+const opencodePluginShapeSnippet = `// Abridged generated plugin shape; connector authors do not hand-write this file.
+export default async function plugin(ctx) {
+  const PROJECT_DIR = ctx?.directory ?? process.cwd();
+
+  return {
+    "tool.execute.before": async (input, output) => {
+      const res = bridge("PreToolUse", {
+        toolName: input.tool ?? "",
+        toolInput: output?.args ?? {},
+        projectDir: PROJECT_DIR,
+      });
+
+      if (res?.decision === "deny" || res?.decision === "ask") {
+        throw new Error(res.reason || "Blocked by acme-db");
+      }
+      if (res?.updatedInput && output?.args) {
+        Object.assign(output.args, res.updatedInput);
+      }
+    },
+  };
+}`;
+
+const statuslineConnectorSnippet = `import { defineConnector, defineStatusline } from "@ken-jo/agent-connector/sdk";
+
+const statusline = defineStatusline({
+  description: "Show acme-db connector state.",
+  render(ctx) {
+    const model = ctx.model?.displayName ?? ctx.model?.id ?? "model";
+    const calls = ctx.usage?.calls ?? 0;
+    const pct = ctx.context?.percent;
+    const context = pct == null ? "" : \` · ctx \${Math.round(pct)}%\`;
+
+    return \`acme-db · \${model} · \${calls} calls\${context}\`;
+  },
+  hosts: {
+    "claude-code": {
+      render(ctx) {
+        return \`acme-db · \${ctx.cwd ?? ctx.projectDir ?? "workspace"}\`;
+      },
+    },
+  },
+});
+
+export default defineConnector({
+  server: { transport: "stdio", command: "node", args: ["./my-mcp-server.mjs"] },
+  statusline,
+});`;
+
+const claudeStatuslineSettingsSnippet = `{
+  "statusLine": {
+    "type": "command",
+    "command": "agent-connector statusline claude-code --connector acme-db"
+  }
+}`;
+
+const actionConnectorSnippet = `import { defineAction, defineConnector } from "@ken-jo/agent-connector/sdk";
+
+const refreshIndex = defineAction({
+  id: "refresh-index",
+  description: "Refresh the local schema index.",
+  async run(ctx) {
+    await refreshLocalSchemaIndex(ctx.projectDir);
+    return { message: \`Refreshed acme-db index for \${ctx.host}\` };
+  },
+  hosts: {
+    warp: {
+      async run(ctx) {
+        await refreshLocalSchemaIndex(ctx.projectDir);
+        return { message: "Warp workspace index refreshed." };
+      },
+    },
+  },
+});
+
+export default defineConnector({
+  server: { transport: "stdio", command: "node", args: ["./my-mcp-server.mjs"] },
+  actions: [refreshIndex],
+});`;
+
+const actionCliSnippet = `# Same action through the universal fallback entrypoint
+agent-connector action warp refresh-index --connector acme-db
+agent-connector action hermes open-dashboard --connector acme-db
+
+# Prefer this fallback in docs and support runbooks.
+# Host-native buttons/commands can call the same entrypoint where wired.`;
+
+const connectorSurfaceOrderFlow = `Plain MCP server works
+  -> one host can call one read-only tool
+  -> defineConnector({ server })
+  -> install/doctor proves host config rendering
+  -> add static surfaces when users need reusable context
+  -> add hooks for lifecycle policy where hosts support hooks
+  -> add statusline for glanceable state
+  -> add actions for deliberate user commands`;
+
+const beginnerLabProjectTree = `acme-db-mcp/
+  package.json
+  my-mcp-server.mjs
+  agent-connector.config.mjs
+  scripts/
+    demo-smoke.mjs`;
+
+const beginnerLabPackageJson = `{
+  "name": "@acme/acme-db-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "demo": "node scripts/demo-smoke.mjs",
+    "inspect": "npx -y @modelcontextprotocol/inspector node ./my-mcp-server.mjs"
+  },
+  "dependencies": {
+    "@ken-jo/agent-connector": "^0.4.98",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  }
+}`;
+
+const beginnerLabServer = `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const tables = {
+  users: ["id", "email", "created_at", "plan"],
+  orders: ["id", "user_id", "total_usd", "status"],
+  invoices: ["id", "customer_id", "due_date", "paid"],
+};
+
+const server = new McpServer({
+  name: "acme-db-demo",
+  version: "0.1.0",
+});
+
+server.registerTool(
+  "schema_summary",
+  {
+    title: "Schema summary",
+    description:
+      "Return a short read-only schema summary for the demo database. Use this before writing SQL.",
+    inputSchema: {
+      table: z.enum(["users", "orders", "invoices"]).optional(),
+      includeColumns: z.boolean().default(false),
+    },
+    outputSchema: {
+      table: z.string().optional(),
+      summary: z.string(),
+      columns: z.array(z.string()).optional(),
+    },
+  },
+  async ({ table, includeColumns }) => {
+    const tableNames = Object.keys(tables);
+    const selected = table ? tables[table] : undefined;
+    const structuredContent = {
+      table,
+      summary: table
+        ? \`\${table} has \${selected.length} demo columns.\`
+        : \`Demo database has \${tableNames.length} tables: \${tableNames.join(", ")}.\`,
+      columns: includeColumns ? selected : undefined,
+    };
+
+    return {
+      structuredContent,
+      content: [{ type: "text", text: structuredContent.summary }],
+    };
+  },
+);
+
+await server.connect(new StdioServerTransport());`;
+
+const beginnerLabSmoke = `import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+const transport = new StdioClientTransport({
+  command: "node",
+  args: ["./my-mcp-server.mjs"],
+});
+
+const client = new Client({
+  name: "acme-db-demo-smoke",
+  version: "0.1.0",
+});
+
+await client.connect(transport);
+
+const tools = await client.listTools();
+console.log("tools:", tools.tools.map((tool) => tool.name).join(", "));
+
+const result = await client.callTool({
+  name: "schema_summary",
+  arguments: { table: "users", includeColumns: true },
+});
+
+console.log("text:", result.content?.[0]?.text);
+console.log("structured:", JSON.stringify(result.structuredContent, null, 2));
+
+await client.close();`;
+
+const beginnerLabConnector = `import {
+  defineAction,
+  defineConnector,
+  defineStatusline,
+} from "@ken-jo/agent-connector/sdk";
+import { fileURLToPath } from "node:url";
+
+const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url));
+
+const statusline = defineStatusline({
+  description: "Show the demo connector state.",
+  render(ctx) {
+    const calls = ctx.usage?.calls ?? 0;
+    const host = ctx.host === "unknown" ? "host" : ctx.host;
+    return \`acme-db demo · \${host} · \${calls} calls\`;
+  },
+});
+
+const showTables = defineAction({
+  id: "show-demo-tables",
+  description: "Print the demo table list.",
+  run(ctx) {
+    return {
+      message: \`Demo tables for \${ctx.host}: users, orders, invoices\`,
+    };
+  },
+});
+
+export default defineConnector({
+  displayName: "Acme DB Demo",
+  server: {
+    transport: "stdio",
+    command: "node",
+    args: [serverPath],
+  },
+  statusline,
+  actions: [showTables],
+});`;
+
+const beginnerLabCommands = `npm install
+npm run demo
+npm run inspect
+
+# After the server works:
+npx @ken-jo/agent-connector audit --connector ./agent-connector.config.mjs
+npx @ken-jo/agent-connector install --connector ./agent-connector.config.mjs --targets claude-code --dry-run
+npx @ken-jo/agent-connector action claude-code show-demo-tables --connector acme-db-demo`;
+
+const beginnerLabHostPrompt = `You have an MCP tool named schema_summary.
+
+Please inspect the users table, explain what columns exist, and suggest one safe
+read-only query a beginner could try next.`;
+
+const beginnerLabCustomizeTool = `// Change the catalog first.
+const tables = {
+  products: ["id", "sku", "name", "price_usd"],
+  inventory: ["id", "product_id", "warehouse", "quantity"],
+};
+
+// Then update the enum so invalid table names still fail early.
+table: z.enum(["products", "inventory"]).optional()`;
+
+function DemoScreenshotFrame({
+  title,
+  eyebrow,
+  children,
+}: {
+  title: string;
+  eyebrow: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-background shadow-sm">
+      <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {eyebrow}
+          </div>
+          <div className="text-sm font-semibold text-foreground">{title}</div>
+        </div>
+        <div className="flex gap-1">
+          <span className="h-2 w-2 rounded-full bg-red-400" />
+          <span className="h-2 w-2 rounded-full bg-amber-400" />
+          <span className="h-2 w-2 rounded-full bg-emerald-400" />
+        </div>
+      </div>
+      <div className="min-h-36 bg-card/40 p-4 text-sm text-muted-foreground">
+        {children}
+      </div>
+    </div>
+  );
+}
 
 const generatedCapabilitySummaryRows: {
   key: GeneratedSurfaceKey;
@@ -287,13 +730,121 @@ const generatedCapabilitySummaryRows: {
   count: adapterCapabilityProfiles.filter((p) => p.surfaces[key]).length,
 }));
 
-const generatedSurfaceHostNames = (key: GeneratedSurfaceKey): string[] =>
-  adapterCapabilityProfiles
+const publicSurfaceHostNames = (key: GeneratedSurfaceKey): string[] =>
+  publicCapabilityProfiles
     .filter((p) => p.surfaces[key])
     .map((p) => p.name);
 
-const statuslineHostNames = generatedSurfaceHostNames("statusline");
-const actionHostNames = generatedSurfaceHostNames("actions");
+const statuslineHostNames = publicSurfaceHostNames("statusline");
+const actionHostNames = publicSurfaceHostNames("actions");
+
+const hookCrossValidationRows = [
+  {
+    host: "Claude Code",
+    local: "json-stdio adapter, settings.json hooks, claude-code tests",
+    external: "Official Claude Code hooks docs",
+    url: "https://docs.anthropic.com/en/docs/claude-code/hooks",
+  },
+  {
+    host: "Gemini CLI",
+    local: "json-stdio adapter, BeforeTool/AfterTool mapping, gemini-cli tests",
+    external: "Official Gemini CLI hooks reference",
+    url: "https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md",
+  },
+  {
+    host: "Codex CLI",
+    local: "hooks.json adapter, codex tests, command hook dispatcher",
+    external: "Official Codex hooks docs",
+    url: "https://developers.openai.com/codex/hooks/",
+  },
+  {
+    host: "OpenCode",
+    local: "ts-plugin adapter, generated plugin module, opencode tests",
+    external: "Official OpenCode plugin docs",
+    url: "https://opencode.ai/docs/plugins/",
+  },
+  {
+    host: "MCP-only hosts",
+    local: "mcp-only paradigm list is registry-derived and drift-guarded",
+    external: "Host MCP docs where available; hooks intentionally unsupported",
+    url: "https://docs.warp.dev/knowledge-and-collaboration/mcp",
+  },
+];
+
+const statuslineCrossValidationRows = [
+  {
+    host: "Claude Code",
+    adapter: "supportsStatusline + settings.json statusLine command",
+    evidence: "Official statusLine docs + tests/core/statusline.test.ts",
+    url: "https://docs.anthropic.com/en/docs/claude-code/statusline",
+  },
+  {
+    host: "Qwen CLI",
+    adapter: "supportsStatusline + ~/.qwen/settings.json ui.statusLine command",
+    evidence: "Qwen status-line docs + tests/adapters/qwen-code.test.ts",
+    url: "https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/status-line.md",
+  },
+  {
+    host: "Antigravity CLI",
+    adapter: "supportsStatusline + agy statusLine { enabled, command }",
+    evidence: "Live-verified agy adapter fixture + tests/adapters/antigravity-cli.test.ts",
+    url: "https://github.com/google-gemini/gemini-cli",
+  },
+];
+
+const actionCrossValidationRows = [
+  {
+    host: "Warp",
+    adapter: "supportsActions + owned workflow YAML",
+    evidence: "Warp workflows docs + tests/adapters/warp.test.ts",
+    url: "https://docs.warp.dev/terminal/entry/yaml-workflows",
+  },
+  {
+    host: "Droid (Factory)",
+    adapter: "supportsActions + owned executable command file",
+    evidence: "adapter implementation + tests/adapters/droid.test.ts",
+  },
+  {
+    host: "Zed",
+    adapter: "supportsActions + .zed/tasks.json task entry",
+    evidence: "Zed tasks docs + tests/adapters/zed.test.ts",
+    url: "https://zed.dev/docs/tasks",
+  },
+  {
+    host: "Pi",
+    adapter: "supportsActions + registerCommand-style action bridge",
+    evidence: "adapter implementation + tests/adapters/pi.test.ts",
+    url: "https://github.com/earendil-works/pi",
+  },
+  {
+    host: "Kiro",
+    adapter: "supportsActions + host command/action emitter",
+    evidence: "adapter implementation + tests/adapters/kiro.test.ts",
+    url: "https://kiro.dev",
+  },
+  {
+    host: "Hermes Agent",
+    adapter: "supportsActions + Hermes native command bridge",
+    evidence: "adapter implementation + tests/adapters/hermes.test.ts",
+  },
+  {
+    host: "Oh My Pi (OMP)",
+    adapter: "supportsActions + registerCommand plugin surface",
+    evidence: "adapter implementation + tests/adapters/omp.test.ts",
+  },
+  {
+    host: "NVIDIA NemoClaw",
+    adapter: "inherits OpenClaw action bridge",
+    evidence: "inherited adapter implementation + tests/adapters/nemoclaw.test.ts",
+    url: "https://github.com/NVIDIA/NemoClaw",
+  },
+  {
+    host: "OpenClaw",
+    adapter: "supportsActions + registerCommand plugin surface",
+    evidence: "adapter implementation + tests/adapters/openclaw.test.ts",
+    url: "https://github.com/openclaw/openclaw",
+  },
+];
 
 /* ================================================================== */
 /* Getting Started                                                     */
@@ -355,11 +906,13 @@ export function Introduction() {
         It generalizes context-mode&apos;s proven adapter layer into a reusable
         framework: where context-mode hardcoded the served identity, here the MCP
         package metadata (<C>package.json</C> <C>name</C>, <C>bin</C>, and{" "}
-        <C>mcpName</C>) becomes the source of truth. It ships{" "}
-        <strong>{platformCount} registered deploy adapters</strong> grouped into
-        three hook paradigms (install targets the hosts detected on your machine,
-        or the targets you name — never all {platformCount} unconditionally), and
-        is Windows-first (no symlinks, no POSIX-only assumptions).
+        <C>mcpName</C>) becomes the source of truth. Public guides focus on{" "}
+        <strong>{publicCoverageCount} production-relevant agents</strong>:
+        closed-source flagship hosts plus open-source hosts with{" "}
+        {PUBLIC_OSS_STAR_FLOOR.toLocaleString()}+ GitHub stars. The internal
+        adapter registry can stay broader for compatibility, while install still
+        targets only the hosts detected on your machine or the targets you name.
+        It is Windows-first (no symlinks, no POSIX-only assumptions).
       </P>
     </DocSection>
   );
@@ -386,7 +939,7 @@ export function McpBeginnerGuide() {
         For the canonical protocol reference, keep the{" "}
         <a
           className="underline hover:text-foreground"
-          href="https://modelcontextprotocol.io/docs/getting-started/intro"
+          href="https://modelcontextprotocol.io/introduction"
           rel="noreferrer"
           target="_blank"
         >
@@ -395,6 +948,40 @@ export function McpBeginnerGuide() {
         open while you build. This page is the short practical path for a first
         implementation.
       </P>
+
+      <Callout title="Reference refresh: current MCP docs">
+        This guide was refreshed against the official MCP docs for protocol
+        version <C>2025-11-25</C> and the npm-published{" "}
+        <C>@modelcontextprotocol/sdk</C> <C>1.29.0</C>. For current protocol
+        details, keep the{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://modelcontextprotocol.io/specification/latest/server/tools"
+          rel="noreferrer"
+          target="_blank"
+        >
+          tools spec
+        </a>
+        ,{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://modelcontextprotocol.io/specification/latest/basic/transports"
+          rel="noreferrer"
+          target="_blank"
+        >
+          transports spec
+        </a>
+        , and{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://modelcontextprotocol.io/docs/tools/inspector"
+          rel="noreferrer"
+          target="_blank"
+        >
+          MCP Inspector
+        </a>{" "}
+        open while you build.
+      </Callout>
 
       <Callout title="What this Guides track teaches">
         The Guides track is the concept bridge. It explains MCP basics, the
@@ -489,7 +1076,37 @@ export function McpBeginnerGuide() {
             </Td>
             <Td className="text-muted-foreground">
               How the host reaches your server. Most local packages use{" "}
-              <Code>stdio</Code>; hosted servers usually use streamable HTTP.
+              <Code>stdio</Code>; hosted servers usually use Streamable HTTP.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>structuredContent</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              Optional JSON returned beside human-readable tool content. Use it
+              when the result has a stable shape the host or model should not
+              parse out of prose.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Roots</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              Client-provided filesystem boundaries. Servers can use roots to
+              understand which workspaces are in scope, but roots are not a
+              substitute for server-side validation.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <Code>Sampling</Code> / <Code>Elicitation</Code>
+            </Td>
+            <Td className="text-muted-foreground">
+              Client features a server can request when supported: sampling asks
+              the host/model to generate text; elicitation asks the user for
+              more information. Beginners should build tools first.
             </Td>
           </tr>
           <tr>
@@ -855,11 +1472,23 @@ export function McpBeginnerGuide() {
         filename="agent-connector.config.mjs"
       />
       <P>
-        After that, move to{" "}
+        After that, move to the{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/beginner-demo-lab">
+          beginner demo lab
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/first-mcp-server">
+          Build your first MCP server
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/connect-first-host">
+          Connect your first host
+        </Link>
+        , or{" "}
         <Link className="underline hover:text-foreground" to="/docs/dev/quick-start">
           Quick start
         </Link>{" "}
-        for the framework-specific flow, or{" "}
+        for the framework-specific flow. You can also{" "}
         <Link className="underline hover:text-foreground" to="/wizard">
           use the wizard
         </Link>{" "}
@@ -870,6 +1499,25 @@ export function McpBeginnerGuide() {
         The rest of this Guides track explains the agent-connector-specific
         layer around a working MCP server and what each piece can do in host
         CLIs:{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/beginner-demo-lab">
+          beginner demo lab
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/first-mcp-server">
+          first MCP server
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/connect-first-host">
+          first host connection
+        </Link>
+        ,{" "}
+        <Link
+          className="underline hover:text-foreground"
+          to="/docs/guides/first-connector-surfaces"
+        >
+          first connector surfaces
+        </Link>
+        ,{" "}
         <Link className="underline hover:text-foreground" to="/docs/guides/connector-concepts">
           how agent-connector fits
         </Link>
@@ -891,6 +1539,675 @@ export function McpBeginnerGuide() {
         </Link>
         .
       </Callout>
+    </DocSection>
+  );
+}
+
+export function BeginnerDemoLabGuide() {
+  return (
+    <DocSection id="beginner-demo-lab" eyebrow="Guides" title="Beginner demo lab">
+      <Lead>
+        A copy-paste lab for first-time MCP and agent-connector developers. You
+        will create one local MCP server, run a smoke test without any host UI,
+        open it in Inspector, add a connector config, customize the demo data,
+        and compare your result against simple screenshot-style frames.
+      </Lead>
+
+      <Callout title="What you will have at the end">
+        A working <C>schema_summary</C> MCP tool, a repeatable{" "}
+        <C>npm run demo</C> script, an Inspector check, a connector config with
+        a HUD/statusline and action, and a small set of visual checkpoints you
+        can use when writing docs or release notes for your own package.
+      </Callout>
+
+      <H3 id="demo-lab-map">0. The whole path</H3>
+      <P>
+        The lab is intentionally linear. Finish each checkpoint before moving to
+        the next one; that keeps protocol problems, host problems, and connector
+        problems separate.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Step</Th>
+            <Th>You do</Th>
+            <Th>Done when</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Server</Td>
+            <Td className="text-muted-foreground">Create files and one read-only tool.</Td>
+            <Td className="text-muted-foreground">
+              <C>npm run demo</C> prints the tool result.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Inspector</Td>
+            <Td className="text-muted-foreground">Open a protocol-aware UI.</Td>
+            <Td className="text-muted-foreground">
+              Inspector lists and calls <C>schema_summary</C>.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Customize</Td>
+            <Td className="text-muted-foreground">Change the demo data and schema.</Td>
+            <Td className="text-muted-foreground">
+              Bad table names fail; valid table names return new data.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Connector</Td>
+            <Td className="text-muted-foreground">Add statusline and action surfaces.</Td>
+            <Td className="text-muted-foreground">
+              Audit and dry-run install show concrete host output.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="demo-lab-files">1. Create the files</H3>
+      <P>
+        Start with this folder shape. The server is neutral MCP. The connector
+        config is the agent-connector layer you add after the server works.
+      </P>
+      <CodeBlock code={beginnerLabProjectTree} language="text" filename="project tree" />
+      <CodeBlock code={beginnerLabPackageJson} language="json" filename="package.json" />
+
+      <H3 id="demo-lab-server">2. Paste the demo MCP server</H3>
+      <P>
+        This server has one safe read-only tool. The table list is deliberately
+        fake so beginners can edit it without touching a real database.
+      </P>
+      <CodeBlock code={beginnerLabServer} language="ts" filename="my-mcp-server.mjs" />
+
+      <Callout title="Beginner checkpoint">
+        You should be able to explain this file in one sentence: the server
+        exposes a tool named <C>schema_summary</C> that validates a table name
+        and returns text plus structured JSON.
+      </Callout>
+
+      <H3 id="demo-lab-smoke-script">3. Add the smoke-test script</H3>
+      <P>
+        A smoke script is easier than opening a host while you are still
+        learning. It starts your stdio server as a client would, lists tools,
+        calls one tool, prints the result, and closes the connection.
+      </P>
+      <CodeBlock code={beginnerLabSmoke} language="ts" filename="scripts/demo-smoke.mjs" />
+      <CodeBlock code={beginnerLabCommands} language="bash" filename="terminal" />
+
+      <H3 id="demo-lab-inspector">4. Open Inspector and capture the first demo frame</H3>
+      <P>
+        Inspector is the best first screenshot because it proves the MCP layer
+        works before any host-specific install is involved. Capture the tool
+        list and one successful <C>schema_summary</C> call.
+      </P>
+      <div className="not-prose grid gap-4 md:grid-cols-2">
+        <DemoScreenshotFrame eyebrow="Terminal" title="npm run demo">
+          <div className="font-mono text-xs leading-6 text-foreground">
+            <div>$ npm run demo</div>
+            <div className="text-emerald-500">tools: schema_summary</div>
+            <div>text: users has 4 demo columns.</div>
+            <div className="text-muted-foreground">
+              structured: {"{"} &quot;table&quot;: &quot;users&quot;, &quot;columns&quot;: [...]
+              {"}"}
+            </div>
+          </div>
+        </DemoScreenshotFrame>
+        <DemoScreenshotFrame eyebrow="Inspector" title="schema_summary call">
+          <div className="space-y-3">
+            <div className="rounded-md border border-border bg-background p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Tool
+              </div>
+              <div className="font-mono text-foreground">schema_summary</div>
+            </div>
+            <div className="rounded-md border border-border bg-background p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Arguments
+              </div>
+              <div className="font-mono text-foreground">
+                {"{ \"table\": \"users\", \"includeColumns\": true }"}
+              </div>
+            </div>
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-emerald-700 dark:text-emerald-300">
+              users has 4 demo columns.
+            </div>
+          </div>
+        </DemoScreenshotFrame>
+      </div>
+
+      <H3 id="demo-lab-customize">5. Customize one thing on purpose</H3>
+      <P>
+        The first customization should change data without changing the mental
+        model. Replace the fake table catalog, update the enum, and rerun the
+        same script. This teaches the right habit: schema and implementation
+        move together.
+      </P>
+      <CodeBlock code={beginnerLabCustomizeTool} language="ts" filename="customize table catalog" />
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Try</Th>
+            <Th>What you learn</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Rename the tables</Td>
+            <Td className="text-muted-foreground">
+              Tool descriptions and schemas should match the actual domain.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Add one boolean option</Td>
+            <Td className="text-muted-foreground">
+              Optional arguments should have a clear default and visible result.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Call an invalid table</Td>
+            <Td className="text-muted-foreground">
+              Zod validation should fail before your handler touches app logic.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="demo-lab-connector">6. Add agent-connector surfaces</H3>
+      <P>
+        After the MCP tool works, add the connector layer. This example keeps it
+        small: one server declaration, one HUD/statusline string, and one
+        user-invoked action. Unsupported hosts skip-warn; supported hosts emit
+        native affordances.
+      </P>
+      <CodeBlock
+        code={beginnerLabConnector}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+
+      <div className="not-prose grid gap-4 md:grid-cols-2">
+        <DemoScreenshotFrame eyebrow="Host chat prompt" title="Ask a useful first question">
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-5 text-foreground">
+            {beginnerLabHostPrompt}
+          </pre>
+        </DemoScreenshotFrame>
+        <DemoScreenshotFrame eyebrow="HUD + action preview" title="What the user should see">
+          <div className="space-y-3">
+            <div className="rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground">
+              acme-db demo · claude-code · 1 calls
+            </div>
+            <div className="rounded-md border border-border bg-background p-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Action output
+              </div>
+              <div className="text-foreground">
+                Demo tables for claude-code: users, orders, invoices
+              </div>
+            </div>
+          </div>
+        </DemoScreenshotFrame>
+      </div>
+
+      <H3 id="demo-lab-recording">7. Capture docs-ready demo screenshots</H3>
+      <P>
+        For a beginner-facing README or release note, capture only the screens
+        that prove a boundary. More screenshots are not better; they become
+        noise unless each one answers a different question.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Screenshot</Th>
+            <Th>Proves</Th>
+            <Th>Keep visible</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Terminal smoke test</Td>
+            <Td className="text-muted-foreground">The server can be called without a host UI.</Td>
+            <Td className="text-muted-foreground">
+              Tool name, text result, structured JSON.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Inspector call</Td>
+            <Td className="text-muted-foreground">The MCP protocol layer works.</Td>
+            <Td className="text-muted-foreground">
+              Arguments and successful result, not unrelated browser chrome.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Host chat answer</Td>
+            <Td className="text-muted-foreground">A real host can use the tool.</Td>
+            <Td className="text-muted-foreground">
+              The prompt, the host&apos;s answer, and the tool result summary.
+            </Td>
+          </tr>
+          <tr>
+            <Td>HUD/action preview</Td>
+            <Td className="text-muted-foreground">agent-connector surfaces are wired.</Td>
+            <Td className="text-muted-foreground">
+              Short HUD string and one explicit action result.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <Callout title="Next pages">
+        Continue with{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/first-mcp-server">
+          Build your first MCP server
+        </Link>{" "}
+        for the protocol walkthrough, then{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/connect-first-host">
+          Connect your first host
+        </Link>{" "}
+        and{" "}
+        <Link
+          className="underline hover:text-foreground"
+          to="/docs/guides/first-connector-surfaces"
+        >
+          Add connector surfaces
+        </Link>
+        .
+      </Callout>
+    </DocSection>
+  );
+}
+
+export function FirstMcpServerGuide() {
+  return (
+    <DocSection id="first-mcp-server" eyebrow="Guides" title="Build your first MCP server">
+      <Lead>
+        This page turns the beginner concepts into a runnable local server. Keep
+        the first pass deliberately small: one stdio server, one read-only tool,
+        one structured result, and one Inspector call before touching host
+        installs or agent-connector surfaces.
+      </Lead>
+
+      <H3 id="first-server-reference">Reference baseline</H3>
+      <P>
+        The implementation below follows the current official TypeScript SDK
+        style: <C>McpServer</C>, <C>registerTool</C>, Zod-backed input schemas,
+        optional <C>outputSchema</C>, and <C>structuredContent</C> beside text
+        content. It also keeps the first transport local with <C>stdio</C>.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Reference</Th>
+            <Th>Use it for</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>
+              <a
+                className="underline hover:text-foreground"
+                href="https://modelcontextprotocol.io/quickstart/server"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Build an MCP server
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              The official quickstart for the TypeScript SDK and stdio server
+              shape.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <a
+                className="underline hover:text-foreground"
+                href="https://modelcontextprotocol.io/specification/latest/server/tools"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Tools spec
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              Tool metadata, input schemas, optional output schemas, and result
+              content.
+            </Td>
+          </tr>
+          <tr>
+            <Td>
+              <a
+                className="underline hover:text-foreground"
+                href="https://modelcontextprotocol.io/docs/tools/inspector"
+                rel="noreferrer"
+                target="_blank"
+              >
+                MCP Inspector
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              A protocol-aware test client. Use it before debugging a real host
+              UI.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="first-server-create-project">1. Create the project</H3>
+      <P>
+        Use a new folder so you can tell package errors apart from host errors.
+        The SDK version below was current when this guide was refreshed; re-run{" "}
+        <C>npm view @modelcontextprotocol/sdk version</C> before changing a
+        published tutorial package.
+      </P>
+      <CodeBlock code={mcpFirstServerSetupSnippet} language="bash" filename="terminal" />
+
+      <H3 id="first-server-write-tool">2. Write one read-only tool</H3>
+      <P>
+        This example returns both text and structured JSON. Text is useful for
+        the model&apos;s answer; <C>structuredContent</C> is useful when the result
+        has fields that should remain machine-readable.
+      </P>
+      <CodeBlock code={mcp101ServerSnippet} language="ts" filename="my-mcp-server.mjs" />
+
+      <Callout title="Why not start with resources, prompts, sampling, or elicitation?">
+        They are important MCP features, but a first server needs one tight loop:
+        advertise a capability, receive arguments, validate them, and return a
+        predictable result. Add other protocol surfaces after this loop is
+        boring.
+      </Callout>
+
+      <H3 id="first-server-run-inspector">3. Run with MCP Inspector</H3>
+      <P>
+        A stdio MCP server waits for JSON-RPC messages on stdin, so running{" "}
+        <C>node my-mcp-server.mjs</C> directly can look idle. Inspector starts
+        the process as a host would and lets you list and call tools.
+      </P>
+      <CodeBlock code={mcpInspectorSnippet} language="bash" filename="terminal" />
+
+      <H3 id="first-server-success">4. What success looks like</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Check</Th>
+            <Th>Expected result</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Tool list</Td>
+            <Td className="text-muted-foreground">
+              Inspector shows <C>schema_summary</C> with the title,
+              description, and input schema.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Valid call</Td>
+            <Td className="text-muted-foreground">
+              Calling with <C>{"{ \"table\": \"users\" }"}</C> returns a short
+              text result and structured JSON.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Invalid call</Td>
+            <Td className="text-muted-foreground">
+              Bad input returns a clear validation error instead of corrupting
+              the stdio stream.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <P>
+        After these checks pass, continue to{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/connect-first-host">
+          Connect your first host
+        </Link>
+        .
+      </P>
+    </DocSection>
+  );
+}
+
+export function ConnectFirstHostGuide() {
+  return (
+    <DocSection id="connect-first-host" eyebrow="Guides" title="Connect your first host">
+      <Lead>
+        A host connection proves that a real agent CLI can launch your server,
+        list its tools, call one tool, and surface errors. Do this in one host
+        before trying to support every CLI agent-connector can target.
+      </Lead>
+
+      <H3 id="first-host-one-target">1. Pick one host and one scope</H3>
+      <P>
+        Choose the host you use every day and one install scope, usually project
+        scope while developing. Cross-host packaging comes later; the first goal
+        is to remove uncertainty about paths, Node, working directory, and host
+        approval UI.
+      </P>
+
+      <H3 id="first-host-launch-shape">2. Use the same launch shape everywhere</H3>
+      <P>
+        Host settings differ, but the local stdio launch shape is stable: a
+        server name, a command, and args. Start with an absolute server path so
+        path resolution is not mixed into protocol debugging.
+      </P>
+      <CodeBlock code={firstHostLaunchFlow} language="text" filename="host-launch-flow.txt" />
+      <CodeBlock code={mcp101HostConfigSnippet} language="json" filename="host MCP settings" />
+
+      <Callout title="Windows path rule">
+        In JSON config, prefer forward slashes in absolute Windows paths, or
+        escape backslashes. <C>D:/work/acme-db-mcp/my-mcp-server.mjs</C> is less
+        error-prone than an unescaped <C>D:\work\...</C> string.
+      </Callout>
+      <CodeBlock code={firstHostWindowsPathSnippet} language="json" filename="windows-host-settings.json" />
+
+      <H3 id="first-host-verify">3. Verify the host, not the package</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Host check</Th>
+            <Th>What it proves</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Server appears</Td>
+            <Td className="text-muted-foreground">
+              The host parsed your config and can spawn the command.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Tool appears</Td>
+            <Td className="text-muted-foreground">
+              Initialize and <C>tools/list</C> completed successfully.
+            </Td>
+          </tr>
+          <tr>
+            <Td>One call works</Td>
+            <Td className="text-muted-foreground">
+              The host can send <C>tools/call</C>, receive the result, and feed it
+              back into the conversation.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Host restart still works</Td>
+            <Td className="text-muted-foreground">
+              The config is durable and does not depend on your current terminal
+              session.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="first-host-failures">4. Isolate failures by boundary</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Symptom</Th>
+            <Th>Likely boundary</Th>
+            <Th>First fix</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Host cannot find server</Td>
+            <Td className="text-muted-foreground">Config path or command</Td>
+            <Td className="text-muted-foreground">
+              Use an absolute path and verify <C>node</C> resolves outside your
+              dev shell.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Server starts, no tools</Td>
+            <Td className="text-muted-foreground">Handshake or tool metadata</Td>
+            <Td className="text-muted-foreground">
+              Re-test with Inspector and check stderr for import errors.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Call crashes</Td>
+            <Td className="text-muted-foreground">Handler validation</Td>
+            <Td className="text-muted-foreground">
+              Send the smallest valid JSON input, then test invalid input.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Random protocol errors</Td>
+            <Td className="text-muted-foreground">stdio contamination</Td>
+            <Td className="text-muted-foreground">
+              Move logs to stderr or a file; stdout belongs to JSON-RPC.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="first-host-agent-connector">5. Let agent-connector take over later</H3>
+      <P>
+        Once one host can call one tool, agent-connector can own repeatable
+        rendering: server registration, install/doctor checks, optional hooks,
+        statusline, actions, commands, skills, subagents, memory, and telemetry.
+        Continue with{" "}
+        <Link
+          className="underline hover:text-foreground"
+          to="/docs/guides/first-connector-surfaces"
+        >
+          Add your first connector surfaces
+        </Link>
+        .
+      </P>
+    </DocSection>
+  );
+}
+
+export function FirstConnectorSurfacesGuide() {
+  return (
+    <DocSection
+      id="first-connector-surfaces"
+      eyebrow="Guides"
+      title="Add your first connector surfaces"
+    >
+      <Lead>
+        agent-connector starts after the neutral MCP server works. This page
+        shows the first useful expansion path: declare the server, verify the
+        install, then add host surfaces only when they solve a real user problem.
+      </Lead>
+
+      <H3 id="connector-surfaces-order">1. Use a staged expansion order</H3>
+      <P>
+        Do not add every surface because it exists. Each surface answers a
+        different question: what the model can call, what the host triggers, what
+        the user invokes, what the host displays, and what context files it
+        loads.
+      </P>
+      <CodeBlock code={connectorSurfaceOrderFlow} language="text" filename="surface-order.txt" />
+
+      <H3 id="connector-surfaces-server-only">2. Start server-only</H3>
+      <P>
+        The first connector config should only wrap the MCP server you already
+        tested. That keeps install/doctor failures separate from hook or surface
+        handler failures.
+      </P>
+      <CodeBlock
+        code={mcp101AgentConnectorDropSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+
+      <H3 id="connector-surfaces-runtime">3. Add runtime surfaces deliberately</H3>
+      <P>
+        Statusline and actions are runtime-dispatched handler surfaces. They are
+        re-imported from the connector module, so keep handlers deterministic,
+        fast, and safe to run without ambient process state.
+      </P>
+      <CodeBlock
+        code={connectorSurfaceStarterSnippet}
+        language="ts"
+        filename="agent-connector.config.mjs"
+      />
+
+      <H3 id="connector-surfaces-choose">4. Choose by user need</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Need</Th>
+            <Th>Surface</Th>
+            <Th>Beginner rule</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>The model should call a capability</Td>
+            <Td className="text-muted-foreground">MCP tool</Td>
+            <Td className="text-muted-foreground">Keep validation in the server.</Td>
+          </tr>
+          <tr>
+            <Td>The host lifecycle should add policy/context</Td>
+            <Td className="text-muted-foreground">Hook</Td>
+            <Td className="text-muted-foreground">
+              Test one host per hook paradigm; MCP-only hosts skip hooks.
+            </Td>
+          </tr>
+          <tr>
+            <Td>The human needs a compact state signal</Td>
+            <Td className="text-muted-foreground">Statusline / HUD</Td>
+            <Td className="text-muted-foreground">
+              Return short text; never block on network calls.
+            </Td>
+          </tr>
+          <tr>
+            <Td>The human wants to trigger a command</Td>
+            <Td className="text-muted-foreground">Action</Td>
+            <Td className="text-muted-foreground">
+              Use clear command names and surface errors to the user.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Users repeat the same instructions</Td>
+            <Td className="text-muted-foreground">Command, skill, subagent, or memory</Td>
+            <Td className="text-muted-foreground">
+              Prefer static files for durable guidance; keep memory small.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="connector-surfaces-verify">5. Verify after each added surface</H3>
+      <List>
+        <LI>
+          Run install in one target host and read the generated diff or warning.
+        </LI>
+        <LI>Run doctor before adding the next surface.</LI>
+        <LI>
+          Confirm unsupported hosts skip with a warning instead of pretending the
+          surface works.
+        </LI>
+        <LI>
+          Keep hard safety in the MCP tool handler; hooks and actions are not a
+          substitute for server validation.
+        </LI>
+      </List>
     </DocSection>
   );
 }
@@ -1012,7 +2329,7 @@ export function HostHooksGuide() {
         Hooks are host lifecycle callbacks, not MCP tool calls. The hard part is
         that each CLI exposes hooks differently. agent-connector groups those
         differences into paradigms so a connector author can write one normalized
-        handler and still get honest per-host behavior.
+          handler and still get honest per-host behavior.
       </Lead>
 
       <H3 id="hook-mental-model">The hook mental model</H3>
@@ -1027,6 +2344,162 @@ export function HostHooksGuide() {
         language="text"
         filename="hook-paradigms.txt"
       />
+
+      <H3 id="hook-official-hosts">Official host surfaces to know first</H3>
+      <P>
+        Start by separating three facts: MCP tools are model-selected, hooks are
+        host lifecycle callbacks, and each host chooses its own hook transport.
+        The links below are the current public references used by this guide.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Host family</Th>
+            <Th>Native hook surface</Th>
+            <Th>How agent-connector connects it</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <a
+                className="underline hover:text-foreground"
+                href="https://docs.anthropic.com/en/docs/claude-code/hooks"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Claude Code
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              Settings JSON registers hook events such as <C>PreToolUse</C> with
+              a matcher and command hook entries.
+            </Td>
+            <Td className="text-muted-foreground">
+              The adapter writes the command entry and dispatches stdin JSON into
+              your normalized <C>defineHook</C> handler.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <a
+                className="underline hover:text-foreground"
+                href="https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/reference.md"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Gemini CLI
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              Gemini uses its own event vocabulary: <C>BeforeTool</C>,{" "}
+              <C>AfterTool</C>, <C>PreCompress</C>, <C>BeforeAgent</C>, and
+              related lifecycle events.
+            </Td>
+            <Td className="text-muted-foreground">
+              agent-connector maps normalized events such as <C>PreToolUse</C>{" "}
+              and <C>PostToolUse</C> to the Gemini event names before writing
+              hooks.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <a
+                className="underline hover:text-foreground"
+                href="https://developers.openai.com/codex/hooks/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Codex CLI
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              Codex exposes hook configuration separately from MCP server
+              registration, with command hooks for supported lifecycle events.
+            </Td>
+            <Td className="text-muted-foreground">
+              The Codex adapter renders a <C>hooks.json</C> entry that points at
+              the same home-bin hook dispatcher.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <a
+                className="underline hover:text-foreground"
+                href="https://opencode.ai/docs/plugins/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                OpenCode family
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              OpenCode loads a plugin module with event functions such as{" "}
+              <C>tool.execute.before</C> and <C>permission.ask</C>.
+            </Td>
+            <Td className="text-muted-foreground">
+              The adapter generates a plugin file that calls the connector
+              runtime; connector authors still write normalized hooks.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <a
+                className="underline hover:text-foreground"
+                href="https://docs.warp.dev/knowledge-and-collaboration/mcp"
+                target="_blank"
+                rel="noreferrer"
+              >
+                MCP-only hosts
+              </a>
+            </Td>
+            <Td className="text-muted-foreground">
+              Some hosts document MCP server registration but do not expose a
+              hook layer to connector packages.
+            </Td>
+            <Td className="text-muted-foreground">
+              The installer keeps MCP working and reports hooks as unsupported
+              instead of pretending the policy will run.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="hook-cross-validation">Cross-validation before a hook claim</H3>
+      <P>
+        The full host lists below are generated from adapter metadata, not typed
+        by hand. A host is presented as hook-capable only when the registry
+        reports a non-MCP-only paradigm and the docs drift tests keep the list in
+        lock-step with loaded adapters. The examples table adds external evidence
+        for representative host families.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Host or family</Th>
+            <Th>Local proof</Th>
+            <Th>External proof</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {hookCrossValidationRows.map((row) => (
+            <tr key={row.host}>
+              <Td className="whitespace-nowrap">{row.host}</Td>
+              <Td className="text-muted-foreground">{row.local}</Td>
+              <Td className="text-muted-foreground">
+                <a
+                  className="underline hover:text-foreground"
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {row.external}
+                </a>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
 
       <H3 id="hook-paradigm-map">CLI behavior by hook paradigm</H3>
       <DocsTable>
@@ -1080,6 +2553,67 @@ export function HostHooksGuide() {
         </tbody>
       </DocsTable>
 
+      <H3 id="hook-connector-authoring">Write the connector hook once</H3>
+      <P>
+        The connector author writes against agent-connector&apos;s normalized event
+        type. This example blocks one dangerous shell pattern, injects context
+        for this connector&apos;s MCP tools, and leaves unsupported host behavior to
+        the adapter.
+      </P>
+      <CodeBlock
+        code={hookConnectorPolicySnippet}
+        language="ts"
+        filename="agent-connector.config.ts"
+      />
+      <Callout>
+        A hook is not a replacement for server-side validation. If the MCP tool
+        can mutate data, the tool handler must validate the operation even when a
+        host hook is installed.
+      </Callout>
+
+      <H3 id="hook-rendered-shapes">What host config can look like</H3>
+      <P>
+        These are representative rendered shapes, not extra files you maintain by
+        hand. The stable part is the home-bin command:{" "}
+        <C>agent-connector hook &lt;host&gt; &lt;event&gt; --connector &lt;id&gt;</C>.
+      </P>
+      <Tabs defaultValue="claude" className="not-prose">
+        <TabsList className="flex h-auto flex-wrap justify-start gap-1">
+          <TabsTrigger value="claude">Claude Code</TabsTrigger>
+          <TabsTrigger value="gemini">Gemini CLI</TabsTrigger>
+          <TabsTrigger value="codex">Codex CLI</TabsTrigger>
+          <TabsTrigger value="opencode">OpenCode</TabsTrigger>
+        </TabsList>
+        <TabsContent value="claude" className="mt-4">
+          <CodeBlock
+            code={claudeHookSettingsSnippet}
+            language="json"
+            filename="settings.json"
+          />
+        </TabsContent>
+        <TabsContent value="gemini" className="mt-4">
+          <CodeBlock
+            code={geminiHookSettingsSnippet}
+            language="json"
+            filename=".gemini/settings.json"
+          />
+        </TabsContent>
+        <TabsContent value="codex" className="mt-4">
+          <CodeBlock
+            code={codexHookSettingsSnippet}
+            language="json"
+            filename="hooks.json"
+          />
+        </TabsContent>
+        <TabsContent value="opencode" className="mt-4">
+          <CodeBlock
+            code={opencodePluginShapeSnippet}
+            language="ts"
+            filename=".opencode/plugin/acme-db.js"
+          />
+        </TabsContent>
+      </Tabs>
+
       <H3 id="hook-dispatch-flow">What happens during dispatch</H3>
       <List>
         <LI>
@@ -1099,6 +2633,27 @@ export function HostHooksGuide() {
         <LI>
           If the host cannot support that event or response, the installer and
           doctor surface the limitation as a warning or unavailable capability.
+        </LI>
+      </List>
+
+      <H3 id="hook-customization">How to customize behavior safely</H3>
+      <List>
+        <LI>
+          Use <C>matcher</C> to narrow the hook to specific tool names or MCP
+          tool prefixes before adding logic.
+        </LI>
+        <LI>
+          Use <C>hosts</C> overrides only when one host has different semantics;
+          the top-level handler stays the mandatory fallback.
+        </LI>
+        <LI>
+          Use <C>platforms.&lt;id&gt;.nativeHooks</C> for host-specific events
+          that have no normalized event yet, then keep the payload parsing local
+          to that host.
+        </LI>
+        <LI>
+          Disable a surface per host with <C>platforms.&lt;id&gt;.hooks = false</C>{" "}
+          when the host behavior is not mature enough for your package.
         </LI>
       </List>
 
@@ -1147,6 +2702,55 @@ export function HudStatuslineGuide() {
       </P>
       <CodeBlock code={statuslineFlow} language="text" filename="statusline-flow.txt" />
 
+      <H3 id="hud-official-hosts">Official host model</H3>
+      <P>
+        The clearest official model is Claude Code&apos;s{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://docs.anthropic.com/en/docs/claude-code/statusline"
+          target="_blank"
+          rel="noreferrer"
+        >
+          statusLine command
+        </a>
+        : the host runs a command, passes session metadata on stdin, and displays
+        the command&apos;s short stdout. agent-connector uses that same shape where a
+        host exposes a comparable statusline surface.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Host surface</Th>
+            <Th>What the host owns</Th>
+            <Th>What the connector owns</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">
+              <Code>statusLine</Code> command
+            </Td>
+            <Td className="text-muted-foreground">
+              When to refresh, what metadata is passed, and where the text is
+              displayed in the CLI UI.
+            </Td>
+            <Td className="text-muted-foreground">
+              The render handler, compact text, telemetry read, and per-host
+              fallback behavior.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">Unsupported host</Td>
+            <Td className="text-muted-foreground">
+              No documented place to render a connector-owned HUD.
+            </Td>
+            <Td className="text-muted-foreground">
+              Skip with a warning and keep MCP server installation independent.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
       <H3 id="hud-render-context">The render callback</H3>
       <P>
         The connector declares one statusline surface. At runtime, the host
@@ -1168,19 +2772,98 @@ export function HudStatuslineGuide() {
         </LI>
       </List>
 
+      <H3 id="hud-connector-example">Define a connector statusline</H3>
+      <P>
+        The handler receives normalized host context. The same handler can read
+        the current host, model, workspace, context usage, and this connector&apos;s
+        telemetry rollup where the runtime can provide it.
+      </P>
+      <CodeBlock
+        code={statuslineConnectorSnippet}
+        language="ts"
+        filename="agent-connector.config.ts"
+      />
+
+      <H3 id="hud-rendered-host-shape">Rendered host config</H3>
+      <P>
+        For Claude Code, the adapter owns a <C>statusLine</C> settings key and
+        points it at the universal statusline entrypoint. The connector author
+        edits the <C>defineStatusline</C> code above, not this generated settings
+        leaf.
+      </P>
+      <CodeBlock
+        code={claudeStatuslineSettingsSnippet}
+        language="json"
+        filename="settings.json"
+      />
+
+      <H3 id="hud-cross-validation">Cross-validation for supported hosts</H3>
+      <P>
+        The supported-host list below is not a marketing list. It is generated
+        from adapters that set <C>supportsStatusline</C>, and each listed host
+        must have a concrete write path plus tests that prove the configured
+        command belongs to agent-connector.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Host</Th>
+            <Th>Adapter proof</Th>
+            <Th>Reference / test proof</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {statuslineCrossValidationRows.map((row) => (
+            <tr key={row.host}>
+              <Td className="whitespace-nowrap">{row.host}</Td>
+              <Td className="text-muted-foreground">{row.adapter}</Td>
+              <Td className="text-muted-foreground">
+                <a
+                  className="underline hover:text-foreground"
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {row.evidence}
+                </a>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+
       <H3 id="hud-supported-hosts">Where it is wired today</H3>
       <P>
-        Generated adapter metadata currently marks statusline support in{" "}
+        Public coverage metadata currently marks statusline support in{" "}
         <strong>
-          {statuslineHostNames.length} / {adapterCapabilityCount}
+          {statuslineHostNames.length} / {publicCapabilityProfiles.length}
         </strong>{" "}
-        adapters:
+        production-relevant adapters:
       </P>
       <P>{statuslineHostNames.join(", ") || "No statusline hosts are wired."}</P>
       <Callout>
         Unsupported hosts should skip this surface with a clear warning. That is
         expected behavior, not a failed MCP install.
       </Callout>
+
+      <H3 id="hud-customization">Customization checklist</H3>
+      <List>
+        <LI>
+          Keep the top-level <C>render(ctx)</C> as the universal fallback.
+        </LI>
+        <LI>
+          Add <C>hosts.&lt;id&gt;.render</C> only when one host exposes better or
+          different metadata.
+        </LI>
+        <LI>
+          Read <C>ctx.usage</C> for this connector&apos;s own recorded MCP usage;
+          read <C>ctx.context</C> only for host-provided context-window state.
+        </LI>
+        <LI>
+          Return an empty or simple string on missing data. A statusline should
+          fail quiet, unlike a user-invoked action.
+        </LI>
+      </List>
 
       <H3 id="hud-design-rules">Design rules for beginners</H3>
       <List>
@@ -1210,6 +2893,12 @@ export function ActionsGuide() {
       </Lead>
 
       <H3 id="actions-not-tools">Actions vs tools vs hooks</H3>
+      <P>
+        MCP tools are for the model. Hooks are for host lifecycle events. Actions
+        are for a human deliberately invoking a connector command from a CLI,
+        palette, button, menu, or generated host command where the target host has
+        an affordance.
+      </P>
       <DocsTable>
         <thead>
           <tr>
@@ -1250,6 +2939,14 @@ export function ActionsGuide() {
         </tbody>
       </DocsTable>
 
+      <H3 id="actions-cli-fallback">Always keep a CLI fallback</H3>
+      <P>
+        The universal form is <C>agent-connector action &lt;host&gt; &lt;id&gt;</C>.
+        Host-native buttons and commands can call the same entrypoint, but a
+        documented CLI path makes support and automation possible on every host.
+      </P>
+      <CodeBlock code={actionCliSnippet} language="bash" filename="actions.sh" />
+
       <H3 id="actions-dispatch-flow">The dispatch flow</H3>
       <CodeBlock code={actionsFlow} language="text" filename="actions-flow.txt" />
       <P>
@@ -1258,15 +2955,145 @@ export function ActionsGuide() {
         the model should decide when to call something, it belongs in MCP tools.
       </P>
 
+      <H3 id="actions-connector-example">Define an action in a connector</H3>
+      <P>
+        An action has a kebab-case id and a <C>run(ctx)</C> handler. Use{" "}
+        <C>hosts</C> only when one host needs a different user-facing message or
+        execution path; the top-level handler remains the fallback.
+      </P>
+      <CodeBlock
+        code={actionConnectorSnippet}
+        language="ts"
+        filename="agent-connector.config.ts"
+      />
+
+      <H3 id="actions-host-model">How host affordances map</H3>
+      <P>
+        Host documentation usually describes commands, plugins, menus, workflows,
+        or MCP registration separately. agent-connector treats actions as a
+        connector-level runtime surface and lets adapters bind that runtime to a
+        native affordance only where the host has a verified place to do so.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Case</Th>
+            <Th>What the user sees</Th>
+            <Th>Recommended connector behavior</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap">Native affordance exists</Td>
+            <Td className="text-muted-foreground">
+              A generated command, palette item, menu item, or plugin command.
+            </Td>
+            <Td className="text-muted-foreground">
+              Bind the affordance to <C>agent-connector action</C> and return a
+              concise <C>message</C>.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">MCP-only host</Td>
+            <Td className="text-muted-foreground">
+              The host can call MCP tools but has no separate action UI.
+            </Td>
+            <Td className="text-muted-foreground">
+              Keep the MCP server installed, skip action affordances, and publish
+              the CLI fallback.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">Plugin host</Td>
+            <Td className="text-muted-foreground">
+              A host plugin can register lifecycle or command handlers, as in the{" "}
+              <a
+                className="underline hover:text-foreground"
+                href="https://opencode.ai/docs/plugins/"
+                target="_blank"
+                rel="noreferrer"
+              >
+                OpenCode plugin model
+              </a>
+              .
+            </Td>
+            <Td className="text-muted-foreground">
+              Let the adapter generate glue and keep package logic inside{" "}
+              <C>defineAction</C>.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="actions-cross-validation">Cross-validation for action hosts</H3>
+      <P>
+        An action host is listed only when its adapter sets{" "}
+        <C>supportsActions</C> and implements a concrete host affordance emitter,
+        not merely because the universal <C>agent-connector action</C> CLI exists.
+        The fallback CLI works everywhere, but the supported-host list is only for
+        hosts with generated native affordances.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Host</Th>
+            <Th>Adapter proof</Th>
+            <Th>Reference / test proof</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {actionCrossValidationRows.map((row) => (
+            <tr key={row.host}>
+              <Td className="whitespace-nowrap">{row.host}</Td>
+              <Td className="text-muted-foreground">{row.adapter}</Td>
+              <Td className="text-muted-foreground">
+                {row.url ? (
+                  <a
+                    className="underline hover:text-foreground"
+                    href={row.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {row.evidence}
+                  </a>
+                ) : (
+                  row.evidence
+                )}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+
       <H3 id="actions-supported-hosts">Where host affordances are wired today</H3>
       <P>
-        Generated adapter metadata currently marks action affordance support in{" "}
+        Public coverage metadata currently marks action affordance support in{" "}
         <strong>
-          {actionHostNames.length} / {adapterCapabilityCount}
+          {actionHostNames.length} / {publicCapabilityProfiles.length}
         </strong>{" "}
-        adapters:
+        production-relevant adapters:
       </P>
       <P>{actionHostNames.join(", ") || "No action hosts are wired."}</P>
+
+      <H3 id="actions-customization">Customization checklist</H3>
+      <List>
+        <LI>
+          Name the id as a command, not a noun: <C>refresh-index</C>,{" "}
+          <C>open-dashboard</C>, <C>repair-install</C>.
+        </LI>
+        <LI>
+          Keep the operation user-triggered. If the model should choose when to
+          run it, expose it as an MCP tool instead.
+        </LI>
+        <LI>
+          Use per-host <C>hosts.&lt;id&gt;.run</C> overrides for UI text,
+          platform-specific paths, or affordance-specific behavior.
+        </LI>
+        <LI>
+          Return a short <C>message</C>. Actions surface errors to the user; they
+          do not fail silently like statusline rendering.
+        </LI>
+      </List>
 
       <H3 id="actions-design-rules">Design rules for beginners</H3>
       <List>
@@ -1640,8 +3467,8 @@ export function QuickStart() {
         for the full field reference. Every command is idempotent, reversible,
         and <C>--dry-run</C>-able. <C>install</C> targets the hosts{" "}
         <strong>detected</strong> on your machine (or an explicit{" "}
-        <C>--targets</C> list), intersected with the {platformCount}-adapter
-        registry. The <C>server</C> below points at a published package
+        <C>--targets</C> list), intersected with the adapter registry. The{" "}
+        <C>server</C> below points at a published package
         (<C>command: &quot;npx&quot;</C> + <C>args: [&quot;-y&quot;, &quot;@acme/acme-db-mcp&quot;]</C>);
         while you&apos;re still developing, the same field can be{" "}
         <C>command: &quot;node&quot;</C> + a local server-file path (the{" "}
@@ -3295,8 +5122,10 @@ export function PlatformsSection() {
     <DocSection id="platforms" eyebrow="Reference" title="Platforms">
       <Lead>
         <C>PlatformId</C> is a closed union with one adapter registry entry per
-        platform — <strong>{platformCount}</strong> hosts, grouped by hook
-        paradigm (the deepest cross-platform divergence).
+        platform — the internal full registry currently has{" "}
+        <strong>{platformCount}</strong> hosts, grouped by hook paradigm (the
+        deepest cross-platform divergence). Public coverage pages intentionally
+        hide open-source hosts below the star threshold.
       </Lead>
       <P>
         Prefer a visual, filterable view?{" "}
@@ -3609,6 +5438,10 @@ export function Troubleshooting() {
  */
 export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   "mcp-beginner": McpBeginnerGuide,
+  "beginner-demo-lab": BeginnerDemoLabGuide,
+  "first-mcp-server": FirstMcpServerGuide,
+  "connect-first-host": ConnectFirstHostGuide,
+  "first-connector-surfaces": FirstConnectorSurfacesGuide,
   "connector-concepts": ConnectorConceptsGuide,
   "host-hooks": HostHooksGuide,
   "hud-statusline": HudStatuslineGuide,

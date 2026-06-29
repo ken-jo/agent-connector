@@ -176,7 +176,7 @@ function MappingMatrix() {
   const cols = hookableHosts.filter((p) => selected.has(p.platform));
 
   return (
-    <div className="not-prose">
+    <div className="not-prose mt-6 mb-8">
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         <ColChip
           active={allOn}

@@ -181,9 +181,9 @@ export interface Adapter {
   // ── Statusline surface (a HUD/status line) ───────────────────────────────
   // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the
   // content-surface pattern). Only adapters advertising
-  // capabilities.supportsStatusline (v1: claude-code) override the install pair;
-  // the runtime parse/format pair lets the home-bin statusline entrypoint turn a
-  // host's raw status payload into the rendered line.
+  // capabilities.supportsStatusline override the install pair; the runtime
+  // parse/format pair lets the home-bin statusline entrypoint turn a host's raw
+  // status payload into the rendered line.
   /**
    * Wire this host's status line at the single home binary
    * (`<homeBin> statusline <host> --connector <id>`). Reuses the SAME
@@ -201,10 +201,9 @@ export interface Adapter {
   // ── Action surface (a user-invokable action) ──────────────────────────────
   // OPTIONAL on the interface, with BaseAdapter skip-warn defaults (the
   // content-surface pattern). The dispatch BACKBONE shipped first; the affordance
-  // EMITTERS now ship per-host (droid/hermes/warp host triggers + the ts-plugin
-  // slash-command hosts omp/openclaw, which register the trigger INSIDE the
-  // generated plugin module). An emitting adapter sets capabilities.supportsActions
-  // and overrides this pair; every other host keeps the BaseAdapter skip-warn.
+  // EMITTERS now ship per-host. An emitting adapter sets
+  // capabilities.supportsActions and overrides this pair; every other host keeps
+  // the BaseAdapter skip-warn.
   /** Emit this host's affordance bound to `<homeBin> action <host> <id> --connector <id>`. */
   installActions?(ctx: InstallContext): ChangeRecord[];
   /** Inverse of installActions — remove only the affordances this connector emitted. */

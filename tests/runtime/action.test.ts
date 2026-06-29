@@ -1,8 +1,8 @@
 /**
  * runtime/action — the home-bin user-invokable action dispatcher.
  *
- * A future host affordance execs `<homeBin> action <platform> <actionId>
- * --connector <id>`, which the CLI hands to runAction. runAction loads the
+ * A host affordance or a manual command execs `<homeBin> action <platform>
+ * <actionId> --connector <id>`, which the CLI hands to runAction. runAction loads the
  * registered connector (live run handler, re-imported from the source module —
  * functions can't survive the JSON registry record), builds the HostCtx (no
  * stdin), finds the action by id, resolves the per-host run, runs it, and prints
@@ -232,9 +232,19 @@ describe("runAction", () => {
       actionId: "caps",
     });
     expect(res.exitCode).toBe(0);
-    // claude-code is a registered host with no action emitter (not droid/hermes/
-    // warp), so supportsActions is OFF — the dispatch backbone runs regardless.
+    // claude-code is a registered host with no native action emitter, so
+    // supportsActions is OFF; the dispatch entrypoint still runs regardless.
     expect(res.stdout).toBe("host=claude-code sa=false");
+  });
+
+  it("builds the HostCtx with supportsActions=true for an emitting host", async () => {
+    const res = await runAction({
+      platformId: "warp",
+      connectorId: CONN_ID,
+      actionId: "caps",
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe("host=warp sa=true");
   });
 
   it("populates ctx.scope from the registered metadata (install at scope 'user')", async () => {

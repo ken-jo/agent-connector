@@ -3,7 +3,11 @@ import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
-import { BRANDED_INSTALL_CMD, REPO_URL, platformCount } from "@/data";
+import { BRANDED_INSTALL_CMD, REPO_URL } from "@/data";
+import {
+  PUBLIC_OSS_STAR_FLOOR,
+  publicCoverageCount,
+} from "@/components/coverage-wall/public-coverage";
 
 export function Hero() {
   return (
@@ -37,7 +41,7 @@ export function Hero() {
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-indigo-500/60" />
               <span className="relative inline-flex size-2 rounded-full bg-indigo-500" />
             </span>
-            {platformCount} platforms · all 3 hook paradigms
+            {publicCoverageCount} production agents · all 3 hook paradigms
           </Badge>
 
           <h1 className="animate-fade-up mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
@@ -48,8 +52,10 @@ export function Hero() {
           <p className="animate-fade-up mt-6 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
             One declarative <code className="font-mono text-foreground">defineConnector</code>{" "}
             lives inside your package. Your users run your branded MCP bin across{" "}
-            {platformCount} AI-agent platforms — direct config-write or host marketplace —
-            while agent-connector stays underneath with platform-independent per-tool telemetry.
+            {publicCoverageCount} production-relevant AI-agent platforms — closed-source
+            flagships plus {PUBLIC_OSS_STAR_FLOOR.toLocaleString()}+ star OSS hosts —
+            while agent-connector stays underneath with direct config-write,
+            host marketplace packaging, and platform-independent per-tool telemetry.
           </p>
 
           <div className="animate-fade-up mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center">

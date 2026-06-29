@@ -127,10 +127,10 @@ export const SURFACE_PREDICATES: Record<
   subagents: (c) => c.supportsSubagents ?? false,
   memory: (c) => c.supportsMemory ?? false,
   statusline: (c) => c.supportsStatusline ?? false,
-  // Emitters ship on droid + hermes + warp plus the ts-plugin slash-command
-  // hosts omp + openclaw (+ the nemoclaw fork) — the hosts with a verifiable
-  // target. Every other host leaves supportsActions unset, so explain() marks
-  // actions skip-warn there — the honest state for a host with no emission target.
+  // Emitters ship only on hosts with a verified native trigger target: droid,
+  // hermes, kiro, omp, openclaw, pi, warp, zed, plus the nemoclaw fork. Every
+  // other host leaves supportsActions unset, so explain() marks actions
+  // skip-warn there — the honest state for a host with no emission target.
   actions: (c) => c.supportsActions ?? false,
   configPatch: (c) => c.supportsConfigPatch ?? false,
   nativeHooks: (c) => c.supportsNativeHooks ?? false,

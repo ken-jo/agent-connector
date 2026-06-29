@@ -632,7 +632,9 @@ export abstract class BaseAdapter implements Adapter {
   // CONCRETE (overridable) defaults, mirroring the content surfaces: the
   // installer calls these unconditionally (BaseAdapter defines them), and they
   // self-skip when the connector declares no statusline, else skip-warn on a
-  // non-supporting host. Only claude-code overrides them today.
+  // non-supporting host. A supporting adapter must override these methods; the
+  // fleet invariant test pins that supportsStatusline never relies on this
+  // default skip-warn implementation.
 
   installStatusline(ctx: InstallContext): ChangeRecord[] {
     if (ctx.connector.statusline == null) {
@@ -662,10 +664,10 @@ export abstract class BaseAdapter implements Adapter {
 
   // ── Action surface (a user-invokable action) ──────────────────────────────
   // CONCRETE (overridable) defaults, mirroring the statusline pair. v1 ships
-  // ONLY the dispatch backbone: there is no verifiable host affordance to emit,
-  // so EVERY host honestly skip-warns and NO adapter overrides these. (`?? []`
-  // tolerates pre-resolved connectors from versions before the action surface
-  // existed, exactly like installMemory.)
+  // the dispatch backbone plus per-host affordance emitters. Adapters that set
+  // supportsActions must override these methods; every other host keeps this
+  // honest skip-warn default. (`?? []` tolerates pre-resolved connectors from
+  // versions before the action surface existed, exactly like installMemory.)
 
   installActions(ctx: InstallContext): ChangeRecord[] {
     return this.unsupportedSurface(ctx, "actions", (ctx.connector.actions ?? []).length);

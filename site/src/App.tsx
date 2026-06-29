@@ -30,6 +30,13 @@ const CoveragePage = React.lazy(() =>
     default: m.CoveragePage,
   })),
 );
+// /telemetry — the standalone token telemetry page. Code-split so the landing
+// keeps using the lightweight section while the indexable page loads on demand.
+const TelemetryPage = React.lazy(() =>
+  import("@/components/telemetry/TelemetryPage").then((m) => ({
+    default: m.TelemetryPage,
+  })),
+);
 // /wizard — the standalone connector scaffold generator. Code-split for the
 // same reason as /coverage: its form + live-preview logic must never land in
 // the landing's initial chunk.
@@ -59,6 +66,8 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       {/* /coverage — the dedicated, indexable full interactive coverage matrix. */}
       <Route path="/coverage" element={lazyDocs(<CoveragePage />)} />
+      {/* /telemetry — the dedicated, indexable token telemetry page. */}
+      <Route path="/telemetry" element={lazyDocs(<TelemetryPage />)} />
       {/* /wizard — the standalone connector scaffold generator. */}
       <Route path="/wizard" element={lazyDocs(<WizardPage />)} />
       <Route path="/blog" element={lazyDocs(<BlogPage />)} />

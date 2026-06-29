@@ -160,6 +160,22 @@
   .dark .shiki-host .shiki span {
     color: var(--shiki-dark);
   }
+
+  .docs-table-shell {
+    margin-block: 1.75rem 2rem;
+  }
+
+  .docs-table-shell + .docs-table-shell {
+    margin-top: 2.75rem;
+  }
+
+  .docs-code-block {
+    margin-block: 1.75rem 2rem;
+  }
+
+  .docs-code-block + .docs-code-block {
+    margin-top: 2.75rem;
+  }
 }
 
 @layer utilities {

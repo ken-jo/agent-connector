@@ -92,7 +92,7 @@ function FormatRow({ r, index }: { r: PackageFormatRow; index: number }) {
 
 function FormatsTable() {
   return (
-    <div className="not-prose my-6 overflow-x-auto rounded-xl border border-border bg-card/40 shadow-sm">
+    <div className="docs-table-shell not-prose overflow-x-auto rounded-xl border border-border bg-card/40 shadow-sm">
       <table className="w-full border-collapse text-left text-sm">
         <thead>
           <tr>

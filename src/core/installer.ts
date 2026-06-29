@@ -330,9 +330,9 @@ export async function installConnector(
     }
 
     // Actions (user-invokable handlers) install LAST — after the statusline.
-    // BaseAdapter defines installActions (skip-warn on EVERY host in v1 — there
-    // is no verifiable affordance to emit yet), so the `!` is safe and the call
-    // self-skip-warns. Gated on the declaration so undeclared adds no noise.
+    // BaseAdapter defines installActions (skip-warn on hosts without a verified
+    // native affordance); supporting adapters override the pair and emit the
+    // host-native trigger. Gated on the declaration so undeclared adds no noise.
     // (`?? []` tolerates pre-actions-surface resolved connectors.)
     if ((connector.actions ?? []).length) {
       runStep(id, "installActions", result, () => {

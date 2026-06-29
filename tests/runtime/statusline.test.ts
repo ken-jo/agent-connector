@@ -310,11 +310,10 @@ describe("runStatusline", () => {
   });
 
   it("falls back to the top-level render on a host NOT in the hosts: map", async () => {
-    // The map targets codex only; rendering on claude-code falls back to the
-    // top-level render (claude-code is the only statusline-capable host today,
-    // so it stands in for "an unlisted host" against a codex-keyed map).
+    // The map targets codex only; rendering on qwen-code falls back to the
+    // top-level render because it is a statusline-capable host not in the map.
     const res = await runStatusline({
-      platformId: "claude-code",
+      platformId: "qwen-code",
       connectorId: FALLBACK_ID,
       stdin: JSON.stringify({ cwd: "/x" }),
     });
@@ -322,15 +321,18 @@ describe("runStatusline", () => {
     expect(res.stdout).toBe("TOP-LEVEL-FALLBACK");
   });
 
-  it("populates ctx.capabilities so render can read supportsStatusline", async () => {
-    const res = await runStatusline({
-      platformId: "claude-code",
-      connectorId: CAPS_ID,
-      stdin: JSON.stringify({ cwd: "/x" }),
-    });
-    expect(res.exitCode).toBe(0);
-    expect(res.stdout).toBe("caps=true");
-  });
+  it.each(["antigravity-cli", "claude-code", "qwen-code"] as const)(
+    "populates ctx.capabilities for every statusline-supporting host (%s)",
+    async (platformId) => {
+      const res = await runStatusline({
+        platformId,
+        connectorId: CAPS_ID,
+        stdin: JSON.stringify({ cwd: "/x" }),
+      });
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout).toBe("caps=true");
+    },
+  );
 
   it("populates ctx.scope from the registered metadata (install at scope 'project')", async () => {
     const res = await runStatusline({

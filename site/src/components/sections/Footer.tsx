@@ -1,14 +1,61 @@
-import { BookText, Boxes, Newspaper, Plug, Sparkles } from "lucide-react";
+import {
+  Activity,
+  BookText,
+  Boxes,
+  Home,
+  Newspaper,
+  Plug,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { GithubIcon } from "@/components/ui/github-icon";
 import { CopyButton } from "@/components/ui/copy-button";
 import { BRANDED_INSTALL_CMD, REPO_URL } from "@/data";
 
+const footerLinkClass =
+  "inline-flex items-center gap-2 rounded-md py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground";
+
+function FooterColumn({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <h2 className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-foreground">
+        {title}
+      </h2>
+      <div className="mt-4 flex flex-col items-start gap-1">{children}</div>
+    </div>
+  );
+}
+
+function FooterLink({
+  to,
+  icon: Icon,
+  children,
+}: {
+  to: string;
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <Link to={to} className={footerLinkClass}>
+      <Icon className="size-4" />
+      {children}
+    </Link>
+  );
+}
+
 export function Footer() {
   return (
     <footer className="border-t border-border">
       <div className="mx-auto max-w-6xl px-6 py-14">
-        <div className="flex flex-col items-start justify-between gap-8 md:flex-row md:items-center">
+        <div className="grid gap-10 md:grid-cols-3">
           <div>
             <div className="flex items-center gap-2.5">
               <span className="flex size-8 items-center justify-center rounded-lg border border-border bg-card">
@@ -36,58 +83,47 @@ export function Footer() {
               Generalizes context-mode's adapter layer into a reusable framework.
               Write your MCP server + hooks once. Ship to every agent.
             </p>
-          </div>
-
-          <div className="flex w-full max-w-xs flex-col items-stretch gap-3 md:w-auto">
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-card/60 px-3 py-2 font-mono text-xs">
+            <div className="mt-5 flex max-w-sm items-center gap-2 rounded-lg border border-border bg-card/60 px-3 py-2 font-mono text-xs">
               <span className="min-w-0 truncate text-foreground">{BRANDED_INSTALL_CMD}</span>
               <CopyButton value={BRANDED_INSTALL_CMD} className="ml-auto size-7" />
             </div>
-            <Link
-              to="/docs"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <BookText className="size-4" />
+          </div>
+
+          <FooterColumn title="Learn">
+            <FooterLink to="/docs" icon={BookText}>
               Documentation
-            </Link>
-            <Link
-              to="/docs/guides/mcp-beginner"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <Plug className="size-4" />
+            </FooterLink>
+            <FooterLink to="/docs/guides/mcp-beginner" icon={Plug}>
               Agent-connector beginner guide
-            </Link>
-            <Link
-              to="/coverage"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <Boxes className="size-4" />
-              Coverage
-            </Link>
-            <Link
-              to="/wizard"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <Sparkles className="size-4" />
-              Wizard
-            </Link>
-            <Link
-              to="/blog"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              <Newspaper className="size-4" />
+            </FooterLink>
+            <FooterLink to="/blog" icon={Newspaper}>
               Blog
-            </Link>
+            </FooterLink>
+          </FooterColumn>
+
+          <FooterColumn title="Product">
+            <FooterLink to="/" icon={Home}>
+              Home
+            </FooterLink>
+            <FooterLink to="/coverage" icon={Boxes}>
+              Coverage
+            </FooterLink>
+            <FooterLink to="/telemetry" icon={Activity}>
+              Telemetry
+            </FooterLink>
+            <FooterLink to="/wizard" icon={Sparkles}>
+              Wizard
+            </FooterLink>
             <a
               href={REPO_URL}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent"
+              className={footerLinkClass}
             >
               <GithubIcon className="size-4" />
               github.com/ken-jo/agent-connector
             </a>
-          </div>
+          </FooterColumn>
         </div>
 
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row">

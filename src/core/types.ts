@@ -653,12 +653,12 @@ export interface PlatformCapabilities {
    * command / palette workflow / exec-file) bound to the universal
    * `<homeBin> action <host> <actionId> --connector <id>` verb? OPTIONAL, read
    * as `?? false` (supportsStatusline precedent). The dispatch BACKBONE shipped
-   * first; the EMITTERS now ship on the hosts with a verifiable target: droid
-   * (executable command file), hermes (quick_commands exec slash command), warp
-   * (palette workflow — pastes the command for the user to run). Hosts whose
-   * slash commands are prompt templates that cannot run a shell verb, or whose
-   * plugin APIs expose no command registration, leave this unset — every such
-   * adapter's BaseAdapter install/uninstall defaults honestly skip-warn.
+   * first; the EMITTERS now ship only on hosts with a verifiable target: droid
+   * (executable command file), hermes (quick_commands exec slash command), kiro,
+   * omp, openclaw, pi, warp, zed, plus the nemoclaw fork. Hosts whose slash
+   * commands are prompt templates that cannot run a shell verb, or whose plugin
+   * APIs expose no command registration, leave this unset — every such adapter's
+   * BaseAdapter install/uninstall defaults honestly skip-warn.
    */
   supportsActions?: boolean;
 }
@@ -906,10 +906,10 @@ export interface StatuslineDef {
 // pure file writer. UNLIKE the statusline it is USER-TRIGGERED: errors are
 // SURFACED (exit 1 + stderr), never failed silently. The dispatch backbone
 // shipped first; the affordance EMITTERS (binding a host slash command / palette
-// workflow / exec-file to the verb) now ship per-host: droid + hermes + warp plus
-// the registerCommand-style hosts omp + openclaw (and the nemoclaw fork, which
-// inherits) + pi (the omp progenitor — same pi.registerCommand extension module)
-// set supportsActions and override installActions/uninstallActions.
+// workflow / exec-file to the verb) now ship only where a host has a verified
+// trigger target: droid, hermes, kiro, omp, openclaw, pi, warp, zed, plus the
+// nemoclaw fork. Those adapters set supportsActions and override
+// installActions/uninstallActions.
 // Hosts with no verifiable emission target leave supportsActions unset
 // (BaseAdapter skip-warn).
 // ─────────────────────────────────────────────────────────────────────────
@@ -920,14 +920,13 @@ export interface ActionResult {
 }
 
 /**
- * A user-invokable action: an id + a run(ctx) handler. The connector binds it to
- * a host affordance (slash command / keybinding) in a LATER phase; v1 ships the
- * dispatch backbone (the `agent-connector action` verb runs run(ctx)). run
- * receives the shared {@link HostCtx} (host + capabilities; no stdin — an action
- * takes no host payload, unlike a hook or status line). The handler lives in the
- * connector module and is re-imported at runtime (like hook handlers /
- * statusline.render), so it must survive defineConnector resolution as a live
- * function.
+ * A user-invokable action: an id + a run(ctx) handler. Supporting adapters bind
+ * it to a host affordance, while every host can invoke the stable dispatch verb
+ * manually (`agent-connector action`). run receives the shared {@link HostCtx}
+ * (host + capabilities; no stdin — an action takes no host payload, unlike a
+ * hook or status line). The handler lives in the connector module and is
+ * re-imported at runtime (like hook handlers / statusline.render), so it must
+ * survive defineConnector resolution as a live function.
  */
 export interface ActionDef {
   /** kebab-case id; unique within the connector. The verb's positional arg. */

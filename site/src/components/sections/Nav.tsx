@@ -5,11 +5,10 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
 import { REPO_URL } from "@/data";
 
-const links: { label: string; href?: string; to?: string }[] = [
-  { href: "#efficiency", label: "Efficiency" },
-  { href: "#platforms", label: "Coverage" },
-  { href: "#surfaces", label: "Surfaces" },
-  { href: "#telemetry", label: "Telemetry" },
+const links: { label: string; to: string }[] = [
+  { to: "/", label: "Home" },
+  { to: "/coverage", label: "Coverage" },
+  { to: "/telemetry", label: "Telemetry" },
   { to: "/docs", label: "Docs" },
   { to: "/wizard", label: "Wizard" },
   { to: "/blog", label: "Blog" },
@@ -50,39 +49,28 @@ function Logo() {
 
 export function Nav() {
   const { pathname } = useLocation();
-  const onLanding = pathname === "/";
-  // On non-landing routes, anchor links must jump back to the landing page.
-  const sectionHref = (hash: string) => (onLanding ? hash : `/${hash}`);
+  const isActive = (to: string) =>
+    to === "/" ? pathname === "/" : pathname.startsWith(to);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/70 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Logo />
         <nav className="hidden items-center gap-1 md:flex">
-          {links.map((l) =>
-            l.to ? (
-              <Link
-                key={l.to}
-                to={l.to}
-                className={cn(
-                  "rounded-md px-3 py-2 text-sm transition-colors hover:text-foreground",
-                  pathname.startsWith(l.to)
-                    ? "font-medium text-foreground"
-                    : "text-muted-foreground",
-                )}
-              >
-                {l.label}
-              </Link>
-            ) : (
-              <a
-                key={l.href}
-                href={sectionHref(l.href!)}
-                className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {l.label}
-              </a>
-            ),
-          )}
+          {links.map((l) => (
+            <Link
+              key={l.to}
+              to={l.to}
+              className={cn(
+                "rounded-md px-3 py-2 text-sm transition-colors hover:text-foreground",
+                isActive(l.to)
+                  ? "font-medium text-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              {l.label}
+            </Link>
+          ))}
         </nav>
         <div className="flex items-center gap-1.5">
           <ThemeToggle />
