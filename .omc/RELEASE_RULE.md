@@ -1,6 +1,6 @@
 # Release Rules
 
-Last analyzed: 2026-06-29
+Last analyzed: 2026-07-01
 
 ## Version Sources
 
@@ -12,12 +12,16 @@ Last analyzed: 2026-06-29
 
 ## Release Automation
 
-- No tag-driven npm publish workflow is present.
+- `.github/workflows/release.yml` is the canonical release path.
+- Tag pushes matching `v*.*.*` publish that existing tag after the release gate.
+- Manual dispatch supports:
+  - `bump-and-publish`: bump `patch`, `minor`, `major`, or an explicit `x.y.z`, update version sources/changelog, run the gate, commit, tag, publish, create a GitHub release, then refresh the site release snapshot on `main`.
+  - `publish-existing-tag`: publish an already-pushed tag such as `v0.4.99`, create the GitHub release, then refresh the site release snapshot on `main`.
+- The workflow publishes to npm with provenance through the repository `NPM_TOKEN` secret.
 - `.github/workflows/ci.yml` runs core and site checks on `main` pushes and pull requests.
 - `.github/workflows/deploy-site.yml` deploys the Vite site to GitHub Pages on `main` for site/doc paths and on manual dispatch.
-- Publishing to npm is manual unless a future workflow is added.
 
-## Local Release Gate
+## Release Gate
 
 Run these before publishing:
 
@@ -31,17 +35,12 @@ Run these before publishing:
 
 ## Publish Steps
 
-1. Update version sources and changelog.
-2. Run the local release gate.
-3. Commit release changes.
-4. Tag as `vX.Y.Z`.
-5. Push `main` and the tag.
-6. Publish manually with `npm publish --access public`.
-7. Create a GitHub release for the tag.
-8. Verify npm and GitHub release state.
+1. For a new release, run the `release` workflow with `mode=bump-and-publish`.
+2. For a prepared tag, run the `release` workflow with `mode=publish-existing-tag` and `tag=vX.Y.Z`.
+3. Verify npm and GitHub release state from the workflow summary/logs.
 
 ## Notes
 
 - Build artifacts and tarballs are ignored (`dist/`, `*.tgz`).
-- Latest nearby local tags at analysis time included `v0.4.96` and `v0.4.95`.
+- Latest nearby local tags at analysis time included `v0.4.99`, `v0.4.98`, and `v0.4.97`.
 - The npm package name is `@ken-jo/agent-connector`.

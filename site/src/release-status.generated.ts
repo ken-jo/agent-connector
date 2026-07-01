@@ -26,6 +26,7 @@ export interface ReleaseStatus {
   githubActionsUrl: string;
   ciWorkflow: ReleaseWorkflowStatus;
   deployWorkflow: ReleaseWorkflowStatus;
+  releaseWorkflow: ReleaseWorkflowStatus;
 }
 
 export const releaseStatus = {
@@ -50,5 +51,10 @@ export const releaseStatus = {
     "present": true,
     "path": ".github/workflows/deploy-site.yml",
     "url": "https://github.com/ken-jo/agent-connector/actions/workflows/deploy-site.yml"
+  },
+  "releaseWorkflow": {
+    "present": true,
+    "path": ".github/workflows/release.yml",
+    "url": "https://github.com/ken-jo/agent-connector/actions/workflows/release.yml"
   }
 } as const satisfies ReleaseStatus;

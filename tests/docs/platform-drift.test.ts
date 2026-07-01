@@ -313,8 +313,10 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(releaseStatus.localVersion).toBe(pkg.version);
     expect(releaseStatus.ciWorkflow.present).toBe(true);
     expect(releaseStatus.deployWorkflow.present).toBe(true);
+    expect(releaseStatus.releaseWorkflow.present).toBe(true);
     expect(readFileSync(releaseStatus.ciWorkflow.path, "utf8")).toContain("npm run typecheck");
     expect(readFileSync(releaseStatus.deployWorkflow.path, "utf8")).toContain("npm run build");
+    expect(readFileSync(releaseStatus.releaseWorkflow.path, "utf8")).toContain("npm publish");
   });
 
   it("site nativeHooks prose count and list match adapter capabilities", async () => {

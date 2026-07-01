@@ -197,12 +197,14 @@ export function CoveragePage() {
                   CI workflows
                 </div>
                 <div className="mt-1 font-mono text-lg font-semibold text-foreground">
-                  {releaseStatus.ciWorkflow.present && releaseStatus.deployWorkflow.present
+                  {releaseStatus.ciWorkflow.present &&
+                  releaseStatus.deployWorkflow.present &&
+                  releaseStatus.releaseWorkflow.present
                     ? "present"
                     : "missing"}
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  CI + site deploy workflow files
+                  CI + release + site deploy files
                 </p>
               </a>
             </div>

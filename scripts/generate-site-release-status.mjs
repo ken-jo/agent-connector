@@ -17,6 +17,7 @@ const outFile = path.join(repoRoot, "site", "src", "release-status.generated.ts"
 const pkgFile = path.join(repoRoot, "package.json");
 const ciWorkflowFile = path.join(repoRoot, ".github", "workflows", "ci.yml");
 const deployWorkflowFile = path.join(repoRoot, ".github", "workflows", "deploy-site.yml");
+const releaseWorkflowFile = path.join(repoRoot, ".github", "workflows", "release.yml");
 
 const pkg = JSON.parse(readFileSync(pkgFile, "utf8"));
 const packageName = typeof pkg.name === "string" ? pkg.name : "@ken-jo/agent-connector";
@@ -31,6 +32,7 @@ const npmPackageUrl = `https://www.npmjs.com/package/${packageName}`;
 const githubActionsUrl = `${repoUrl}/actions`;
 const ciWorkflowUrl = `${repoUrl}/actions/workflows/ci.yml`;
 const deployWorkflowUrl = `${repoUrl}/actions/workflows/deploy-site.yml`;
+const releaseWorkflowUrl = `${repoUrl}/actions/workflows/release.yml`;
 
 function loadPrevious() {
   if (!existsSync(outFile)) return {};
@@ -119,6 +121,11 @@ const status = {
     path: ".github/workflows/deploy-site.yml",
     url: deployWorkflowUrl,
   },
+  releaseWorkflow: {
+    present: existsSync(releaseWorkflowFile),
+    path: ".github/workflows/release.yml",
+    url: releaseWorkflowUrl,
+  },
 };
 
 const content = `/**
@@ -149,6 +156,7 @@ export interface ReleaseStatus {
   githubActionsUrl: string;
   ciWorkflow: ReleaseWorkflowStatus;
   deployWorkflow: ReleaseWorkflowStatus;
+  releaseWorkflow: ReleaseWorkflowStatus;
 }
 
 export const releaseStatus = ${JSON.stringify(status, null, 2)} as const satisfies ReleaseStatus;

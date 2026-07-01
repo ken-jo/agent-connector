@@ -1,0 +1,232 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Release mode"
+        required: true
+        default: "bump-and-publish"
+        type: choice
+        options:
+          - "bump-and-publish"
+          - "publish-existing-tag"
+      version:
+        description: "patch, minor, major, or explicit x.y.z for bump-and-publish"
+        required: false
+        default: "patch"
+      ref:
+        description: "Branch to bump for bump-and-publish"
+        required: false
+        default: "main"
+      tag:
+        description: "Existing tag for publish-existing-tag, for example v0.4.99"
+        required: false
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release mode
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            mode="publish-existing-tag"
+            tag="$REF_NAME"
+            checkout_ref="$REF_NAME"
+            version_input=""
+            target_ref=""
+          else
+            mode="${INPUT_MODE:-bump-and-publish}"
+            version_input="${INPUT_VERSION:-patch}"
+            target_ref="${INPUT_REF:-main}"
+            tag="${INPUT_TAG:-}"
+            if [[ "$mode" == "publish-existing-tag" ]]; then
+              if [[ -z "$tag" ]]; then
+                echo "::error::publish-existing-tag requires the tag input, for example v0.4.99"
+                exit 1
+              fi
+              checkout_ref="$tag"
+              target_ref=""
+            elif [[ "$mode" == "bump-and-publish" ]]; then
+              if [[ "$target_ref" == refs/tags/* ]]; then
+                echo "::error::bump-and-publish requires a branch ref, not a tag"
+                exit 1
+              fi
+              checkout_ref="$target_ref"
+            else
+              echo "::error::Unsupported release mode: $mode"
+              exit 1
+            fi
+          fi
+
+          {
+            echo "mode=$mode"
+            echo "checkout_ref=$checkout_ref"
+            echo "version_input=$version_input"
+            echo "target_ref=$target_ref"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.resolve.outputs.checkout_ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            site/package-lock.json
+
+      - run: npm ci
+
+      - run: npm ci
+        working-directory: site
+
+      - name: Prepare bumped release
+        if: steps.resolve.outputs.mode == 'bump-and-publish'
+        run: node scripts/prepare-release.mjs "${{ steps.resolve.outputs.version_input }}"
+
+      - name: Resolve package identity
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).name")"
+          version="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+          tag="v${version}"
+
+          if [[ "${{ steps.resolve.outputs.mode }}" == "publish-existing-tag" && "$tag" != "${{ steps.resolve.outputs.tag }}" ]]; then
+            echo "::error::Package version ${version} does not match tag ${{ steps.resolve.outputs.tag }}"
+            exit 1
+          fi
+
+          {
+            echo "name=$name"
+            echo "version=$version"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Release gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run build
+          npm test
+          npm run prepublishOnly
+          npm pack --dry-run
+          npm --prefix site run typecheck
+          npm --prefix site run build
+
+      - name: Commit and tag bumped release
+        if: steps.resolve.outputs.mode == 'bump-and-publish'
+        shell: bash
+        env:
+          TAG: ${{ steps.package.outputs.tag }}
+          TARGET_REF: ${{ steps.resolve.outputs.target_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            CHANGELOG.md \
+            README.md \
+            package.json \
+            package-lock.json \
+            tests/core/package-audit.test.ts \
+            site/src/release-status.generated.ts \
+            site/src/coverage-stars.generated.json
+          if git diff --cached --quiet; then
+            echo "::error::No release preparation changes were staged"
+            exit 1
+          fi
+          git commit -m "chore(release): prepare ${TAG}"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "HEAD:${TARGET_REF}"
+          git push origin "$TAG"
+
+      - name: Publish to npm
+        id: publish
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          published="$(npm view "${PACKAGE_NAME}@${VERSION}" version 2>/dev/null || true)"
+          if [[ "$published" == "$VERSION" ]]; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "${PACKAGE_NAME}@${VERSION} is already published; skipping npm publish."
+            exit 0
+          fi
+
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "::error::Missing NPM_TOKEN repository secret; add it before running the release workflow."
+            exit 1
+          fi
+
+          npm publish --access public --provenance
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.package.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub release $TAG already exists; skipping create."
+          else
+            gh release create "$TAG" --verify-tag --generate-notes --title "$TAG"
+          fi
+
+      - name: Refresh site release status on main
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.package.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          node scripts/generate-site-release-status.mjs
+          if git diff --quiet -- site/src/release-status.generated.ts; then
+            echo "Release status snapshot is already current."
+            exit 0
+          fi
+          git add site/src/release-status.generated.ts
+          git commit -m "chore(site): refresh release status for ${TAG}"
+          git push origin main
