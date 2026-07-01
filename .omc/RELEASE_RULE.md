@@ -18,6 +18,7 @@ Last analyzed: 2026-07-01
   - `bump-and-publish`: bump `patch`, `minor`, `major`, or an explicit `x.y.z`, update version sources/changelog, run the gate, commit, tag, publish, create a GitHub release, then refresh the site release snapshot on `main`.
   - `publish-existing-tag`: publish an already-pushed tag such as `v0.4.99`, create the GitHub release, then refresh the site release snapshot on `main`.
 - The workflow publishes to npm with provenance through npm trusted publishing / GitHub OIDC by default; `NPM_TOKEN` is accepted as a fallback when configured.
+- npm trusted publisher configuration must be set in npm package settings as GitHub Actions: owner `ken-jo`, repository `agent-connector`, workflow filename `release.yml`, allowed action `npm publish`. Alternatively configure a GitHub repository secret named `NPM_TOKEN`.
 - `.github/workflows/ci.yml` runs core and site checks on `main` pushes and pull requests.
 - `.github/workflows/deploy-site.yml` deploys the Vite site to GitHub Pages on `main` for site/doc paths and on manual dispatch.
 

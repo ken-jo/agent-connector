@@ -188,10 +188,16 @@ jobs:
           if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
             echo "Publishing with NPM_TOKEN fallback."
           else
-            echo "NPM_TOKEN is not set; attempting npm trusted publishing through GitHub OIDC."
+            echo "::notice::NPM_TOKEN is not set; attempting npm trusted publishing through GitHub OIDC."
+            echo "::notice::npm trusted publisher must authorize ken-jo/agent-connector, workflow release.yml, action npm publish."
           fi
 
-          npm publish --access public --provenance
+          if ! npm publish --access public --provenance; then
+            if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+              echo "::error::npm publish failed without token auth. Configure npm Trusted Publisher for GitHub Actions (owner ken-jo, repo agent-connector, workflow release.yml, allowed action npm publish) or add an NPM_TOKEN repository secret."
+            fi
+            exit 1
+          fi
           echo "published=true" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub release
