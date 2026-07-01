@@ -38,6 +38,7 @@ const CAPS_ID = "sl-render-caps";
 const SCOPE_ID = "sl-render-scope";
 const PERHOST_THROW_ID = "sl-render-perhost-throw";
 const LAZY_USAGE_ID = "sl-render-lazy-usage";
+const MAX_LINES_ID = "sl-render-max-lines";
 
 const SAVED = {
   HOME: process.env.HOME,
@@ -200,6 +201,17 @@ beforeEach(async () => {
   const perHostThrowConn = (await loadConnectorFromPath(perHostThrowPath)).connector;
   registerConnector(perHostThrowConn, perHostThrowPath);
 
+  const maxLinesPath = writeStatuslineFixture(
+    tmpData,
+    MAX_LINES_ID,
+    `{
+      render: () => "one\\ntwo\\nthree",
+      options: { maxLines: 2 },
+    }`,
+  );
+  const maxLinesConn = (await loadConnectorFromPath(maxLinesPath)).connector;
+  registerConnector(maxLinesConn, maxLinesPath);
+
   // A connector that inspects the `usage` property descriptor without reading
   // the property. This proves the runtime installs a lazy getter rather than a
   // pre-computed data property on every status refresh.
@@ -319,6 +331,16 @@ describe("runStatusline", () => {
     });
     expect(res.exitCode).toBe(0);
     expect(res.stdout).toBe("TOP-LEVEL-FALLBACK");
+  });
+
+  it("applies framework maxLines before host formatting", async () => {
+    const res = await runStatusline({
+      platformId: "claude-code",
+      connectorId: MAX_LINES_ID,
+      stdin: JSON.stringify({ cwd: "/x" }),
+    });
+    expect(res.exitCode).toBe(0);
+    expect(res.stdout).toBe("one\ntwo");
   });
 
   it.each(["antigravity-cli", "claude-code", "qwen-code"] as const)(

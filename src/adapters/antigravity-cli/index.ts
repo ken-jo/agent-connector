@@ -190,6 +190,7 @@ export class AntigravityCliAdapter extends AntigravityAdapter implements Adapter
   override readonly capabilities: PlatformCapabilities = {
     ...antigravityIdeAdapter.capabilities,
     supportsStatusline: true,
+    statuslineMode: "command-stdin",
     sessionStart: false,
   };
 

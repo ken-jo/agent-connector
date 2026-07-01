@@ -93,6 +93,23 @@ describe("simulate — statusline", () => {
     expect(result.honored).toBe(false);
     expect(result.reason).toMatch(/no statusline surface/);
   });
+
+  it("applies shared statusline maxLines in offline simulation", async () => {
+    const limited = defineConnector({
+      id: "sim-status-lines",
+      statusline: {
+        render: () => "one\ntwo\nthree",
+        options: { maxLines: 2 },
+      },
+    });
+    const result = await simulate(limited, {
+      surface: "statusline",
+      host: "claude-code",
+      input: "{}",
+    });
+    expect(result.honored).toBe(true);
+    expect(result.hostReply).toBe("one\ntwo");
+  });
 });
 
 describe("simulate — hooks (the context-drop gap)", () => {

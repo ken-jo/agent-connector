@@ -457,6 +457,10 @@ const statuslineConnectorSnippet = `import { defineConnector, defineStatusline }
 
 const statusline = defineStatusline({
   description: "Show acme-db connector state.",
+  options: {
+    refreshInterval: 5,
+    maxLines: 2,
+  },
   render(ctx) {
     const model = ctx.model?.displayName ?? ctx.model?.id ?? "model";
     const calls = ctx.usage?.calls ?? 0;
@@ -471,6 +475,12 @@ const statusline = defineStatusline({
         return \`acme-db · \${ctx.cwd ?? ctx.projectDir ?? "workspace"}\`;
       },
     },
+    "qwen-code": {
+      options: {
+        respectUserColors: true,
+        hideContextIndicator: true,
+      },
+    },
   },
 });
 
@@ -482,7 +492,8 @@ export default defineConnector({
 const claudeStatuslineSettingsSnippet = `{
   "statusLine": {
     "type": "command",
-    "command": "agent-connector statusline claude-code --connector acme-db"
+    "command": "agent-connector statusline claude-code --connector acme-db",
+    "refreshInterval": 5
   }
 }`;
 
@@ -490,13 +501,24 @@ const actionConnectorSnippet = `import { defineAction, defineConnector } from "@
 
 const refreshIndex = defineAction({
   id: "refresh-index",
+  label: "Refresh schema index",
   description: "Refresh the local schema index.",
+  icon: "refresh-cw",
+  placement: "command-palette",
+  confirm: {
+    title: "Refresh schema index",
+    message: "Rebuild the local acme-db schema index now?",
+  },
   async run(ctx) {
     await refreshLocalSchemaIndex(ctx.projectDir);
     return { message: \`Refreshed acme-db index for \${ctx.host}\` };
   },
   hosts: {
     warp: {
+      label: "Refresh acme-db",
+      description: "Refresh the schema index for this Warp workspace.",
+      placement: "workflow",
+      confirm: false,
       async run(ctx) {
         await refreshLocalSchemaIndex(ctx.projectDir);
         return { message: "Warp workspace index refreshed." };
@@ -638,6 +660,7 @@ const serverPath = fileURLToPath(new URL("./my-mcp-server.mjs", import.meta.url)
 
 const statusline = defineStatusline({
   description: "Show the demo connector state.",
+  options: { refreshInterval: 5, maxLines: 1 },
   render(ctx) {
     const calls = ctx.usage?.calls ?? 0;
     const host = ctx.host === "unknown" ? "host" : ctx.host;
@@ -647,7 +670,9 @@ const statusline = defineStatusline({
 
 const showTables = defineAction({
   id: "show-demo-tables",
+  label: "Show demo tables",
   description: "Print the demo table list.",
+  placement: "command-palette",
   run(ctx) {
     return {
       message: \`Demo tables for \${ctx.host}: users, orders, invoices\`,
@@ -818,7 +843,7 @@ const actionCrossValidationRows = [
   },
   {
     host: "Kiro",
-    adapter: "supportsActions + host command/action emitter",
+    adapter: "supportsActions + manual hook-panel action emitter",
     evidence: "adapter implementation + tests/adapters/kiro.test.ts",
     url: "https://kiro.dev",
   },
@@ -2714,8 +2739,9 @@ export function HudStatuslineGuide() {
           statusLine command
         </a>
         : the host runs a command, passes session metadata on stdin, and displays
-        the command&apos;s short stdout. agent-connector uses that same shape where a
-        host exposes a comparable statusline surface.
+        the command&apos;s short stdout. agent-connector uses that command-stdin
+        shape where a host exposes a comparable connector-owned statusline
+        surface.
       </P>
       <DocsTable>
         <thead>
@@ -2737,6 +2763,16 @@ export function HudStatuslineGuide() {
             <Td className="text-muted-foreground">
               The render handler, compact text, telemetry read, and per-host
               fallback behavior.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">Host preset only</Td>
+            <Td className="text-muted-foreground">
+              Built-in compact or verbose status UI with no command entrypoint.
+            </Td>
+            <Td className="text-muted-foreground">
+              Leave it to host settings; it is not a <C>render(ctx)</C> surface
+              yet.
             </Td>
           </tr>
           <tr>
@@ -2789,7 +2825,8 @@ export function HudStatuslineGuide() {
         For Claude Code, the adapter owns a <C>statusLine</C> settings key and
         points it at the universal statusline entrypoint. The connector author
         edits the <C>defineStatusline</C> code above, not this generated settings
-        leaf.
+        leaf. Options are mapped only when the host capability says the native
+        setting supports them.
       </P>
       <CodeBlock
         code={claudeStatuslineSettingsSnippet}
@@ -2854,6 +2891,10 @@ export function HudStatuslineGuide() {
         <LI>
           Add <C>hosts.&lt;id&gt;.render</C> only when one host exposes better or
           different metadata.
+        </LI>
+        <LI>
+          Use <C>options</C> for common intent and <C>hosts.&lt;id&gt;.options</C>
+          when one host supports extra statusline settings.
         </LI>
         <LI>
           Read <C>ctx.usage</C> for this connector&apos;s own recorded MCP usage;
@@ -2957,9 +2998,11 @@ export function ActionsGuide() {
 
       <H3 id="actions-connector-example">Define an action in a connector</H3>
       <P>
-        An action has a kebab-case id and a <C>run(ctx)</C> handler. Use{" "}
-        <C>hosts</C> only when one host needs a different user-facing message or
-        execution path; the top-level handler remains the fallback.
+        An action has a kebab-case id and a <C>run(ctx)</C> handler. Add{" "}
+        <C>label</C>, <C>icon</C>, <C>placement</C>, and <C>confirm</C> when the
+        host affordance can display them. Use <C>hosts</C> only when one host
+        needs different user-facing metadata or execution path; the top-level
+        handler remains the fallback.
       </P>
       <CodeBlock
         code={actionConnectorSnippet}
@@ -2991,6 +3034,18 @@ export function ActionsGuide() {
             <Td className="text-muted-foreground">
               Bind the affordance to <C>agent-connector action</C> and return a
               concise <C>message</C>.
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap">Different host shape</Td>
+            <Td className="text-muted-foreground">
+              A workflow, task, plugin command, slash command, hook panel, or
+              paste-based command.
+            </Td>
+            <Td className="text-muted-foreground">
+              Inspect <C>actionInvocationMode</C> and{" "}
+              <C>actionAffordanceKind</C>; override only the metadata that host
+              needs.
             </Td>
           </tr>
           <tr>
@@ -3657,11 +3712,13 @@ export function DefineConnector() {
       <P>
         <C>extra</C> merges into the native MCP server <em>entry</em> — it
         cannot reach a sibling top-level settings key like Claude Code&apos;s{" "}
-        <C>statusLine</C> or <C>env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS</C>.{" "}
+        <C>env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS</C>.{" "}
         <C>platforms.&lt;id&gt;.configPatch</C> declares those as
         ownership-tracked patches: you name a platform + key,{" "}
         <strong>never a file path</strong> — the adapter owns the key→file
         mapping (claude-code: <C>settings.json</C> at the install scope).
+        <C>statusLine</C> is reserved for the first-class <C>statusline</C>{" "}
+        surface instead of raw configPatch.
       </P>
       <FieldTable rows={configPatchFields} />
       <CodeBlock
@@ -3955,18 +4012,20 @@ export function SurfacesSection() {
 
       <H3 id="statusline">Status line</H3>
       <P>
-        A singular <C>statusline</C> — a HUD <C>render(ctx)</C> handler; claude-code
-        and antigravity-cli (top-level statusLine) and qwen-code (nested
-        ui.statusLine in settings.json) today, other hosts skip-warn.
+        A singular <C>statusline</C> — a HUD <C>render(ctx)</C> handler with
+        top-level/per-host options; claude-code and antigravity-cli (top-level
+        statusLine) and qwen-code (nested ui.statusLine in settings.json) today,
+        other hosts skip-warn.
       </P>
 
       <H3 id="actions">Actions</H3>
       <P>
         <C>actions</C> — user-invokable <C>run(ctx)</C> handlers dispatched by{" "}
-        <C>agent-connector action</C>; v1 ships the dispatch backbone, and host
-        affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi,
-        warp, and zed (plus the nemoclaw fork, which inherits openclaw&apos;s
-        emitter); hosts with no verifiable emission target skip-warn.
+        <C>agent-connector action</C> with label/icon/placement/confirm metadata;
+        v1 ships the dispatch backbone, and host affordance emitters now ship for
+        droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw
+        fork, which inherits openclaw&apos;s emitter); hosts with no verifiable
+        emission target skip-warn.
       </P>
 
       <H3 id="command-def">CommandDef</H3>

@@ -299,6 +299,8 @@ export class OpenClawAdapter extends BaseAdapter implements Adapter {
     // the host token (this.id), so a fork like NemoClaw emits `action nemoclaw`.
     // supportsActions -> the installActions/uninstallActions overrides below.
     supportsActions: true,
+    actionInvocationMode: "plugin-command",
+    actionAffordanceKind: "extension-command",
     // Native passthrough: OpenClaw lifecycle hook names with no canonical analog
     // (declared on platforms.<id>.nativeHooks) are bridged verbatim by the
     // generated plugin via the same on(...) helper → home-bin runNativeHook

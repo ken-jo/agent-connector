@@ -8,9 +8,11 @@ For new connector authoring, prefer the SDK subpath:
 
 ```ts
 import {
+  defineAction,
   defineConnector,
   defineHook,
   defineMemory,
+  defineStatusline,
   hostsSupporting,
 } from "@ken-jo/agent-connector/sdk";
 ```
@@ -150,8 +152,14 @@ wrap.
 - `memory` — standing guidance written as marker-fenced managed blocks into the
   memory/rules file each host actually reads, AGENTS.md-first with documented
   exceptions.
-- `statusline` — singular fail-safe HUD render function.
+- `statusline` — singular fail-safe HUD render function. Use top-level
+  `render(ctx)` as the fallback, `hosts.<id>.render` only for host-specific
+  formatting, and `options` / `hosts.<id>.options` for supported knobs such as
+  `refreshInterval`, `respectUserColors`, `hideContextIndicator`, and
+  framework-enforced `maxLines`.
 - `actions` — user-invokable actions dispatched by the framework runtime.
+  Actions support `label`, `description`, `icon`, `placement`, `confirm`,
+  top-level `run(ctx)`, and host overrides for metadata or execution.
 - `platforms` — escape hatch for per-host overrides, `nativeHooks`,
   `configPatch`, memory tuning, disabling a surface, or forcing scope.
 - `targets` — `"auto"` for detected hosts, or an explicit platform list.

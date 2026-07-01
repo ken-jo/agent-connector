@@ -37,6 +37,10 @@ import {
   compileMatcher,
   eventMatcherSubject,
 } from "../runtime/hook-entrypoint.js";
+import {
+  applyStatuslineOutputLimits,
+  statuslineOptionsForHost,
+} from "../core/statusline-options.js";
 import type { SurfaceName } from "./introspect.js";
 import { hostCanFireEvent, SURFACE_PREDICATES } from "./introspect.js";
 
@@ -175,7 +179,7 @@ export async function explain(connector: ResolvedConnector): Promise<ExplainRow[
         host: adapter.id,
         surface,
         support: native ? "native" : "skip-warn",
-        reason: explainReason(adapter.id, surface, native),
+        reason: explainReason(adapter.id, surface, native, adapter.capabilities),
       });
     }
   }
@@ -231,11 +235,29 @@ function hooksRow(
  * than promising a write. (A precise per-adapter installServer dry-run is a
  * Phase-2 enhancement — until then this avoids over-promising.)
  */
-function explainReason(host: PlatformId, surface: SurfaceName, native: boolean): string {
+function explainReason(
+  host: PlatformId,
+  surface: SurfaceName,
+  native: boolean,
+  capabilities: PlatformCapabilities,
+): string {
   if (surface === "server") {
     return native
       ? `${host} advertises an MCP transport (capability-based; registration may be host-managed)`
       : `${host} advertises no MCP transport; install skip-warns`;
+  }
+  if (surface === "statusline") {
+    return native
+      ? `${host} supports statusline via ${capabilities.statuslineMode ?? "native host surface"}`
+      : `${host} cannot honor statusline; install skip-warns`;
+  }
+  if (surface === "actions") {
+    if (!native) return `${host} cannot honor actions; install skip-warns`;
+    const mode = capabilities.actionInvocationMode ?? "native";
+    const affordance = capabilities.actionAffordanceKind
+      ? ` as ${capabilities.actionAffordanceKind}`
+      : "";
+    return `${host} supports actions via ${mode}${affordance}`;
   }
   return native
     ? `${host} natively supports ${surface}`
@@ -499,7 +521,10 @@ export async function simulate(
       const render =
         typeof perHost === "function" ? perHost : connector.statusline.render;
       const rendered = await render(ctx);
-      const line = rendered == null ? "" : String(rendered);
+      const line = applyStatuslineOutputLimits(
+        rendered == null ? "" : String(rendered),
+        statuslineOptionsForHost(connector.statusline, opts.host),
+      );
       const reply = adapter.formatStatusOutput(line);
       return {
         honored: true,

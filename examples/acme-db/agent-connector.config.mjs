@@ -18,13 +18,63 @@
 // See https://modelcontextprotocol.io/quickstart/server for the official SDK quickstart.
 
 import { fileURLToPath } from "node:url";
-import { defineConnector } from "@ken-jo/agent-connector/sdk";
+import {
+  defineAction,
+  defineConnector,
+  defineStatusline,
+} from "@ken-jo/agent-connector/sdk";
 
 // Resolve the bundled stub server to an absolute path: host CLIs spawn MCP
 // servers from their own CWD, so a relative path would not resolve correctly.
 const serverPath = fileURLToPath(
   new URL("./acme-db-mcp-server.mjs", import.meta.url),
 );
+
+const statusline = defineStatusline({
+  description: "Show Acme DB connector state.",
+  options: {
+    refreshInterval: 5,
+    maxLines: 2,
+  },
+  render(ctx) {
+    const calls = ctx.usage?.calls ?? 0;
+    const host = ctx.host === "unknown" ? "host" : ctx.host;
+    return `acme-db · ${host} · ${calls} calls`;
+  },
+  hosts: {
+    "qwen-code": {
+      options: {
+        respectUserColors: true,
+        hideContextIndicator: true,
+      },
+    },
+  },
+});
+
+const refreshIndex = defineAction({
+  id: "refresh-index",
+  label: "Refresh schema index",
+  description: "Refresh the local Acme DB schema index.",
+  icon: "refresh-cw",
+  placement: "command-palette",
+  confirm: {
+    title: "Refresh schema index",
+    message: "Rebuild the local Acme DB schema index now?",
+  },
+  async run(ctx) {
+    return {
+      message: `Acme DB schema index refreshed for ${ctx.host}.`,
+    };
+  },
+  hosts: {
+    warp: {
+      label: "Refresh Acme DB",
+      description: "Refresh Acme DB schema index for this Warp workspace.",
+      placement: "workflow",
+      confirm: false,
+    },
+  },
+});
 
 export default defineConnector({
   // The MCP server — declared once, transport-polymorphic.
@@ -69,6 +119,11 @@ export default defineConnector({
     modelFamilyHint: "auto",
     measureToolDefs: true,
   },
+
+  // Runtime-dispatched UI surfaces. Unsupported hosts skip-warn; supported
+  // hosts render these into their native statusline/action affordances.
+  statusline,
+  actions: [refreshIndex],
 
   // Per-platform escape hatch. Warp is mcp-only — skip hooks there gracefully.
   platforms: {

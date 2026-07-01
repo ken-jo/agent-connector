@@ -139,6 +139,8 @@ export class ZedAdapter extends BaseAdapter implements Adapter {
     // execs the home-bin action verb — a headless exec (zed runs it in a shell).
     // user → ~/.config/zed/tasks.json; project → <projectDir>/.zed/tasks.json.
     supportsActions: true,
+    actionInvocationMode: "task",
+    actionAffordanceKind: "task",
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

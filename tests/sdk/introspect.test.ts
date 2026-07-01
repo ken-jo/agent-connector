@@ -25,12 +25,22 @@ describe("capabilitiesOf", () => {
     const caps = await capabilitiesOf("claude-code");
     expect(caps).toBeDefined();
     expect(caps?.supportsStatusline).toBe(true);
+    expect(caps?.statuslineMode).toBe("command-stdin");
+    expect(caps?.statuslineSupportsRefreshInterval).toBe(true);
     expect(caps?.supportsConfigPatch).toBe(true);
   });
 
   it("returns undefined for an unknown id", async () => {
     expect(await capabilitiesOf("nope")).toBeUndefined();
     expect(await capabilitiesOf("unknown")).toBeUndefined();
+  });
+
+  it("exposes precise action invocation semantics", async () => {
+    expect((await capabilitiesOf("warp"))?.actionInvocationMode).toBe("paste");
+    expect((await capabilitiesOf("zed"))?.actionInvocationMode).toBe("task");
+    expect((await capabilitiesOf("openclaw"))?.actionInvocationMode).toBe(
+      "plugin-command",
+    );
   });
 });
 

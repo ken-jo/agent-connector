@@ -229,6 +229,8 @@ export class KiroAdapter extends BaseAdapter implements Adapter {
     // (project) scope ONLY — Kiro does not scan ~/.kiro/hooks/ — so user scope
     // warn-skips (see installActions).
     supportsActions: true,
+    actionInvocationMode: "manual-hook",
+    actionAffordanceKind: "hook-panel",
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

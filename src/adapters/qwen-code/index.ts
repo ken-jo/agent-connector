@@ -93,6 +93,10 @@ import {
   isHomeBinHookCommand,
   isHomeBinStatuslineCommand,
 } from "../../core/spawn.js";
+import {
+  buildStatuslineCommandConfig,
+  statuslineOptionsForHost,
+} from "../../core/statusline-options.js";
 import { normalizeSessionSource } from "../claude-code/wire.js";
 import {
   type ConfigPatchLedgerEntry,
@@ -282,6 +286,12 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
     // stdin payload against the qwen-code status-line docs (shipped v0.14.3,
     // PR #2923).
     supportsStatusline: true,
+    statuslineMode: "command-stdin",
+    statuslineMaxLines: 2,
+    statuslineSupportsRefreshInterval: true,
+    statuslineSupportsAnsi: true,
+    statuslineSupportsRespectUserColors: true,
+    statuslineSupportsHideContextIndicator: true,
     // Native passthrough: Qwen's 16-event surface includes 3 host-specific events
     // with NO canonical HookEventName analog — TodoCreated / TodoCompleted /
     // StopFailure (QwenLM/qwen-code docs/users/features/hooks.md). A connector
@@ -567,7 +577,15 @@ export class QwenCodeAdapter extends BaseAdapter implements Adapter {
   /** The statusLine config object value agent-connector writes at `ui.statusLine`. */
   private statuslineValue(ctx: InstallContext): JsonValue {
     const command = buildHomeBinStatuslineCommand(ctx.homeBinPath, HOST, ctx.connector.id);
-    return { type: "command", command };
+    return buildStatuslineCommandConfig(
+      command,
+      statuslineOptionsForHost(ctx.connector.statusline, HOST),
+      {
+        refreshInterval: true,
+        respectUserColors: true,
+        hideContextIndicator: true,
+      },
+    );
   }
 
   override installStatusline(ctx: InstallContext): ChangeRecord[] {

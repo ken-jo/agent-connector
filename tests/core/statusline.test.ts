@@ -185,6 +185,37 @@ describe("defineConnector — statusline validation", () => {
     const def = defineStatusline({ render: (ctx) => `${ctx.host}` });
     expect(typeof def.render).toBe("function");
   });
+
+  it("accepts shared statusline options and validates their shape", () => {
+    const resolved = statuslineConnector("sl-options", {
+      render: () => "line",
+      options: {
+        refreshInterval: 5,
+        respectUserColors: true,
+        hideContextIndicator: true,
+        maxLines: 2,
+      },
+    });
+    expect(resolved.statusline?.options).toEqual({
+      refreshInterval: 5,
+      respectUserColors: true,
+      hideContextIndicator: true,
+      maxLines: 2,
+    });
+
+    expect(() =>
+      statuslineConnector("sl-bad-refresh", {
+        render: () => "line",
+        options: { refreshInterval: 0 },
+      }),
+    ).toThrow(/refreshInterval must be an integer >= 1/);
+    expect(() =>
+      statuslineConnector("sl-bad-lines", {
+        render: () => "line",
+        options: { maxLines: 0 },
+      }),
+    ).toThrow(/maxLines must be an integer >= 1/);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -205,6 +236,30 @@ describe("defineConnector — per-host hosts: map validation", () => {
     });
     expect(typeof resolved.statusline?.hosts?.["codex"]?.render).toBe("function");
     expect(typeof resolved.statusline?.hosts?.["claude-code"]?.render).toBe("function");
+  });
+
+  it("resolves a statusline hosts: map entry that only overrides options", () => {
+    const resolved = defineConnector({
+      id: "sl-host-options-ok",
+      statusline: {
+        render: () => "top",
+        options: { maxLines: 2 },
+        hosts: {
+          "qwen-code": {
+            options: {
+              refreshInterval: 3,
+              respectUserColors: true,
+              hideContextIndicator: true,
+            },
+          },
+        },
+      },
+    });
+    expect(resolved.statusline?.hosts?.["qwen-code"]?.options).toEqual({
+      refreshInterval: 3,
+      respectUserColors: true,
+      hideContextIndicator: true,
+    });
   });
 
   it("rejects an UNKNOWN host id in a statusline hosts: map (message names the bad id)", () => {
@@ -322,6 +377,8 @@ describe("spawn — statusline command helpers", () => {
 describe("claude-code adapter — statusline", () => {
   it("advertises supportsStatusline === true", () => {
     expect(claudeAdapter.capabilities.supportsStatusline).toBe(true);
+    expect(claudeAdapter.capabilities.statuslineMode).toBe("command-stdin");
+    expect(claudeAdapter.capabilities.statuslineSupportsRefreshInterval).toBe(true);
   });
 
   it("installs the ownership-tracked statusLine (ledger row, prior absent)", () => {
@@ -343,6 +400,19 @@ describe("claude-code adapter — statusline", () => {
     expect(entry).toBeTruthy();
     expect(entry!.prior).toEqual({ present: false });
     expect(entry!.owners.map((o) => o.connectorId)).toContain("sl-install");
+  });
+
+  it("writes supported statusline command options", () => {
+    const connector = statuslineConnector("sl-refresh", {
+      render: () => "x",
+      options: { refreshInterval: 7, respectUserColors: true },
+    });
+    claudeAdapter.installStatusline!(buildCtx(connector));
+    expect(readSettings().statusLine).toEqual({
+      type: "command",
+      command: buildHomeBinStatuslineCommand(HOME_BIN, "claude-code", "sl-refresh"),
+      refreshInterval: 7,
+    });
   });
 
   it("is idempotent on re-install (skip, no duplicate)", () => {

@@ -520,7 +520,7 @@ export function WizardPage() {
           <div className="mt-12 grid gap-10 lg:grid-cols-2">
             {/* ── Form ── */}
             <form
-              className="flex flex-col gap-8"
+              className="min-w-0 flex flex-col gap-8"
               onSubmit={(e) => e.preventDefault()}
             >
               {/* Basics */}
@@ -718,7 +718,7 @@ export function WizardPage() {
             </form>
 
             {/* ── Live output ── */}
-            <div className="flex flex-col gap-8 lg:sticky lg:top-24 lg:self-start">
+            <div className="min-w-0 flex flex-col gap-8 lg:sticky lg:top-24 lg:self-start">
               <div>
                 <div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
                   <span className="size-2 rounded-full bg-emerald-500" />

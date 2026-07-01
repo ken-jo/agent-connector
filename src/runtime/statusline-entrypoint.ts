@@ -32,6 +32,10 @@ import {
   attachLazyTelemetryUsage,
   buildTelemetryAccessor,
 } from "./telemetry-accessor.js";
+import {
+  applyStatuslineOutputLimits,
+  statuslineOptionsForHost,
+} from "../core/statusline-options.js";
 
 /** Flags + stdin the CLI hands to {@link runStatusline}. */
 export interface RunStatuslineOptions {
@@ -126,7 +130,10 @@ export async function runStatusline(
     const rendered = await render(ctx);
     // Coerce: a non-string return (number, accidental object) is stringified so
     // a misbehaving render never crashes the format step. null/undefined → "".
-    const line = rendered == null ? "" : String(rendered);
+    const line = applyStatuslineOutputLimits(
+      rendered == null ? "" : String(rendered),
+      statuslineOptionsForHost(connector.statusline, platformId),
+    );
 
     const reply = adapter.formatStatusOutput(line);
     return {

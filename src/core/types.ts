@@ -553,6 +553,27 @@ export interface ConfigPatchDef {
 // Platform capabilities
 // ─────────────────────────────────────────────────────────────────────────
 
+/** How a host exposes a status-line surface. */
+export type StatuslineMode = "command-stdin" | "preset";
+
+/** How a host-native action affordance invokes the connector action verb. */
+export type ActionInvocationMode =
+  | "exec"
+  | "exec-file"
+  | "manual-hook"
+  | "paste"
+  | "plugin-command"
+  | "task";
+
+/** Where a host surfaces an action affordance to the user. */
+export type ActionAffordanceKind =
+  | "command-palette"
+  | "extension-command"
+  | "hook-panel"
+  | "slash-command"
+  | "task"
+  | "workflow";
+
 /** What a given host can actually honor. The single-API layer degrades to it. */
 export interface PlatformCapabilities {
   preToolUse: boolean;
@@ -649,6 +670,23 @@ export interface PlatformCapabilities {
    */
   supportsStatusline?: boolean;
   /**
+   * More precise statusline mode. `command-stdin` means the host runs the
+   * framework statusline command and pipes JSON on stdin. `preset` is reserved
+   * for hosts that only expose a built-in item picker/config and should NOT be
+   * treated as supporting {@link StatuslineDef.render}.
+   */
+  statuslineMode?: StatuslineMode;
+  /** Maximum rendered statusline rows the host documents, when known. */
+  statuslineMaxLines?: number;
+  /** The host can re-run command statuslines on a timer. */
+  statuslineSupportsRefreshInterval?: boolean;
+  /** The host can render ANSI color/style sequences in statusline output. */
+  statuslineSupportsAnsi?: boolean;
+  /** The host has a setting to preserve user command colors/styles. */
+  statuslineSupportsRespectUserColors?: boolean;
+  /** The host has a setting to hide its built-in context indicator. */
+  statuslineSupportsHideContextIndicator?: boolean;
+  /**
    * Action-surface support — can this adapter EMIT a host affordance (slash
    * command / palette workflow / exec-file) bound to the universal
    * `<homeBin> action <host> <actionId> --connector <id>` verb? OPTIONAL, read
@@ -661,6 +699,14 @@ export interface PlatformCapabilities {
    * BaseAdapter install/uninstall defaults honestly skip-warn.
    */
   supportsActions?: boolean;
+  /**
+   * Precise semantics for the emitted action affordance. This is intentionally
+   * separate from supportsActions because "supported" spans direct exec, task
+   * runners, generated plugin commands, and Warp-style paste workflows.
+   */
+  actionInvocationMode?: ActionInvocationMode;
+  /** The host UI surface where generated action affordances appear. */
+  actionAffordanceKind?: ActionAffordanceKind;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -857,6 +903,32 @@ export interface StatuslineContext extends HostCtx {
   raw: unknown;
 }
 
+/** Shared statusline options adapters may honor when the host supports them. */
+export interface StatuslineOptions {
+  /**
+   * Re-run the host command every N seconds in addition to host-driven refreshes.
+   * Adapters only write this when the host supports it.
+   */
+  refreshInterval?: number;
+  /** Preserve ANSI colors/styles instead of forcing host styling, when supported. */
+  respectUserColors?: boolean;
+  /** Hide the host's built-in context indicator, when supported. */
+  hideContextIndicator?: boolean;
+  /**
+   * Clamp rendered output to at most N lines before handing it to the host.
+   * This is framework-enforced so one declaration behaves consistently.
+   */
+  maxLines?: number;
+}
+
+export type StatuslineRenderer = (ctx: StatuslineContext) => string | Promise<string>;
+
+/** Per-host statusline override: render function and/or host-specific options. */
+export interface StatuslineHostOverride {
+  render?: StatuslineRenderer;
+  options?: StatuslineOptions;
+}
+
 /**
  * A connector's status line ("HUD"): a single handler that renders the line
  * text from the normalized {@link StatuslineContext}. The handler lives in the
@@ -881,7 +953,9 @@ export interface StatuslineDef {
    * Renderer. Receives the normalized context; returns the status line text.
    * Re-imported at runtime via the connector module path (like hook handlers).
    */
-  render: (ctx: StatuslineContext) => string | Promise<string>;
+  render: StatuslineRenderer;
+  /** Host-neutral options. Unsupported options are ignored by adapters. */
+  options?: StatuslineOptions;
   /**
    * Per-host render override. When rendering for host X, `hosts[X].render` WINS
    * over the top-level `render`; a host not listed here falls back to the
@@ -896,7 +970,7 @@ export interface StatuslineDef {
    * statusline surface is inert (the runtime no-ops it), exactly as the surface
    * itself skip-warns there.
    */
-  hosts?: Partial<Record<PlatformId, { render: StatuslineDef["render"] }>>;
+  hosts?: Partial<Record<PlatformId, StatuslineHostOverride>>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -919,6 +993,28 @@ export interface ActionResult {
   message?: string;
 }
 
+export type ActionHandler = (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
+
+export interface ActionConfirm {
+  title?: string;
+  message?: string;
+}
+
+export type ActionPlacement =
+  | ActionAffordanceKind
+  | "default"
+  | (string & Record<never, never>);
+
+/** Per-host action override: run function and/or host-specific UI metadata. */
+export interface ActionHostOverride {
+  run?: ActionHandler;
+  label?: string;
+  description?: string;
+  icon?: string;
+  placement?: ActionPlacement | ActionPlacement[];
+  confirm?: boolean | ActionConfirm;
+}
+
 /**
  * A user-invokable action: an id + a run(ctx) handler. Supporting adapters bind
  * it to a host affordance, while every host can invoke the stable dispatch verb
@@ -931,14 +1027,22 @@ export interface ActionResult {
 export interface ActionDef {
   /** kebab-case id; unique within the connector. The verb's positional arg. */
   id: string;
+  /** Short display label for hosts that show action names. Defaults to description/id. */
+  label?: string;
   /** One-line "what this action does" — status/docs output only. */
   description?: string;
+  /** Optional icon name/string for hosts that can display one. */
+  icon?: string;
+  /** Optional preferred placement; adapters ignore unsupported placements. */
+  placement?: ActionPlacement | ActionPlacement[];
+  /** Optional confirmation metadata for hosts that can prompt before running. */
+  confirm?: boolean | ActionConfirm;
   /**
    * The action handler. Receives the normalized {@link HostCtx}; an optional
    * {@link ActionResult} return prints its `message` to the user. Re-imported at
    * runtime via the connector module path (like hook handlers).
    */
-  run: (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
+  run: ActionHandler;
   /**
    * Per-host run override. When dispatching for host X, `hosts[X].run` WINS over
    * the top-level `run`; a host not listed here falls back to the top-level run.
@@ -946,7 +1050,7 @@ export interface ActionDef {
    * platform ids and each entry's run MUST be a function (validated at
    * defineConnector). The top-level `run` is ALWAYS the mandatory fallback.
    */
-  hosts?: Partial<Record<PlatformId, { run: ActionDef["run"] }>>;
+  hosts?: Partial<Record<PlatformId, ActionHostOverride>>;
 }
 
 /** Per-host memory tuning — the object form of {@link PlatformOverride.memory}. */

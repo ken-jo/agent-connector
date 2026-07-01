@@ -158,6 +158,8 @@ export class OMPAdapter extends BaseAdapter implements Adapter {
     // shelling out to the home-bin `action` verb. supportsActions → the
     // installActions/uninstallActions overrides below.
     supportsActions: true,
+    actionInvocationMode: "plugin-command",
+    actionAffordanceKind: "extension-command",
     // Native passthrough hooks: OMP's main-loop lifecycle events —
     // agent_start, agent_end, turn_start, turn_end — have NO canonical
     // HookEventName analog (verified in oh-my-pi shared-events.ts). A connector
