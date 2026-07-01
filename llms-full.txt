@@ -187,8 +187,8 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `skills` | `SkillDef[]` | `[]` | Agent Skills → native content files. |
 | `subagents` | `SubagentDef[]` | `[]` | Named subagents → native content files. |
 | `memory` | `MemoryDef[]` | `[]` | Standing guidance → marker-fenced MANAGED BLOCKS in each host's memory/rules file (AGENTS.md-first; see §2.4). |
-| `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` function; deploys on claude-code, qwen-code and antigravity-cli today; other hosts skip-warn. See §2.5. |
-| `actions` | `ActionDef[]` | `[]` | Named actions the connector exposes for user-triggered dispatch. See §2.6. |
+| `statusline` | `StatuslineDef` | — | HUD / status-line handler (SINGULAR, not an array). A `render(ctx)` fallback plus optional host-specific render/options overrides; deploys on antigravity-cli, claude-code and qwen-code today; other hosts skip-warn. See §2.5. |
+| `actions` | `ActionDef[]` | `[]` | Named actions the connector exposes for user-triggered dispatch, with optional label/icon/placement/confirm metadata and per-host overrides. See §2.6. |
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
@@ -644,7 +644,19 @@ owns how it gets called.
 interface StatuslineDef {
   name?: string;          // kebab-case id; default "statusline"
   description?: string;
+  options?: StatuslineOptions;
   render: (ctx: StatuslineContext) => string | Promise<string>;
+  hosts?: Partial<Record<PlatformId, {
+    render?: (ctx: StatuslineContext) => string | Promise<string>;
+    options?: StatuslineOptions;
+  }>>;
+}
+
+interface StatuslineOptions {
+  refreshInterval?: number;       // integer >= 1; written only by hosts that support it
+  respectUserColors?: boolean;    // written only by hosts that support it
+  hideContextIndicator?: boolean; // written only by hosts that support it
+  maxLines?: number;              // integer >= 1; enforced by the framework before host output
 }
 
 interface StatuslineContext {
@@ -660,19 +672,34 @@ interface StatuslineContext {
 }
 ```
 
-SDK helpers exported from `@ken-jo/agent-connector`:
+SDK helpers exported from the package root and `@ken-jo/agent-connector/sdk`:
 - `defineStatusline({ render })` — typed identity helper
-- Types: `StatuslineDef`, `StatuslineContext`
+- Types: `StatuslineDef`, `StatuslineContext`, `StatuslineOptions`,
+  `StatuslineHostOverride`, `StatuslineMode`
 
 **Deployment.** `PlatformCapabilities.supportsStatusline` gates it (read
-`?? false`). Today claude-code and qwen-code set it. On **claude-code**, install registers:
+`?? false`). Command-driven statusline hosts also expose
+`statuslineMode: "command-stdin"` and option support flags such as
+`statuslineSupportsRefreshInterval`, `statuslineSupportsRespectUserColors`, and
+`statuslineSupportsHideContextIndicator`. Hosts whose only status UI is a built-in
+preset must not be treated as supporting `StatuslineDef.render`.
+
+On **claude-code**, install registers:
 
 ```json
-{ "statusLine": { "type": "command", "command": "<homeBin> statusline claude-code --connector <id>" } }
+{ "statusLine": { "type": "command", "command": "<homeBin> statusline claude-code --connector <id>", "refreshInterval": 5 } }
 ```
 
 in `settings.json`. The host execs that command on every status refresh; the
 entrypoint re-imports the connector and runs `render(ctx)`, printing the line.
+The optional `refreshInterval` field is written only when declared and supported.
+
+On **qwen-code**, install writes the nested `settings.json.ui.statusLine` command
+shape and may pass `refreshInterval`, `respectUserColors`, and
+`hideContextIndicator`. Its documented row cap is modeled via `statuslineMaxLines`,
+while connector-declared `options.maxLines` is still enforced by the framework for
+all statusline hosts. On **antigravity-cli**, install writes the `agy` command
+statusline shape under `~/.gemini/antigravity-cli/settings.json`.
 
 Registration REUSES the configPatch ownership ledger: **set-if-absent, never clobber
 a `statusLine` agent-connector doesn't own** (skip-warn + manual-edit printed),
@@ -681,9 +708,8 @@ refcounted, reversible (uninstall removes it only when last-owner ∧ value-unch
 `statusLine`, install skip-warns and prints the manual edit.
 
 **Every other adapter** inherits the BaseAdapter skip-warn (never silent) — exactly
-like other surfaces. (cursor-agent and Factory `droid` also have a real
-command-status contract per the host survey, but their adapters are NOT wired in v1
-— left as TODO.)
+like other surfaces. Do not infer support from an adjacent host setting unless the
+adapter advertises `supportsStatusline` and wires the home-bin command.
 
 **Runtime is FAIL-SAFE.** ANY error (throwing `render`, unknown connector, malformed
 stdin, …) → exit 0 with empty stdout. A HUD must never wedge the host or corrupt the
@@ -709,10 +735,21 @@ user or an external orchestrator.
 ```ts
 interface ActionDef {
   id: string;                          // kebab-case action identifier (required)
+  label?: string;                     // short display label; defaults to description/id
   description?: string;               // one-line hint for help / introspection output
+  icon?: string;                      // host-specific icon name/string where supported
+  placement?: ActionPlacement | ActionPlacement[];
+  confirm?: boolean | { title?: string; message?: string };
   run: (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
-  hosts?: Partial<Record<PlatformId, (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>>>;
-                                       // per-host override of run; falls back to run when absent
+  hosts?: Partial<Record<PlatformId, {
+    run?: (ctx: HostCtx) => ActionResult | void | Promise<ActionResult | void>;
+    label?: string;
+    description?: string;
+    icon?: string;
+    placement?: ActionPlacement | ActionPlacement[];
+    confirm?: boolean | { title?: string; message?: string };
+  }>>;
+                                       // per-host run and/or metadata override
 }
 
 interface ActionResult {
@@ -721,7 +758,9 @@ interface ActionResult {
 ```
 
 `defineAction({ id, run })` is the typed identity helper (exported from **both** the
-root `@ken-jo/agent-connector` and `/sdk`).
+root `@ken-jo/agent-connector` and `/sdk`). Related public types:
+`ActionResult`, `ActionHandler`, `ActionConfirm`, `ActionPlacement`,
+`ActionHostOverride`, `ActionInvocationMode`, and `ActionAffordanceKind`.
 
 **CLI verb:** `agent-connector action <platform> <actionId> --connector <id>` — loads
 the connector, resolves the action by id, and invokes `run(ctx)` (or the per-host
@@ -734,11 +773,22 @@ the host or the user points at it directly.
 - These are NOT fail-open/fail-safe-silent — an action the user explicitly triggered
   should report errors, not swallow them.
 
+**Affordance metadata.** `label`, `description`, `icon`, `placement`, and `confirm`
+are optional hints for host-native emitters. Adapters only render what their host can
+express; unsupported placement/confirmation semantics are ignored rather than
+invented. `hosts.<id>` can override either `run` or the metadata for that host, while
+top-level `run` remains the mandatory fallback. Host ids in the map must be registered
+platform ids; invalid ids or non-function override handlers throw
+`ConnectorConfigError` at `defineConnector`.
+
 **Dispatch + verified emitters.** The stable dispatch verb works for every host when
 invoked directly, and adapters with a verified native trigger surface emit host
-affordances: droid, hermes, kiro, omp, openclaw, pi, warp, and zed, plus the nemoclaw
-fork. Hosts without a verified emission target skip-warn instead of pretending to
-support a native trigger.
+affordances: droid, hermes, kiro, nemoclaw, omp, openclaw, pi, warp, and zed. Hosts
+without a verified emission target skip-warn instead of pretending to support a native
+trigger. Capability metadata distinguishes how support works:
+`actionInvocationMode` is one of `exec`, `exec-file`, `manual-hook`, `paste`,
+`plugin-command`, or `task`; `actionAffordanceKind` is one of `command-palette`,
+`extension-command`, `hook-panel`, `slash-command`, `task`, or `workflow`.
 
 **Introspection:** `explain()` emits one row per action per host (`"native"` only for
 verified emitter hosts; `"skip-warn"` elsewhere). `simulate()`
@@ -1213,8 +1263,8 @@ newer per-event flags `permissionRequest` / `postToolUseFailure` /
 the content-surface flags `supportsCommands` / `supportsSkills` /
 `supportsSubagents` / `supportsMemory`, and the handler/escape-hatch surface
 flags `supportsStatusline` / `supportsConfigPatch` / `supportsNativeHooks` /
-`supportsActions` (current counts: statusline 3, configPatch 1, nativeHooks 14,
-actions 9; unsupported adapters skip-warn).
+`supportsActions` (unsupported adapters skip-warn; current counts and per-host
+coverage are canonical on `/coverage`, not in this prose).
 
 `InstallScope` is the normalized, low→high-precedence enum
 `{ system, user, project, profile, managed }`; each adapter maps it to a concrete
@@ -1563,7 +1613,7 @@ def unchanged.
 
 Examples:
 ```ts
-await hostsSupporting("statusline");  // → ["claude-code"]
+await hostsSupporting("statusline");  // → command-driven statusline hosts
 await hostsSupporting("memory");      // → the broad AGENTS.md set
 await surfaceSupport("codex", "hooks"); // → true
 ```

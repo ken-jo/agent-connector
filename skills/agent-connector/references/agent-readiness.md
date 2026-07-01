@@ -130,6 +130,9 @@ An agent-facing change is ready when:
 - The first step is structured context inspection, usually `package.json`.
 - Generated commands use the branded package/bin by default.
 - Unsupported host behavior is explicit: native, disabled, or skip-warn.
+- SDK surface changes are reflected in the agent-readable map and contract:
+  `llms.txt`, `llms-full.txt`, the skill router, and the focused reference that
+  agents are expected to read.
 - The validation path is concrete: typecheck/test, SDK offline harness, dry-run,
   and `doctor --probe` when available.
 - Claims about shipped commands and APIs match the current code.

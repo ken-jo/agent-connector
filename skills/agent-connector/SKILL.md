@@ -29,7 +29,8 @@ acting:
   contract and what not to ask the user for.
 - `references/authoring.md` — required when creating or editing
   `agent-connector.config.*`, SDK imports, hooks, commands, skills, subagents,
-  memory, statusline, actions, or platform escape hatches.
+  memory, statusline options/host overrides, action metadata/host overrides, or
+  platform escape hatches.
 - `references/cli-workflow.md` — required when wiring `bin.mjs`, install,
   uninstall, upgrade/sync/update, doctor, package, or marketplace/direct install
   flows.
@@ -39,10 +40,11 @@ acting:
   skills, scaffold/boilerplate, lint/audit, MCP-server affordances, or other
   "make this easy for AI agents" surfaces.
 
-For exhaustive field-level detail, use `llms-full.txt`. For the short map, use
-`llms.txt`. For current host coverage and platform count, use the website
-`/coverage` page; do not copy a fixed count into this skill. The public website
-mirrors developer docs under `/docs/dev`.
+For exhaustive field-level detail, use `llms-full.txt`; statusline and action
+SDK changes should specifically be checked against §2.5 and §2.6. For the short
+map, use `llms.txt`. For current host coverage and platform count, use the
+website `/coverage` page; do not copy a fixed count into this skill. The public
+website mirrors developer docs under `/docs/dev`.
 
 ## Default Agent Procedure
 
@@ -56,6 +58,9 @@ mirrors developer docs under `/docs/dev`.
    When showing generated host configs, comment that host-native ids are install
    artifacts derived from package metadata, not second user-maintained inputs.
 4. Import new authoring code from `@ken-jo/agent-connector/sdk`.
+   For statusline/actions, use SDK capability introspection or the offline
+   harness to confirm host behavior; unsupported hosts should be documented as
+   disabled or skip-warn, not inferred support.
 5. Put `createConnectorCli({ packageJson, connector })` in the developer's
    package bin from `@ken-jo/agent-connector/cli`; comment that `packageJson`
    supplies identity while `connector` supplies behavior.
@@ -80,5 +85,7 @@ mirrors developer docs under `/docs/dev`.
 - Do not claim connector-free `usage` can report per-MCP or per-tool cost.
 - Do not duplicate package metadata in `defineConnector` unless there is a real
   override case.
+- Do not patch host `statusLine` keys through `configPatch`; use the modeled
+  `statusline` surface.
 - Do not silently drop unsupported host surfaces; the expected behavior is
   native support, disabled, or skip-warn with a reason.
