@@ -64,7 +64,7 @@ function coverageTierFor(id: string): CoverageTier {
  * `dark:` variant, so twMerge keeps both, and with no solid bg-color nothing
  * bleeds. Light = a readable `from-{tier}-100 to-{tier}-200` gradient; `dark:`
  * = the ORIGINAL subtle translucent gradient. `frontier` is the premium
- * closed-source tier; the eight OSS tiers step down a cool→warm ramp,
+ * closed/promoted tier; the eight OSS star tiers step down a cool→warm ramp,
  * distinguishable in BOTH themes. The chips stay solid translucent bg-color —
  * no competing gradient there, so they are left as-is.
  */
@@ -223,7 +223,9 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
   const stars = starsForPlatform(platform.id);
   const tierTitle =
     tier === "frontier"
-      ? "★ Frontier — closed-source flagship"
+      ? stars !== undefined
+        ? `★ Frontier — ${stars.toLocaleString()} GitHub stars`
+        : "★ Frontier — closed-source flagship"
       : `${style.label} — ${stars?.toLocaleString() ?? "?"} GitHub stars`;
   const link = hostLinks[platform.id];
   const linkUrl = hostLinkUrl(platform.id);
@@ -376,6 +378,13 @@ const TYPE_TAGS: { key: FormFactorId; label: string; title: string }[] = [
 ];
 const TYPE_KEYS = TYPE_TAGS.map((t) => t.key);
 
+const SERVER_TYPE_TAGS = paradigms.map((p) => ({
+  key: p.id,
+  label: p.label,
+  title: p.description,
+}));
+const SERVER_TYPE_KEYS = SERVER_TYPE_TAGS.map((t) => t.key);
+
 /** Tiers represented by public coverage hosts, in display order. */
 const ALL_COVERAGE_TIERS: CoverageTier[] = ["frontier", ...STAR_TIERS.map((t) => t.tier)];
 const ALL_TIERS: CoverageTier[] = ALL_COVERAGE_TIERS.filter(
@@ -385,6 +394,11 @@ const ALL_TIERS: CoverageTier[] = ALL_COVERAGE_TIERS.filter(
 function matchesType(platform: Platform, enabled: Set<FormFactorId>): boolean {
   const type = formFactorOf(platform.id);
   return type ? enabled.has(type) : false;
+}
+
+/** Server/adapter type match: json-stdio, mcp-only, or ts-plugin. */
+function matchesServerType(platform: Platform, enabled: Set<Platform["paradigm"]>): boolean {
+  return enabled.has(platform.paradigm);
 }
 
 /** Surface match: supports at least one enabled surface tag (OR-of-enabled). */
@@ -399,10 +413,11 @@ function matchesTier(platform: Platform, enabled: Set<CoverageTier>): boolean {
 }
 
 /**
- * Three independent filter rows (Type ∩ Tier ∩ Surface) + tier-colored wall.
- * Each row starts ALL ON. A host matches only when it passes every row: its form
- * factor is enabled, its tier is enabled, and it supports at least one enabled
- * surface. Non-matches remain visible but dimmed below the matching index.
+ * Four independent filter rows (Type ∩ Server ∩ Tier ∩ Surface) + tier-colored
+ * wall. Each row starts ALL ON. A host matches only when it passes every row:
+ * its form factor is enabled, its server/adapter type is enabled, its tier is
+ * enabled, and it supports at least one enabled surface. Non-matches remain
+ * visible but dimmed below the matching index.
  *
  * Semantics (unchanged): non-matching cards are NEVER hidden — they sort to the
  * BOTTOM and render dimmed (grayscale + reduced opacity, tier color dropped); a
@@ -412,6 +427,9 @@ export function CoverageWall() {
   const [enabledTypes, setEnabledTypes] = useState<Set<FormFactorId>>(
     () => new Set(TYPE_KEYS),
   );
+  const [enabledServerTypes, setEnabledServerTypes] = useState<Set<Platform["paradigm"]>>(
+    () => new Set(SERVER_TYPE_KEYS),
+  );
   const [enabledSurfaces, setEnabledSurfaces] = useState<Set<keyof PlatformSurfaces>>(
     () => new Set(SURFACE_KEYS),
   );
@@ -420,11 +438,19 @@ export function CoverageWall() {
   );
 
   const allTypesOn = enabledTypes.size === TYPE_KEYS.length;
+  const allServerTypesOn = enabledServerTypes.size === SERVER_TYPE_KEYS.length;
   const allSurfacesOn = enabledSurfaces.size === SURFACE_KEYS.length;
   const allTiersOn = enabledTiers.size === ALL_TIERS.length;
 
   const toggleType = (key: FormFactorId) =>
     setEnabledTypes((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
+  const toggleServerType = (key: Platform["paradigm"]) =>
+    setEnabledServerTypes((prev) => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
@@ -445,6 +471,7 @@ export function CoverageWall() {
 
   const reset = () => {
     setEnabledTypes(new Set(TYPE_KEYS));
+    setEnabledServerTypes(new Set(SERVER_TYPE_KEYS));
     setEnabledSurfaces(new Set(SURFACE_KEYS));
     setEnabledTiers(new Set(ALL_TIERS));
   };
@@ -457,12 +484,13 @@ export function CoverageWall() {
     for (const p of wallPlatforms) {
       const isMatch =
         matchesType(p, enabledTypes) &&
+        matchesServerType(p, enabledServerTypes) &&
         matchesTier(p, enabledTiers) &&
         matchesSurface(p, enabledSurfaces);
       (isMatch ? match : dim).push(p);
     }
     return { match, dim };
-  }, [enabledTypes, enabledSurfaces, enabledTiers]);
+  }, [enabledTypes, enabledServerTypes, enabledSurfaces, enabledTiers]);
 
   return (
     <div>
@@ -481,7 +509,7 @@ export function CoverageWall() {
             <span aria-hidden="true" className="text-muted-foreground/40">
               ·
             </span>
-            <span>Type ∩ Tier ∩ Surface</span>
+            <span>Type ∩ Server ∩ Tier ∩ Surface</span>
           </div>
           <button
             type="button"
@@ -518,6 +546,47 @@ export function CoverageWall() {
                     key={t.key}
                     type="button"
                     onClick={() => toggleType(t.key)}
+                    aria-pressed={on}
+                    title={t.title}
+                    className={cn(
+                      "rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+                      on
+                        ? "border-foreground/40 bg-foreground/10 text-foreground"
+                        : "border-border bg-transparent text-muted-foreground line-through decoration-muted-foreground/60",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid gap-1.5 sm:grid-cols-[4.5rem_1fr] sm:items-start">
+            <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Server
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEnabledServerTypes(new Set(SERVER_TYPE_KEYS))}
+                aria-pressed={allServerTypesOn}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+                  allServerTypesOn
+                    ? "border-foreground/50 bg-foreground/15 text-foreground"
+                    : "border-border bg-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                All
+              </button>
+              {SERVER_TYPE_TAGS.map((t) => {
+                const on = enabledServerTypes.has(t.key);
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => toggleServerType(t.key)}
                     aria-pressed={on}
                     title={t.title}
                     className={cn(
@@ -635,8 +704,8 @@ export function TierLegend() {
     <div className="flex flex-col items-center gap-2">
       <p className="text-center text-xs text-muted-foreground">
         Card color = rank tier. <span className="text-foreground">★ Frontier</span>{" "}
-        = closed-source flagship; OSS tiers show the minimum GitHub star
-        threshold.
+        = closed or promoted flagship; OSS tiers show the minimum GitHub star
+        threshold, while promoted OSS still shows its actual stars.
       </p>
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         {ALL_TIERS.map((t) => (

@@ -798,8 +798,9 @@ export function formFactorShort(id: string): string | undefined {
  *     tier (these are flagship agents whose star count would misrepresent them:
  *     either there is no public repo, or the only public repo is an
  *     issues/docs tracker, not the product source).
- *   - `{ repo: "owner/name" }` → open-source product; ranked by that repo's
- *     GitHub stargazers_count into LoL-style tiers (see STAR_TIERS).
+ *   - `{ repo: "owner/name" }` → public product/source repo; ranked by that
+ *     repo's GitHub stargazers_count into LoL-style tiers (see STAR_TIERS),
+ *     unless the id is explicitly promoted in `promotedFrontierOssIds`.
  *
  * Each repo was VERIFIED to exist and to be the actual product source via
  * `gh api repos/<owner>/<name>` (stars/lang/homepage/fork checked, 2026-06-23);
@@ -810,7 +811,7 @@ export function formFactorShort(id: string): string | undefined {
 export type HostSource = { closed: true } | { repo: string };
 
 export const hostSource: Record<string, HostSource> = {
-  // --- OSS (product source repo verified) ---
+  // --- Public product/source repo verified ---
   codex: { repo: "openai/codex" },
   "gemini-cli": { repo: "google-gemini/gemini-cli" },
   opencode: { repo: "sst/opencode" },
@@ -837,6 +838,8 @@ export const hostSource: Record<string, HostSource> = {
   "mistral-vibe": { repo: "mistralai/mistral-vibe" },
   junie: { repo: "JetBrains/junie" }, // JetBrains' own open agent CLI
   mux: { repo: "coder/mux" }, // Coder's mux, mux.coder.com, open TS source
+  kiro: { repo: "kirodotdev/Kiro" }, // Kiro's public product repo
+  hermes: { repo: "NousResearch/hermes-agent" }, // Nous Research's open Hermes Agent
 
   // --- Closed (no confirmable open-source product repo → Frontier) ---
   codebuddy: { closed: true }, // Tencent CodeBuddy — no public repo (404)
@@ -850,12 +853,22 @@ export const hostSource: Record<string, HostSource> = {
   droid: { closed: true }, // Factory Droid; Factory-AI/factory is docs/issues (lang null)
   "antigravity-cli": { closed: true }, // Google Antigravity CLI — closed
   antigravity: { closed: true }, // Google Antigravity IDE — closed
-  kiro: { closed: true }, // AWS Kiro — no public repo (404)
   trae: { closed: true }, // ByteDance Trae — no public repo (404)
   devin: { closed: true }, // Cognition Devin — no public repo (404)
   windsurf: { closed: true }, // Windsurf (Codeium) — no public product repo (404)
-  hermes: { closed: true }, // Nous Research Hermes Agent — no public repo found (404)
 };
+
+/**
+ * Open-source hosts that still render as the premium Frontier band because the
+ * product is a flagship agent from a frontier-model vendor. They keep the
+ * Frontier badge, while the card still shows the actual GitHub star count.
+ */
+export const promotedFrontierOssIds = new Set<string>([
+  "codex", // OpenAI
+  "gemini-cli", // Google
+  "qwen-code", // Alibaba / Qwen
+  "amazon-q", // AWS
+]);
 
 /**
  * Per-host BRAND COLOR — the host's recognizable primary color, used to tint the
@@ -927,9 +940,10 @@ export const brandColor: Record<string, string> = {
 
 /**
  * GitHub-stars rank tier, highest threshold first. `frontier` is the premium
- * closed-source tier and is NOT in this list (it has no star threshold). The
+ * closed/promoted tier and is NOT in this list (it has no star threshold). The
  * thresholds were tuned against the real, fetched star spread (2026-06-23) so
- * the OSS hosts land across all eight tiers rather than piling into the top.
+ * the non-promoted OSS hosts land across all eight tiers rather than piling
+ * into the top.
  */
 export type StarTier =
   | "Challenger"
@@ -960,19 +974,19 @@ export function starTier(stars: number): StarTier {
 }
 
 /**
- * The coverage tier for a host: `frontier` if closed-source, else the
- * star-derived tier from `stars` (its repo's stargazers_count, 0 if unknown).
- * Unknown ids default to `frontier` (treated as closed) so the wall never
- * renders an untiered card.
+ * The coverage tier for a host: `frontier` if closed-source or explicitly
+ * promoted, else the star-derived tier from `stars` (its repo's stargazers_count,
+ * 0 if unknown). Unknown ids default to `frontier` (treated as closed) so the
+ * wall never renders an untiered card.
  */
 export function tierOf(id: string, stars: number | undefined): CoverageTier {
   const src = hostSource[id];
-  if (!src || "closed" in src) return "frontier";
+  if (!src || "closed" in src || promotedFrontierOssIds.has(id)) return "frontier";
   return starTier(stars ?? 0);
 }
 
 /**
- * The OSS repos to refresh at build (id → "owner/name"), deduped by repo.
+ * The public repos to refresh at build (id → "owner/name"), deduped by repo.
  * Read by site/scripts/fetch-coverage-stars.mjs (which transpiles this module).
  */
 export const coverageRepos: readonly string[] = Array.from(
@@ -1031,6 +1045,8 @@ export const hostLinks: Record<string, HostLink> = {
   "mistral-vibe": gh("mistralai/mistral-vibe"),
   junie: gh("JetBrains/junie"),
   mux: gh("coder/mux"),
+  kiro: gh("kirodotdev/Kiro"),
+  hermes: gh("NousResearch/hermes-agent"),
 
   // Closed hosts with a VERIFIED public GitHub repo (issues / release / source).
   "claude-code": gh("anthropics/claude-code"),
@@ -1046,10 +1062,8 @@ export const hostLinks: Record<string, HostLink> = {
   // at GitHub Copilot's official feature page rather than a wrong repo.)
   "jetbrains-copilot": home("https://github.com/features/copilot"),
   amp: home("https://ampcode.com"),
-  kiro: home("https://kiro.dev"),
   devin: home("https://devin.ai"),
   windsurf: home("https://windsurf.com"),
-  hermes: home("https://hermes-agent.nousresearch.com"),
   codebuddy: home("https://www.codebuddy.ai"),
   antigravity: home("https://antigravity.google"),
   "antigravity-cli": home("https://antigravity.google"),

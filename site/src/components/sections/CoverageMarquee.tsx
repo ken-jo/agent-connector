@@ -8,6 +8,7 @@ import {
   formFactorShort,
   hostSource,
   paradigms,
+  promotedFrontierOssIds,
   type Platform,
 } from "@/data";
 import {
@@ -50,25 +51,12 @@ const ordered: Platform[] = [...publicCoveragePlatforms].sort(byParadigmFamilyNa
 const rowA: Platform[] = ordered.filter((_, i) => i % 2 === 0);
 const rowB: Platform[] = ordered.filter((_, i) => i % 2 === 1);
 
-/**
- * Famous-vendor OSS hosts that join the closed-source frontier in the BIG size
- * tier — flagship agents from major vendors whose names the maintainer wants
- * shown larger even though they ship open source. Tune this set freely; the
- * "is big" check is `isFrontier OR NOTABLE_VENDOR_OSS.has(id)`.
- */
-const NOTABLE_VENDOR_OSS = new Set<string>([
-  "codex", // OpenAI
-  "gemini-cli", // Google
-  "qwen-code", // Alibaba / Qwen
-  "amazon-q", // AWS
-]);
-
 function HostChip({ platform }: { platform: Platform }) {
   const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
   const ffShort = formFactorShort(platform.id);
   // BIG tier: closed-source frontier ∪ famous-vendor OSS — larger + bolder name.
   const isFrontier = "closed" in hostSource[platform.id];
-  const isBig = isFrontier || NOTABLE_VENDOR_OSS.has(platform.id);
+  const isBig = isFrontier || promotedFrontierOssIds.has(platform.id);
   return (
     <span
       className={cn(

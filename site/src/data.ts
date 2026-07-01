@@ -92,6 +92,7 @@ export type { FormFactorId } from "./platform-data";
 export {
   hostSource,
   brandColor,
+  promotedFrontierOssIds,
   STAR_TIERS,
   starTier,
   tierOf,
