@@ -97,12 +97,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            site/package-lock.json
 
       - run: npm ci
 
@@ -189,9 +185,10 @@ jobs:
             exit 0
           fi
 
-          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
-            echo "::error::Missing NPM_TOKEN repository secret; add it before running the release workflow."
-            exit 1
+          if [[ -n "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "Publishing with NPM_TOKEN fallback."
+          else
+            echo "NPM_TOKEN is not set; attempting npm trusted publishing through GitHub OIDC."
           fi
 
           npm publish --access public --provenance
