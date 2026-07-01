@@ -834,6 +834,11 @@ describe("qwen-code adapter — statusline", () => {
 
   it("advertises supportsStatusline === true", () => {
     expect(qwenAdapter.capabilities.supportsStatusline).toBe(true);
+    expect(qwenAdapter.capabilities.statuslineMode).toBe("command-stdin");
+    expect(qwenAdapter.capabilities.statuslineMaxLines).toBe(2);
+    expect(qwenAdapter.capabilities.statuslineSupportsRefreshInterval).toBe(true);
+    expect(qwenAdapter.capabilities.statuslineSupportsRespectUserColors).toBe(true);
+    expect(qwenAdapter.capabilities.statuslineSupportsHideContextIndicator).toBe(true);
   });
 
   it("installs the ownership-tracked ui.statusLine.command (ledger row, prior absent)", () => {
@@ -856,6 +861,34 @@ describe("qwen-code adapter — statusline", () => {
     expect(entry).toBeTruthy();
     expect(entry!.prior).toEqual({ present: false });
     expect(entry!.owners.map((o) => o.connectorId)).toContain("sl-install");
+  });
+
+  it("writes supported ui.statusLine command options with host-specific overrides", () => {
+    const connector = statuslineConnector("sl-options", {
+      render: () => "x",
+      options: {
+        refreshInterval: 10,
+        respectUserColors: false,
+        hideContextIndicator: false,
+      },
+      hosts: {
+        "qwen-code": {
+          options: {
+            refreshInterval: 2,
+            respectUserColors: true,
+            hideContextIndicator: true,
+          },
+        },
+      },
+    });
+    qwenAdapter.installStatusline!(slCtx(connector));
+    expect(readSettings().ui.statusLine).toEqual({
+      type: "command",
+      command: buildHomeBinStatuslineCommand(HOME_BIN, "qwen-code", "sl-options"),
+      refreshInterval: 2,
+      respectUserColors: true,
+      hideContextIndicator: true,
+    });
   });
 
   it("creates the `ui` intermediate when absent (set-if-absent on the leaf)", () => {

@@ -61,6 +61,10 @@ import {
   isHomeBinStatuslineCommand,
 } from "../../core/spawn.js";
 import {
+  buildStatuslineCommandConfig,
+  statuslineOptionsForHost,
+} from "../../core/statusline-options.js";
+import {
   type ConfigPatchLedgerEntry,
   addLedgerOwner,
   configPatchManualEdit,
@@ -190,6 +194,8 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     // statusline cmd>} through the SAME set-if-absent ownership ledger as
     // configPatch (never clobbers a statusLine agent-connector does not own).
     supportsStatusline: true,
+    statuslineMode: "command-stdin",
+    statuslineSupportsRefreshInterval: true,
     transports: ["stdio", "http"],
     // Server secret-bearing fields use Claude's NATIVE ${VAR} interpolation
     // (rewriteEnvRefs) — the token survives into the config, never a baked
@@ -848,7 +854,11 @@ export class ClaudeCodeAdapter extends BaseAdapter implements Adapter {
     const command = buildHomeBinStatuslineCommand(ctx.homeBinPath, HOST, ctx.connector.id);
     return {
       key: STATUSLINE_KEY,
-      value: { type: "command", command },
+      value: buildStatuslineCommandConfig(
+        command,
+        statuslineOptionsForHost(ctx.connector.statusline, HOST),
+        { refreshInterval: true },
+      ),
       reason: "agent-connector statusline surface",
     };
   }

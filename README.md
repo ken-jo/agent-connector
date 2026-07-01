@@ -427,15 +427,23 @@ everywhere.
   — multiple connectors coexist, bytes outside your markers are never touched,
   and uninstall excises exactly your blocks.
 - **`statusline`** (`defineStatusline`) — a live HUD render function the host
-  calls on every status refresh. v1 registers Claude Code's `settings.json.statusLine`
-  or Qwen Code's `settings.json.ui.statusLine` (set-if-absent, refcounted,
-  reversible); other hosts skip-warn. The runtime is **fail-safe**: any error
-  exits 0 with empty stdout so a HUD never wedges the host.
+  calls on every status refresh. The SDK supports top-level and per-host
+  `render(ctx)` handlers plus `options` such as `refreshInterval`,
+  `respectUserColors`, `hideContextIndicator`, and framework-enforced
+  `maxLines`. Today it registers command-driven statuslines for Claude Code,
+  Qwen Code, and Antigravity CLI (set-if-absent, refcounted, reversible);
+  hosts whose statusline is only a built-in preset rather than a connector-owned
+  command still skip-warn. The runtime is **fail-safe**: any error exits 0 with
+  empty stdout so a HUD never wedges the host.
 - **`actions`** (`defineAction`) — named, user-invocable operations dispatched by
   the universal verb `agent-connector action <platform> <id> --connector <id>`.
-  `install` emits host-side affordances on `droid`, `hermes`, `nemoclaw`, `omp`,
-  `openclaw`, and `warp`; other hosts skip-warn. Error semantics are
-  user-triggered (unknown id or throw exits 1).
+  Actions can declare `label`, `icon`, `placement`, `confirm`, and per-host
+  overrides for user-facing metadata or `run(ctx)`. `install` emits host-side
+  affordances on `droid`, `hermes`, `kiro`, `nemoclaw`, `omp`, `openclaw`, `pi`,
+  `warp`, and `zed`; adapter capabilities expose whether that affordance is an
+  exec command, exec-file, manual hook panel, paste workflow, plugin command, or
+  task. Other hosts skip-warn. Error semantics are user-triggered (unknown id or
+  throw exits 1).
 - **The Connector SDK** (`@ken-jo/agent-connector/sdk`, `/sdk/test`) — the
   consolidated authoring surface re-exports `defineConnector`, the full `define*`
   family (`defineHook`, `defineCommand`, `defineSkill`, `defineSubagent`,

@@ -388,6 +388,30 @@ describe("warp — actions emitter", () => {
     });
   });
 
+  it("uses action label and host-specific metadata when rendering workflow text", () => {
+    const ctx = actionsCtx(
+      actionsConnector([
+        {
+          id: "deploy",
+          label: "Deploy production",
+          description: "Deploy the app.",
+          hosts: {
+            warp: { label: "Paste deploy", description: "Paste deploy command." },
+          },
+          run: () => ({ message: "deployed" }),
+        },
+      ]),
+      "project",
+    );
+    warpAdapter.installActions!(ctx);
+    const deploy = parseYaml(readFileSync(wfPath("deploy"), "utf8"));
+    expect(deploy).toEqual({
+      name: "Paste deploy",
+      command: verb("warp", "deploy"),
+      description: "Paste deploy command.",
+    });
+  });
+
   it("user scope writes under ~/.warp/workflows/<id>.yaml", () => {
     const ctx = actionsCtx(actionsConnector([DEPLOY]), "user");
     warpAdapter.installActions!(ctx);

@@ -265,8 +265,10 @@ describe("antigravity-cli content surfaces (inherited from the IDE)", () => {
 
 describe("antigravity-cli E1 extension-event degradation", () => {
   it("INHERITS the IDE adapter's capability surface except the TWO CLI divergences", () => {
-    // The CLI fork diverges from the IDE adapter in EXACTLY two capabilities:
+    // The CLI fork diverges from the IDE adapter in the CLI-only statusline
+    // capability plus one hook capability:
     //   • supportsStatusline (the `agy` custom status line, CLI-only ADD), and
+    //     its command-stdin mode marker, and
     //   • sessionStart: false (the `agy` CLI does NOT recognize a SessionStart
     //     hook — live-verified; the IDE app keeps sessionStart: true).
     // Assert the surfaces are otherwise structurally identical by overlaying just
@@ -274,10 +276,12 @@ describe("antigravity-cli E1 extension-event degradation", () => {
     expect(antigravityCliAdapter.capabilities).toStrictEqual({
       ...antigravityAdapter.capabilities,
       supportsStatusline: true,
+      statuslineMode: "command-stdin",
       sessionStart: false,
     });
     // statusline is a CLI-only ADD; sessionStart is a CLI-only DROP.
     expect(antigravityCliAdapter.capabilities.supportsStatusline).toBe(true);
+    expect(antigravityCliAdapter.capabilities.statuslineMode).toBe("command-stdin");
     expect(antigravityAdapter.capabilities.supportsStatusline ?? false).toBe(false);
     expect(antigravityCliAdapter.capabilities.sessionStart ?? false).toBe(false);
     expect(antigravityAdapter.capabilities.sessionStart).toBe(true);
@@ -413,6 +417,7 @@ describe("antigravity-cli adapter — statusline", () => {
 
   it("advertises supportsStatusline === true (CLI-only — the IDE app does not)", () => {
     expect(antigravityCliAdapter.capabilities.supportsStatusline).toBe(true);
+    expect(antigravityCliAdapter.capabilities.statuslineMode).toBe("command-stdin");
     expect(antigravityAdapter.capabilities.supportsStatusline ?? false).toBe(false);
   });
 

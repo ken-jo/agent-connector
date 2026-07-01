@@ -111,6 +111,8 @@ export class WarpAdapter extends BaseAdapter implements Adapter {
     // the command into the terminal input (the user runs it) — not headless
     // exec, but still a user-invokable affordance. One owned file per action.
     supportsActions: true,
+    actionInvocationMode: "paste",
+    actionAffordanceKind: "workflow",
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

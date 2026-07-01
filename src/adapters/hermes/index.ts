@@ -271,6 +271,8 @@ export class HermesAdapter extends BaseAdapter implements Adapter {
     // "custom commands that run shell commands instantly without invoking the
     // LLM"). We emit one per declared action bound to the home-bin action verb.
     supportsActions: true,
+    actionInvocationMode: "exec",
+    actionAffordanceKind: "slash-command",
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

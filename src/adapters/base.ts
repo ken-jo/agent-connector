@@ -27,6 +27,8 @@ import type {
   DiagnosticResult,
   HealthCheck,
   HookParadigm,
+  ActionConfirm,
+  ActionPlacement,
   PlatformCapabilities,
   PlatformId,
   PlatformMemoryOverride,
@@ -161,10 +163,16 @@ export interface HookMergeDescriptor<E> {
 export interface ActionTrigger {
   /** The action id — also the per-action file/key name on most hosts. */
   id: string;
-  /** Display label (action.description ?? action.id). */
+  /** Display label (action.label ?? action.description ?? action.id). */
   label: string;
-  /** One-line description (action.description ?? action.id). */
+  /** One-line description (action.description ?? action.label ?? action.id). */
   description: string;
+  /** Optional icon metadata for hosts that can display one. */
+  icon?: string;
+  /** Optional placement metadata for hosts that can honor it. */
+  placement?: ActionPlacement | ActionPlacement[];
+  /** Optional confirmation metadata for hosts that can honor it. */
+  confirm?: boolean | ActionConfirm;
   /** `<homeBin> action <host> <id> --connector <connectorId>` (the verb the host runs). */
   command: string;
 }
@@ -689,17 +697,30 @@ export abstract class BaseAdapter implements Adapter {
    * guards (platforms[id].actions === false / empty actions).
    */
   protected actionTriggers(ctx: InstallContext): ActionTrigger[] {
-    return (ctx.connector.actions ?? []).map((action) => ({
-      id: action.id,
-      label: action.description ?? action.id,
-      description: action.description ?? action.id,
-      command: buildHomeBinActionCommand(
-        ctx.homeBinPath,
-        this.id,
-        action.id,
-        ctx.connector.id,
-      ),
-    }));
+    return (ctx.connector.actions ?? []).map((action) => {
+      const host = action.hosts?.[this.id];
+      const label = host?.label ?? action.label ?? action.description ?? action.id;
+      const description =
+        host?.description ?? action.description ?? action.label ?? label;
+      return {
+        id: action.id,
+        label,
+        description,
+        ...(host?.icon ?? action.icon ? { icon: host?.icon ?? action.icon } : {}),
+        ...(host?.placement ?? action.placement
+          ? { placement: host?.placement ?? action.placement }
+          : {}),
+        ...(host?.confirm ?? action.confirm
+          ? { confirm: host?.confirm ?? action.confirm }
+          : {}),
+        command: buildHomeBinActionCommand(
+          ctx.homeBinPath,
+          this.id,
+          action.id,
+          ctx.connector.id,
+        ),
+      };
+    });
   }
 
   /**

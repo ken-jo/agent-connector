@@ -1,6 +1,6 @@
 # Project Memory
 
-Last updated: 2026-06-29
+Last updated: 2026-07-01
 
 ## Current Product Direction
 
@@ -22,6 +22,7 @@ The public site should not read like a generic agent-user tool. It should explai
 - Expand `install <source>` beyond GitHub source specs toward npm/registry/archive intake.
 - Increase live verification depth by tier, not by raw platform count: full E2E where possible, live-accept where auth blocks model turns, install/doctor placement for GUI-only hosts.
 - Continue reducing duplicated support claims by generating public docs from adapter capabilities and keeping human-authored provenance separate.
+- Keep statusline/action customization conservative and capability-driven. SDK knobs should expose only what adapters can honestly map today; hosts with preset-only or undocumented UI should skip-warn instead of being forced into a fake `render(ctx)` or action affordance model.
 
 ## Completed Direction Work
 
@@ -32,6 +33,7 @@ The public site should not read like a generic agent-user tool. It should explai
 - Added a generated host verification snapshot from `docs/host-verification-results.csv` and surfaced a public verification ladder on `/coverage`, separating full E2E, live-accept/auth-blocked, and install+doctor placement confidence.
 - Added a generated release hygiene snapshot for `/coverage`, showing repository package version, npm latest, GitHub release snapshot availability, and CI/deploy workflow presence so release drift is visible instead of hidden in README badges only.
 - Added blog discovery plumbing: prerender now emits `/feed.xml`, the site head advertises it as an RSS alternate, and the blog index links to the feed directly. The public blog currently carries one BUILDING test post with a cover image so image rendering can be reviewed before real articles are published.
+- Hardened the statusline/action SDK around currently supportable host behavior. Statusline now has shared/per-host options (`refreshInterval`, `respectUserColors`, `hideContextIndicator`, framework-enforced `maxLines`) and adapters write only supported command-driven settings for `antigravity-cli`, `claude-code`, and `qwen-code`. Actions now carry UI metadata (`label`, `icon`, `placement`, `confirm`) plus per-host overrides and capability metadata describing whether the host affordance is exec, exec-file, manual-hook, paste, plugin-command, or task. Verified with `npm run typecheck`, `npm run build`, and the focused statusline/action/docs drift regression suite.
 
 ## Public Coverage Rule
 

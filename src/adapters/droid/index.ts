@@ -221,6 +221,8 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     // exec-file interpreter resolution is UNVERIFIED on win32, so the emitter
     // skip-warns there (see installActions).
     supportsActions: true,
+    actionInvocationMode: "exec-file",
+    actionAffordanceKind: "slash-command",
   };
 
   // ── Detection ────────────────────────────────────────────────────────────

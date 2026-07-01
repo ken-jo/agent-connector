@@ -275,15 +275,15 @@ export const sectionDescription: Record<string, string> = {
   "host-hooks":
     "A beginner-friendly map of host hook behavior by CLI paradigm: json-stdio hook commands, TypeScript plugin bridges, MCP-only hosts, event normalization, decision responses, and safe fallback rules.",
   "hud-statusline":
-    "How the HUD/statusline surface works: a host UI render callback outside MCP, where it is wired, when it updates, what context it receives, and how unsupported hosts skip safely.",
+    "How the HUD/statusline surface works: a host UI render callback outside MCP, statusline options, where it is wired, when it updates, what context it receives, and how unsupported hosts skip safely.",
   "actions-guide":
-    "How agent-connector actions work: deliberate user-invoked handlers dispatched through the home binary, how they differ from MCP tools and hooks, and where host affordances can expose them.",
+    "How agent-connector actions work: deliberate user-invoked handlers dispatched through the home binary, how action metadata maps to host affordances, how they differ from MCP tools and hooks, and where hosts can expose them.",
   "special-surfaces":
     "A beginner map of the non-MCP authoring surfaces: slash commands, skills, subagents, memory, statusline, and actions, grouped by static content files versus runtime handlers.",
   installation:
     "Install agent-connector as a dependency of your MCP package (npm install @ken-jo/agent-connector), then ship a branded CLI/bin such as npx @acme/acme-db-mcp install. Global framework CLI guidance is for connector-free agent token telemetry, not normal branded MCP lifecycle commands; developer artifact tooling should use npx @ken-jo/agent-connector ... --connector by default. ESM-only, pure-JS / WASM deps, Node >=18.17, no native build.",
   sdk:
-    "The SDK contract for MCP-package authors and AI agents: package.json supplies the public package identity, @ken-jo/agent-connector/sdk supplies defineConnector, typed define* helpers, host capability introspection, and public types, @ken-jo/agent-connector/cli turns that package into a branded installer binary, and llms/skill references give agents task-specific guidance.",
+    "The SDK contract for MCP-package authors and AI agents: package.json supplies the public package identity, @ken-jo/agent-connector/sdk supplies defineConnector, typed define* helpers, statusline/action customization metadata, host capability introspection, and public types, @ken-jo/agent-connector/cli turns that package into a branded installer binary, and llms/skill references give agents task-specific guidance.",
   "quick-start":
     "MCP developers: depend on agent-connector, write defineConnector, run audit, then ship a branded MCP package/bin to deploy everywhere — verify with doctor, heal with upgrade, and reverse with uninstall.",
   overview:
@@ -301,7 +301,7 @@ export const sectionDescription: Record<string, string> = {
   "hooks-guide":
     "The precise, visible cross-platform hook map: 13 canonical events × every host, grouped by paradigm, with per-platform native names, capabilities, and a claude-code vs kilo-cli side-by-side. Hooks are the surface that varies most across platforms.",
   surfaces:
-    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts, and host-native exception files such as CLAUDE.md (Claude Code), GEMINI.md (Gemini CLI), .clinerules/agent-connector.md (Cline; project DIRECTORY form, user ~/Documents/Cline/Rules — skip-warns when .clinerules is a single FILE), .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf). Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler; emitted for claude-code and antigravity-cli (top-level statusLine) and qwen-code (nested ui.statusLine), other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers dispatched by `agent-connector action`; host affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw fork, which inherits openclaw's emitter), other hosts skip-warn).",
+    "Slash commands, Agent Skills, and subagents as content-only files — pure file writers rendered per platform. Plus memory: standing guidance written into the memory/rules file each host actually reads — a marker-fenced, hash-stamped managed block on AGENTS.md hosts, and host-native exception files such as CLAUDE.md (Claude Code), GEMINI.md (Gemini CLI), .clinerules/agent-connector.md (Cline; project DIRECTORY form, user ~/Documents/Cline/Rules — skip-warns when .clinerules is a single FILE), .amazonq/rules (Amazon Q), .continue/rules with `alwaysApply: true` (Continue), and .windsurf/rules with `trigger: always_on` (Windsurf). Plus two runtime-dispatched handler surfaces beyond the content writers — a singular `statusline` (a HUD render(ctx) handler with options; emitted for claude-code and antigravity-cli (top-level statusLine) and qwen-code (nested ui.statusLine), other hosts skip-warn) and `actions` (user-invokable run(ctx) handlers with label/icon/placement/confirm metadata dispatched by `agent-connector action`; host affordance emitters now ship for droid, hermes, kiro, omp, openclaw, pi, warp, and zed (plus the nemoclaw fork, which inherits openclaw's emitter), other hosts skip-warn).",
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 10 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). Your branded `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / OpenCode / Kilo / Antigravity are live-verified across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, the framework `package` command (`npx @ken-jo/agent-connector package --connector ...`) emits any of 10 marketplace/extension formats — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
@@ -413,13 +413,13 @@ export const connectorConfigFields: FieldRow[] = [
     name: "statusline",
     type: "StatuslineDef",
     notes:
-      "The connector's status line / HUD — a single render(ctx) handler; SINGULAR. Omit when none.",
+      "The connector's status line / HUD — a single render(ctx) handler with options and per-host render/options overrides; SINGULAR. Omit when none.",
   },
   {
     name: "actions",
     type: "ActionDef[]",
     notes:
-      "User-invokable actions dispatched by `agent-connector action`; supporting adapters emit native host affordances, unsupported hosts skip-warn. Omit when none.",
+      "User-invokable actions dispatched by `agent-connector action`; supports label/icon/placement/confirm metadata and per-host overrides. Supporting adapters emit native host affordances, unsupported hosts skip-warn. Omit when none.",
   },
   {
     name: "platforms",
@@ -518,14 +518,14 @@ export const resolvedConnectorFields: FieldRow[] = [
     name: "statusline",
     type: "StatuslineDef",
     notes:
-      'Normalized; name defaulted ("statusline"); omitted when none. Carries the live render handler.',
+      'Normalized; name defaulted ("statusline"); omitted when none. Carries the live render handler plus statusline options.',
   },
   {
     name: "actions",
     type: "ActionDef[]",
     required: true,
     notes:
-      "Normalized; ids defaulted/validated kebab-case + unique; [] when none. Carries the live run handlers.",
+      "Normalized; ids defaulted/validated kebab-case + unique; [] when none. Carries live run handlers plus action affordance metadata.",
   },
   {
     name: "platforms",
@@ -1105,7 +1105,7 @@ export const platformOverrideFields: FieldRow[] = [
     name: "configPatch",
     type: "ConfigPatchDef[]",
     notes:
-      "Declarative host-config key patches for host-exclusive settings keys extra can't reach (e.g. Claude Code statusLine). Fixed semantics: set-if-absent on a dotted leaf key, skip-warn on ANY conflict, refcounted ownership ledger, reversible uninstall. claude-code only today; other adapters skip-warn with the manual edit.",
+      "Declarative host-config key patches for host-exclusive settings keys extra can't reach (e.g. Claude Code env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS). Fixed semantics: set-if-absent on a dotted leaf key, skip-warn on ANY conflict, refcounted ownership ledger, reversible uninstall. statusLine is reserved for the statusline surface. claude-code only today; other adapters skip-warn with the manual edit.",
   },
   {
     name: "server",
@@ -1160,7 +1160,7 @@ export const configPatchFields: FieldRow[] = [
     type: "string",
     required: true,
     notes:
-      'Dotted LEAF path into the adapter\'s one patchable file, e.g. "statusLine" or "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS". Segments match [A-Za-z0-9_-]+ — no dots-in-key, no array indices. Keys agent-connector already models (hooks*, mcpServers*) are rejected at defineConnector; the claude-code sensitive-key denylist (permissions*, allowedTools*, apiKey*, env.ANTHROPIC_*, token/key/secret/proxy env vars, auth/login keys) is hard-refused.',
+      'Dotted LEAF path into the adapter\'s one patchable file, e.g. "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS". Segments match [A-Za-z0-9_-]+ — no dots-in-key, no array indices. Keys agent-connector already models (hooks*, mcpServers*, statusLine*) are rejected at defineConnector; the claude-code sensitive-key denylist (permissions*, allowedTools*, apiKey*, env.ANTHROPIC_*, token/key/secret/proxy env vars, auth/login keys) is hard-refused.',
   },
   {
     name: "value",

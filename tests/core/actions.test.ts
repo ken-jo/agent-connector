@@ -186,6 +186,41 @@ describe("defineConnector — action validation", () => {
     ).toThrow(/description must be a string/);
   });
 
+  it("preserves optional action UI metadata and validates its shape", () => {
+    const resolved = actionsConnector("act-meta", [
+      {
+        id: "deploy",
+        label: "Deploy",
+        description: "Deploy the app",
+        icon: "rocket",
+        placement: ["command-palette", "slash-command"],
+        confirm: { title: "Deploy?", message: "Run deploy now?" },
+        run: () => undefined,
+      },
+    ]);
+    expect(resolved.actions[0]).toMatchObject({
+      id: "deploy",
+      label: "Deploy",
+      description: "Deploy the app",
+      icon: "rocket",
+      placement: ["command-palette", "slash-command"],
+      confirm: { title: "Deploy?", message: "Run deploy now?" },
+    });
+
+    expect(() =>
+      defineConnector({
+        id: "act-bad-label",
+        actions: [{ id: "go", label: 1 as never, run: () => undefined }],
+      }),
+    ).toThrow(/actions\[0\]\.label must be a string/);
+    expect(() =>
+      defineConnector({
+        id: "act-bad-placement",
+        actions: [{ id: "go", placement: [1] as never, run: () => undefined }],
+      }),
+    ).toThrow(/placement must be a string or string\[\]/);
+  });
+
   it("throws when actions is not an array", () => {
     // A second payload (server) lets the empty-connector guard pass so the
     // normalizeActions array-shape check is the branch that fires.
@@ -226,6 +261,31 @@ describe("defineConnector — action hosts: map validation", () => {
     });
     expect(typeof resolved.actions[0]!.hosts?.["codex"]?.run).toBe("function");
     expect(typeof resolved.actions[0]!.hosts?.["claude-code"]?.run).toBe("function");
+  });
+
+  it("resolves an action host override that only supplies UI metadata", () => {
+    const resolved = defineConnector({
+      id: "act-hosts-meta-ok",
+      actions: [
+        {
+          id: "go",
+          label: "Run",
+          run: () => ({ message: "top" }),
+          hosts: {
+            warp: {
+              label: "Paste run command",
+              placement: "workflow",
+              confirm: false,
+            },
+          },
+        },
+      ],
+    });
+    expect(resolved.actions[0]!.hosts?.warp).toMatchObject({
+      label: "Paste run command",
+      placement: "workflow",
+      confirm: false,
+    });
   });
 
   it("rejects an UNKNOWN host id in an action hosts: map (message names the bad id + surface)", () => {

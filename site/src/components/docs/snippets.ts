@@ -512,12 +512,12 @@ export const configPatchSnippet = `platforms: {
       {
         // dotted LEAF path into settings.json at the install scope
         // (segments [A-Za-z0-9_-]+ — no array indices)
-        key: "statusLine",
+        key: "env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
         // written ONLY if the key is absent; any conflict → skip-warn
-        value: { type: "command", command: "context-mode statusline", padding: 0 },
+        value: "1",
         // REQUIRED — printed in the install diff and every skip-warn
-        reason: "Render the context meter in Claude Code's status line",
-        docsUrl: "https://github.com/acme/context-mode#statusline",
+        reason: "Enable Claude Code agent teams for this connector's workflow",
+        docsUrl: "https://docs.anthropic.com/en/docs/claude-code/settings",
       },
     ],
   },

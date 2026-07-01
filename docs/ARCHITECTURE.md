@@ -209,45 +209,67 @@ Distilled from the union of platform behaviors (report §3).
   interface StatuslineDef {
     name?: string;          // kebab-case id; default "statusline"
     description?: string;
+    options?: StatuslineOptions;
     render: (ctx: StatuslineContext) => string | Promise<string>;
+    hosts?: Partial<Record<PlatformId, {
+      render?: (ctx: StatuslineContext) => string | Promise<string>;
+      options?: StatuslineOptions;
+    }>>;
   }
   ```
   `StatuslineContext` carries `{ host, connectorId?, sessionId?, cwd?,
   model?{id?,displayName?}, cost?{totalUsd?},
   context?{usedTokens?,maxTokens?,percent?}, transcriptPath?, raw }` — fields
   the host doesn't provide are undefined; `raw` is the host's verbatim payload.
-  SDK helper `defineStatusline({ render })` (typed identity) plus types
-  `StatuslineDef` / `StatuslineContext` are exported from the package root.
-  **Deployment (v1 = claude-code + qwen-code):**
+  `StatuslineOptions` includes host-mapped knobs (`refreshInterval`,
+  `respectUserColors`, `hideContextIndicator`) and framework-enforced
+  `maxLines`; adapters write only knobs their host actually supports. SDK helper
+  `defineStatusline({ render })` (typed identity) plus types `StatuslineDef` /
+  `StatuslineContext` are exported from the package root and `/sdk`.
+  **Deployment (command-driven v1 = antigravity-cli + claude-code + qwen-code):**
   `PlatformCapabilities.supportsStatusline` gates it (read as `?? false`); every
-  other adapter emits the standard skip-warn, never a silent drop. On
+  other adapter emits the standard skip-warn, never a silent drop. Capability
+  metadata exposes `statuslineMode` and option support so SDK users can see
+  whether a host is `command-stdin` and which options can be written. On
   claude-code, install registers
   `settings.json.statusLine = { type: "command", command: "<homeBin> statusline
-  claude-code --connector <id>" }`; on qwen-code it registers the nested
-  `settings.json.ui.statusLine` equivalent. Both use the refcounted ownership
-  ledger: set-if-absent, never clobber a status-line setting agent-connector
-  doesn't own (skip-warn + manual-edit hint), and uninstall removes only when
-  last-owner ∧ value-unchanged ∧ prior-absent. `statusLine` remains a **reserved
-  key** for the modeled statusline surface — raw `configPatch` targeting it
-  throws `ConnectorConfigError` pointing at `statusline` where configPatch is
-  available. Runtime is **fail-safe**: any error (throwing render, unknown
-  connector, malformed stdin) → exit 0 / empty stdout; a HUD must never wedge
-  the host. Doctor adds a dedicated `statusline wired` check (`ok /
-  present-but-not-ours / missing`). CLI verb:
+  claude-code --connector <id>", refreshInterval? }`; on qwen-code it registers
+  the nested `settings.json.ui.statusLine` equivalent and may pass
+  `refreshInterval`, `respectUserColors`, and `hideContextIndicator`; on
+  antigravity-cli it writes the `agy` command statusline shape. Hosts whose only
+  status UI is a built-in preset (for example a host-owned compact/verbose mode
+  with no connector-owned command entrypoint) are intentionally not modeled as a
+  `render(ctx)` statusline yet. All supporting hosts use the refcounted
+  ownership ledger: set-if-absent, never clobber a status-line setting
+  agent-connector doesn't own (skip-warn + manual-edit hint), and uninstall
+  removes only when last-owner ∧ value-unchanged ∧ prior-absent. `statusLine`
+  remains a **reserved key** for the modeled statusline surface — raw
+  `configPatch` targeting it throws `ConnectorConfigError` pointing at
+  `statusline` where configPatch is available. Runtime is **fail-safe**: any
+  error (throwing render, unknown connector, malformed stdin) → exit 0 / empty
+  stdout; a HUD must never wedge the host. Doctor adds a dedicated `statusline
+  wired` check (`ok / present-but-not-ours / missing`). CLI verb:
   `agent-connector statusline <platform> --connector <id>` (internal, like
   `hook`/`serve`).
 - **`actions` (dispatch backbone)** — a connector declares `actions?:
-  ActionDef[]`. Each `ActionDef = { id: string; description?: string; run:
-  (ctx: HostCtx) => ActionResult | void | Promise<…>; hosts?: per-host run
-  override }`. The universal verb `agent-connector action <platform> <actionId>
-  --connector <id>` loads the connector and invokes `run(ctx)`. Error semantics
-  are USER-TRIGGERED (not fail-safe-silent like hooks/statusline): unknown action
-  id or a throw → exit 1 + stderr. `defineAction({ id, run })` is the typed
+  ActionDef[]`. Each `ActionDef = { id: string; label?: string; description?:
+  string; icon?: string; placement?: ActionPlacement | ActionPlacement[];
+  confirm?: boolean | { title?: string; message?: string }; run: (ctx: HostCtx)
+  => ActionResult | void | Promise<…>; hosts?: per-host metadata/run override }`.
+  The universal verb `agent-connector action <platform> <actionId> --connector
+  <id>` loads the connector and invokes `run(ctx)`. Error semantics are
+  USER-TRIGGERED (not fail-safe-silent like hooks/statusline): unknown action id
+  or a throw → exit 1 + stderr. `defineAction({ id, run })` is the typed
   authoring helper (exported from root and `/sdk`). **v1 = universal dispatch
   plus selected host affordance emitters**: install emits host-side affordances on
-  `droid`, `hermes`, `nemoclaw`, `omp`, `openclaw`, and `warp`; every other host
-  skip-warns. `actions` is a real member of the `SurfaceName` introspection
-  vocabulary; `explain()` reports those emitter hosts as native and the rest as
+  `droid`, `hermes`, `kiro`, `nemoclaw`, `omp`, `openclaw`, `pi`, `warp`, and
+  `zed`; every other host skip-warns. Capability metadata exposes
+  `actionInvocationMode` (`exec`, `exec-file`, `manual-hook`, `paste`,
+  `plugin-command`, or `task`) and `actionAffordanceKind` (`slash-command`,
+  `hook-panel`, `workflow`, `extension-command`, `task`, etc.) so SDK
+  introspection can distinguish "supported" from "supported how". `actions` is a
+  real member of the `SurfaceName` introspection vocabulary; `explain()` reports
+  those emitter hosts as native with mode/affordance details and the rest as
   skip-warn; `simulate()` does not cover actions (an action takes no host payload
   and has no host-honor verdict — intentional).
 - **`configPatch`** — the third (and smallest) escape hatch beside `extra` and

@@ -23,6 +23,7 @@ import type {
   ResolvedConnector,
   SkillDef,
   StatuslineDef,
+  StatuslineOptions,
   SubagentDef,
 } from "./types.js";
 import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
@@ -274,6 +275,139 @@ function validateHostsMap(
     ) {
       throw new ConnectorConfigError(
         `${surfaceLabel}.${platformId}.${implField} must be a function`,
+      );
+    }
+  }
+}
+
+function validateStatuslineOptions(
+  options: unknown,
+  surfaceLabel: string,
+): void {
+  if (options === undefined) return;
+  if (options == null || typeof options !== "object" || Array.isArray(options)) {
+    throw new ConnectorConfigError(`${surfaceLabel} must be an object`);
+  }
+  const o = options as StatuslineOptions;
+  if (
+    o.refreshInterval !== undefined &&
+    (!Number.isInteger(o.refreshInterval) || o.refreshInterval < 1)
+  ) {
+    throw new ConnectorConfigError(`${surfaceLabel}.refreshInterval must be an integer >= 1`);
+  }
+  if (
+    o.maxLines !== undefined &&
+    (!Number.isInteger(o.maxLines) || o.maxLines < 1)
+  ) {
+    throw new ConnectorConfigError(`${surfaceLabel}.maxLines must be an integer >= 1`);
+  }
+  if (
+    o.respectUserColors !== undefined &&
+    typeof o.respectUserColors !== "boolean"
+  ) {
+    throw new ConnectorConfigError(`${surfaceLabel}.respectUserColors must be a boolean`);
+  }
+  if (
+    o.hideContextIndicator !== undefined &&
+    typeof o.hideContextIndicator !== "boolean"
+  ) {
+    throw new ConnectorConfigError(`${surfaceLabel}.hideContextIndicator must be a boolean`);
+  }
+}
+
+function validateStatuslineHosts(map: unknown, surfaceLabel: string): void {
+  if (map == null) return;
+  if (typeof map !== "object" || Array.isArray(map)) {
+    throw new ConnectorConfigError(
+      `${surfaceLabel} must be an object keyed by platform id`,
+    );
+  }
+  for (const [platformId, entry] of Object.entries(map as Record<string, unknown>)) {
+    if (!REGISTERED_PLATFORM_IDS.has(platformId as PlatformId)) {
+      const valid = [...REGISTERED_PLATFORM_IDS].sort().join(", ");
+      throw new ConnectorConfigError(
+        `unknown platform id "${platformId}" in hosts map for ${surfaceLabel}; valid ids: ${valid}`,
+      );
+    }
+    if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ConnectorConfigError(`${surfaceLabel}.${platformId} must be an object`);
+    }
+    const e = entry as Record<string, unknown>;
+    if (e.render !== undefined && typeof e.render !== "function") {
+      throw new ConnectorConfigError(`${surfaceLabel}.${platformId}.render must be a function`);
+    }
+    validateStatuslineOptions(e.options, `${surfaceLabel}.${platformId}.options`);
+    if (e.render === undefined && e.options === undefined) {
+      throw new ConnectorConfigError(
+        `${surfaceLabel}.${platformId} must declare render or options`,
+      );
+    }
+  }
+}
+
+function validateOptionalString(value: unknown, surfaceLabel: string): void {
+  if (value !== undefined && typeof value !== "string") {
+    throw new ConnectorConfigError(`${surfaceLabel} must be a string`);
+  }
+}
+
+function validateActionPlacement(value: unknown, surfaceLabel: string): void {
+  if (value === undefined) return;
+  if (typeof value === "string") return;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return;
+  throw new ConnectorConfigError(`${surfaceLabel} must be a string or string[]`);
+}
+
+function validateActionConfirm(value: unknown, surfaceLabel: string): void {
+  if (value === undefined || typeof value === "boolean") return;
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConnectorConfigError(`${surfaceLabel} must be a boolean or object`);
+  }
+  const c = value as Record<string, unknown>;
+  validateOptionalString(c.title, `${surfaceLabel}.title`);
+  validateOptionalString(c.message, `${surfaceLabel}.message`);
+}
+
+function validateActionMetadata(def: Record<string, unknown>, surfaceLabel: string): void {
+  validateOptionalString(def.label, `${surfaceLabel}.label`);
+  validateOptionalString(def.description, `${surfaceLabel}.description`);
+  validateOptionalString(def.icon, `${surfaceLabel}.icon`);
+  validateActionPlacement(def.placement, `${surfaceLabel}.placement`);
+  validateActionConfirm(def.confirm, `${surfaceLabel}.confirm`);
+}
+
+function validateActionHosts(map: unknown, surfaceLabel: string): void {
+  if (map == null) return;
+  if (typeof map !== "object" || Array.isArray(map)) {
+    throw new ConnectorConfigError(
+      `${surfaceLabel} must be an object keyed by platform id`,
+    );
+  }
+  for (const [platformId, entry] of Object.entries(map as Record<string, unknown>)) {
+    if (!REGISTERED_PLATFORM_IDS.has(platformId as PlatformId)) {
+      const valid = [...REGISTERED_PLATFORM_IDS].sort().join(", ");
+      throw new ConnectorConfigError(
+        `unknown platform id "${platformId}" in hosts map for ${surfaceLabel}; valid ids: ${valid}`,
+      );
+    }
+    if (entry == null || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new ConnectorConfigError(`${surfaceLabel}.${platformId} must be an object`);
+    }
+    const e = entry as Record<string, unknown>;
+    if (e.run !== undefined && typeof e.run !== "function") {
+      throw new ConnectorConfigError(`${surfaceLabel}.${platformId}.run must be a function`);
+    }
+    validateActionMetadata(e, `${surfaceLabel}.${platformId}`);
+    if (
+      e.run === undefined &&
+      e.label === undefined &&
+      e.description === undefined &&
+      e.icon === undefined &&
+      e.placement === undefined &&
+      e.confirm === undefined
+    ) {
+      throw new ConnectorConfigError(
+        `${surfaceLabel}.${platformId} must declare run or metadata`,
       );
     }
   }
@@ -623,9 +757,10 @@ function normalizeStatusline(
   if (input.description !== undefined && typeof input.description !== "string") {
     throw new ConnectorConfigError("statusline.description must be a string");
   }
-  // Per-host render override map: registered platform ids only, each render a
-  // function (author-time hard error, mirroring the hook hosts-map validation).
-  validateHostsMap(input.hosts, "statusline.hosts", "render");
+  validateStatuslineOptions(input.options, "statusline.options");
+  // Per-host override map: registered platform ids only. A host entry may
+  // override render, options, or both; top-level render remains mandatory.
+  validateStatuslineHosts(input.hosts, "statusline.hosts");
   return { ...input, name };
 }
 
@@ -658,12 +793,10 @@ function normalizeActions(input: ActionDef[] | undefined): ActionDef[] {
     if (typeof action.run !== "function") {
       throw new ConnectorConfigError(`actions[${i}].run must be a function`);
     }
-    if (action.description !== undefined && typeof action.description !== "string") {
-      throw new ConnectorConfigError(`actions[${i}].description must be a string`);
-    }
-    // Per-host run override map: registered platform ids only, each run a
-    // function (author-time hard error, mirroring the statusline/hook hosts-map).
-    validateHostsMap(action.hosts, `actions.${id}.hosts`, "run");
+    validateActionMetadata(action as unknown as Record<string, unknown>, `actions[${i}]`);
+    // Per-host override map: registered platform ids only. A host entry may
+    // override run, metadata, or both; top-level run remains mandatory.
+    validateActionHosts(action.hosts, `actions.${id}.hosts`);
     return { ...action, id };
   });
 }

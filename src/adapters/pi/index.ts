@@ -93,6 +93,8 @@ export class PiAdapter extends BaseAdapter implements Adapter {
     // fork uses (omp's action support was inferred FROM pi). supportsActions →
     // the installActions/uninstallActions overrides below.
     supportsActions: true,
+    actionInvocationMode: "plugin-command",
+    actionAffordanceKind: "extension-command",
   };
 
   // ── Detection ────────────────────────────────────────────────────────────
