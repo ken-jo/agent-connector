@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.99 — 2026-07-01
+
+Statusline and action SDK hardening, plus coverage-page usability updates.
+
+### Added
+
+- Added stronger statusline/action SDK contracts, validation, and test helpers for hosts that expose runtime-dispatched UI affordances.
+- Added coverage filters for run type, server type, tier, and surface so the public matrix can be narrowed by combined conditions.
+
+### Changed
+
+- Kept promoted OSS hosts such as Codex CLI in the Frontier band while still showing their actual GitHub star counts.
+- Updated agent guidance, `llms.txt`, `llms-full.txt`, and the sample app to reflect the statusline/action surfaces without overloading the concise LLM map.
+
+### Fixed
+
+- Fixed mobile overflow on the wizard page.
+- Corrected Hermes Agent and Kiro coverage metadata to use their public product/source repos.
+
 ## 0.4.98 — 2026-06-30
 
 Documentation and site polish for the beginner onboarding release.
