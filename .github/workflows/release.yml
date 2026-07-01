@@ -232,4 +232,20 @@ jobs:
           fi
           git add site/src/release-status.generated.ts
           git commit -m "chore(site): refresh release status for ${TAG}"
-          git push origin main
+          if git push origin main; then
+            exit 0
+          fi
+
+          branch="automation/release-status-${TAG#v}"
+          git checkout -B "$branch"
+          git push --force-with-lease origin "$branch"
+          existing_pr="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing_pr" ]]; then
+            echo "Release status refresh PR already exists: #${existing_pr}"
+            exit 0
+          fi
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore(site): refresh release status for ${TAG}" \
+            --body "Automated release workflow follow-up after ${TAG}. Direct push to protected main was unavailable, so this PR carries the generated release-status snapshot."
