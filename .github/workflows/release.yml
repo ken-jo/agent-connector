@@ -29,6 +29,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  pull-requests: write
 
 concurrency:
   group: release-${{ github.event_name }}-${{ github.ref_name }}
@@ -94,6 +95,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ steps.resolve.outputs.checkout_ref }}
+          token: ${{ secrets.RELEASE_PUSH_TOKEN || github.token }}
 
       - uses: actions/setup-node@v4
         with:
