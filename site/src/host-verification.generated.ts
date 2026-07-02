@@ -4,7 +4,7 @@
  * Do not edit by hand. The source ledger is docs/host-verification-results.csv.
  */
 
-export type VerificationLevelId = "e2e" | "live-accept" | "install-doctor";
+export type VerificationLevelId = "e2e" | "live-runtime" | "live-accept" | "live-placement" | "install-doctor";
 
 export interface HostVerificationResult {
   host: string;
@@ -19,25 +19,33 @@ export interface HostVerificationResult {
 
 export const verificationLevelOrder = [
   "e2e",
+  "live-runtime",
   "live-accept",
+  "live-placement",
   "install-doctor",
 ] as const satisfies readonly VerificationLevelId[];
 
 export const verificationLevelLabels: Record<VerificationLevelId, string> = {
   e2e: "E2E",
+  "live-runtime": "Live runtime",
   "live-accept": "Live accept",
+  "live-placement": "Live placement",
   "install-doctor": "Install + doctor",
 };
 
 export const verificationLevelDescriptions: Record<VerificationLevelId, string> = {
   e2e: "A real host advanced a model turn and the MCP tool call was observed.",
+  "live-runtime": "A real host advanced a headless runtime and fired hooks or loaded MCP, but no model MCP tool-call E2E was observed.",
   "live-accept": "The host accepted or listed the installed MCP config, but auth or model access blocked the final turn.",
+  "live-placement": "A real host CLI was installed and driven far enough to verify native placement plus uninstall cleanup, but no offline accept/runtime lane exists.",
   "install-doctor": "Placement, dry install, doctor, and uninstall hygiene are verified; no login-free headless runtime lane is available.",
 };
 
 export function verificationLevelForResult(result: string): VerificationLevelId {
   if (result === "VERIFIED_E2E") return "e2e";
+  if (result === "LIVE_RUNTIME_VERIFIED") return "live-runtime";
   if (result === "MCP_INSTALL_VERIFIED_AUTH_BLOCKED") return "live-accept";
+  if (result === "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE") return "live-placement";
   return "install-doctor";
 }
 
@@ -76,11 +84,11 @@ export const hostVerificationResults = [
     "host": "cursor",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Cursor config/probe only; no headless Cursor CLI found",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "Cursor user config/probe passed"
+    "hostCliSurface": "cursor-agent pinned Windows CLI installed in .verify-tools",
+    "headlessModelMcpE2e": "BLOCKED",
+    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
+    "issueOrBlocker": "Cursor turn requires CURSOR_API_KEY before a model MCP tool-call",
+    "evidence": "cursor-agent mcp list listed ac-verify; placement and uninstall clean passed"
   },
   {
     "host": "vscode-copilot",
@@ -136,11 +144,11 @@ export const hostVerificationResults = [
     "host": "mimo-code",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "IDE/extension host only in this environment",
-    "evidence": "registry install+doctor probe passed"
+    "hostCliSurface": "mimo @mimo-ai/cli installed in .verify-tools",
+    "headlessModelMcpE2e": "PARTIAL",
+    "result": "LIVE_RUNTIME_VERIFIED",
+    "issueOrBlocker": "offline runtime fired hooks and MCP load passed, but the model turn did not call the MCP tool",
+    "evidence": "mimo mcp list connected and server received initialize/tools/list; mimo run fired UserPromptSubmit, SessionStart, Stop; mcp-tool-call lane recorded no tools/call"
   },
   {
     "host": "kilo",
@@ -156,11 +164,11 @@ export const hostVerificationResults = [
     "host": "kilo-cli",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no installed/login-free Kilo CLI found",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "hostCliSurface": "kilo @kilocode/cli installed in .verify-tools",
+    "headlessModelMcpE2e": "PARTIAL",
+    "result": "LIVE_RUNTIME_VERIFIED",
+    "issueOrBlocker": "offline runtime fired hooks, but no model MCP tool-call E2E was observed",
+    "evidence": "kilo mcp list accepted config; kilo run fired events.log; placement and uninstall clean passed"
   },
   {
     "host": "warp",
@@ -176,31 +184,31 @@ export const hostVerificationResults = [
     "host": "hermes",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "no verified installable headless CLI package found",
     "headlessModelMcpE2e": "NOT_RUN",
     "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "issueOrBlocker": "npm hermes-cli is an unrelated travel-agency CLI, so it was not installed",
+    "evidence": "identity guard skipped the wrong package; registry install+doctor probe remains the coverage floor"
   },
   {
     "host": "nemoclaw",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "no verified installable headless CLI package found",
     "headlessModelMcpE2e": "NOT_RUN",
     "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "issueOrBlocker": "npm nemoclaw 0.1.0 has no bin and is identity-unverified",
+    "evidence": "identity guard skipped the wrong package; registry install+doctor probe remains the coverage floor"
   },
   {
     "host": "openclaw",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "openclaw npm CLI installed in .verify-tools",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "no id-echoing offline accept verb; no login-free headless model tool-call lane",
+    "evidence": "openclaw placement+uninstall clean passed; configSchema validate gap remains fixed"
   },
   {
     "host": "zed",
@@ -246,51 +254,51 @@ export const hostVerificationResults = [
     "host": "qwen-code",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "qwen 0.19.1 installed",
+    "hostCliSurface": "qwen @qwen-code/qwen-code installed in .verify-tools",
     "headlessModelMcpE2e": "BLOCKED",
     "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "Qwen CLI requires auth type selection before model call",
-    "evidence": "qwen mcp list shows oh-my-agent-connector connected"
+    "issueOrBlocker": "Qwen CLI is auth-gated before a model MCP tool-call",
+    "evidence": "qwen mcp list listed ac-verify; placement and uninstall clean passed"
   },
   {
     "host": "kimi",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "hostCliSurface": "kimi @moonshot-ai/kimi-code 0.18.0 installed in .verify-tools",
+    "headlessModelMcpE2e": "BLOCKED",
+    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
+    "issueOrBlocker": "Kimi model turn is auth-gated; offline doctor validates config only",
+    "evidence": "kimi doctor config validated ac-verify config.toml; placement and uninstall clean passed"
   },
   {
     "host": "pi",
     "installProbe": "PASS_AFTER_FIX",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Pi file-based skills host",
+    "hostCliSurface": "pi @earendil-works/pi-coding-agent installed in .verify-tools",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_WITH_FIX",
-    "issueOrBlocker": "backupSettings tried to copy ~/.pi directory and produced EISDIR before fix; patched BaseAdapter to back up regular files only",
-    "evidence": "after-fix OMAC registry install has no failedOn, no EISDIR, no backupSettings failure; pi regression test asserts backupSettings ignores ~/.pi directory"
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "content-only host; no MCP or lifecycle-hook accept/runtime lane",
+    "evidence": "official Pi CLI installed; content fixture prompts/skills/actions/memory placement+uninstall clean passed"
   },
   {
     "host": "omp",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "omp pinned Windows CLI installed in .verify-tools",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "no offline accept verb; omp -p is auth-gated with no offline model",
+    "evidence": "omp placement+uninstall clean passed using pinned v16.0.10 Windows exe"
   },
   {
     "host": "droid",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "hostCliSurface": "droid pinned Windows CLI installed in .verify-tools",
+    "headlessModelMcpE2e": "BLOCKED",
+    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
+    "issueOrBlocker": "Droid model turn is auth-gated before a model MCP tool-call",
+    "evidence": "droid mcp list listed ac-verify; placement and uninstall clean passed"
   },
   {
     "host": "openhands",
@@ -346,11 +354,11 @@ export const hostVerificationResults = [
     "host": "codebuff",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "codebuff 1.0.682 installed",
-    "headlessModelMcpE2e": "BLOCKED",
+    "hostCliSurface": "codebuff npm CLI installed in .verify-tools",
+    "headlessModelMcpE2e": "NOT_RUN",
     "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "CLI opens TUI; no noninteractive headless completion flag found",
-    "evidence": "version/help checked; registry doctor passed"
+    "issueOrBlocker": "no offline accept verb; mcp list is parsed as an agent prompt and needs auth/runtime boot",
+    "evidence": "codebuff placement+uninstall clean passed"
   },
   {
     "host": "mux",
@@ -366,21 +374,21 @@ export const hostVerificationResults = [
     "host": "crush",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "crush v0.79.1 installed",
-    "headlessModelMcpE2e": "BLOCKED",
-    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "crush has no providers configured before model call",
-    "evidence": "crush run reports provider setup required"
+    "hostCliSurface": "crush @charmland/crush installed in .verify-tools",
+    "headlessModelMcpE2e": "NOT_RUN",
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "no offline accept verb; MCP lives in crush.json and model runtime needs provider setup",
+    "evidence": "crush placement+uninstall clean passed after LOCALAPPDATA sandbox isolation"
   },
   {
     "host": "goose",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "goose-ai command present but not a usable headless agent surface here",
-    "headlessModelMcpE2e": "BLOCKED",
+    "hostCliSurface": "goose pinned Windows CLI installed in .verify-tools",
+    "headlessModelMcpE2e": "NOT_RUN",
     "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "installed command output was not a usable MCP/model CLI path",
-    "evidence": "registry install+doctor probe passed"
+    "issueOrBlocker": "no offline accept verb; goose mcp takes a server name and mcp list is not a reader",
+    "evidence": "goose v1.38.0 Windows zip downloaded; placement+uninstall clean passed"
   },
   {
     "host": "amazon-q",
@@ -396,11 +404,11 @@ export const hostVerificationResults = [
     "host": "continue",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Continue config/probe only; continue command is shell builtin here",
+    "hostCliSurface": "Continue @continuedev/cli installed in .verify-tools",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no local headless Continue CLI available",
-    "evidence": "Continue config/probe passed"
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "no offline config-accept verb; --mcp is an add-from-hub flag, not a reader",
+    "evidence": "Continue placement+uninstall clean passed"
   },
   {
     "host": "windsurf",
@@ -416,11 +424,11 @@ export const hostVerificationResults = [
     "host": "grok-cli",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "grok CLI installed",
-    "headlessModelMcpE2e": "BLOCKED",
-    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "Grok CLI requires xAI API key/keychain before model call",
-    "evidence": "grok prompts for API key"
+    "hostCliSurface": "grok-dev npm CLI installed in .verify-tools",
+    "headlessModelMcpE2e": "NOT_RUN",
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "no offline id-echoing accept verb verified; model turn is API-key/keychain gated",
+    "evidence": "grok-cli placement+uninstall clean passed; npm install needs --legacy-peer-deps --engine-strict=false on Node v24.13.0"
   },
   {
     "host": "devin",
@@ -446,21 +454,21 @@ export const hostVerificationResults = [
     "host": "junie",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Junie IDE config host",
+    "hostCliSurface": "junie @jetbrains/junie CLI installed in .verify-tools",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "IDE host; no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "no offline accept/list verb verified; no login-free headless model surface available",
+    "evidence": "junie placement+uninstall clean passed"
   },
   {
     "host": "mistral-vibe",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "vibe pinned Windows CLI installed in .verify-tools",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
+    "issueOrBlocker": "no offline accept/runtime lane verified; no login-free headless model surface available",
+    "evidence": "Mistral Vibe v2.18.4 Windows zip downloaded; placement+uninstall clean passed"
   }
 ] as const satisfies readonly HostVerificationResult[];
 

@@ -257,6 +257,15 @@ const HOST_LANES = {
     accept: { argv: ["mcp", "list"], kind: "list-id" },
     note: "`droid mcp list` lists our MCP server offline (live-verified); turn is auth-gated.",
   },
+  pi: {
+    bin: "pi",
+    // Pi has no MCP/hook layer. Its native extension points are content files
+    // (prompt templates, skills, actions, memory), so drive the content fixture
+    // and prove placement + uninstall-clean with the official Pi CLI installed.
+    connector: "content",
+    placementOnly: true,
+    note: "content-only host — official Pi CLI installed; prompts/skills/actions/memory placement+uninstall-clean only (no MCP or lifecycle-hook accept/runtime lane).",
+  },
   omp: {
     bin: "omp",
     // oh-my-pi (can1357) ts-plugin host; MCP at ~/.omp/agent/mcp.json (honors
@@ -280,6 +289,29 @@ const HOST_LANES = {
     // (no auth-free runtime — a turn needs CURSOR_API_KEY).
     accept: { argv: ["mcp", "list"], kind: "list-id" },
     note: "`cursor-agent mcp list` lists our ~/.cursor/mcp.json server offline (live-verified); turn needs CURSOR_API_KEY.",
+  },
+  "grok-cli": {
+    bin: "grok",
+    // Community Grok coding-agent CLI; resolves ~/.grok off homedir. No offline
+    // id-echoing config reader has been verified yet, so keep this at placement
+    // until a real accept verb is byte-confirmed.
+    placementOnly: true,
+    note: "placement+uninstall-clean only — no offline id-echoing accept verb verified for grok-dev yet; model turn is API-key/keychain gated.",
+  },
+  junie: {
+    bin: "junie",
+    // JetBrains Junie CLI; adapter writes ~/.junie/mcp/mcp.json off homedir.
+    // First-party docs describe MCP config, but no login-free CLI accept/list
+    // verb has been verified here.
+    placementOnly: true,
+    note: "placement+uninstall-clean only — Junie CLI MCP config is writable, but no offline accept/list verb has been verified yet.",
+  },
+  "mistral-vibe": {
+    bin: "vibe",
+    // Mistral Vibe CLI; adapter writes TOML config under ~/.vibe or project
+    // .vibe. Keep placement-only until an offline config reader is verified.
+    placementOnly: true,
+    note: "placement+uninstall-clean only — Mistral Vibe CLI binary is installable, but no offline accept/runtime lane is verified yet.",
   },
   kimi: {
     bin: "kimi",
@@ -337,8 +369,18 @@ const HOST_INSTALL = {
   codebuff: { kind: "npm", pkg: "codebuff", bin: "codebuff", identity: "github.com/CodebuffAI/codebuff" },
   continue: { kind: "npm", pkg: "@continuedev/cli", bin: "cn", identity: "github.com/continuedev/continue" },
   "mimo-code": { kind: "npm", pkg: "@mimo-ai/cli", bin: "mimo", identity: "github.com/XiaomiMiMo/MiMo-Code" },
+  "kilo-cli": { kind: "npm", pkg: "@kilocode/cli", bin: "kilo", identity: "github.com/Kilo-Org/kilocode" },
+  pi: { kind: "npm", pkg: "@earendil-works/pi-coding-agent", bin: "pi", identity: "github.com/earendil-works/pi" },
   crush: { kind: "npm", pkg: "@charmland/crush", bin: "crush", identity: "github.com/charmbracelet/crush" },
   openclaw: { kind: "npm", pkg: "openclaw", bin: "openclaw", identity: "github.com/openclaw/openclaw" },
+  "grok-cli": {
+    kind: "npm",
+    pkg: "grok-dev",
+    bin: "grok",
+    identity: "npm grok-dev (description: open-source AI coding agent powered by Grok)",
+    npmInstallArgs: ["--legacy-peer-deps", "--engine-strict=false"],
+  },
+  junie: { kind: "npm", pkg: "@jetbrains/junie", bin: "junie", identity: "github.com/JetBrains/junie" },
   // @moonshot-ai/kimi-code is the OFFICIAL Moonshot Kimi Code CLI (bin `kimi`),
   // matching the kimi adapter's $KIMI_CODE_HOME || ~/.kimi-code layout. Pinned to
   // 0.18.0; engines node>=22.19 (this box has node 24). NOT the old "kimi-cli" stub.
@@ -349,17 +391,22 @@ const HOST_INSTALL = {
     kind: "download",
     bin: "goose",
     identity: "github.com/block/goose v1.38.0",
-    extract: "tarbz2",
+    extract: () => (process.platform === "win32" ? "zip" : "tarbz2"),
     // GitHub release tarball; Rust target triple per arch. arm64→aarch64, x64→x86_64.
     url: (arch) =>
-      `https://github.com/block/goose/releases/download/v1.38.0/goose-${
-        arch === "arm64" ? "aarch64" : "x86_64"
-      }-unknown-linux-gnu.tar.bz2`,
+      process.platform === "win32"
+        ? "https://github.com/block/goose/releases/download/v1.38.0/goose-x86_64-pc-windows-msvc.zip"
+        : `https://github.com/block/goose/releases/download/v1.38.0/goose-${
+            arch === "arm64" ? "aarch64" : "x86_64"
+          }-unknown-linux-gnu.tar.bz2`,
   },
   "amazon-q": {
     kind: "download",
     bin: "q",
     identity: "Amazon Q Developer CLI (desktop-release.q.us-east-1.amazonaws.com)",
+    unsupportedPlatforms: {
+      win32: "no pinned Windows Amazon Q CLI asset URL has been verified; use an existing installed q binary or install manually",
+    },
     extract: "zip",
     // AWS "latest" zip; binary is at q/bin/q inside (do NOT run q/install.sh).
     zipBinPath: ["q", "bin", "q"],
@@ -373,12 +420,15 @@ const HOST_INSTALL = {
     bin: "droid",
     identity: "downloads.factory.ai/factory-cli v0.152.0",
     extract: "raw",
-    // Plain per-arch binary. NOTE: do NOT append the installer's "-baseline"
-    // suffix — that asset is x86-AVX2-only; arm64 uses the plain `droid` asset.
+    // Plain per-arch binary. Windows ships a direct .exe asset. NOTE: do NOT
+    // append the installer's "-baseline" suffix — that asset is x86-AVX2-only;
+    // arm64 uses the plain `droid` asset.
     url: (arch) =>
-      `https://downloads.factory.ai/factory-cli/releases/0.152.0/linux/${
-        arch === "arm64" ? "arm64" : "x64"
-      }/droid`,
+      process.platform === "win32"
+        ? "https://downloads.factory.ai/factory-cli/releases/0.152.0/windows/x64/droid.exe"
+        : `https://downloads.factory.ai/factory-cli/releases/0.152.0/linux/${
+            arch === "arm64" ? "arm64" : "x64"
+          }/droid`,
   },
   omp: {
     kind: "download",
@@ -387,26 +437,45 @@ const HOST_INSTALL = {
     extract: "raw",
     // Raw per-arch binary from the pinned GitHub release. omp-linux-arm64 / -x64.
     url: (arch) =>
-      `https://github.com/can1357/oh-my-pi/releases/download/v16.0.10/omp-linux-${
-        arch === "arm64" ? "arm64" : "x64"
-      }`,
+      process.platform === "win32"
+        ? "https://github.com/can1357/oh-my-pi/releases/download/v16.0.10/omp-windows-x64.exe"
+        : `https://github.com/can1357/oh-my-pi/releases/download/v16.0.10/omp-linux-${
+            arch === "arm64" ? "arm64" : "x64"
+          }`,
   },
   cursor: {
     kind: "download",
     bin: "cursor-agent",
     identity: "downloads.cursor.com cursor-agent 2026.06.16-20-30-07-a07d3ac",
-    extract: "targz",
-    // Binary is nested at dist-package/cursor-agent inside the tarball.
-    archiveBinPath: ["dist-package", "cursor-agent"],
+    extract: () => (process.platform === "win32" ? "zip" : "targz"),
+    // Binary is nested at dist-package/cursor-agent inside the Linux tarball.
+    // The Windows zip is a self-contained dist-package with cursor-agent.cmd.
+    archiveBinPath: () => (process.platform === "win32" ? undefined : ["dist-package", "cursor-agent"]),
+    zipPackageDir: () => (process.platform === "win32" ? ["dist-package"] : undefined),
+    zipBinPath: () => (process.platform === "win32" ? ["cursor-agent.cmd"] : undefined),
     // WARNING: this is a TIMESTAMP-version-pinned LAB snapshot URL
     // (2026.06.16-20-30-07-a07d3ac) and WILL rot — the lab path is ephemeral.
     // It is the asset the official installer (cursor.com/install) used at pin
     // time; a stable "latest" endpoint would be better but none is published.
     // Bump the timestamp segment to refresh when the download 404s.
     url: (arch) =>
-      `https://downloads.cursor.com/lab/2026.06.16-20-30-07-a07d3ac/linux/${
-        arch === "arm64" ? "arm64" : "x64"
-      }/agent-cli-package.tar.gz`,
+      process.platform === "win32"
+        ? "https://downloads.cursor.com/lab/2026.06.16-20-30-07-a07d3ac/windows/x64/agent-cli-package.zip"
+        : `https://downloads.cursor.com/lab/2026.06.16-20-30-07-a07d3ac/linux/${
+            arch === "arm64" ? "arm64" : "x64"
+          }/agent-cli-package.tar.gz`,
+  },
+  "mistral-vibe": {
+    kind: "download",
+    bin: "vibe",
+    identity: "github.com/mistralai/mistral-vibe v2.18.4",
+    extract: "zip",
+    url: (arch) =>
+      process.platform === "win32"
+        ? "https://github.com/mistralai/mistral-vibe/releases/download/v2.18.4/vibe-windows-x86_64-2.18.4.zip"
+        : `https://github.com/mistralai/mistral-vibe/releases/download/v2.18.4/vibe-linux-${
+            arch === "arm64" ? "aarch64" : "x86_64"
+          }-2.18.4.zip`,
   },
 };
 
@@ -438,7 +507,9 @@ const IDENTITY_UNVERIFIED = {
   // NOTE: kimi was here (the old npm "kimi-cli" 0.0.2 was a frontend-gen stub) —
   // but the REAL host is @moonshot-ai/kimi-code (github.com/MoonshotAI/kimi-code,
   // bin `kimi`); it is now an installable npm live lane below.
-  pi: 'npm "pi-cli" 0.0.0 is an empty stub — identity unverified',
+  // NOTE: pi was here (npm "pi-cli" 0.0.0 is an empty stub) — but the REAL host
+  // is @earendil-works/pi-coding-agent (github.com/earendil-works/pi, bin `pi`);
+  // it is now an installable npm placement lane below.
   nemoclaw: 'npm "nemoclaw" 0.1.0 has no bin — identity unverified (NVIDIA wraps openclaw)',
   // NOTE: omp was here (npm "omp" is an unrelated stub) — but oh-my-pi (can1357)
   // ships a pinned release BINARY (omp-linux-<arch>); it is now an installable
@@ -455,6 +526,39 @@ const TOOLS_PREFIX = join(REPO_ROOT, ".verify-tools");
 // (goose/q/droid) land directly under .verify-tools/bin. which() checks both.
 const TOOLS_BIN_DIR = join(TOOLS_PREFIX, "node_modules", ".bin");
 const TOOLS_DOWNLOAD_BIN_DIR = join(TOOLS_PREFIX, "bin");
+
+/** Persist npm verification tools so installing one host does not prune another. */
+function upsertToolsPackage(pkgSpec) {
+  const manifestPath = join(TOOLS_PREFIX, "package.json");
+  const manifest = existsSync(manifestPath)
+    ? JSON.parse(readFileSync(manifestPath, "utf8"))
+    : { name: "agent-connector-verify-tools", private: true, dependencies: {} };
+  manifest.private = true;
+  manifest.dependencies = manifest.dependencies && typeof manifest.dependencies === "object" ? manifest.dependencies : {};
+  const { name, range } = parseNpmPackageSpec(pkgSpec);
+  manifest.dependencies[name] = range;
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function parseNpmPackageSpec(pkgSpec) {
+  if (pkgSpec.startsWith("@")) {
+    const slash = pkgSpec.indexOf("/");
+    const versionAt = slash === -1 ? -1 : pkgSpec.indexOf("@", slash + 1);
+    if (versionAt !== -1) {
+      return { name: pkgSpec.slice(0, versionAt), range: pkgSpec.slice(versionAt + 1) };
+    }
+    return { name: pkgSpec, range: "latest" };
+  }
+  const versionAt = pkgSpec.lastIndexOf("@");
+  if (versionAt > 0) return { name: pkgSpec.slice(0, versionAt), range: pkgSpec.slice(versionAt + 1) };
+  return { name: pkgSpec, range: "latest" };
+}
+
+function isLocalToolPath(p) {
+  const path = p.toLowerCase();
+  const root = TOOLS_PREFIX.toLowerCase();
+  return path === root || path.startsWith(`${root}\\`) || path.startsWith(`${root}/`);
+}
 
 /**
  * Resolve a binary: prefer the local toolchain prefix (a host we installed for
@@ -511,6 +615,70 @@ async function downloadTo(url, destFile) {
   return { ok: true, reason: `downloaded ${buf.length} bytes` };
 }
 
+function specValue(value, arch) {
+  return typeof value === "function" ? value(arch) : value;
+}
+
+function downloadBinFileName(spec, arch) {
+  if (spec.destBin) return specValue(spec.destBin, arch);
+  return process.platform === "win32" ? `${spec.bin}.exe` : spec.bin;
+}
+
+function findFileByName(root, names) {
+  const wanted = new Set(names.map((n) => n.toLowerCase()));
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isFile() && wanted.has(entry.name.toLowerCase())) return full;
+      if (entry.isDirectory()) {
+        const found = walk(full);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return walk(root);
+}
+
+function findExtractedBinary(root, rel, spec) {
+  if (rel) {
+    const found = join(root, ...rel);
+    if (existsSync(found)) return found;
+  }
+  return findFileByName(root, process.platform === "win32" ? [`${spec.bin}.exe`, spec.bin] : [spec.bin]);
+}
+
+function copyDirectoryContents(srcDir, destDir) {
+  mkdirSync(destDir, { recursive: true });
+  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    cpSync(join(srcDir, entry.name), join(destDir, entry.name), { recursive: true, force: true });
+  }
+}
+
+function extractZip(archive, destDir) {
+  if (process.platform === "win32") {
+    return run(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        "& { param($archive, $dest) Expand-Archive -LiteralPath $archive -DestinationPath $dest -Force }",
+        archive,
+        destDir,
+      ],
+      process.env,
+      120_000,
+    );
+  }
+  return run("unzip", ["-q", "-o", archive, "-d", destDir], process.env, 120_000);
+}
+
 /**
  * Install a missing host CLI into the LOCAL prefix (never global) so it can be
  * live-verified. Returns { ok, bin?, reason }. Three methods:
@@ -525,13 +693,16 @@ async function downloadTo(url, destFile) {
 async function installHost(hostId) {
   const spec = HOST_INSTALL[hostId];
   if (!spec) return { ok: false, reason: "no install method defined" };
+  const unsupported = spec.unsupportedPlatforms?.[process.platform];
+  if (unsupported) return { ok: false, reason: unsupported };
 
   if (spec.kind === "npm") {
     mkdirSync(TOOLS_PREFIX, { recursive: true });
     process.stderr.write(`[${hostId}] installing ${spec.pkg} into ${TOOLS_PREFIX} (identity: ${spec.identity})\n`);
+    upsertToolsPackage(spec.pkg);
     const r = run(
       "npm",
-      ["install", "--prefix", TOOLS_PREFIX, "--no-save", "--no-fund", "--no-audit", spec.pkg],
+      ["install", "--prefix", TOOLS_PREFIX, "--no-fund", "--no-audit", ...(spec.npmInstallArgs ?? [])],
       process.env,
       300_000,
     );
@@ -547,42 +718,55 @@ async function installHost(hostId) {
     const arch = normalizedArch();
     const url = spec.url(arch);
     mkdirSync(TOOLS_DOWNLOAD_BIN_DIR, { recursive: true });
-    const destBin = join(TOOLS_DOWNLOAD_BIN_DIR, spec.bin);
+    const destBin = join(TOOLS_DOWNLOAD_BIN_DIR, downloadBinFileName(spec, arch));
     const tmp = tempDir(`ac-dl-${hostId}-`);
+    const extract = specValue(spec.extract, arch);
     process.stderr.write(`[${hostId}] downloading ${spec.identity} (${arch}) from ${url}\n`);
     try {
-      if (spec.extract === "raw") {
+      if (extract === "raw") {
         const dl = await downloadTo(url, destBin);
         if (!dl.ok) return { ok: false, reason: dl.reason };
         chmodSync(destBin, 0o755);
-      } else if (spec.extract === "tarbz2" || spec.extract === "targz") {
+      } else if (extract === "tarbz2" || extract === "targz") {
         // tarbz2 → -xjf (bzip2); targz → -xzf (gzip). The bin may be nested in
         // the archive (e.g. cursor's dist-package/cursor-agent), so use the
         // optional archiveBinPath, defaulting to a flat [spec.bin].
         const archive = join(tmp, "dl.tar");
         const dl = await downloadTo(url, archive);
         if (!dl.ok) return { ok: false, reason: dl.reason };
-        const flag = spec.extract === "tarbz2" ? "-xjf" : "-xzf";
+        const flag = extract === "tarbz2" ? "-xjf" : "-xzf";
         const x = run("tar", [flag, archive, "-C", tmp], process.env, 120_000);
         if (x.status !== 0) return { ok: false, reason: `tar extract failed: ${(x.stderr || x.stdout).trim().slice(0, 200)}` };
-        const rel = spec.archiveBinPath ?? [spec.bin];
-        const found = join(tmp, ...rel);
-        if (!existsSync(found)) return { ok: false, reason: `archive did not contain ${rel.join("/")}` };
-        writeFileSync(destBin, readFileSync(found));
+        const rel = specValue(spec.archiveBinPath, arch) ?? [spec.bin];
+        const found = findExtractedBinary(tmp, rel, spec);
+        if (!found) return { ok: false, reason: `archive did not contain ${rel.join("/")}` };
+        copyFileSync(found, destBin);
         chmodSync(destBin, 0o755);
-      } else if (spec.extract === "zip") {
+      } else if (extract === "zip") {
         const archive = join(tmp, "dl.zip");
         const dl = await downloadTo(url, archive);
         if (!dl.ok) return { ok: false, reason: dl.reason };
-        const x = run("unzip", ["-q", "-o", archive, "-d", tmp], process.env, 120_000);
-        if (x.status !== 0) return { ok: false, reason: `unzip failed: ${(x.stderr || x.stdout).trim().slice(0, 200)}` };
-        // The real binary is nested (e.g. q/bin/q); do NOT run the bundled installer.
-        const found = join(tmp, ...(spec.zipBinPath ?? [spec.bin]));
-        if (!existsSync(found)) return { ok: false, reason: `zip did not contain ${(spec.zipBinPath ?? [spec.bin]).join("/")}` };
-        writeFileSync(destBin, readFileSync(found));
-        chmodSync(destBin, 0o755);
+        const x = extractZip(archive, tmp);
+        if (x.status !== 0) return { ok: false, reason: `zip extract failed: ${(x.stderr || x.stdout).trim().slice(0, 200)}` };
+        const packageDir = specValue(spec.zipPackageDir, arch);
+        if (packageDir) {
+          const srcDir = join(tmp, ...packageDir);
+          if (!existsSync(srcDir)) return { ok: false, reason: `zip did not contain ${packageDir.join("/")}` };
+          copyDirectoryContents(srcDir, TOOLS_DOWNLOAD_BIN_DIR);
+          const rel = specValue(spec.zipBinPath, arch) ?? [downloadBinFileName(spec, arch)];
+          const found = join(TOOLS_DOWNLOAD_BIN_DIR, ...rel);
+          if (!existsSync(found)) return { ok: false, reason: `zip package did not contain ${rel.join("/")}` };
+          if (process.platform !== "win32") chmodSync(found, 0o755);
+        } else {
+          // The real binary is nested (e.g. q/bin/q); do NOT run the bundled installer.
+          const rel = specValue(spec.zipBinPath, arch);
+          const found = findExtractedBinary(tmp, rel, spec);
+          if (!found) return { ok: false, reason: `zip did not contain ${(rel ?? [spec.bin]).join("/")}` };
+          copyFileSync(found, destBin);
+          chmodSync(destBin, 0o755);
+        }
       } else {
-        return { ok: false, reason: `unknown extract method "${spec.extract}"` };
+        return { ok: false, reason: `unknown extract method "${extract}"` };
       }
     } finally {
       try {
@@ -630,6 +814,7 @@ function isolatedEnv(work, lane) {
     // Default behavior (no real-config leakage): point host config-home overrides
     // into WORK unless a lane deliberately overrides one below.
     APPDATA: join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: join(home, "AppData", "Local"),
     XDG_CONFIG_HOME: join(home, ".config"),
     XDG_DATA_HOME: join(home, ".local", "share"),
   };
@@ -645,8 +830,24 @@ function isolatedEnv(work, lane) {
 /** Run a command with stdin closed under a hard timeout; capture all output.
  *  `cwd` (optional) sets the child's working directory — needed by hosts that
  *  resolve PROJECT-scope config off process.cwd() (e.g. claude `.mcp.json`). */
+function resolveSpawnCommand(cmd) {
+  if (process.platform !== "win32") return cmd;
+  if (cmd.includes("\\") || cmd.includes("/")) return cmd;
+  return which(cmd) ?? cmd;
+}
+
+function spawnCommand(cmd, argv) {
+  const resolved = resolveSpawnCommand(cmd);
+  if (process.platform === "win32" && /\.(?:cmd|bat)$/i.test(resolved)) {
+    return { cmd, argv, shell: true };
+  }
+  return { cmd: resolved, argv, shell: false };
+}
+
 function run(cmd, argv, env, timeoutMs, cwd) {
-  const r = spawnSync(cmd, argv, {
+  const spawn = spawnCommand(cmd, argv);
+  const r = spawnSync(spawn.cmd, spawn.argv, {
+    shell: spawn.shell,
     env,
     ...(cwd ? { cwd } : {}),
     encoding: "utf8",
@@ -658,7 +859,7 @@ function run(cmd, argv, env, timeoutMs, cwd) {
     status: r.status,
     timedOut: r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM",
     stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
+    stderr: r.stderr ?? (r.error ? String(r.error.message ?? r.error) : ""),
   };
 }
 
@@ -743,12 +944,15 @@ async function verifyHost(hostId, { scope, keep, install }) {
   }
 
   let binPath = which(lane.bin);
+  const spec = HOST_INSTALL[hostId];
+  const installUnsupported = spec?.unsupportedPlatforms?.[process.platform];
 
   // Binary absent: install it into the local prefix when --install is set and an
   // install method is known; otherwise stay skip-not-fail (the default).
-  if (!binPath) {
-    const spec = HOST_INSTALL[hostId];
-    if (install && spec) {
+  // If a platform has no pinned download but the user already has the CLI on
+  // PATH, keep using that real binary instead of forcing an impossible local
+  // install. This matters for Amazon Q on Windows.
+  if (install && spec && (!binPath || !isLocalToolPath(binPath)) && !(binPath && installUnsupported)) {
       const res = await installHost(hostId);
       if (res.ok) {
         binPath = res.bin;
@@ -757,7 +961,7 @@ async function verifyHost(hostId, { scope, keep, install }) {
         process.stderr.write(`SKIP ${hostId}: install failed — ${res.reason}\n`);
         return skip("skipped-install-failed", `install failed: ${res.reason} — covered headlessly by install-roundtrip.test.ts`);
       }
-    } else {
+  } else if (!binPath) {
       const source = spec ? (spec.kind === "npm" ? spec.pkg : spec.identity) : null;
       const hint = spec
         ? install
@@ -766,7 +970,6 @@ async function verifyHost(hostId, { scope, keep, install }) {
         : `binary "${lane.bin}" absent and no install method defined`;
       process.stderr.write(`SKIP ${hostId}: ${hint} (skip-not-fail).\n`);
       return skip("skipped-no-binary", `${hint} — install-roundtrip covered headlessly by the test harness`);
-    }
   }
 
   const work = tempDir(`ac-verify-${hostId}-`);
@@ -788,12 +991,15 @@ async function verifyHost(hostId, { scope, keep, install }) {
   };
 
   try {
+    const connectorPath = lane.connector === "content"
+      ? genContentConnector({ id: CONNECTOR_ID })
+      : genDefaultConnector();
     // ── 3. INSTALL (through the BUILT cli.js, scoped to this host only) ─────
     // --project is the SANDBOXED projectDir on EVERY scope so a project-scope
     // install never falls back to the real repo cwd (process.cwd()).
     const installRun = run(
       "node",
-      [CLI, "install", "--connector", CONNECTOR, "--scope", scope, "--project", projectDir, "--targets", hostId],
+      [CLI, "install", "--connector", connectorPath, "--scope", scope, "--project", projectDir, "--targets", hostId],
       env,
       120_000,
     );
@@ -824,7 +1030,8 @@ async function verifyHost(hostId, { scope, keep, install }) {
     verdict.placementOk = placed.length > 0;
     if (!verdict.placementOk) {
       verdict.status = "fail-no-placement";
-      verdict.notes = `install reported success but no file under ${scanRoots.length > 1 ? "HOME/projectDir" : "HOME"} carries the connector id`;
+      const diagnostic = installOut.trim().replace(/\s+/g, " ").slice(0, 500);
+      verdict.notes = `install reported success but no file under ${scanRoots.length > 1 ? "HOME/projectDir" : "HOME"} carries the connector id${diagnostic ? `; install output: ${diagnostic}` : ""}`;
       return { verdict, exitCode: 1 };
     }
     verdict.tier = "install-roundtrip+placement-ok";
@@ -1042,7 +1249,9 @@ function sha256File(p) {
 /** Run a command feeding `input` on stdin (for model -p turns / wire probes).
  *  `cwd` (optional) sets the child's working directory (claude project scope). */
 function runWithInput(cmd, argv, env, input, timeoutMs, cwd) {
-  const r = spawnSync(cmd, argv, {
+  const spawn = spawnCommand(cmd, argv);
+  const r = spawnSync(spawn.cmd, spawn.argv, {
+    shell: spawn.shell,
     env,
     input,
     ...(cwd ? { cwd } : {}),
@@ -1055,7 +1264,7 @@ function runWithInput(cmd, argv, env, input, timeoutMs, cwd) {
     status: r.status,
     timedOut: r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM",
     stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
+    stderr: r.stderr ?? (r.error ? String(r.error.message ?? r.error) : ""),
   };
 }
 
@@ -1088,6 +1297,48 @@ function writeConnector(name, body) {
   const p = join(ACVERIFY_DIR, name);
   writeFileSync(p, body);
   return p;
+}
+
+/** Default live connector for the install→accept→runtime path above. */
+function genDefaultConnector() {
+  const fixture = JSON.stringify(MCP_ECHO_FIXTURE);
+  const body = `// GENERATED by verify-host.mjs default live lane — do not edit by hand.
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { defineConnector } from "@ken-jo/agent-connector";
+
+function mark(event, evt) {
+  try {
+    const dir = process.env.AC_VERIFY_DIR;
+    if (!dir) return;
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, "events.log"),
+      JSON.stringify({ event, toolName: evt?.toolName, prompt: evt?.prompt, pid: process.pid }) + "\\n");
+  } catch { /* fail-open */ }
+}
+
+export default defineConnector({
+  id: ${JSON.stringify(CONNECTOR_ID)},
+  displayName: "AC verify",
+  version: "1.0.0",
+  server: {
+    transport: "stdio",
+    command: process.execPath,
+    args: [${fixture}],
+    tools: { include: ["*"] },
+    timeoutMs: 10_000,
+  },
+  hooks: {
+    PreToolUse: { async handler(evt) { mark("PreToolUse", evt); return { decision: "allow" }; } },
+    PostToolUse: { async handler(evt) { mark("PostToolUse", evt); return { decision: "allow" }; } },
+    SessionStart: { async handler(evt) { mark("SessionStart", evt); return { decision: "allow" }; } },
+    UserPromptSubmit: { async handler(evt) { mark("UserPromptSubmit", evt); return { decision: "allow" }; } },
+    Stop: { async handler(evt) { mark("Stop", evt); return { decision: "allow" }; } },
+  },
+  targets: "auto",
+});
+`;
+  return writeConnector("agent-connector.config.mjs", body);
 }
 
 /**
@@ -2707,6 +2958,10 @@ const HOST_VERBS = {
     doctor: { status: "V", runner: opencodeRunners.doctor },
     "uninstall-residue": { status: "V", runner: opencodeRunners["uninstall-residue"] },
     idempotency: { status: "V", runner: opencodeRunners.idempotency },
+  },
+  "mimo-code": {
+    "mcp-tool-load": { status: "V", runner: opencodeRunners["mcp-tool-load"] },
+    "hook-fire": { status: "V", runner: opencodeRunners["hook-fire"] },
   },
   // antigravity-cli (agy): AUTHED-RUNTIME, Gemini-family json-stdio (~/.gemini).
   // Live-verified on agy 1.0.9 (local) / 1.0.10 (mac). PreToolUse/PostToolUse/Stop
