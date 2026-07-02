@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.100 — 2026-07-02
+
+Automated release preparation since v0.4.99.
+
+### Changed
+
+- fix(release): support protected branch publishing
+- fix(release): refresh generated status before gate
+- chore(verification): expand live host coverage
+- chore(site): refresh coverage star snapshot
+- ci: reset release runner before status refresh
+- ci: handle protected release status refresh
+- ci: clarify npm release auth setup
+- ci: support npm trusted publishing
+- ci: add automated release workflow
+
 ## 0.4.99 — 2026-07-01
 
 Statusline and action SDK hardening, plus coverage-page usability updates.
