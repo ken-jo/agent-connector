@@ -12,7 +12,7 @@ function usage(exitCode = 0) {
   out(`Usage: node scripts/prepare-release.mjs [--dry-run] <patch|minor|major|x.y.z>
 
 Updates package version sources, README dependency examples, the package-audit
-fixture, and CHANGELOG.md for an automated release workflow.`);
+fixture, generated release status, and CHANGELOG.md for an automated release workflow.`);
   process.exit(exitCode);
 }
 
@@ -169,6 +169,15 @@ for (const relativePath of ["README.md", "tests/core/package-audit.test.ts"]) {
 }
 
 updateChangelog(version, previousTag);
+
+if (dryRun) {
+  console.log("[release] would regenerate site/src/release-status.generated.ts");
+} else {
+  execFileSync(process.execPath, [file("scripts", "generate-site-release-status.mjs")], {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
+}
 
 console.log(
   `[release] ${dryRun ? "would prepare" : "prepared"} v${version} from ${currentVersion}${previousTag ? ` after ${previousTag}` : ""}`,
