@@ -247,8 +247,10 @@ jobs:
             echo "Release status refresh PR already exists: #${existing_pr}"
             exit 0
           fi
-          gh pr create \
+          if ! gh pr create \
             --base main \
             --head "$branch" \
             --title "chore(site): refresh release status for ${TAG}" \
-            --body "Automated release workflow follow-up after ${TAG}. Direct push to protected main was unavailable, so this PR carries the generated release-status snapshot."
+            --body "Automated release workflow follow-up after ${TAG}. Direct push to protected main was unavailable, so this PR carries the generated release-status snapshot."; then
+            echo "::warning::Release status branch ${branch} was pushed, but this token cannot create pull requests. Open https://github.com/ken-jo/agent-connector/pull/new/${branch} or configure RELEASE_PUSH_TOKEN."
+          fi

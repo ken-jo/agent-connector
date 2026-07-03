@@ -20,7 +20,7 @@ Last analyzed: 2026-07-01
 - The workflow publishes to npm with provenance through npm trusted publishing / GitHub OIDC by default; `NPM_TOKEN` is accepted as a fallback when configured.
 - npm trusted publisher configuration must be set in npm package settings as GitHub Actions: owner `ken-jo`, repository `agent-connector`, workflow filename `release.yml`, allowed action `npm publish`. Alternatively configure a GitHub repository secret named `NPM_TOKEN`.
 - Protected `main` release bumps need a separate GitHub repository secret named `RELEASE_PUSH_TOKEN` when `GITHUB_TOKEN` cannot bypass required checks. This token is used by `actions/checkout` for release commit/tag/status pushes; it is separate from npm publishing credentials.
-- If protected branch rules reject the release-status refresh push, the workflow opens an `automation/release-status-*` pull request instead of failing the release.
+- If protected branch rules reject the release-status refresh push, the workflow opens an `automation/release-status-*` pull request. If GitHub Actions is not permitted to create pull requests, it leaves the branch and emits a warning instead of failing the already-published release.
 - `.github/workflows/ci.yml` runs core and site checks on `main` pushes and pull requests.
 - `.github/workflows/deploy-site.yml` deploys the Vite site to GitHub Pages on `main` for site/doc paths and on manual dispatch.
 
