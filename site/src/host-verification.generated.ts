@@ -4,7 +4,7 @@
  * Do not edit by hand. The source ledger is docs/host-verification-results.csv.
  */
 
-export type VerificationLevelId = "e2e" | "live-runtime" | "live-accept" | "live-placement" | "install-doctor";
+export type VerificationLevelId = "e2e" | "live-runtime" | "live-accept" | "live-placement" | "adapter-placement" | "install-doctor";
 
 export interface HostVerificationResult {
   host: string;
@@ -22,6 +22,7 @@ export const verificationLevelOrder = [
   "live-runtime",
   "live-accept",
   "live-placement",
+  "adapter-placement",
   "install-doctor",
 ] as const satisfies readonly VerificationLevelId[];
 
@@ -30,6 +31,7 @@ export const verificationLevelLabels: Record<VerificationLevelId, string> = {
   "live-runtime": "Live runtime",
   "live-accept": "Live accept",
   "live-placement": "Live placement",
+  "adapter-placement": "Adapter placement",
   "install-doctor": "Install + doctor",
 };
 
@@ -38,6 +40,7 @@ export const verificationLevelDescriptions: Record<VerificationLevelId, string> 
   "live-runtime": "A real host advanced a headless runtime and fired hooks or loaded MCP, but no model MCP tool-call E2E was observed.",
   "live-accept": "The host accepted or listed the installed MCP config, but auth or model access blocked the final turn.",
   "live-placement": "A real host CLI was installed and driven far enough to verify native placement plus uninstall cleanup, but no offline accept/runtime lane exists.",
+  "adapter-placement": "No local host CLI can be driven, but the supported adapter was installed into an isolated HOME/project and cleanly uninstalled.",
   "install-doctor": "Placement, dry install, doctor, and uninstall hygiene are verified; no login-free headless runtime lane is available.",
 };
 
@@ -46,6 +49,7 @@ export function verificationLevelForResult(result: string): VerificationLevelId 
   if (result === "LIVE_RUNTIME_VERIFIED") return "live-runtime";
   if (result === "MCP_INSTALL_VERIFIED_AUTH_BLOCKED") return "live-accept";
   if (result === "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE") return "live-placement";
+  if (result === "ADAPTER_PLACEMENT_VERIFIED") return "adapter-placement";
   return "install-doctor";
 }
 
@@ -64,11 +68,11 @@ export const hostVerificationResults = [
     "host": "codebuddy",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "IDE/extension host; no local headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "IDE/extension host only in this environment",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "codex",
@@ -94,21 +98,21 @@ export const hostVerificationResults = [
     "host": "vscode-copilot",
     "installProbe": "PASS_AFTER_FIX",
     "doctorProbe": "PASS",
-    "hostCliSurface": "VS Code Copilot workspace/user config only",
+    "hostCliSurface": "VS Code Copilot extension config; no local host CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_WITH_FIX",
-    "issueOrBlocker": "user-scope hooks are workspace-scoped; patched to warn instead of writing project .github/hooks",
-    "evidence": "after-fix OMAC registry install warns explicitly; OMAC repo stayed clean; adapter tests assert no .github/hooks write and doctor stays OK"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; workspace/user placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "jetbrains-copilot",
     "installProbe": "PASS_AFTER_FIX",
     "doctorProbe": "PASS",
-    "hostCliSurface": "JetBrains Copilot UI-managed MCP and .github workspace content",
+    "hostCliSurface": "JetBrains Copilot extension config; project-scope content",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_WITH_FIX",
-    "issueOrBlocker": "user-scope install previously dirtied project .github; patched to warn/skip workspace-only hooks/content",
-    "evidence": "after-fix OMAC registry install produced no repo dirt; adapter and install-roundtrip tests assert no user-scope native file writes"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; project-scope adapter placement only",
+    "evidence": "verify-host adapter-placement passed with preferred project scope: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "copilot-cli",
@@ -154,11 +158,11 @@ export const hostVerificationResults = [
     "host": "kilo",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "Kilo IDE extension config; no local host CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "IDE/extension host only in this environment",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "kilo binary belongs to kilo-cli adapter; Kilo IDE adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "kilo-cli",
@@ -174,31 +178,31 @@ export const hostVerificationResults = [
     "host": "warp",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Warp terminal GUI host",
+    "hostCliSurface": "Warp terminal GUI host; no headless config verb",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "hermes",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no verified installable headless CLI package found",
+    "hostCliSurface": "Hermes adapter config; no verified npm headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "npm hermes-cli is an unrelated travel-agency CLI, so it was not installed",
-    "evidence": "identity guard skipped the wrong package; registry install+doctor probe remains the coverage floor"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "npm hermes-cli is unrelated; adapter placement verified without installing wrong package",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "nemoclaw",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no verified installable headless CLI package found",
+    "hostCliSurface": "NemoClaw adapter config; no verified standalone headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "npm nemoclaw 0.1.0 has no bin and is identity-unverified",
-    "evidence": "identity guard skipped the wrong package; registry install+doctor probe remains the coverage floor"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "npm nemoclaw 0.1.0 has no bin; adapter placement verified without installing wrong package",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "openclaw",
@@ -214,11 +218,11 @@ export const hostVerificationResults = [
     "host": "zed",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Zed editor config host",
+    "hostCliSurface": "Zed editor config host; GUI binary only",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "GUI/editor host; no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "zed binary launches the GUI; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "antigravity",
@@ -226,9 +230,9 @@ export const hostVerificationResults = [
     "doctorProbe": "PASS",
     "hostCliSurface": "Antigravity IDE config host",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "IDE surface; CLI E2E is tracked under antigravity-cli",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "IDE surface; live CLI coverage is tracked under antigravity-cli",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "antigravity-cli",
@@ -244,11 +248,11 @@ export const hostVerificationResults = [
     "host": "kiro",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Kiro IDE config host",
+    "hostCliSurface": "Kiro IDE config host; no local headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "GUI/editor host; no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "qwen-code",
@@ -304,21 +308,21 @@ export const hostVerificationResults = [
     "host": "openhands",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "openhands-ai package attempted; no app executable exposed by pipx install",
+    "hostCliSurface": "OpenHands adapter config; package exposes no usable local headless app here",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "package did not expose a local headless CLI app",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local headless host app exposed by current package; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "roo-code",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Roo Code extension config host",
+    "hostCliSurface": "Roo Code extension config host; no local host CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "IDE/extension host only in this environment",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "IDE/extension host only; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "cline",
@@ -334,11 +338,11 @@ export const hostVerificationResults = [
     "host": "trae",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "Trae editor config host; no local headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "amp",
@@ -364,11 +368,11 @@ export const hostVerificationResults = [
     "host": "mux",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "Mux desktop/browser config host; no local headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "crush",
@@ -414,11 +418,11 @@ export const hostVerificationResults = [
     "host": "windsurf",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Windsurf editor config host",
+    "hostCliSurface": "Windsurf editor config host; no local headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "GUI/editor host; no login-free headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "grok-cli",
@@ -434,11 +438,11 @@ export const hostVerificationResults = [
     "host": "devin",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "no usable local headless CLI found",
+    "hostCliSurface": "Devin remote/service adapter; no local headless CLI",
     "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED",
-    "issueOrBlocker": "host is remote/service-oriented; no login-free local headless model surface available",
-    "evidence": "registry install+doctor probe passed"
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "remote/service-oriented host; adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "open-interpreter",

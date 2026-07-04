@@ -110,7 +110,7 @@ const content = `/**
  * Do not edit by hand. The source ledger is docs/host-verification-results.csv.
  */
 
-export type VerificationLevelId = "e2e" | "live-runtime" | "live-accept" | "live-placement" | "install-doctor";
+export type VerificationLevelId = "e2e" | "live-runtime" | "live-accept" | "live-placement" | "adapter-placement" | "install-doctor";
 
 export interface HostVerificationResult {
   host: string;
@@ -128,6 +128,7 @@ export const verificationLevelOrder = [
   "live-runtime",
   "live-accept",
   "live-placement",
+  "adapter-placement",
   "install-doctor",
 ] as const satisfies readonly VerificationLevelId[];
 
@@ -136,6 +137,7 @@ export const verificationLevelLabels: Record<VerificationLevelId, string> = {
   "live-runtime": "Live runtime",
   "live-accept": "Live accept",
   "live-placement": "Live placement",
+  "adapter-placement": "Adapter placement",
   "install-doctor": "Install + doctor",
 };
 
@@ -144,6 +146,7 @@ export const verificationLevelDescriptions: Record<VerificationLevelId, string> 
   "live-runtime": "A real host advanced a headless runtime and fired hooks or loaded MCP, but no model MCP tool-call E2E was observed.",
   "live-accept": "The host accepted or listed the installed MCP config, but auth or model access blocked the final turn.",
   "live-placement": "A real host CLI was installed and driven far enough to verify native placement plus uninstall cleanup, but no offline accept/runtime lane exists.",
+  "adapter-placement": "No local host CLI can be driven, but the supported adapter was installed into an isolated HOME/project and cleanly uninstalled.",
   "install-doctor": "Placement, dry install, doctor, and uninstall hygiene are verified; no login-free headless runtime lane is available.",
 };
 
@@ -152,6 +155,7 @@ export function verificationLevelForResult(result: string): VerificationLevelId 
   if (result === "LIVE_RUNTIME_VERIFIED") return "live-runtime";
   if (result === "MCP_INSTALL_VERIFIED_AUTH_BLOCKED") return "live-accept";
   if (result === "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE") return "live-placement";
+  if (result === "ADAPTER_PLACEMENT_VERIFIED") return "adapter-placement";
   return "install-doctor";
 }
 

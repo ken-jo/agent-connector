@@ -6,16 +6,22 @@
 // That harness proves, for ALL 35 adapters and WITHOUT any host binary, that
 // `installConnector` writes a native config carrying the connector id and that
 // uninstall removes it (binary-free, in-process). This script proves the next
-// rung up the ladder, for a host whose CLI binary IS installed on the box: that
-// the REAL host CLI ACCEPTS the config we wrote (lists/reads it without error),
-// and — where a host can advance a turn offline — that the real CLI actually
-// SPAWNS our hook entrypoint and runs the handler. It codifies the ad-hoc shell
-// pipelines a verification workflow used to produce those live verdicts.
+// rung up the ladder: for hostless IDE/GUI adapters, it can drive the built CLI
+// through adapter placement/uninstall in an isolated HOME; for a host whose CLI
+// binary IS installed on the box, it also proves that the REAL host CLI ACCEPTS
+// the config we wrote (lists/reads it without error), and — where a host can
+// advance a turn offline — that the real CLI actually SPAWNS our hook entrypoint
+// and runs the handler. It codifies the ad-hoc shell pipelines a verification
+// workflow used to produce those live verdicts.
 //
 // Tiers (a host climbs as far as its binary + auth ceiling allow):
 //   install-roundtrip  — config written at the expected path with our id, then
 //                        cleanly removed on uninstall (same contract as the test
 //                        harness, but exercised through the BUILT dist/cli.js).
+//   adapter-placement  — no real host CLI exists locally, but the supported
+//                        adapter was driven through built install/uninstall in
+//                        an isolated HOME/project and wrote then removed native
+//                        config carrying our id.
 //   live-accept        — the host's OFFLINE accept verb lists/reads our config
 //                        without error (no network/auth needed).
 //   live-runtime       — the host advanced a turn offline and our hook handler
@@ -84,7 +90,65 @@ const CONNECTOR_ID = "ac-verify"; // matches .acverify/agent-connector.config.mj
 // the per-host comments. Where the table handed down differed from reality the
 // confirmed verb is used and the difference is noted.
 // ─────────────────────────────────────────────────────────────────────────
+function adapterPlacementLane(note, opts = {}) {
+  return {
+    adapterPlacementOnly: true,
+    connector: opts.connector,
+    scope: opts.scope,
+    note,
+  };
+}
+
 const HOST_LANES = {
+  codebuddy: adapterPlacementLane(
+    "IDE/extension host with no local headless CLI; verifies supported adapter placement/uninstall without claiming live host accept.",
+  ),
+  kilo: adapterPlacementLane(
+    "IDE extension adapter; the `kilo` binary belongs to kilo-cli, so this verifies adapter placement/uninstall only.",
+  ),
+  "vscode-copilot": adapterPlacementLane(
+    "VS Code Copilot extension adapter; no local host CLI, so this verifies workspace/user placement and cleanup only.",
+  ),
+  "jetbrains-copilot": adapterPlacementLane(
+    "JetBrains Copilot extension adapter; no local host CLI, so this verifies placement/cleanup only.",
+    { scope: "project" },
+  ),
+  antigravity: adapterPlacementLane(
+    "Antigravity IDE adapter; live host behavior is tracked under antigravity-cli, this verifies IDE config placement only.",
+  ),
+  kiro: adapterPlacementLane(
+    "Kiro IDE adapter; no login-free headless host CLI, so this verifies adapter placement/uninstall only.",
+  ),
+  "roo-code": adapterPlacementLane(
+    "Roo Code extension adapter; no local host CLI, so this verifies adapter placement/uninstall only.",
+  ),
+  windsurf: adapterPlacementLane(
+    "Windsurf editor adapter; no local headless config verb, so this verifies adapter placement/uninstall only.",
+  ),
+  zed: adapterPlacementLane(
+    "Zed editor adapter; the zed binary launches the GUI, so this verifies adapter placement/uninstall only.",
+  ),
+  warp: adapterPlacementLane(
+    "Warp terminal app adapter; no headless config verb, so this verifies adapter placement/uninstall only.",
+  ),
+  trae: adapterPlacementLane(
+    "Trae editor adapter; no login-free headless host CLI, so this verifies adapter placement/uninstall only.",
+  ),
+  devin: adapterPlacementLane(
+    "Remote/service-oriented host; verifies adapter placement/uninstall without claiming a local live runtime.",
+  ),
+  hermes: adapterPlacementLane(
+    "Hermes adapter placement only; npm hermes-cli is unrelated, so no third-party host package is installed.",
+  ),
+  nemoclaw: adapterPlacementLane(
+    "NemoClaw adapter placement only; no verified standalone headless CLI package is installed.",
+  ),
+  mux: adapterPlacementLane(
+    "Mux desktop/browser adapter; no login-free local headless CLI, so this verifies adapter placement/uninstall only.",
+  ),
+  openhands: adapterPlacementLane(
+    "OpenHands adapter placement only; current Python package does not expose a usable local headless CLI app here.",
+  ),
   "claude-code": {
     bin: "claude",
     env: { CLAUDE_CONFIG_DIR: [".claude"] },
@@ -909,6 +973,7 @@ function emit(verdict, exitCode) {
 // ─────────────────────────────────────────────────────────────────────────
 async function verifyHost(hostId, { scope, keep, install }) {
   const lane = HOST_LANES[hostId];
+  const effectiveScope = lane?.scope ?? scope;
 
   /** Build a non-live verdict (a documented skip), all live fields null. */
   const skip = (status, notes, binaryPresent = false) => ({
@@ -943,7 +1008,8 @@ async function verifyHost(hostId, { scope, keep, install }) {
     return skip("skipped-no-live-lane", "no live lane defined (GUI-only / no CLI binary / no offline accept verb)");
   }
 
-  let binPath = which(lane.bin);
+  const adapterPlacementOnly = lane.adapterPlacementOnly === true;
+  let binPath = adapterPlacementOnly ? null : which(lane.bin);
   const spec = HOST_INSTALL[hostId];
   const installUnsupported = spec?.unsupportedPlatforms?.[process.platform];
 
@@ -952,7 +1018,7 @@ async function verifyHost(hostId, { scope, keep, install }) {
   // If a platform has no pinned download but the user already has the CLI on
   // PATH, keep using that real binary instead of forcing an impossible local
   // install. This matters for Amazon Q on Windows.
-  if (install && spec && (!binPath || !isLocalToolPath(binPath)) && !(binPath && installUnsupported)) {
+  if (!adapterPlacementOnly && install && spec && (!binPath || !isLocalToolPath(binPath)) && !(binPath && installUnsupported)) {
       const res = await installHost(hostId);
       if (res.ok) {
         binPath = res.bin;
@@ -961,7 +1027,7 @@ async function verifyHost(hostId, { scope, keep, install }) {
         process.stderr.write(`SKIP ${hostId}: install failed — ${res.reason}\n`);
         return skip("skipped-install-failed", `install failed: ${res.reason} — covered headlessly by install-roundtrip.test.ts`);
       }
-  } else if (!binPath) {
+  } else if (!adapterPlacementOnly && !binPath) {
       const source = spec ? (spec.kind === "npm" ? spec.pkg : spec.identity) : null;
       const hint = spec
         ? install
@@ -977,13 +1043,13 @@ async function verifyHost(hostId, { scope, keep, install }) {
   // Roots a placement/residue scan must cover: HOME always; the sandboxed
   // project dir too at project scope (project-scope writes land at projectDir,
   // outside HOME — scanning only HOME would miss them and mis-score placement).
-  const scanRoots = scope === "project" ? [home, projectDir] : [home];
+  const scanRoots = effectiveScope === "project" ? [home, projectDir] : [home];
   const verdict = {
     host: hostId,
-    binaryPresent: true,
-    tier: "install-roundtrip",
+    binaryPresent: !adapterPlacementOnly,
+    tier: adapterPlacementOnly ? "adapter-placement" : "install-roundtrip",
     placementOk: false,
-    accept: "untested",
+    accept: adapterPlacementOnly ? "not-applicable" : "untested",
     runtimeFired: null,
     uninstallClean: null,
     status: "pending",
@@ -999,7 +1065,7 @@ async function verifyHost(hostId, { scope, keep, install }) {
     // install never falls back to the real repo cwd (process.cwd()).
     const installRun = run(
       "node",
-      [CLI, "install", "--connector", connectorPath, "--scope", scope, "--project", projectDir, "--targets", hostId],
+      [CLI, "install", "--connector", connectorPath, "--scope", effectiveScope, "--project", projectDir, "--targets", hostId],
       env,
       120_000,
     );
@@ -1034,14 +1100,16 @@ async function verifyHost(hostId, { scope, keep, install }) {
       verdict.notes = `install reported success but no file under ${scanRoots.length > 1 ? "HOME/projectDir" : "HOME"} carries the connector id${diagnostic ? `; install output: ${diagnostic}` : ""}`;
       return { verdict, exitCode: 1 };
     }
-    verdict.tier = "install-roundtrip+placement-ok";
+    verdict.tier = adapterPlacementOnly ? "adapter-placement" : "install-roundtrip+placement-ok";
 
     // ── 4. LIVE-ACCEPT — drive the host's offline accept verb ───────────────
     // Some installed hosts expose NO offline verb that reads/validates our MCP
     // config (e.g. crush/continue/codebuff — see lane notes). For those the lane
     // is placement-only: we DON'T run a misleading accept probe, we report
     // pass-placement-ok honestly. (placementOnly hosts have no `accept` block.)
-    if (lane.placementOnly || !lane.accept) {
+    if (adapterPlacementOnly) {
+      verdict.accept = "not-applicable";
+    } else if (lane.placementOnly || !lane.accept) {
       verdict.accept = "no-offline-accept-verb";
     } else {
     const acc = run(binPath, lane.accept.argv, env, lane.accept.timeoutMs ?? 120_000);
@@ -1090,7 +1158,7 @@ async function verifyHost(hostId, { scope, keep, install }) {
         verdict.notes = `runtime turn ran (exit=${rt.status}${rt.timedOut ? ", timed out" : ""}) but events.log empty — kept at ${verdict.tier}.`;
       }
     } else {
-      verdict.runtimeFired = false; // auth-gated runtime: ceiling recorded, not a fail
+      verdict.runtimeFired = adapterPlacementOnly ? null : false; // auth-gated runtime: ceiling recorded, not a fail
     }
 
     // ── 6. UNINSTALL — assert NO_RESIDUE (our id gone from the scan roots) ──
@@ -1098,7 +1166,7 @@ async function verifyHost(hostId, { scope, keep, install }) {
     // sandboxed projectDir it wrote to (never the real repo cwd).
     const uninstall = run(
       "node",
-      [CLI, "uninstall", "--connector-id", CONNECTOR_ID, "--scope", scope, "--project", projectDir, "--targets", hostId],
+      [CLI, "uninstall", "--connector-id", CONNECTOR_ID, "--scope", effectiveScope, "--project", projectDir, "--targets", hostId],
       env,
       120_000,
     );
@@ -1134,9 +1202,11 @@ async function verifyHost(hostId, { scope, keep, install }) {
         ? "pass-live-runtime"
         : verdict.tier === "live-accept"
           ? "pass-live-accept"
-          : verdict.accept === "accept-auth-gated"
-            ? "pass-accept-auth-gated"
-            : "pass-placement-ok";
+          : verdict.tier === "adapter-placement"
+            ? "pass-adapter-placement"
+            : verdict.accept === "accept-auth-gated"
+              ? "pass-accept-auth-gated"
+              : "pass-placement-ok";
     return { verdict, exitCode: 0 };
   } catch (err) {
     // An unexpected harness error is NOT a host placement/residue failure; do
