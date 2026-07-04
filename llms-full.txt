@@ -1085,13 +1085,14 @@ modifyOutput / injectContext). `--json` emits the raw `DetectedPlatform[]`.
 ### install
 `agent-connector install [--method direct|marketplace] [--scope user|project] [--targets …] [--connector <path>] [--project <dir>] [--dry-run] [--force]`
 `--method marketplace` drives the HOST's own plugin flow instead of writing
-config directly. Drivable hosts (10, a `MarketplaceDriver` per host, 3 shapes):
-`claude-code`, `codex`, `gemini-cli`, `opencode`, `kilo`, `kilo-cli`,
-`antigravity`, `antigravity-cli` (live-verified) + `droid`, `qwen-code` (driver
-shipped, pending a live host). Three shapes: (1) CATALOG — claude, codex, droid:
+config directly. Drivable hosts (11, a `MarketplaceDriver` per host, 3 shapes):
+`claude-code`, `codex`, `copilot-cli`, `gemini-cli`, `opencode`, `kilo`,
+`kilo-cli`, `antigravity`, `antigravity-cli` (live-verified) + `droid`,
+`qwen-code` (driver shipped, pending a live host). Three shapes: (1) CATALOG —
+claude, codex, copilot-cli, droid:
 stage under `<dataRoot>/marketplace/<host>/`, regenerate the shared local
 catalog, register once by reference (`<host> plugin marketplace add`), then the
-install verb (`claude plugin install` / `codex|droid plugin add|install`
+install verb (`claude|copilot plugin install` / `codex|droid plugin add|install`
 `<id>@agent-connector`). (2) DIRECT — agy, gemini-cli, qwen-code: install-by-path
 (`agy plugin install <dir>` / `gemini extensions install <dir> --consent` /
 `qwen extensions install <dir>`) + the host's uninstall verb, no marketplace

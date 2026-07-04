@@ -1,154 +1,72 @@
 # agent-connector
 
-> MCP developers: write your MCP server + hooks (and commands / skills / subagents / memory + status line) ONCE; install them across every detected AI-agent CLI in its native config dialect — and get default, platform-independent, local-first per-tool token telemetry for the server YOUR connector declares + wraps. Agent-CLI users: with no connector, run `agent-connector usage` to read each agent CLI's own session logs read-only and see per-CLI / per-model token totals.
+Descriptive product route map for agent-connector. Detailed API contracts, host
+tables, examples, and generated support claims live in `llms-full.txt`; current
+public host coverage lives at https://agent-connector.ai/coverage.
 
-## What it is
+## Product Scope
 
-Middleware that solves two recurring problems for MCP/agent-tooling developers:
-1. Every agent host re-invents MCP registration + lifecycle hooks with incompatible config files, root keys, formats (JSON/JSONC/TOML/YAML/exported TS), transports, scopes, and event names.
-2. No host reports per-tool token usage back to an MCP server — so "which of my tools cost the most context?" is otherwise unanswerable.
+agent-connector is an SDK and CLI for MCP package authors. A connector package
+declares one MCP server plus optional hooks, commands, skills, subagents, memory,
+statusline, actions, telemetry, and per-host overrides. The CLI renders those
+surfaces into each supported host's native files, verifies install health, and can
+wrap stdio servers for local per-tool token telemetry.
 
-Declare once with `defineConnector({...})`; the CLI detects installed hosts, renders each native config, installs/syncs/uninstalls, and measures your server's own token footprint locally.
+A separate connector-free usage track reads agent CLI session logs read-only and
+reports host-level token totals by platform, project, session, model, or day. It
+does not provide per-MCP or per-tool attribution; those numbers come from a
+developer-owned connector using the serve telemetry proxy.
 
-Separately, anyone running an agent CLI (Claude Code / Codex / Cursor / …) — with no connector authored — can run `agent-connector usage` to see how many tokens their agent CLIs are burning, parsed read-only from each host's own logs (per-CLI / per-model / per-session totals, never per-MCP or per-tool).
+## Audience Routes
 
-## Agent authoring contract
+- MCP developer track: build a branded MCP integration. Package metadata supplies
+  public identity; `@ken-jo/agent-connector/sdk` supplies authoring helpers;
+  `@ken-jo/agent-connector/cli` exposes lifecycle commands through the package's
+  own bin. Framework packaging artifacts are produced by the framework CLI.
+- Agent CLI usage track: inspect local host usage logs without authoring or
+  installing a connector. Relevant verbs are `usage report`, `usage export`, and
+  `usage leaderboard`.
 
-When an AI agent is asked to create or modify an agent-connector integration, follow this order:
+## Authoring Map
 
-1. Read `package.json` first. Treat `name`, `mcpName`, `bin`, and `version` as the source of truth for public identity, host alias/display label, branded command, and connector version.
-2. Do NOT ask the user for a separate connector id, display name, bin name, or version unless package metadata is absent or they explicitly need a legacy/multi-instance override.
-3. Import authoring helpers from `@ken-jo/agent-connector/sdk` for new code (`defineConnector`, typed `define*` helpers, `hostsSupporting`, `capabilitiesOf`, `surfaceSupport`). Use `@ken-jo/agent-connector/cli` only inside the package bin via `createConnectorCli({ packageJson, connector })`.
-4. Match the MCP launch shape to the product, not to one sample: package-runner MCPs may use `npx -y <package>`, local Node/process MCPs may use `node <server-file>`, Python MCPs should usually use `uv run --with mcp <server.py>`, CLI-based MCPs may use `<mcp-cli> mcp serve`, and remote server MCPs use `transport: "http"` with a URL.
-5. Keep the framework wiring explicit: `package.json` supplies identity, `bin.mjs` wraps `createConnectorCli`, `defineConnector({ server })` points at the real MCP process/URL, and `install` renders native host config. Stdio processes can be wrapped for per-tool telemetry; remote HTTP servers are registered by URL where supported.
-6. Foreground the developer's branded MCP package/bin in generated docs and MCP lifecycle/runtime commands: `npx @acme/acme-db-mcp install`, `acme-db doctor --probe`, etc. The `package` command is framework tooling for distribution artifacts, so document it as `npx @ken-jo/agent-connector package --connector ...` (or global `agent-connector package`). Use other `npx @ken-jo/agent-connector ... --connector` commands only as local framework-development fallbacks.
-7. Validate before claiming success: run typecheck/tests, use `@ken-jo/agent-connector/sdk/test` (`explain`, `simulate`, `explainHooks`) for offline host behavior when relevant, then run `doctor --probe` for a live stdio MCP handshake when a real host/server is available.
+- Package identity: `package.json` is the normal source for package name, MCP
+  display name, bin, and version. Explicit connector identity fields are mainly
+  for legacy or multi-instance cases.
+- MCP launch shapes: package runner, local Node or process server, Python server
+  launched with uv, CLI server mode, and remote HTTP server URL are all valid
+  families. Pick the shape that matches the product.
+- SDK entrypoints: `@ken-jo/agent-connector/sdk` exports `defineConnector`, the
+  typed `define*` helpers, host capability introspection helpers, and public
+  types. Full field tables are in `llms-full.txt` sections 2 and 9.
+- Offline checks: `@ken-jo/agent-connector/sdk/test` exposes `explain`,
+  `explainHooks`, and `simulate` for adapter behavior before writing host files.
 
-Agent-ready inputs are intentionally present in the repo: `llms.txt` (short map), `llms-full.txt` (full contract), and `skills/agent-connector/SKILL.md` (small router). Detailed skill references live under `skills/agent-connector/references/`: `package-first.md`, `authoring.md`, `cli-workflow.md`, `telemetry.md`, and `agent-readiness.md`.
+## CLI Map
 
-## Two audiences
+- Branded connector package CLI: `detect`, `install`, `uninstall`, `upgrade`,
+  `doctor`, `status`, `telemetry`, `leaderboard`.
+- Framework CLI: `package` emits distribution artifacts such as host plugin
+  bundles and MCP standard manifests. See `llms-full.txt` section 3 for format
+  names and requirements.
+- Internal host entrypoints: `serve`, `hook`, `statusline`, `action`, and
+  `usage-event` are commands that generated host config may reference.
+- Marketplace installs: supported where a host has a driver; exact host list and
+  driver shape are maintained in `llms-full.txt` and the registry.
 
-agent-connector forks into two tracks. Pick yours before reading on:
+## Support And Coverage
 
-- **(A) MCP developer** — you BUILD an MCP integration. Write your server + hooks (+ commands / skills / subagents / memory + status line) once with `defineConnector()`, then deploy across the registered adapters with one CLI. Current host coverage lives at https://agent-connector.ai/coverage. agent-connector wraps your stdio server in its `serve` telemetry proxy, so you get per-MCP and per-tool token counts for **YOUR own server** (the MCP your connector declares + wraps). Owns: `defineConnector`, branded lifecycle (`install`/`uninstall`/`upgrade`, `doctor`/`detect`/`status` through your package/bin), and `telemetry` for your connector (`--by mcp|tool|surface`). Distribution artifacts use framework tooling: `npx @ken-jo/agent-connector package --connector ...`.
-- **(B) Agent-CLI user** — you just USE an agent CLI and have NOT authored a connector. Your entire surface is one connector-free command: `agent-connector usage report|export|leaderboard`, which scans each agent CLI's own session logs read-only. No `defineConnector`, no install, no config file.
-
-The one accuracy-critical boundary: if you BUILD an MCP integration, agent-connector deploys it everywhere and measures **your own server's** per-tool tokens; if you just USE agent CLIs, agent-connector reads their logs to show you **per-CLI / per-model** token totals. The connector-free `usage` path reports WHOLE-CONVERSATION totals grouped by platform | project | session | model | day — it does NOT and cannot itemize cost by individual MCP server or tool, because agent CLIs do not log per-tool token attribution. Per-MCP and per-tool numbers come only from the serve-proxy telemetry that a developer's own connector produces (track A).
-
-## Two pillars
-
-- **Single-API multi-platform deployment.** One declarative + programmatic config → adapters render it into each platform's native MCP + hook + content config; one CLI installs/syncs/uninstalls everywhere.
-- **Default per-tool token telemetry for the MCP server YOUR connector declares + wraps (stdio only).** Platform-independent, local-first, privacy-preserving (aggregate counts, never content). On by default for stdio servers (remote http/sse/ws servers are registered but not wrapped, so they yield no per-tool telemetry); opt-out granular. This is the developer (track A) capability — it measures your own server, not arbitrary MCPs an end user runs.
-
-## Surfaces (declare once, deploy everywhere)
-
-- `server` — one transport-polymorphic MCP server (stdio | http | sse | ws).
-- `hooks` — normalized lifecycle hooks, 13 canonical events (SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, Stop, Notification, PermissionRequest, PostToolUseFailure, SubagentStart, SubagentStop, PostCompact).
-- `commands` — slash commands (content files).
-- `skills` — Agent Skills (SKILL.md folders + resources).
-- `subagents` — named subagents (system prompt + tool/model scoping).
-- `memory` — standing guidance written as a managed marker block into each host's memory/rules file (AGENTS.md-first).
-- `statusline` — singular fail-safe HUD handler (`render(ctx)`); supports capability-gated options and per-host render/options overrides. Supported today by antigravity-cli, claude-code and qwen-code; other adapters skip-warn. Field contract: `llms-full.txt` §2.5.
-- `actions` — user-triggered action handlers with optional UI metadata and per-host overrides; dispatches through `agent-connector action <platform> <actionId> --connector <id>` and surfaces user-triggered errors. Host affordance emitters are supported today by droid, hermes, kiro, nemoclaw, omp, openclaw, pi, warp, and zed; other adapters skip-warn. Field contract: `llms-full.txt` §2.6.
-
-Memory surface (the fourth content surface): declare `memory: [{ content }]` once and each supporting adapter upserts a marker-fenced, hash-stamped managed block (`<!-- agent-connector:begin <connectorId>/<name> hash=<sha256-12> -->` … `<!-- agent-connector:end <connectorId>/<name> -->`, plus a one-line do-not-edit notice) into the memory file that host actually reads. AGENTS.md-FIRST: most supporting hosts read the open AGENTS.md standard (agents.md, Linux Foundation-stewarded), so project scope targets `<projectDir>/AGENTS.md` — write guidance once, it lands in the standard file across every adopter host. Exclusive/first-match readers are PROBED so the block lands where the host actually reads (zed's nine-candidate first-match list, warp's WARP.md priority, hermes' .hermes.md, opencode's CLAUDE.md fallback, codex's AGENTS.override.md; openclaw maps both scopes to its agent workspace). User scope: the host's documented global memory file — AGENTS.md where one exists (e.g. `~/.codex/AGENTS.md`, `~/.config/zed/AGENTS.md`), else the host's own file (`~/.qwen/QWEN.md`, goose `.goosehints`, `~/.copilot/copilot-instructions.md`, kilo/roo/kiro rules-dir `agent-connector.md`); hosts with app/UI-managed user rules skip-warn. The exceptions: claude-code → CLAUDE.md (official docs: "Claude Code reads CLAUDE.md, not AGENTS.md"; HTML-comment markers are stripped from the model's context there — invisible to Claude, still parseable by us; opt-in `memory.mode: "agents-import"` writes AGENTS.md + a managed `@AGENTS.md` import bridge in CLAUDE.md instead), codebuddy → CODEBUDDY.md (the Tencent Claude Code fork renames CLAUDE.md → CODEBUDDY.md and does NOT read AGENTS.md), gemini-cli → GEMINI.md (AGENTS.md only when the user's `context.fileName` setting opts in — probed, never edited), and cline writes .clinerules (its canonical project rules file; it reads AGENTS.md too but AC writes the .clinerules block). Edits are surgical: bytes outside the marker pair are never touched; an unchanged block is an O(1) `skip`; a USER-EDITED block (actual inner hash ≠ recorded hash) warns and is left intact unless `install --force` (backup first); uninstall removes memory FIRST, excising every block under the connector's marker prefix (ledger + marker scan — works without local state), and `doctor` checks block present / hash intact / user-edited / file missing. Budgets: hard 16 KiB cap per entry, soft 4 KiB warn — memory is injected into every prompt of every targeted host.
-
-Native hooks passthrough (escape hatch): `platforms.<id>.nativeHooks` wires ANY host hook event outside the 13 normalized ones, keyed by the host's event name verbatim — Claude Code ships 30 hook events, and the 17 non-normalized ones (TaskCreated/TaskCompleted, TeammateIdle, MessageDisplay, WorktreeCreate/WorktreeRemove, Elicitation/ElicitationResult, StopFailure, InstructionsLoaded, ConfigChange, CwdChanged, FileChanged, Setup, UserPromptExpansion, PermissionDenied, PostToolBatch) plus any future event are reachable on adapters that set `supportsNativeHooks`. No normalization: the handler receives the host's RAW stdin payload (`{ event, hostPlatform, sessionId, projectDir?, raw }`) and whatever it returns is the VERBATIM stdout JSON reply on exit 0 (void → no output; fail-open; exit-2 blocking is NOT modeled in v1). Declaring a normalized event name there is a ConnectorConfigError. 16 adapters support it today: amp, claude-code, codebuddy, continue, copilot-cli, cursor, gemini-cli, grok-cli, hermes, jetbrains-copilot, kimi, nemoclaw, omp, openclaw, opencode, qwen-code; other adapters skip-warn. An event is promoted into the normalized union once ≥3 hosts ship a native analog — TaskCreated/TaskCompleted are the first candidates.
-
-Host-config key patches (escape hatch): `platforms.<id>.configPatch` declares ownership-tracked patches of host-exclusive settings keys `extra` can't reach (e.g. Claude Code `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`) — `{ key, value, reason, docsUrl? }` per patch, where `key` is a dotted LEAF path (segments `[A-Za-z0-9_-]+`, no array indices). Semantics are FIXED: set-if-absent, skip-warn on ANY conflict (present key, drifted value, non-object intermediate) — never overwrite/delete/deep-merge; every skip prints the exact manual edit from the required `reason` (+ `docsUrl`). Ownership is a persisted refcounted ledger (`<dataRoot>/state/config-patches.json`); uninstall deletes a key only when the LAST owner releases it AND the value still equals what was written AND it was absent before install — else the key stays, with a warn. Keys agent-connector models (`hooks*`, `mcpServers*`, `statusLine*` → statusline surface) are rejected at defineConnector; the claude-code adapter hard-refuses a documented sensitive-key denylist (`permissions*`, `allowedTools*`, `apiKey*`, `env.ANTHROPIC_*`, `env.*TOKEN*`/`*KEY*`/`*SECRET*`/`*_PROXY`, auth/login keys). v1: claude-code only (`supportsConfigPatch`, settings.json at scope); other adapters skip-warn. Doctor reports per-patch ok/drifted/missing/orphaned and never auto-fixes drift. A patch graduates to a typed cross-host knob only when ≥3 hosts ship an analog.
-
-## Quick start
-
-The Quick Start forks by audience — run the track that matches you.
-
-### (A) MCP developer — deploy MY MCP everywhere + measure my own per-tool tokens
-
-```bash
-# agent-connector is an SDK you depend on — no global framework install required
-npm install @ken-jo/agent-connector             # inside the package that holds your connector
-cd my-mcp-project                    # package.json exposes your bin, e.g. "acme-db"
-acme-db detect                                  # which hosts are installed here?
-acme-db install --dry-run                       # preview every change, everywhere
-acme-db install                                 # deploy across detected hosts (subset of the current registry)
-acme-db doctor                                  # per-platform health checks — add --probe for a live MCP handshake (initialize → ping → tools/list)
-acme-db upgrade                                 # day 2: re-render configs + heal the home-binary pointer (aliases: sync, update)
-acme-db telemetry report --by tool              # per-tool footprint of YOUR wrapped server
-acme-db uninstall                               # full inverse — removes everything install wrote (--purge clears framework state; --dry-run works here too)
-```
-
-Ship that branded CLI with `createConnectorCli({ packageJson, connector })` from `@ken-jo/agent-connector/cli`: it derives the bin name/version from package metadata and exposes every subcommand under your own bin, auto-scoped to your connector (`acme-db install` ≈ `agent-connector install --connector ./agent-connector.config.mjs`; explicit `--connector`/`--connector-id` always overrides). Framework CLI usage (`npx @ken-jo/agent-connector ... --connector ./agent-connector.config.mjs`) is a local development/debug fallback, not the user-facing install path.
-
-### (B) Agent-CLI user — see the token usage of the agent CLIs I use (no connector)
-
-```bash
-# zero setup: no defineConnector, no install, no config file
-npx @ken-jo/agent-connector usage report                      # totals read read-only from each host's own logs
-npx @ken-jo/agent-connector usage leaderboard --by platform   # which agent CLI burned the most tokens
-npx @ken-jo/agent-connector usage report --by model --since 7d
-npx @ken-jo/agent-connector usage export --format csv --out usage.csv
-```
-
-`usage` groups ONLY by platform | project | session | model | day — it shows per-CLI / per-model / per-session totals, NOT per-MCP or per-tool costs (agent CLIs do not log per-tool token attribution). To get per-MCP / per-tool numbers for an MCP, that MCP must be deployed and wrapped via a connector (track A). Note: 5 'synced' platforms (cursor, antigravity, antigravity-cli, trae, warp) are reported as skipped unless a local cache already exists; some readers are host-estimated (flagged in the CONFIDENCE column).
-
-## Package subpaths
-
-- `.` (`@ken-jo/agent-connector`) — root: `defineConnector`, `ConnectorConfigError`, public types (unchanged).
-- `./sdk` (`@ken-jo/agent-connector/sdk`) — consolidated authoring surface: `defineConnector` + the `define*` family (`defineCommand`, `defineSkill`, `defineSubagent`, `defineMemory`, `defineConfigPatch`, `defineNativeHook`, `defineStatusline`, `defineAction`) + `defineHook` (event-parameterized — leading event string narrows the handler payload type, e.g. `defineHook("PreToolUse", { handler(evt){…} })`) + introspection (`capabilitiesOf(host)`, `hostsSupporting(surface)`, `surfaceSupport(host,surface)`, `SURFACE_PREDICATES`) + public types (full statusline/action customization contracts live in `llms-full.txt` §2.5/§2.6). All async; adapters load lazily. `SurfaceName`: server|hooks|commands|skills|subagents|memory|statusline|configPatch|nativeHooks|actions.
-- `./sdk/test` (`@ken-jo/agent-connector/sdk/test`) — offline harness: `explain(connector)` → per-host × per-declared-surface matrix (`ExplainRow[]`: `{ host, surface, support:"native"|"skip-warn"|"disabled", reason }`; the `hooks` row is judged against the connector's SPECIFIC declared events, so a Stop-only connector reports `skip-warn` on a host that cannot fire Stop — never a dead-hook `native`); `explainHooks(connector,hosts)` → per-`(host,event)` honor matrix (`HookEventVerdict[]`: `honored`/`degraded`/`dropped` + reason), the surface behind `doctor --explain`; `simulate(connector,{surface,host,event?,input})` → runs the REAL adapter parse→handler→format chain offline and reports `{ honored, hostReply?, reason }` — encodes each host's actual honor/drop/degrade contract (e.g. codex drops `context` on UserPromptSubmit → `honored:false`; `deny` on Stop is continuation/persistence → `honored:true`). Answers "does my handler/HUD actually work on host X?" before touching a real host.
-
-## Key API: defineConnector fields
-
-- `id?` (optional explicit install/runtime alias; defaults from package identity metadata), `mcp?` (package identity override), `displayName?` (optional host-facing label override), `version?` (defaults from package.json version, else `"0.0.0"`). For normal packaged connectors, omit all four and let `package.json` drive identity.
-- `server?: ServerDef` — `transport`, `command`/`args`/`env`/`cwd` (stdio) or `url`/`headers`/`auth` (remote), `tools`, `timeoutMs`, `enabled`, `wrapForTelemetry`.
-- `hooks?: HooksConfig` — per event: `{ matcher?, handler(evt) }` (matcher = tool name on tool events incl. PermissionRequest/PostToolUseFailure; agent type on SubagentStart/SubagentStop); handler returns `{ decision: allow|deny|modify|context|ask, reason?, updatedInput?, additionalContext?, updatedOutput? }` or void.
-- `commands?`, `skills?`, `subagents?` — content-only surfaces (files agent-connector owns).
-- `memory?: MemoryDef[]` — `{ name? (default "memory"), description?, content }`; standing guidance → managed marker blocks in each host's memory/rules file (AGENTS.md-first; per-host tuning via `platforms.<id>.memory: false | { path?, mode? }`, `mode` claude-code-only).
-- `statusline?: StatuslineDef` — singular fail-safe HUD handler with a required `render(ctx)` fallback, optional options, and optional host overrides. Supporting hosts wire the home-bin statusline command through ownership-tracked config; unsupported hosts skip-warn. Helper: `defineStatusline({ render })`; full field contract: `llms-full.txt` §2.5.
-- `actions?: ActionDef[]` — user-triggered actions with required `run(ctx)`, optional UI metadata, and optional host overrides. Universal dispatch is `agent-connector action <platform> <actionId> --connector <id>`; native emitters exist only where `supportsActions` is true. Helper: `defineAction({ id, run })`; full field contract: `llms-full.txt` §2.6.
-- `telemetry?: TelemetryConfig` — `enabled` (default true), `modelFamilyHint`, `measureToolDefs`, `hostNativeUsage`, `store`, `calibration`.
-- `platforms?` — per-platform overrides / escape hatch (`extra`, disable a surface, force scope, `nativeHooks` native-event passthrough, `configPatch` host-config key patches, `memory` target/mode tuning).
-- `targets?` — `"auto"` (default, all detected) or an explicit `PlatformId[]`.
-- `publish?` — distribution metadata for the official MCP artifacts (`package --format mcp-server-json|mcpb`): `registryNamespace` (reverse-DNS namespace YOU own; server.json name = `<namespace>/<id>`), `packageName` (your REAL published package), `registryBaseUrl?`, `author { name, email?, url? }`. Optional; the relevant format raises a clear error only when its required field is missing.
-
-Validation: throws `ConnectorConfigError` on bad id, non-function handler, missing required field, duplicate surface name, skill description >1024 chars, unsafe `resources` path, or memory content >16 KiB / containing the literal managed-block marker tokens.
-
-## CLI commands
-
-- `detect` — list installed platforms, scope, capabilities, hook paradigm.
-- `install [--method direct|marketplace] [--scope user|project] [--targets a,b] [--connector path] [--dry-run] [--force]` — targets the hosts DETECTED on your machine (or the explicit `--targets` / `connector.targets` you name), intersected with the current adapter registry shown at https://agent-connector.ai/coverage; there is no "install to every host unconditionally" path (an empty target set just warns). `--method marketplace` (drivable: claude-code, codex, copilot-cli, opencode, kilo, kilo-cli, antigravity, antigravity-cli live-verified on Linux+Windows+macOS; droid, qwen-code driver-shipped; gemini-cli LEGACY — sunsetting toward Antigravity, driver kept for existing installs) drives the host's own plugin flow instead of writing config — stage the bundle, register a local marketplace where the host has one, run the host's plugin-install verb (`claude/codex plugin install`/`add`, `gemini extensions install`, `agy plugin install`), or for npm-plugin hosts write a local `file://` entry into the config plugin array — headless + idempotent, with a guard refusing the same connector by BOTH methods. Other marketplace-format hosts still print manual install commands. `--force` overwrites user-edited memory blocks (hash drift) after a timestamped backup; default is warn-and-leave.
-- `uninstall [--method auto|direct|marketplace] [--connector-id <id>] [--targets …] [--purge] [--dry-run]` — full inverse; `--method auto` (default) reverses whichever method is actually installed; `--purge` also removes registered framework state + the home binary when no connectors remain.
-- `upgrade [--channel stable|latest]` — ONE "bring everything current" verb (aliases: `sync`, `update`): idempotent re-render (identical entries report skip), heals the stable home pointer, prints managed-update guidance (never silent).
-- `doctor [--targets …] [--probe] [--json]` — per-platform health checks; `--probe` runs a live MCP handshake (initialize → ping → tools/list) against the real stdio server; non-zero exit on FAIL.
-- `status [--json]` — light install-state summary (which connectors are present on which hosts); always exits 0.
-- `package [--format <fmt>|all] [--out <dir>]` — emit a marketplace/extension bundle (10 host formats: claude-plugin (default) · codex-plugin · copilot-plugin · factory-plugin · gemini-extension · qwen-extension · agy-plugin · cursor-plugin · kimi-plugin · npm-plugin) or an official MCP standard artifact by explicit name: `mcp-server-json` (MCP Registry server.json) · `mcpb` (MCPB manifest) — both require the connector's `publish` block and are excluded from `all`.
-- `telemetry report|export|leaderboard` — **(track A, developer)** per-MCP / per-tool token telemetry for the server YOUR connector declares + wraps (`report --by tool|session|project`, `leaderboard --by mcp|tool|surface`); requires a registered connector + serve-proxy traffic + stdio transport.
-- `usage report|export|leaderboard` — **(track B, end user, connector-free)** host-native usage parsed read-only from each agent CLI's own session logs. Groups ONLY by `platform|project|session|model|day` — per-CLI / per-model / per-session totals with NO per-MCP or per-tool dimension (agent CLIs do not log per-tool token attribution). `report --by platform|project|session|model|day`, `leaderboard --by platform|model`.
-- `leaderboard` — unified: 🔌 per-MCP (needs connector + serve traffic) · 🖥️ host/user (the only board with no setup) · 🛰️ live host-native turns (needs the opt-in usage hook, installed only by Gemini-CLI / Antigravity); never summed across boards.
-- `hook`, `serve`, `usage-event`, `statusline`, `action` — internal entrypoints hosts point at.
-
-## Supported platforms by paradigm
-
-Current counts and per-host coverage are canonical at https://agent-connector.ai/coverage.
-
-- `json-stdio` (full hook dispatch, 22): codebuddy, claude-code, codex, cursor, vscode-copilot, jetbrains-copilot, copilot-cli, gemini-cli, qwen-code, kiro, kimi, crush, goose, hermes, droid, openhands, antigravity, antigravity-cli, continue, amazon-q, grok-cli, devin.
-- `mcp-only` (MCP registration only, 12): warp, roo-code, cline, trae, zed, codebuff, mux, pi, windsurf, open-interpreter, junie, mistral-vibe.
-- `ts-plugin` (generated bridge module, 8): opencode, mimo-code, kilo-cli, kilo, omp, nemoclaw, openclaw, amp.
-
-## Telemetry / leaderboards
-
-- Default tokenizer: `gpt-tokenizer` (pure-JS); `o200k_base` for OpenAI/Codex, documented approximation for Anthropic; falls back to `chars/4` heuristic. Every row tagged `tokenizer-exact | tokenizer-calibrated | tokenizer-approx | heuristic | host-native`.
-- Two axes, never summed: the developer/surface axis (🔌 per-MCP serve-proxy rows — scopes call|tool_defs|hook — plus static command/skill/subagent context footprints; `telemetry leaderboard --by mcp|tool|surface`) vs the user/host axis (🖥️ host CLI-log scans + 🛰️ live host-native model_turn rows).
-- Privacy: aggregate counts only; zero egress by default. Opt out: `AGENT_CONNECTOR_TELEMETRY=0` or `telemetry: { enabled: false }`.
-- Env switches: `AGENT_CONNECTOR_DATA_DIR` (relocate data-root) · `AGENT_CONNECTOR_TELEMETRY=0` (kill switch) · `AGENT_CONNECTOR_HOST_NATIVE=1` (force host-native turn capture) · `AGENT_CONNECTOR_CALIBRATE=anthropic` + `ANTHROPIC_API_KEY` (BOTH required to enable the opt-in count_tokens calibration sampler).
-
-## Extensibility
-
-- Adding a platform = one lazily-loaded registry entry (`src/adapters/registry.ts`) + one adapter class; `platforms.<id>.extra` is the per-platform escape hatch (thin universal core, fat per-adapter tail).
+- Coverage page: https://agent-connector.ai/coverage is canonical for current
+  host support, tier, surface, type, server support, verification level, and star
+  index display.
+- Full reference: `llms-full.txt` contains supported platform tables by hook
+  paradigm, canonical hook events, content surfaces, statusline/action contracts,
+  telemetry model, CLI reference, SDK reference, and host caveats.
+- Skill route: `skills/agent-connector/SKILL.md` is the small agent-facing router;
+  detailed task references are under `skills/agent-connector/references/`.
 
 ## Links
 
-- [README](README.md) — overview + quick start.
-- [Architecture](docs/ARCHITECTURE.md) — the authoritative design.
-- [Full LLM reference](llms-full.txt) — exhaustive API + CLI + platform + telemetry reference.
-- [Example connector](examples/acme-db/agent-connector.config.mjs).
-- [Skill](skills/agent-connector/SKILL.md) — agent-facing how-to (deployable via the skills surface).
+- README: `README.md`
+- Architecture: `docs/ARCHITECTURE.md`
+- Full LLM reference: `llms-full.txt`
+- Example connector: `examples/acme-db/agent-connector.config.mjs`

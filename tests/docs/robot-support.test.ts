@@ -2,12 +2,11 @@
  * tests/docs/robot-support — the single drift guard for the machine-readable
  * docs (`llms.txt` + `llms-full.txt`, the "robot support" surface LLMs read).
  *
- * These two files are HAND-MAINTAINED prose, so every factual list they carry can
- * silently rot when the code moves. This suite makes the code the single source of
- * truth and fails the moment a doc list drifts. ALL llms.txt / llms-full.txt
- * assertions live HERE (consolidated out of platform-drift + hook-event-drift, so
- * those keep only their site/README scope) — a contributor touching the robot docs
- * has exactly one place to look.
+ * llms.txt is intentionally a compact, descriptive route map. llms-full.txt is
+ * the exhaustive contract that carries detailed host/event/SDK lists. This suite
+ * makes that split explicit so the short file does not grow into an external
+ * instruction-looking document that permission reviewers can mistake for active
+ * agent guidance.
  *
  * Only HIGH-CONFIDENCE, deterministically-derivable claims are guarded — each set
  * is computed from a real export (the adapter registry, the core type unions, the
@@ -96,17 +95,6 @@ async function registryParadigms(): Promise<Record<string, string[]>> {
   return sets;
 }
 
-async function hostsWithCapability(
-  key: "supportsStatusline" | "supportsActions" | "supportsNativeHooks",
-): Promise<string[]> {
-  const ids: string[] = [];
-  for (const factory of ADAPTER_REGISTRY) {
-    const adapter = await factory.load();
-    if (adapter.capabilities[key] ?? false) ids.push(factory.id);
-  }
-  return ids.sort();
-}
-
 describe("robot docs drift guard — llms.txt + llms-full.txt (code is the source of truth)", () => {
   it("publishes agent-readable docs in the website artifact", () => {
     expect(SITE_PACKAGE.scripts?.build).toContain("scripts/copy-agent-assets.mjs");
@@ -118,16 +106,33 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     expect(DEPLOY_SITE_WORKFLOW).toContain('"skills/agent-connector/**"');
   });
 
+  it("keeps llms.txt compact and descriptive instead of instruction-like", () => {
+    expect(LLMS.length).toBeLessThanOrEqual(8_000);
+    expect(LLMS).toContain("Descriptive product route map");
+    expect(LLMS).toContain("Detailed API contracts");
+    expect(LLMS).toContain("llms-full.txt");
+    expect(LLMS).toContain("https://agent-connector.ai/coverage");
+    expect(LLMS).not.toMatch(/ignore (all )?(previous|prior) instructions/i);
+    expect(LLMS).not.toMatch(/\bsystem prompt\b/i);
+    expect(LLMS).not.toMatch(/\bdeveloper instructions\b/i);
+    expect(LLMS).not.toMatch(/\bAGENTS\.md\b/i);
+    expect(LLMS).not.toMatch(/\bAUTONOMOUS CODING AGENT\b/i);
+    expect(LLMS).not.toMatch(/\byou are\b/i);
+    expect(LLMS).not.toMatch(/\bjailbreak\b/i);
+    expect(LLMS).not.toMatch(/\bcredential\b/i);
+    expect(LLMS).not.toMatch(/\bpassword\b/i);
+    expect(LLMS).not.toMatch(/\bsecret\b/i);
+  });
+
   it("keeps all MCP server launch shapes visible to agents", () => {
     // The docs use acme-db as one concrete sample, but agents must not infer
     // that every MCP is a database package launched through npx. The launch
     // shape list keeps the package-first contract product-neutral.
-    expect(LLMS).toContain("package-runner MCPs");
-    expect(LLMS).toContain("local Node/process MCPs");
-    expect(LLMS).toContain("uv run --with mcp <server.py>");
-    expect(LLMS).toContain("CLI-based MCPs");
-    expect(LLMS).toContain("remote server MCPs");
-    expect(LLMS).toContain("<mcp-cli> mcp serve");
+    expect(LLMS).toContain("package runner");
+    expect(LLMS).toContain("local Node or process server");
+    expect(LLMS).toContain("Python server");
+    expect(LLMS).toContain("CLI server mode");
+    expect(LLMS).toContain("remote HTTP server URL");
     expect(LLMS_FULL).toContain("local Node/process MCP");
     expect(LLMS_FULL).toContain("Python MCP");
     expect(LLMS_FULL).toContain("remote server MCP");
@@ -141,32 +146,17 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
   });
 
   // ── Paradigm partition (migrated from platform-drift) ────────────────────
-  it("llms.txt paradigm bullets name EXACTLY the registry ids and point counts to coverage", async () => {
-    const truth = await registryParadigms();
-    expect(LLMS).toContain("## Supported platforms by paradigm");
+  it("llms.txt routes platform detail to coverage/full instead of duplicating host ids", async () => {
+    await registryParadigms(); // sanity-load the registry; exact details live below in llms-full assertions.
+    expect(LLMS).toContain("## Support And Coverage");
     expect(LLMS_FULL).toContain("## 6. Supported platforms by hook paradigm");
     expect(LLMS).toContain("https://agent-connector.ai/coverage");
     expect(LLMS_FULL).toContain("https://agent-connector.ai/coverage");
     expect(LLMS).not.toMatch(/^## Supported platforms by paradigm \(\d+\)$/m);
     expect(LLMS_FULL).not.toMatch(/^## 6\. Supported platforms \(\d+, by hook paradigm\)$/m);
-    for (const [paradigm, ids] of Object.entries(truth)) {
-      const line = bullet(LLMS, `- \`${paradigm}\``);
-      expect(line, `llms.txt is missing the ${paradigm} bullet`).toBeTruthy();
-      for (const id of ids) {
-        expect(line, `llms.txt ${paradigm} bullet is missing "${id}"`).toContain(id);
-      }
-      // No id from another paradigm may appear on this line.
-      for (const [other, otherIds] of Object.entries(truth)) {
-        if (other === paradigm) continue;
-        for (const id of otherIds) {
-          if (ids.some((own) => own.includes(id))) continue; // substring ids (kilo vs kilo-cli)
-          expect(
-            new RegExp(`[ ,]${id}[,.\\s]`).test(line!),
-            `llms.txt ${paradigm} bullet wrongly lists "${id}" (${other})`,
-          ).toBe(false);
-        }
-      }
-    }
+    expect(LLMS).not.toMatch(/^- `json-stdio`/m);
+    expect(LLMS).not.toMatch(/^- `mcp-only`/m);
+    expect(LLMS).not.toMatch(/^- `ts-plugin`/m);
   });
 
   it("llms-full.txt paradigm heading counts match the registry", async () => {
@@ -179,12 +169,13 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
   });
 
   // ── Canonical hook events (migrated from hook-event-drift) ────────────────
-  it("llms.txt hooks bullet names every canonical event", () => {
-    const line = bullet(LLMS, "- `hooks` —");
-    expect(line, "llms.txt is missing the `hooks` surface bullet").toBeTruthy();
-    expect(line).toContain(`${canonicalEvents.length} canonical events`);
+  it("llms.txt points hook-event detail to llms-full instead of listing every event", () => {
+    expect(LLMS).toContain("canonical hook events");
+    expect(LLMS).toContain("llms-full.txt");
     for (const event of canonicalEvents) {
-      expect(line, `llms.txt hooks bullet is missing "${event}"`).toContain(event);
+      expect(LLMS, `llms.txt should not list detailed hook event "${event}"`).not.toContain(
+        `${event},`,
+      );
     }
   });
 
@@ -201,26 +192,13 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     }
   });
 
-  it("llms.txt handler-surface claims match adapter capability flags", async () => {
-    const statusline = await hostsWithCapability("supportsStatusline");
-    const actions = await hostsWithCapability("supportsActions");
-    const nativeHooks = await hostsWithCapability("supportsNativeHooks");
-
-    const statuslineLine = bullet(LLMS, "- `statusline`");
-    const actionsLine = bullet(LLMS, "- `actions`");
-    expect(statuslineLine).toBeTruthy();
-    expect(actionsLine).toBeTruthy();
-
-    for (const id of statusline) {
-      expect(statuslineLine, `llms.txt statusline bullet omits "${id}"`).toContain(id);
-    }
-    for (const id of actions) {
-      expect(actionsLine, `llms.txt actions bullet omits "${id}"`).toContain(id);
-    }
-    expect(LLMS).toContain(`${nativeHooks.length} adapters support it today`);
-    for (const id of nativeHooks) {
-      expect(LLMS, `llms.txt nativeHooks paragraph omits "${id}"`).toContain(id);
-    }
+  it("llms.txt names handler surfaces but leaves per-host support to coverage/full", () => {
+    expect(LLMS).toContain("statusline");
+    expect(LLMS).toContain("actions");
+    expect(LLMS).toContain("host caveats");
+    expect(LLMS_FULL).toContain("supportsStatusline");
+    expect(LLMS_FULL).toContain("supportsActions");
+    expect(LLMS_FULL).toContain("supportsNativeHooks");
   });
 
   // ── Inline registry-count prose (the freshness sweep guards this) ─────────
@@ -246,45 +224,43 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
   });
 
   // ── NEW high-confidence guards ───────────────────────────────────────────
-  it("llms.txt SurfaceName list names every surface the sdk models", () => {
+  it("llms-full.txt SurfaceName list names every surface the sdk models", () => {
     // SURFACE_PREDICATES is keyed by SurfaceName — the runtime view of the type.
     const surfaces = Object.keys(SURFACE_PREDICATES);
-    const line = bullet(LLMS, "- `./sdk`");
-    expect(line, "llms.txt is missing the `./sdk` export bullet").toBeTruthy();
-    // The canonical `SurfaceName: a|b|c…` enumeration lives on that bullet.
-    const enumPart = line!.slice(line!.indexOf("`SurfaceName`"));
-    expect(enumPart, "llms.txt `./sdk` bullet is missing the SurfaceName enumeration").toBeTruthy();
+    const idx = LLMS_FULL.indexOf("`SurfaceName` vocabulary:");
+    expect(idx, "llms-full.txt is missing the SurfaceName vocabulary").toBeGreaterThan(-1);
+    const enumPart = LLMS_FULL.slice(idx, LLMS_FULL.indexOf("Examples:", idx));
     for (const surface of surfaces) {
       expect(
         enumPart,
-        `llms.txt SurfaceName enumeration is missing "${surface}"`,
+        `llms-full.txt SurfaceName vocabulary is missing "${surface}"`,
       ).toContain(surface);
     }
   });
 
-  it("llms.txt SDK bullet names every `define*` authoring helper exported from /sdk", () => {
+  it("llms-full.txt SDK section names every `define*` authoring helper exported from /sdk", () => {
     const defineFns = Object.keys(sdk)
       .filter((k) => /^define[A-Z]/.test(k))
       .sort();
     // sanity: the family is non-trivial (catches a broken import).
     expect(defineFns.length).toBeGreaterThanOrEqual(8);
     for (const fn of defineFns) {
-      expect(LLMS, `llms.txt never documents the sdk helper "${fn}"`).toContain(fn);
+      expect(LLMS_FULL, `llms-full.txt never documents the sdk helper "${fn}"`).toContain(fn);
     }
   });
 
   it("llms.txt keeps branded lifecycle separate from framework packaging", () => {
-    const line = bullet(LLMS, "- **(A) MCP developer**");
+    const line = bullet(LLMS, "- MCP developer track:");
     expect(line, "llms.txt is missing the MCP developer audience bullet").toBeTruthy();
-    expect(line).toContain("branded lifecycle");
-    expect(line).toContain("through your package/bin");
-    expect(line).toContain("Distribution artifacts use framework tooling");
-    expect(line).toContain("npx @ken-jo/agent-connector package --connector");
+    expect(line).toContain("branded MCP integration");
+    expect(LLMS).toContain("package's");
+    expect(LLMS).toContain("own bin");
+    expect(LLMS).toContain("Framework packaging artifacts");
     expect(line).not.toContain("doctor/detect/status, package");
   });
 
   it("robot docs package command names every PackageFormat the emitter ships", () => {
-    const line = bullet(LLMS, "- `package");
+    const line = bullet(LLMS, "- Framework CLI:");
     expect(line, "llms.txt is missing the `package` command bullet").toBeTruthy();
     const fullPackageIdx = LLMS_FULL.indexOf("### package");
     const fullTelemetryIdx = LLMS_FULL.indexOf("### telemetry", fullPackageIdx);
@@ -293,7 +269,6 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     const fullPackageSection = LLMS_FULL.slice(fullPackageIdx, fullTelemetryIdx);
     expect(fullPackageSection).toContain("framework tooling, not a branded MCP lifecycle command");
     for (const fmt of ALL_FORMATS) {
-      expect(line, `llms.txt package bullet is missing the "${fmt}" format`).toContain(fmt);
       expect(
         fullPackageSection,
         `llms-full.txt package section is missing the "${fmt}" format`,
@@ -301,26 +276,31 @@ describe("robot docs drift guard — llms.txt + llms-full.txt (code is the sourc
     }
   });
 
-  it("llms.txt install bullet names every marketplace-drivable host (and no non-drivable one)", () => {
+  it("llms-full.txt install section names every marketplace-drivable host (and no non-drivable one)", () => {
     const drivable = ADAPTER_REGISTRY.map((f) => f.id)
       .filter((id) => getMarketplaceDriver(id) !== null)
       .sort();
     const notDrivable = ADAPTER_REGISTRY.map((f) => f.id).filter(
       (id) => getMarketplaceDriver(id) === null,
     );
-    const line = bullet(LLMS, "- `install");
-    expect(line, "llms.txt is missing the `install` command bullet").toBeTruthy();
+    const installStart = LLMS_FULL.indexOf("### install");
+    const uninstallStart = LLMS_FULL.indexOf("### uninstall", installStart);
+    expect(installStart, "llms-full.txt is missing the install section").toBeGreaterThan(-1);
+    expect(uninstallStart, "llms-full.txt install section terminator missing").toBeGreaterThan(
+      installStart,
+    );
+    const section = LLMS_FULL.slice(installStart, uninstallStart);
     // sanity: the resolver yields a real, non-empty set.
     expect(drivable.length).toBeGreaterThanOrEqual(3);
     for (const id of drivable) {
-      expect(line, `llms.txt install bullet omits drivable host "${id}"`).toContain(id);
+      expect(section, `llms-full.txt install section omits drivable host "${id}"`).toContain(id);
     }
     // A host with NO driver must not be advertised as drivable (substring-safe).
     for (const id of notDrivable) {
       if (drivable.some((d) => d.includes(id))) continue; // substring ids (kilo vs kilo-cli)
       expect(
-        new RegExp(`drivable:[^\\n]*[ ,]${id}[,.\\s]`).test(line!),
-        `llms.txt install bullet wrongly lists non-drivable "${id}" as drivable`,
+        new RegExp(`Drivable hosts[^\\n]*[ ,]${id}[,.\\s]`).test(section),
+        `llms-full.txt install section wrongly lists non-drivable "${id}" as drivable`,
       ).toBe(false);
     }
   });
