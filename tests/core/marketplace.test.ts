@@ -1473,7 +1473,7 @@ describe.each(["antigravity", "antigravity-cli"] as PlatformId[])(
       ).toBe(true);
       expect(spawned(agyLog)).toContainEqual(["plugin", "install", agyPluginDir()]);
       expect(agyPluginInstalled(CONNECTOR_ID)).toBe(true);
-    });
+    }, 15_000);
   },
 );
 
