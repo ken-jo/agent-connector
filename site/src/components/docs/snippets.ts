@@ -560,7 +560,7 @@ $ acme-db telemetry leaderboard --by tool
 # no connector attribution, so only the 🔌 MCP/plugin (+ 🛰️ host-native) sections
 # are filtered to acme-db.`;
 
-export const packageSnippet = `# default format (claude-plugin) → <cwd>/dist-plugin
+export const packageSnippet = `# default format (agent-plugin — the Agent Plugins 1.0.0 bundle) → <cwd>/dist-plugin
 npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs
 
 # pick a format + output dir; preview without writing
@@ -575,14 +575,21 @@ npx @ken-jo/agent-connector package --connector ./agent-connector.config.mjs --f
 # if you already keep the framework CLI globally installed, drop the npx package prefix:
 agent-connector package --connector ./agent-connector.config.mjs --format all --out ./dist`;
 
-export const packageInstallSnippet = `# a claude-plugin bundle installs from a marketplace, two steps:
-/plugin marketplace add ./dist-plugin
+export const packageInstallSnippet = `# the default agent-plugin bundle installs from a local marketplace, two steps —
+# the SAME <out> dir serves Codex and GitHub Copilot CLI (VS Code picks up the CLI install):
+codex plugin marketplace add ./dist-plugin && codex plugin add acme-db@agent-connector
+copilot plugin marketplace add ./dist-plugin && copilot plugin install acme-db@agent-connector
 # acme-db is the package-derived connector id inside the generated bundle,
 # not an extra id the user enters in defineConnector.
+
+# a claude-plugin bundle (--format claude-plugin) is the Claude Code equivalent:
+/plugin marketplace add ./dist-plugin
 /plugin install acme-db@agent-connector
 
-# the wrapped MCP entry in the bundle still routes through the home-bin:
-# --connector acme-db is generated from package.json/mcpName during install.
+# the wrapped MCP entry still routes through the one agent-connector runtime —
+# agent-plugin via its bundled launcher (no absolute path in the bundle):
+#   node \${PLUGIN_ROOT}/bin/agent-connector.mjs serve --connector acme-db -- <real cmd>
+# claude-plugin via the home-bin path:
 #   agent-connector serve --connector acme-db --host claude-code -- <real cmd>
 # so a marketplace-installed connector STILL reports per-tool tokens.`;
 

@@ -82,7 +82,7 @@ export const hostVerificationResults = [
     "headlessModelMcpE2e": "PASS",
     "result": "VERIFIED_E2E",
     "issueOrBlocker": "none",
-    "evidence": "OMAC_CODEX_E2E_OK; MCP notepad_stats call observed"
+    "evidence": "OMAC_CODEX_E2E_OK; MCP notepad_stats call observed; agent-plugin (Agent Plugins 1.0.0) SSOT bundle live-verified on codex-cli 0.149.0 macOS 2026-09-02: plugin marketplace add + plugin add + plugin list shows installed/enabled from the root plugin.json bundle"
   },
   {
     "host": "cursor",
@@ -122,7 +122,7 @@ export const hostVerificationResults = [
     "headlessModelMcpE2e": "PASS",
     "result": "VERIFIED_E2E",
     "issueOrBlocker": "none",
-    "evidence": "OMAC_COPILOT_E2E_OK; MCP notepad_stats call observed"
+    "evidence": "OMAC_COPILOT_E2E_OK; MCP notepad_stats call observed; agent-plugin (Agent Plugins 1.0.0) SSOT bundle live-verified on GitHub Copilot CLI 1.0.80 macOS 2026-09-02: plugin marketplace add + plugin install + plugin list, installed tree keeps com.github.copilot/ + bin/agent-connector.mjs"
   },
   {
     "host": "gemini-cli",

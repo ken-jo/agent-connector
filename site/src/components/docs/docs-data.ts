@@ -1245,7 +1245,7 @@ export const cliCommands: CliCommand[] = [
     flags: [
       {
         flag: "--format <fmt>",
-        desc: 'One of the host plugin/marketplace formats (default claude-plugin), or "all" to emit every feasible host format into <out>/<fmt>/. Two OFFICIAL MCP standard artifacts are also available by name — mcp-server-json (a registry server.json) and mcpb (an MCPB bundle manifest) — but require a `publish` block, so they are opt-in and excluded from `all`. An invalid --format exits 2.',
+        desc: 'One of the host plugin/marketplace formats (default agent-plugin — the Agent Plugins 1.0.0 bundle Codex, GitHub Copilot CLI, VS Code / JetBrains Copilot, Kiro and Hermes install; the retired codex-plugin / copilot-plugin names still parse and resolve to it), or "all" to emit every feasible host format into <out>/<fmt>/. Two OFFICIAL MCP standard artifacts are also available by name — mcp-server-json (a registry server.json) and mcpb (an MCPB bundle manifest) — but require a `publish` block, so they are opt-in and excluded from `all`. An invalid --format exits 2.',
       },
       {
         flag: "--out <dir>",

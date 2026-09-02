@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.0 — 2026-09-02
+
+Agent Plugins 1.0.0 becomes the single source of truth for every host that speaks the open spec. One `package` run (or one `install --method marketplace`) now produces the bundle Codex, GitHub Copilot CLI, VS Code / JetBrains Copilot, Kiro and Hermes all install, instead of a per-host copy of the Claude plugin tree.
+
+### Added
+
+- `package --format agent-plugin`: a spec-conformant [Agent Plugins 1.0.0](https://agent-plugins.org) package — root `plugin.json` (const `$schema`, slug `name`, `extensions`), `mcp.json` (`stdio` | `streamable-http` | `sse`; the only bundle that also carries REMOTE servers), `skills/<n>/SKILL.md`, and a README. Non-conformant `cwd`/env values are dropped with notes rather than emitted invalid.
+- Portable launcher `bin/agent-connector.mjs` inside the bundle. The spec forbids absolute command paths, so the MCP entry runs `node ${PLUGIN_ROOT}/bin/agent-connector.mjs serve …` and the launcher resolves the runtime at run time: `$AGENT_CONNECTOR_HOME_BIN` → the stable home binary → `agent-connector` on PATH → `npx @ken-jo/agent-connector@^<version>`. No global install is required for telemetry to carry through; stdio, signals and exit codes pass straight through.
+- Data-driven client extension namespaces (`CLIENT_NAMESPACES`) for the surfaces the spec leaves client-specific: `com.github.copilot/` (hooks routed through the `${PLUGIN_ROOT}` launcher, `agents/<n>.agent.md`, `commands/<n>.md`; read by Copilot CLI, VS Code and JetBrains) and `com.openai/` (hooks, pointed at by `plugin.json` `extensions["com.openai"].hooks`, which Codex parses as its manifest overlay). Clients ignore namespaces they do not own.
+- `hostHint` on `packageConnector` / `EmitContext`: marketplace drivers pass their platform so the MCP entry carries `--host` for telemetry attribution and only the namespace that host reads is restamped.
+- Local marketplace catalogs at `<out>/.claude-plugin/marketplace.json` and `<out>/.agents/plugins/marketplace.json`, so `copilot plugin marketplace add <out>` / `codex plugin marketplace add <out>` + install-by-name work straight from `package` output.
+- `DEFAULT_PACKAGE_FORMAT`, `LEGACY_FORMAT_ALIASES` and `resolvePackageFormat()` exported from `core/package`.
+
+### Changed
+
+- **`package` default format is now `agent-plugin`** (was `claude-plugin`); `--format all` emits 9 host formats. Claude Code, Antigravity, Gemini CLI, Qwen Code, Droid, Kimi and OpenCode/Kilo/Pi keep their native formats.
+- The `codex` and `copilot-cli` marketplace drivers stage the `agent-plugin` bundle (staged-bundle marker: root `plugin.json` carrying the Agent Plugins `$schema`). `MARKETPLACE_FORMAT_BY_PLATFORM` routes `codex`, `copilot-cli`, `vscode-copilot`, `jetbrains-copilot`, `kiro` and `hermes` to `agent-plugin`; Cursor keeps `cursor-plugin` and OpenClaw `claude-plugin` because their own docs say the client-specific format is the one that carries hooks and commands.
+- `package` prints the drivable `install --method marketplace --targets …` hint for both `agent-plugin` (codex, copilot-cli) and `claude-plugin` (claude-code).
+- README, `llms-full.txt`, `docs/ARCHITECTURE.md`, the site packaging guide and format table, and `docs/host-verification-results.csv` describe the new default and the unified routing.
+
+### Removed
+
+- The `codex-plugin` and `copilot-plugin` formats (per-host copies of the Claude tree with a renamed manifest dir or a `--host` restamp). The names still parse everywhere a format is accepted and resolve to `agent-plugin` with a deprecation line, so existing scripts keep working.
+
+### Verified
+
+- Live on macOS in isolated homes: codex-cli 0.149.0 (`plugin marketplace add` → `plugin add` → `plugin list` installed/enabled), GitHub Copilot CLI 1.0.80 (`plugin marketplace add` → `plugin install` → `plugin list`), Hermes `plugins doctor`, and the full `install --method marketplace --targets codex,copilot-cli` → `doctor` → `uninstall` round trip with zero residue.
+
 ## 0.4.100 — 2026-07-02
 
 Automated release preparation since v0.4.99.
