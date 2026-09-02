@@ -207,10 +207,12 @@ export function SurfaceLegend() {
         <span className={cn(markerChip, agentPluginChip.client)}>AP client</span>
         <span>reads the spec, but we ship its own format</span>
         <span aria-hidden="true" className="opacity-40">·</span>
-        <span className={cn(markerChip, lifecycleChip.archived)}>EOL</span>
-        <span aria-hidden="true" className="opacity-40">/</span>
         <span className={cn(markerChip, lifecycleChip.sunsetting)}>Sunsetting</span>
-        <span>upstream archived or winding down — hover for the evidence</span>
+        <span>
+          still shipping, but the vendor has started winding it down — hover for
+          the evidence. Hosts whose upstream is fully archived are dropped from
+          this page rather than badged.
+        </span>
       </p>
     </div>
   );
@@ -238,7 +240,12 @@ const agentPluginChip: Record<AgentPluginState, string> = {
     "border-dotted border-emerald-600/60 bg-transparent text-emerald-800 dark:border-emerald-400/40 dark:text-emerald-300/90",
 };
 
-/** Per-state treatment for the upstream-lifecycle marker (archived / sunsetting). */
+/**
+ * Per-state treatment for the upstream-lifecycle marker. In practice only
+ * `sunsetting` reaches a card: `isPublicCoveragePlatform` drops archived hosts
+ * from public coverage entirely, so the `archived` entry exists to keep the map
+ * total over the status union (and would render if that policy ever softened).
+ */
 const lifecycleChip: Record<HostLifecycle["status"], string> = {
   archived:
     "border-red-500/70 bg-red-200/60 text-red-900 dark:border-red-400/50 dark:bg-red-500/15 dark:text-red-200",

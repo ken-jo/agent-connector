@@ -48,9 +48,13 @@ import {
   hostLifecycle,
   hostLinks,
   hostSource,
+  isPublicCoverageHost,
+  majorVendorOssIds,
   platforms as landingPlatforms,
   tierOf,
 } from "../../site/src/platform-data.js";
+import coverageStars from "../../site/src/coverage-stars.generated.json" with { type: "json" };
+
 
 /** Registry-derived truth: paradigm → sorted adapter ids. */
 async function registryParadigms(): Promise<Record<string, string[]>> {
@@ -750,6 +754,38 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
         doc,
         `ARCHITECTURE.md paradigm taxonomy quotes a stale \`${paradigm}\` count`,
       ).toContain(`**\`${paradigm}\`** (${truth[paradigm]!.length})`);
+    }
+  });
+
+  it("majorVendorOssIds exempts only real OSS hosts, and archived hosts stay off public coverage", () => {
+    // The exemption lifts the raised independent-project floor, so a stray id
+    // here would silently re-admit a host we meant to curate out — and an
+    // exemption on a CLOSED host would be dead data, since closed hosts are
+    // always public.
+    const byId = new Map(landingPlatforms.map((p) => [p.id, p]));
+    for (const id of majorVendorOssIds) {
+      const platform = byId.get(id);
+      expect(platform, `majorVendorOssIds has unknown platform id "${id}"`).toBeDefined();
+      const src = hostSource[id];
+      expect(src, `majorVendorOssIds["${id}"] has no hostSource entry`).toBeDefined();
+      expect(
+        src && "repo" in src,
+        `majorVendorOssIds["${id}"] is a CLOSED host — closed hosts are always public, so the exemption is dead data`,
+      ).toBe(true);
+    }
+
+    // The curation policy itself: nothing archived may reach a public page.
+    for (const platform of landingPlatforms) {
+      if (hostLifecycle[platform.id]?.status !== "archived") continue;
+      const src = hostSource[platform.id];
+      const stars =
+        src && "repo" in src
+          ? (coverageStars as Record<string, number>)[src.repo]
+          : undefined;
+      expect(
+        isPublicCoverageHost(platform, stars),
+        `"${platform.id}" is archived upstream but still renders on public coverage`,
+      ).toBe(false);
     }
   });
 

@@ -15,23 +15,23 @@ import {
 } from "@/host-verification.generated";
 import {
   hostSource,
+  isPublicCoverageHost,
   platforms,
   type Platform,
 } from "@/data";
 
 const STARS: Record<string, number> = coverageStars;
 
-export const PUBLIC_OSS_STAR_FLOOR = 1000;
+export { PUBLIC_OSS_STAR_FLOOR, PUBLIC_INDEPENDENT_STAR_FLOOR } from "@/data";
 
 export function starsForPlatform(id: string): number | undefined {
   const src = hostSource[id];
   return src && "repo" in src ? STARS[src.repo] : undefined;
 }
 
+/** The curation policy, with stars resolved from the generated snapshot. */
 export function isPublicCoveragePlatform(platform: Platform): boolean {
-  const src = hostSource[platform.id];
-  if (!src || "closed" in src) return true;
-  return (STARS[src.repo] ?? 0) >= PUBLIC_OSS_STAR_FLOOR;
+  return isPublicCoverageHost(platform, starsForPlatform(platform.id));
 }
 
 export const publicCoveragePlatforms: Platform[] = platforms.filter(

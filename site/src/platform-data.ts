@@ -1221,6 +1221,86 @@ export function hostLifecycleOf(id: string): HostLifecycle | undefined {
 }
 
 /**
+ * OSS hosts that are a MAJOR VENDOR'S flagship agent, and are therefore exempt
+ * from the raised independent-project star floor on public coverage pages
+ * (see PUBLIC_INDEPENDENT_STAR_FLOOR in components/coverage-wall/public-coverage.ts).
+ *
+ * The exemption exists because a star count measures repo popularity, not
+ * product reach, and it under-reports exactly one shape of host: a first-party
+ * agent whose public repo is an issues/docs tracker or is simply new. AWS's Kiro
+ * (4.2k) and Amazon Q (2.0k) are shipped to millions of AWS users; the star
+ * count says otherwise.
+ *
+ * This is NOT "has a company behind it" — almost every host does. It is "the
+ * host is the recognizable flagship agent of a vendor a reader already knows".
+ * The BASE floor still applies to everyone, so an exempt host that nobody stars
+ * at all (JetBrains' Junie, 422) still stays off the public wall.
+ *
+ * Drift-guarded: every id must be a real platform id with an OSS `hostSource`
+ * (an exemption on a closed host would be dead data — closed hosts are always
+ * public).
+ */
+export const majorVendorOssIds = new Set<string>([
+  "codex", // OpenAI
+  "gemini-cli", // Google
+  "qwen-code", // Alibaba / Qwen
+  "amazon-q", // AWS
+  "kiro", // AWS
+  "mistral-vibe", // Mistral
+  "kimi", // Moonshot AI
+  "mimo-code", // Xiaomi
+  "nemoclaw", // NVIDIA
+  "grok-build", // xAI
+  "junie", // JetBrains
+  "goose", // Block (now the AAIF goose org)
+  "zed", // Zed Industries
+  "crush", // Charm
+  "opencode", // Anomaly (ex-SST)
+  "hermes", // Nous Research
+  "continue", // Continue
+]);
+
+/** Base floor: below this, an OSS host is too small to be worth listing. */
+export const PUBLIC_OSS_STAR_FLOOR = 1000;
+
+/**
+ * Raised floor for OSS hosts that are NOT a major vendor's flagship agent.
+ * An independent project between the two floors is real, but too niche for a
+ * page whose whole claim is "the hosts you actually recognize".
+ */
+export const PUBLIC_INDEPENDENT_STAR_FLOOR = 5000;
+
+/**
+ * The public-coverage curation policy, as a PURE function of (platform, stars)
+ * so the drift test can exercise the real rule without the site's bundler
+ * aliases. `site/src/components/coverage-wall/public-coverage.ts` is the thin
+ * wrapper that supplies `stars` from the generated snapshot.
+ *
+ * Three rules, in order:
+ *   1. An archived upstream is never public — a dead host is not something to
+ *      advertise support for. (The ADAPTER stays in the registry; this governs
+ *      public pages only.)
+ *   2. Closed-source hosts are always public: they have no star signal, and
+ *      every one of them is a flagship commercial agent.
+ *   3. OSS hosts clear the base floor, and independents additionally clear the
+ *      raised floor. `majorVendorOssIds` is exempt from the raised floor only —
+ *      never from the base one.
+ */
+export function isPublicCoverageHost(
+  platform: Platform,
+  stars: number | undefined,
+): boolean {
+  if (hostLifecycle[platform.id]?.status === "archived") return false;
+
+  const src = hostSource[platform.id];
+  if (!src || "closed" in src) return true;
+
+  const count = stars ?? 0;
+  if (count < PUBLIC_OSS_STAR_FLOOR) return false;
+  return majorVendorOssIds.has(platform.id) || count >= PUBLIC_INDEPENDENT_STAR_FLOOR;
+}
+
+/**
  * Compact star label: rounded thousands with a "k" unit.
  *   ≥1000 → Math.round(stars/1000)+"k"   (1970→"2k", 105509→"106k", 380044→"380k")
  *   <1000 → (Math.round(stars/100)/10).toFixed(1)+"k"   (306→"0.3k")
