@@ -235,7 +235,7 @@ interface ServerDef {
 
 Each adapter renders `ServerDef` into the host's dialect. The **root key and field
 names differ per host** (constant per adapter): `mcpServers` (Claude Code, Cursor,
-Copilot CLI, Amp, Codebuff, Crush, Antigravity, …), `servers` (VS Code Copilot),
+Copilot CLI, Amp, Freebuff, Crush, Antigravity, …), `servers` (VS Code Copilot),
 `mcp_servers` (Codex TOML), `mcp` (Warp). Field renames like `cwd`↔`working_directory`
 and `env`↔`environment` are handled per adapter. An adapter that cannot honor a
 requested transport downgrades-or-skips and **reports** it — it never throws.
@@ -1449,8 +1449,8 @@ Detection surfaces "hooks unavailable here."
 | Cline | `cline` | globalStorage saoudrizwan.claude-dev/settings/cline_mcp_settings.json mcpServers |
 | Trae | `trae` | mcp config |
 | Zed | `zed` | host config |
-| Codebuff | `codebuff` | `mcp.json` → `mcpServers` |
-| Mux | `mux` | mcp config |
+| Freebuff | `codebuff` | `mcp.json` → `mcpServers` |
+| Xum | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 | Windsurf | `windsurf` | `~/.codeium/windsurf/mcp_config.json` (user/global ONLY) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ serverUrl, headers? }` — `serverUrl` not `url`) |
 | Open Interpreter | `open-interpreter` | `~/.openinterpreter/config.toml` (`$INTERPRETER_HOME`; NOT `$CODEX_HOME`) → `[mcp_servers.*]` TOML table (stdio `{ command, args, env }`, streamable-HTTP `{ url, bearer_token_env_var?, http_headers? }`). The new Rust `interpreter`/`i` CLI — a fork of OpenAI's Codex |

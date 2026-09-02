@@ -425,7 +425,7 @@ export const platforms: Platform[] = [
   },
   {
     id: "codebuff",
-    name: "Codebuff",
+    name: "Freebuff",
     paradigm: "mcp-only",
     surfaces: s(true, false, false, true, true, true, false, false),
     // skills wired (.agents/skills, AgentSkills — docs + load-skills.ts verified).
@@ -435,7 +435,7 @@ export const platforms: Platform[] = [
   },
   {
     id: "mux",
-    name: "Mux",
+    name: "Xum",
     paradigm: "mcp-only",
     surfaces: s(true, false, false, true, false, true, false, false),
     // skills now wired (.mux/skills project, ~/.mux/skills user; dir name must
@@ -924,7 +924,7 @@ export const brandColor: Record<string, string> = {
   kilo: "#2E8B3D", // Kilo green (same source as kilo-cli)
   cline: "#1F8C84", // Cline teal
   zed: "#2D5FD0", // Zed blue (readable #084CCF)
-  codebuff: "#C0492B", // Codebuff orange-red
+  codebuff: "#C0492B", // Freebuff (ex-Codebuff) orange-red
   pi: "#6D4FC0", // pi violet
   omp: "#6D4FC0", // Oh My Pi violet (pi fork)
   kimi: "#6A55D6", // Moonshot Kimi indigo
@@ -938,7 +938,7 @@ export const brandColor: Record<string, string> = {
   "open-interpreter": "#2E8B3D", // Open Interpreter green
   "mistral-vibe": "#D2691E", // Mistral Vibe orange (darkened)
   junie: "#9333A8", // JetBrains Junie magenta
-  mux: "#3A6FD8", // Coder Mux blue
+  mux: "#3A6FD8", // Coder Xum (ex-Mux) blue
 };
 
 /**

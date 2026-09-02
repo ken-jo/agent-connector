@@ -361,7 +361,7 @@ export const adapterCapabilityProfiles = [
   },
   {
     "id": "codebuff",
-    "name": "Codebuff",
+    "name": "Freebuff",
     "paradigm": "mcp-only",
     "surfaces": {
       "mcp": true,
@@ -376,7 +376,7 @@ export const adapterCapabilityProfiles = [
   },
   {
     "id": "mux",
-    "name": "Mux",
+    "name": "Xum",
     "paradigm": "mcp-only",
     "surfaces": {
       "mcp": true,
