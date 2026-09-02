@@ -42,7 +42,6 @@ import kiroAdapter from "../../src/adapters/kiro/index.js";
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
 import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
-import rooCodeAdapter from "../../src/adapters/roo-code/index.js";
 import warpAdapter from "../../src/adapters/warp/index.js";
 import zedAdapter from "../../src/adapters/zed/index.js";
 import type { Adapter } from "../../src/adapters/spi.js";
@@ -709,7 +708,6 @@ describe("memory surface: user-scope host-file targets", () => {
   const rows: Array<[string, Adapter, string[]]> = [
     ["kilo", kiloAdapter, [".kilocode", "rules", "agent-connector.md"]],
     ["kilo-cli", kiloCliAdapter, [".kilocode", "rules", "agent-connector.md"]],
-    ["roo-code", rooCodeAdapter, [".roo", "rules", "agent-connector.md"]],
     ["kiro", kiroAdapter, [".kiro", "steering", "agent-connector.md"]],
     ["copilot-cli", copilotCliAdapter, [".copilot", "copilot-instructions.md"]],
     ["qwen-code", qwenCodeAdapter, [".qwen", "QWEN.md"]],

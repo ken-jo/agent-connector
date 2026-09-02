@@ -150,9 +150,9 @@ Distilled from the union of platform behaviors (report §3).
   - **`ts-plugin`** (8) — OpenCode, MiMoCode, Kilo CLI, Kilo, Amp, OMP,
     NemoClaw, OpenClaw. Framework *generates* an exported plugin module
     importing the dev's handler.
-  - **`mcp-only`** (12) — Warp, Roo Code, Cline, Trae, Zed, Codebuff, Mux, Pi,
-    Windsurf, Open Interpreter, Junie, Mistral Vibe. No hook layer; install only
-    the MCP server; detection surfaces "hooks unavailable here."
+  - **`mcp-only`** (11) — Warp, Cline, Trae, Zed, Codebuff, Mux, Pi, Windsurf,
+    Open Interpreter, Junie, Mistral Vibe. No hook layer; install only the MCP
+    server; detection surfaces "hooks unavailable here."
 - **`PlatformCapabilities`** flags (`preToolUse`, `postToolUse`, `preCompact`,
   `sessionStart`, `canModifyArgs`, `canModifyOutput`, `canInjectSessionContext`) —
   the single-API layer queries these and degrades gracefully.

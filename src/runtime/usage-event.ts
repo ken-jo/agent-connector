@@ -104,7 +104,7 @@ const KNOWN_PLATFORMS: ReadonlySet<string> = new Set<PlatformId>([
   "claude-code", "codex", "cursor", "vscode-copilot", "jetbrains-copilot",
   "copilot-cli", "gemini-cli", "opencode", "kilo", "kilo-cli", "warp", "hermes",
   "openclaw", "zed", "antigravity", "antigravity-cli", "kiro", "qwen-code",
-  "kimi", "pi", "omp", "droid", "roo-code", "trae", "amp", "codebuff", "mux",
+  "kimi", "pi", "omp", "droid", "trae", "amp", "codebuff", "mux",
   "crush", "goose", "synthetic", "unknown",
 ]);
 

@@ -255,21 +255,6 @@ export const adapterCapabilityProfiles = [
     }
   },
   {
-    "id": "roo-code",
-    "name": "Roo Code",
-    "paradigm": "mcp-only",
-    "surfaces": {
-      "mcp": true,
-      "hooks": false,
-      "commands": true,
-      "skills": true,
-      "subagents": false,
-      "memory": true,
-      "statusline": false,
-      "actions": false
-    }
-  },
-  {
     "id": "kilo",
     "name": "Kilo Code",
     "paradigm": "ts-plugin",

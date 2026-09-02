@@ -93,7 +93,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
 
   it("troubleshooting 'hooks unavailable here' prose lists EXACTLY the mcp-only hosts (no Amp)", async () => {
     // DocsContent.tsx renders the count + names from mcpOnlyPlatforms, but the
-    // adjacent hardcoded "(Warp, Roo Code, Trae, Zed, Amp, ...)" prose once drifted
+    // adjacent hardcoded "(Warp, Trae, Zed, Amp, ...)" prose once drifted
     // (listed Amp, a ts-plugin host with hooks, and the wrong count). Guard the
     // rendered names against the registry mcp-only set so it can never drift again.
     const truth = await registryParadigms();

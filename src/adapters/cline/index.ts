@@ -2,11 +2,11 @@
  * adapters/cline — Cline (VS Code extension) platform adapter.
  *
  * Cline (`saoudrizwan.claude-dev`) is the most-installed AI coding VS Code
- * extension and the PARENT that Roo Code (`rooveterinaryinc.roo-cline`) and Kilo
- * Code (`kilocode.kilo-code`) forked. From agent-connector's perspective it is an
- * **mcp-only** host: it exposes no lifecycle hook / event-callback plugin API, so
- * MCP server registration is the only runtime surface we install and every hook
- * capability is reported false. This mirrors the Roo Code adapter (a Cline fork).
+ * extension and the PARENT that Kilo Code (`kilocode.kilo-code`) forked. From
+ * agent-connector's perspective it is an **mcp-only** host: it exposes no
+ * lifecycle hook / event-callback plugin API, so MCP server registration is the
+ * only runtime surface we install and every hook capability is reported false.
+ * The kilo adapter (a Cline fork) mirrors this shape.
  *
  * SCOPE NOTE: this adapter targets the VS Code EXTENSION, NOT the newer Cline
  * CLI/SDK (which would live under ~/.cline and is a separate future adapter).
@@ -15,14 +15,14 @@
  *   - USER SCOPE ONLY → <vscodeUserDir>/globalStorage/saoudrizwan.claude-dev/
  *                       settings/cline_mcp_settings.json   (root key "mcpServers").
  *   There is NO project-scope MCP file — the VS Code extension only reads this
- *   single global path (so, unlike roo-code, there is no `.roo/mcp.json` branch
- *   and no legacy-filename probe: `cline_mcp_settings.json` is Cline's canonical,
- *   never-renamed settings file).
+ *   single global path (so, unlike the kilo fork, there is no project `mcp.json`
+ *   branch and no legacy-filename probe: `cline_mcp_settings.json` is Cline's
+ *   canonical, never-renamed settings file).
  *   Per-server shape: stdio { command, args?, env?, disabled? }; remote
  *   { url, type:"sse"|"streamableHttp" }. An untyped remote url defaults to sse
  *   in Cline, so we ALWAYS write `type` explicitly for remote entries.
  *
- * VS Code user-dir resolution (cross-OS) — reused VERBATIM from roo-code:
+ * VS Code user-dir resolution (cross-OS) — the shared VS Code extension idiom:
  *   - macOS   → ~/Library/Application Support/Code/User
  *   - Linux   → ~/.config/Code/User
  *   - Windows → %APPDATA%/Code/User  (falls back to ~/AppData/Roaming/Code/User)
@@ -45,7 +45,7 @@
  *
  * Env interpolation: Cline's settings file documents no native `${env:VAR}`
  * token, so every `${env:VAR}` reference is resolved to a literal at install time
- * (the no-native-token path, same as roo-code / gemini-cli).
+ * (the no-native-token path, same as kilo / gemini-cli).
  *
  * The hook "config path" is the SAME MCP settings file (there is no hook file),
  * so the generic doctor/backup behave sensibly.
@@ -102,9 +102,9 @@ interface ClineRemoteServer {
 
 /**
  * Resolve the cross-OS VS Code per-user data directory (the "User" folder that
- * contains `globalStorage`). REUSED VERBATIM from the roo-code adapter — Cline
- * is its parent and the published extension lives under the same stable "Code"
- * tree. See module header for the per-platform mapping.
+ * contains `globalStorage`). Shared VERBATIM with the kilo fork adapter — the
+ * published extensions live under the same stable "Code" tree. See module
+ * header for the per-platform mapping.
  */
 function vscodeUserDir(): string {
   const home = homedir();
@@ -378,7 +378,7 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
       const entry: ClineStdioServer = {
         command: resolveEnvRefsDeep(command),
         // Honor the per-call server's enabled flag — a server marked
-        // enabled:false installs disabled (mirror roo-code).
+        // enabled:false installs disabled (mirror kilo).
         disabled: server.enabled === false,
       };
       if (args.length > 0) entry.args = resolveEnvRefsDeep(args);

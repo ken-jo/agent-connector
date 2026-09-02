@@ -119,9 +119,6 @@ const HOST_LANES = {
   kiro: adapterPlacementLane(
     "Kiro IDE adapter; no login-free headless host CLI, so this verifies adapter placement/uninstall only.",
   ),
-  "roo-code": adapterPlacementLane(
-    "Roo Code extension adapter; no local host CLI, so this verifies adapter placement/uninstall only.",
-  ),
   windsurf: adapterPlacementLane(
     "Windsurf editor adapter; no local headless config verb, so this verifies adapter placement/uninstall only.",
   ),
@@ -558,7 +555,6 @@ const UNINSTALLABLE_HERE = {
   zed: "GUI editor (the `zed` bin launches the GUI; no headless config verb)",
   warp: "terminal app (GUI; no headless config verb)",
   cline: "IDE extension (no CLI)",
-  "roo-code": "IDE extension (no CLI)",
   kilo: "IDE extension (no CLI; the `kilo` binary present is kilo-cli, a different adapter)",
   "vscode-copilot": "IDE extension (no CLI)",
   "jetbrains-copilot": "IDE extension (no CLI)",

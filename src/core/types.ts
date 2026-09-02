@@ -57,7 +57,6 @@ export type PlatformId =
   | "omp"
   | "droid"
   | "openhands"
-  | "roo-code"
   | "cline"
   | "trae"
   | "amp"
@@ -91,9 +90,9 @@ export type PlatformId =
  *     — OpenCode, MiMoCode (an OpenCode fork), Kilo CLI, Kilo, OMP, OpenClaw,
  *     NemoClaw (an OpenClaw wrapper/fork), Amp (.amp/plugins/*.ts). Framework
  *     generates the module.
- *   - "mcp-only" (10): no hook layer at all — Warp, Roo Code, Cline, Trae, Zed,
- *     Codebuff, Mux, Pi, Windsurf, Mistral Vibe. Only the MCP server (or skills
- *     surface) is installed; hooks are reported unavailable.
+ *   - "mcp-only" (11): no hook layer at all — Warp, Cline, Trae, Zed, Codebuff,
+ *     Mux, Pi, Windsurf, Open Interpreter, Junie, Mistral Vibe. Only the MCP
+ *     server (or skills surface) is installed; hooks are reported unavailable.
  */
 export type HookParadigm = "json-stdio" | "ts-plugin" | "mcp-only";
 

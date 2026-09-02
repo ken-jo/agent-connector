@@ -54,7 +54,7 @@
  * Both reuse the shared claude-code renderers (renderCommandMd/renderSkillMd).
  *
  * Hook "config path" is aliased to the MCP file (no separate hook file) so the
- * base doctor/backup helpers behave sensibly (the amazon-q / roo-code idiom).
+ * base doctor/backup helpers behave sensibly (the amazon-q / cline idiom).
  */
 
 import { existsSync, statSync } from "node:fs";

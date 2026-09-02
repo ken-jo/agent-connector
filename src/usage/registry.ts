@@ -94,12 +94,6 @@ export const USAGE_READER_REGISTRY: readonly UsageReaderFactory[] = [
     load: () => import("./readers/mux.js").then((m) => m.default),
   },
   {
-    platformId: "roo-code",
-    format: "json",
-    kind: "local",
-    load: () => import("./readers/roo-code.js").then((m) => m.default),
-  },
-  {
     platformId: "kilo",
     format: "json",
     kind: "local",

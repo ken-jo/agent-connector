@@ -499,7 +499,7 @@ set (see [`/coverage`](https://agent-connector.ai/coverage) and
 | Paradigm | Platforms |
 |---|---|
 | `json-stdio` (full hook dispatch) | CodeBuddy · Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Droid (Factory) · OpenHands · Antigravity · Antigravity CLI · Continue · Amazon Q · Grok Build · Grok CLI · Devin CLI |
-| `mcp-only` (MCP registration only) | Warp · Roo Code · Cline · Trae · Zed · Codebuff · Mux · Pi · Windsurf · Open Interpreter · Junie · Mistral Vibe |
+| `mcp-only` (MCP registration only) | Warp · Cline · Trae · Zed · Codebuff · Mux · Pi · Windsurf · Open Interpreter · Junie · Mistral Vibe |
 | `ts-plugin` (generated bridge module) | OpenCode · MiMoCode · Kilo CLI · Kilo · OMP · NemoClaw · OpenClaw · Amp |
 
 Adding a platform = **one registry entry + one adapter**.

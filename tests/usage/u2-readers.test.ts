@@ -1,12 +1,12 @@
 /**
- * tests/usage/u2-readers — fixture-based tests for the 7 U2 JSON usage readers
- * (amp, droid, codebuff, mux, roo-code, kilo, kiro).
+ * tests/usage/u2-readers — fixture-based tests for the 6 U2 JSON usage readers
+ * (amp, droid, codebuff, mux, kilo, kiro).
  *
  * Each block writes a tiny synthetic session file in the platform's NATIVE on-disk
  * shape under a fresh fake HOME (and any platform-specific env override), calls the
  * reader, and asserts the extracted TokenBreakdown. Grounded in the tokscale Rust
- * parsers (crates/tokscale-core/src/sessions/{amp,droid,codebuff,mux,roocode,
- * kilocode,kiro}.rs). The CRITICAL cases exercise the per-platform behavior the
+ * parsers (crates/tokscale-core/src/sessions/{amp,droid,codebuff,mux,kilocode,
+ * kiro}.rs). The CRITICAL cases exercise the per-platform behavior the
  * design calls out:
  *   - amp  : a usageLedger event + the assistant message describing the SAME call
  *            MERGE into ONE row (not double-counted) — ports
@@ -28,7 +28,6 @@ import ampReader from "../../src/usage/readers/amp.js";
 import droidReader from "../../src/usage/readers/droid.js";
 import codebuffReader from "../../src/usage/readers/codebuff.js";
 import muxReader from "../../src/usage/readers/mux.js";
-import rooCodeReader from "../../src/usage/readers/roo-code.js";
 import kiloReader from "../../src/usage/readers/kilo.js";
 import kiroReader from "../../src/usage/readers/kiro.js";
 import type { UsageRecord } from "../../src/usage/types.js";
@@ -43,7 +42,6 @@ import type { UsageRecord } from "../../src/usage/types.js";
 //   droid      → ~/.factory/sessions
 //   codebuff   → $XDG_CONFIG_HOME/manicode/projects        (XDG_CONFIG_HOME pinned)
 //   mux        → ~/.mux/sessions
-//   roo-code   → AGENT_CONNECTOR_ROO_CODE_DIR (a fake tasks dir)
 //   kilo       → AGENT_CONNECTOR_KILO_DIR     (a fake tasks dir)
 //   kiro       → ~/.kiro/sessions/cli
 // ─────────────────────────────────────────────────────────────────────────
@@ -53,7 +51,6 @@ const SAVED_ENV = [
   "XDG_DATA_HOME",
   "XDG_CONFIG_HOME",
   "AGENT_CONNECTOR_CODEBUFF_DIR",
-  "AGENT_CONNECTOR_ROO_CODE_DIR",
   "AGENT_CONNECTOR_KILO_DIR",
   "APPDATA",
   "LOCALAPPDATA",
@@ -74,7 +71,6 @@ beforeEach(() => {
   // Neutralize the VS-Code-extension overrides; each test that needs them sets
   // its own value, every other test must see them unset (→ [] fail-open).
   delete process.env.AGENT_CONNECTOR_CODEBUFF_DIR;
-  delete process.env.AGENT_CONNECTOR_ROO_CODE_DIR;
   delete process.env.AGENT_CONNECTOR_KILO_DIR;
 });
 
@@ -492,100 +488,7 @@ describe("mux reader", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════
-// 5. roo-code — <tasks>/<taskId>/ui_messages.json ; api_req_started JSON-in-string
-//    No dedup. model/agent from sibling api_conversation_history.json.
-// ═════════════════════════════════════════════════════════════════════════
-
-describe("roo-code reader", () => {
-  let tasksRoot: string;
-  beforeEach(() => {
-    tasksRoot = join(tmpHome, "roo-tasks");
-    process.env.AGENT_CONNECTOR_ROO_CODE_DIR = tasksRoot;
-  });
-
-  /** Write a task's ui_messages.json + optional api_conversation_history.json. */
-  function writeTask(taskId: string, uiEntries: unknown[], history?: string): void {
-    const dir = join(tasksRoot, taskId);
-    writeJson(dir, "ui_messages.json", uiEntries);
-    if (history !== undefined) writeRaw(dir, "api_conversation_history.json", history);
-  }
-
-  const apiReqStarted = (ts: number, payload: Record<string, unknown>): unknown => ({
-    type: "say",
-    say: "api_req_started",
-    ts,
-    text: JSON.stringify(payload),
-  });
-
-  it("extracts the TokenBreakdown from an api_req_started entry (model/agent from sibling)", async () => {
-    writeTask(
-      "task-1",
-      [
-        { type: "say", say: "text", ts: 1775000000000, text: "hello" }, // ignored
-        apiReqStarted(1775000001000, {
-          tokensIn: 400,
-          tokensOut: 110,
-          cacheReads: 50,
-          cacheWrites: 12,
-          cost: 0.034,
-          apiProtocol: "bedrock/anthropic",
-        }),
-      ],
-      "<environment_details><model>claude-sonnet-4-5</model><slug>code</slug></environment_details>",
-    );
-
-    const records = await rooCodeReader.read({});
-    expect(records).toHaveLength(1);
-    const r = records[0]!;
-    expect(r.platformId).toBe("roo-code");
-    expect(r.tokens.input).toBe(400);
-    expect(r.tokens.output).toBe(110);
-    expect(r.tokens.cacheRead).toBe(50);
-    expect(r.tokens.cacheWrite).toBe(12);
-    expect(r.tokens.reasoning).toBe(0); // Roo Code does not report reasoning
-    expect(r.modelId).toBe("claude-sonnet-4-5"); // from <model>
-    expect(r.providerId).toBe("bedrock/anthropic"); // apiProtocol verbatim
-    expect(r.sessionId).toBe("task-1"); // taskId = parent dir
-    expect(r.agent).toBe("code"); // <slug>
-    expect(r.cost).toBeCloseTo(0.034);
-    expect(r.ts).toBe(1775000001000);
-    expect(r.confidence).toBe("host-reported");
-  });
-
-  it("defaults model to unknown when the sibling history is absent and skips non-api entries", async () => {
-    writeTask("task-2", [
-      { type: "ask", ask: "tool", ts: 1775000000000, text: "x" }, // ignored
-      apiReqStarted(1775000002000, { tokensIn: 77, tokensOut: 11 }),
-    ]);
-
-    const records = await rooCodeReader.read({});
-    expect(records).toHaveLength(1);
-    const r = records[0]!;
-    expect(r.modelId).toBe("unknown");
-    expect(r.providerId).toBe("unknown"); // no apiProtocol
-    expect(r.tokens.input).toBe(77);
-    expect(r.agent).toBeUndefined();
-  });
-
-  it("FAIL-OPEN: returns [] when the tasks root is absent", async () => {
-    process.env.AGENT_CONNECTOR_ROO_CODE_DIR = join(tmpHome, "nonexistent-roo");
-    expect(await rooCodeReader.read({})).toEqual([]);
-  });
-
-  it("FAIL-OPEN: skips an entry with a malformed JSON-in-string text payload", async () => {
-    writeTask("task-bad", [
-      { type: "say", say: "api_req_started", ts: 1775000003000, text: "{ not json" }, // skipped
-      apiReqStarted(1775000004000, { tokensIn: 18, tokensOut: 3 }),
-    ]);
-
-    const records = await rooCodeReader.read({});
-    expect(records).toHaveLength(1);
-    expect(records[0]!.tokens.input).toBe(18);
-  });
-});
-
-// ═════════════════════════════════════════════════════════════════════════
-// 6. kilo — <tasks>/<taskId>/ui_messages.json ; SAME format as roo-code.
+// 5. kilo — <tasks>/<taskId>/ui_messages.json ; api_req_started JSON-in-string.
 //    No dedup (per-file isolation). AGENT_CONNECTOR_KILO_DIR override.
 // ═════════════════════════════════════════════════════════════════════════
 
@@ -659,7 +562,7 @@ describe("kilo reader", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════
-// 7. kiro — ~/.kiro/sessions/cli/<stem>.json (+ adjacent .jsonl)
+// 6. kiro — ~/.kiro/sessions/cli/<stem>.json (+ adjacent .jsonl)
 //    HOST-ESTIMATED path: a turn lacking explicit token counts → input estimated
 //    from context% × window (or chars/4), confidence "host-estimated".
 // ═════════════════════════════════════════════════════════════════════════

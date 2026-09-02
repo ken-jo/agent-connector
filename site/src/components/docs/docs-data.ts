@@ -1454,12 +1454,11 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     id: "warp",
     target: "~/.warp/.mcp.json → mcpServers (cwd keyed as working_directory)",
   },
-  { name: "Roo Code", id: "roo-code", target: "mcp config" },
   {
     name: "Cline",
     id: "cline",
     target:
-      "globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json → mcpServers (the parent roo-code/kilo forked)",
+      "globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json → mcpServers (the parent kilo forked)",
   },
   { name: "Trae", id: "trae", target: "mcp config" },
   { name: "Zed", id: "zed", target: "host config" },
