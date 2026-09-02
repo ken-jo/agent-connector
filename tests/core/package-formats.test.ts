@@ -602,7 +602,7 @@ describe("packageConnector — agent-plugin", () => {
     // Nothing in the PORTABLE surfaces embeds the machine-local home-bin path
     // (only the Codex namespace does, by design — see the com.openai test).
     for (const f of walk(pluginDir)) {
-      if (f.includes(`${CODEX_NS}/`)) continue;
+      if (f.includes(CODEX_NS)) continue; // path separator differs on win32
       expect(readFileSync(f, "utf8"), `${f} embeds the home-bin path`).not.toContain(HOME_BIN);
     }
   });
