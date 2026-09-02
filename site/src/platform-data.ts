@@ -1260,6 +1260,32 @@ export const majorVendorOssIds = new Set<string>([
   "continue", // Continue
 ]);
 
+/**
+ * Hosts deliberately kept OFF public coverage pages by editorial decision.
+ *
+ * The star floors below cannot curate CLOSED hosts — they have no star signal,
+ * and the counts on their public repos measure feedback-tracker engagement
+ * rather than product reach (VS Code Copilot's repo sits at ~1k while Warp's is
+ * ~65k, which says nothing true about which is more widely used). So the call
+ * for a closed host is editorial, and each one is recorded here with its reason
+ * rather than hidden behind a fake metric.
+ *
+ * NOTE on `droid`: unlike the other three, Droid IS one of the marketplace
+ * hosts agent-connector drives end-to-end, and the packaging docs name it in
+ * the CATALOG driver roster. Those docs stay accurate — this set governs the
+ * public WALL only, not the registry, the driver, or what we claim to install.
+ * The asymmetry (we drive a host we do not showcase) is intentional and was
+ * decided deliberately; do not "fix" it by re-adding Droid here without asking.
+ *
+ * Drift-guarded: every id must be a real platform id.
+ */
+export const curatedOutIds = new Set<string>([
+  "codebuddy", // Tencent CodeBuddy — no public repo at all, China-market only
+  "trae", // ByteDance Trae — Trae-AI/TRAE ~0.9k, recognized mainly in Asia
+  "amp", // Sourcegraph Amp — no public repo; niche outside Sourcegraph's base
+  "droid", // Factory Droid — Factory-AI/factory ~15 stars; see NOTE above
+]);
+
 /** Base floor: below this, an OSS host is too small to be worth listing. */
 export const PUBLIC_OSS_STAR_FLOOR = 1000;
 
@@ -1276,7 +1302,9 @@ export const PUBLIC_INDEPENDENT_STAR_FLOOR = 5000;
  * aliases. `site/src/components/coverage-wall/public-coverage.ts` is the thin
  * wrapper that supplies `stars` from the generated snapshot.
  *
- * Three rules, in order:
+ * Four rules, in order:
+ *   0. `curatedOutIds` wins over everything — the editorial opt-out, and the
+ *      only lever that can curate a closed host.
  *   1. An archived upstream is never public — a dead host is not something to
  *      advertise support for. (The ADAPTER stays in the registry; this governs
  *      public pages only.)
@@ -1290,6 +1318,7 @@ export function isPublicCoverageHost(
   platform: Platform,
   stars: number | undefined,
 ): boolean {
+  if (curatedOutIds.has(platform.id)) return false;
   if (hostLifecycle[platform.id]?.status === "archived") return false;
 
   const src = hostSource[platform.id];

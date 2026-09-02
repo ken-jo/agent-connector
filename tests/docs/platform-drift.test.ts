@@ -48,6 +48,7 @@ import {
   hostLifecycle,
   hostLinks,
   hostSource,
+  curatedOutIds,
   isPublicCoverageHost,
   majorVendorOssIds,
   platforms as landingPlatforms,
@@ -772,6 +773,11 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
         src && "repo" in src,
         `majorVendorOssIds["${id}"] is a CLOSED host — closed hosts are always public, so the exemption is dead data`,
       ).toBe(true);
+    }
+
+    // The editorial opt-out must not name a host that no longer exists.
+    for (const id of curatedOutIds) {
+      expect(byId.has(id), `curatedOutIds has unknown platform id "${id}"`).toBe(true);
     }
 
     // The curation policy itself: nothing archived may reach a public page.
