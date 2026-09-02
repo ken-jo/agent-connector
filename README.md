@@ -239,15 +239,15 @@ with `npx @ken-jo/agent-connector package --connector ...`. If you already keep
 the framework CLI installed globally, `agent-connector package --connector ...`
 is only the shorter equivalent. Hooks + MCP keep the
 telemetry serve-wrapper, so a marketplace-installed connector still reports
-per-tool tokens for its stdio server. `--format all` emits **11 host formats**
-— ten host-native bundles plus the portable, vendor-neutral
-[Agent Plugins 1.0.0](https://agent-plugins.org) package:
+per-tool tokens for its stdio server. `--format all` emits **9 host formats**
+— the portable, vendor-neutral [Agent Plugins 1.0.0](https://agent-plugins.org)
+package (the default) plus eight host-native bundles for hosts that do not
+speak the spec:
 
 | Format | Hosts |
 |---|---|
-| `claude-plugin` | Claude Code · Codex · VS Code Copilot · OpenClaw · OMP |
-| `codex-plugin` | Codex (`.codex-plugin/` manifest variant) |
-| `copilot-plugin` | GitHub Copilot CLI |
+| `agent-plugin` | **Agent Plugins 1.0.0** (default — one bundle, single source of truth): Codex · GitHub Copilot CLI · VS Code / JetBrains Copilot · Kiro · Hermes · Cursor · OpenClaw · … |
+| `claude-plugin` | Claude Code · OpenClaw · OMP |
 | `factory-plugin` | Droid |
 | `gemini-extension` | Gemini CLI |
 | `qwen-extension` | Qwen Code |
@@ -255,19 +255,23 @@ per-tool tokens for its stdio server. `--format all` emits **11 host formats**
 | `cursor-plugin` | Cursor |
 | `kimi-plugin` | Kimi CLI |
 | `npm-plugin` | OpenCode · Kilo CLI · Pi |
-| `agent-plugin` | **Agent Plugins 1.0.0** (portable): VS Code · Cursor · GitHub Copilot · ChatGPT/Codex · Kiro · Hermes · OpenClaw · … |
 
-> **`agent-plugin` is the shareable one.** It follows the open
-> [Agent Plugins](https://agent-plugins.org) spec (Vercel-led, co-maintained
-> with AWS, Cursor, GitHub, Microsoft and OpenAI): a root `plugin.json`,
-> `mcp.json` (stdio **and** remote `streamable-http`/`sse` servers) and
-> `skills/` that any conforming client installs from a git URL. Hooks, slash
-> commands and subagents are not portable v1 components, so they ride in the
-> `com.github.copilot/` client-extension namespace (read by VS Code + Copilot,
-> ignored elsewhere). The spec forbids absolute command paths, so this bundle
-> invokes the bare `agent-connector` bin instead of the home-bin path — the
-> consumer needs `npm i -g @ken-jo/agent-connector` once for telemetry to
-> carry through.
+> **`agent-plugin` is the single source of truth for every spec-speaking host.**
+> It follows the open [Agent Plugins](https://agent-plugins.org) spec
+> (Vercel-led, co-maintained with AWS, Cursor, GitHub, Microsoft and OpenAI): a
+> root `plugin.json`, `mcp.json` (stdio **and** remote `streamable-http`/`sse`
+> servers) and `skills/` that any conforming client installs. Hooks, slash
+> commands and subagents are not portable v1 components, so the one bundle
+> carries them per client-extension namespace — `com.github.copilot/` (Copilot
+> CLI, VS Code, JetBrains) and `com.openai/` (Codex, wired through the manifest's
+> `extensions` block); clients ignore namespaces they do not own. The
+> `install --method marketplace` drivers for Codex and GitHub Copilot CLI stage
+> exactly this bundle (live-verified on codex 0.149 + Copilot CLI 1.0.80), and
+> VS Code auto-discovers what the CLI installed. The spec forbids absolute
+> command paths, so the bundle ships a small `bin/agent-connector.mjs` launcher
+> that resolves the runtime at run time (home binary → PATH → `npx`); no global
+> install is required for telemetry to carry through. The retired
+> `codex-plugin` / `copilot-plugin` names still parse and emit this bundle.
 
 Two official **MCP standard artifacts** are opt-in (they need a `publish` block,
 so they're excluded from `--format all`) — `mcp-server-json` (an MCP Registry

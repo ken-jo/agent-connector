@@ -8,7 +8,9 @@
  *
  * `--format <x>` accepts the full union; `--format all` emits EVERY feasible
  * format, each into <out>/<format>/..., printing install instructions per format.
- * Default --format claude-plugin.
+ * Default --format agent-plugin (the Agent Plugins 1.0.0 bundle every
+ * spec-speaking host installs). Retired names (codex-plugin, copilot-plugin)
+ * still parse — they resolve to agent-plugin with a deprecation line.
  */
 
 import { parseArgs } from "node:util";
@@ -17,11 +19,12 @@ import { join, relative } from "node:path";
 import { findConnectorConfig, loadConnectorFromPath } from "../../core/load-connector.js";
 import {
   ALL_FORMATS,
+  DEFAULT_PACKAGE_FORMAT,
   FEASIBLE_FORMATS,
   installInstructions,
-  isPackageFormat,
   packageConnector,
   packageConnectorAll,
+  resolvePackageFormat,
   type PackageFormat,
   type PackageResult,
 } from "../../core/package.js";
@@ -33,13 +36,19 @@ usage: agent-connector package [flags]
 
 flags:
   --connector <path>   Connector config to package (else auto-discovered).
-  --format <fmt>       Output format (default: claude-plugin). One of:
+  --format <fmt>       Output format (default: ${DEFAULT_PACKAGE_FORMAT}). One of:
                          ${ALL_FORMATS.join(", ")}
                        or "all" to emit every feasible format into <out>/<fmt>/.
   --out <dir>          Output directory. Default: <cwd>/dist-plugin.
   --project <dir>      Project root for connector discovery (default: cwd).
   --dry-run            Compute the file tree without writing anything.
   --help               Show this help.`;
+
+/** Hosts whose marketplace flow agent-connector can DRIVE for a given format. */
+const DRIVABLE_TARGETS_BY_FORMAT: Partial<Record<PackageFormat, string>> = {
+  "agent-plugin": "codex,copilot-cli",
+  "claude-plugin": "claude-code",
+};
 
 /** Print the file tree + the per-format install instructions for one bundle. */
 function printFormatResult(
@@ -66,9 +75,10 @@ function printFormatResult(
   }
   // `package` stays a pure emitter (no host CLIs spawned) — but for hosts whose
   // marketplace flow agent-connector can DRIVE, point at the lifecycle verb.
-  if (format === "claude-plugin") {
+  const drivable = DRIVABLE_TARGETS_BY_FORMAT[format];
+  if (drivable) {
     print(
-      "    (or let agent-connector drive it: agent-connector install --method marketplace --targets claude-code)",
+      `    (or let agent-connector drive it: agent-connector install --method marketplace --targets ${drivable})`,
     );
   }
   print("");
@@ -79,7 +89,7 @@ export async function run(argv: string[]): Promise<number> {
     args: argv,
     options: {
       connector: { type: "string" },
-      format: { type: "string", default: "claude-plugin" },
+      format: { type: "string", default: DEFAULT_PACKAGE_FORMAT },
       out: { type: "string" },
       project: { type: "string" },
       "dry-run": { type: "boolean", default: false },
@@ -93,9 +103,10 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const formatArg = values.format ?? "claude-plugin";
+  const formatArg = values.format ?? DEFAULT_PACKAGE_FORMAT;
   const isAll = formatArg === "all";
-  if (!isAll && !isPackageFormat(formatArg)) {
+  const resolved = isAll ? null : resolvePackageFormat(formatArg);
+  if (!isAll && resolved === null) {
     return fail(
       `invalid --format "${formatArg}" (expected one of: ${ALL_FORMATS.join(", ")}, or "all")`,
     );
@@ -130,7 +141,8 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const format: PackageFormat = formatArg;
+  const { format, deprecation } = resolved!;
+  if (deprecation) print(`! ${deprecation}`);
   let result: PackageResult;
   try {
     result = packageConnector(connector, { outDir, format, dryRun });

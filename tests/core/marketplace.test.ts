@@ -1171,8 +1171,9 @@ describe("installViaMarketplace — codex (mock)", () => {
 
     expect(result.changes.some((c) => c.action === "warn")).toBe(false);
 
-    // Staged bundle (codex manifest dir) + shared catalog at .agents/plugins.
-    expect(existsSync(join(codexPluginDir(), ".codex-plugin", "plugin.json"))).toBe(true);
+    // Staged bundle (the Agent Plugins root manifest) + shared catalog at .agents/plugins.
+    expect(existsSync(join(codexPluginDir(), "plugin.json"))).toBe(true);
+    expect(existsSync(join(codexPluginDir(), ".codex-plugin"))).toBe(false);
     const catalog = JSON.parse(readFileSync(codexCatalogPath(), "utf8")) as {
       name: string;
       plugins: Array<{ name: string }>;
@@ -1192,7 +1193,7 @@ describe("installViaMarketplace — codex (mock)", () => {
 
     const record = readMarketplaceInstalls(CONNECTOR_ID)["codex"];
     expect(record).toBeDefined();
-    expect(record!.format).toBe("codex-plugin");
+    expect(record!.format).toBe("agent-plugin");
     expect(record!.bundleDir).toBe(codexPluginDir());
     expect(record!.version).toBe("1.2.3");
     expect(record!.contentHash).not.toBe("");

@@ -500,7 +500,7 @@ agent-connector uninstall [--targets ...] [--purge]   # full inverse — removes
 agent-connector upgrade [--channel stable|latest]   # bring all current: re-render host config + heal pointer + managed update guidance (alias: update, sync)
 agent-connector doctor [--probe]             # per-platform health checks; --probe = live MCP handshake (initialize → ping → tools/list)
 agent-connector status                       # light install-state per host (always exits 0)
-agent-connector package [--connector path] [--format <fmt>|all]      # framework tooling: 11 host bundle formats (incl. the portable Agent Plugins 1.0.0 `agent-plugin`); mcp-server-json|mcpb = OFFICIAL MCP standard artifacts (opt-in by name)
+agent-connector package [--connector path] [--format <fmt>|all]      # framework tooling: 9 host bundle formats (default `agent-plugin` = the portable Agent Plugins 1.0.0 bundle, single source of truth for Codex/Copilot/VS Code/Kiro/Hermes); mcp-server-json|mcpb = OFFICIAL MCP standard artifacts (opt-in by name)
 agent-connector telemetry report|export [...]
 agent-connector usage report|export|leaderboard [...]   # host-native usage from agent CLI logs (read-only)
 agent-connector leaderboard [--since] [--scope] [--connector]   # 🔌 mcp-self + 🖥️ host-scan-logs + 🛰️ host-native-live (never summed)

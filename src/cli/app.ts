@@ -576,7 +576,7 @@ commands:
   install      Deploy a connector across its target platforms (--method direct writes host config; --method marketplace drives the host's plugin install).
   uninstall    Remove a connector's registrations (--method auto reverses whichever method is actually installed).
   upgrade      Bring everything current: re-render host config + heal the home pointer + managed update guidance (alias: update, sync).
-  package      Emit a marketplace/extension bundle (11 host formats incl. the portable Agent Plugins agent-plugin, or the standard artifacts mcp-server-json | mcpb).
+  package      Emit a marketplace/extension bundle (9 host formats; default agent-plugin = the portable Agent Plugins 1.0.0 bundle Codex/Copilot/VS Code/Kiro/Hermes install, or the standard artifacts mcp-server-json | mcpb).
   audit        Check branded package identity before install/publish.
   doctor       Health-check every detected platform; non-zero exit on any failure.
   status       Light install-state summary: which connectors are present on which hosts (always exits 0).

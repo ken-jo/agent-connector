@@ -9,9 +9,15 @@
  * Codex's own state file (<CODEX_HOME>/config.toml — read-only) rather than exit
  * codes, so re-runs are idempotent `=` skips.
  *
+ * The staged bundle is the `agent-plugin` format — the Agent Plugins 1.0.0
+ * package Codex loads natively (root `plugin.json` is Codex's PREFERRED
+ * manifest; hooks ride in the `com.openai` extension namespace). Live-verified
+ * on codex 0.149.0: `plugin marketplace add` + `plugin add` accept it as-is.
+ *
  * Differences from claude (docs/research/codex-agy-marketplace-mechanics.md):
  *   • catalog dir is `.agents/plugins` (codex REJECTS a `.codex-plugin/`
- *     catalog); staged plugin marker is `<dir>/.codex-plugin/plugin.json`;
+ *     catalog); staged plugin marker is the root `<dir>/plugin.json` carrying
+ *     the Agent Plugins `$schema`;
  *   • install verb `plugin add` (not `plugin install`); remove verb
  *     `plugin remove` (not `plugin uninstall`);
  *   • state lives in TOML config.toml ([plugins."<id>@agent-connector"] +
@@ -41,10 +47,12 @@ import {
 } from "../marketplace-state.js";
 import { ensureDir } from "../paths.js";
 import { packageConnector } from "../package.js";
+import { readAgentPluginManifest } from "../package-formats/agent-plugin.js";
 import { findOnPath, firstLine, runHostCommand, samePath } from "./shared.js";
 import type { MarketplaceDriveOutcome, MarketplaceDriver } from "./types.js";
 
 const PLATFORM = "codex" as const;
+const FORMAT = "agent-plugin" as const;
 
 /** Absolute path of the codex CLI on PATH, or null. */
 export function codexBinary(): string | null {
@@ -79,17 +87,27 @@ function failDetail(
 
 // ─────────────────────────────────────────────────────────────────────────
 // Staging: bundle emit + shared-catalog regeneration (codex catalog dir is
-// `.agents/plugins`; staged plugins carry `.codex-plugin/plugin.json`).
+// `.agents/plugins`; staged plugins carry a root Agent Plugins `plugin.json`).
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Staged plugin dirs (those carrying a .codex-plugin/plugin.json manifest). */
+/** The staged plugin's Agent Plugins manifest, or null when absent/foreign. */
+function stagedManifest(
+  stagingRoot: string,
+  name: string,
+): { description?: string } | null {
+  try {
+    return readAgentPluginManifest(readFileSync(join(stagingRoot, name, "plugin.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Staged plugin dirs (those carrying a root Agent Plugins plugin.json manifest). */
 export function stagedCodexPlugins(stagingRoot: string): string[] {
   if (!existsSync(stagingRoot)) return [];
   try {
     return readdirSync(stagingRoot)
-      .filter((name) =>
-        existsSync(join(stagingRoot, name, ".codex-plugin", "plugin.json")),
-      )
+      .filter((name) => stagedManifest(stagingRoot, name) !== null)
       .sort();
   } catch {
     return [];
@@ -108,15 +126,11 @@ function codexCatalogPath(stagingRoot: string): string {
 export function regenerateCodexCatalog(stagingRoot: string, changes: ChangeRecord[]): void {
   const catalogPath = codexCatalogPath(stagingRoot);
   const plugins = stagedCodexPlugins(stagingRoot).map((name) => {
-    let description = `${name} — connector emitted by agent-connector`;
-    try {
-      const manifest = JSON.parse(
-        readFileSync(join(stagingRoot, name, ".codex-plugin", "plugin.json"), "utf8"),
-      ) as { description?: string };
-      if (typeof manifest.description === "string") description = manifest.description;
-    } catch {
-      /* keep the default description */
-    }
+    const manifest = stagedManifest(stagingRoot, name);
+    const description =
+      typeof manifest?.description === "string"
+        ? manifest.description
+        : `${name} — connector emitted by agent-connector`;
     return { name, source: `./${name}`, description };
   });
   const catalog = { name: MARKETPLACE_NAME, owner: { name: MARKETPLACE_NAME }, plugins };
@@ -138,7 +152,7 @@ export function regenerateCodexCatalog(stagingRoot: string, changes: ChangeRecor
   });
 }
 
-/** Stage (or re-stage) the connector's codex-plugin bundle in the shared root. */
+/** Stage (or re-stage) the connector's agent-plugin bundle in the shared root. */
 export function stageCodexBundle(
   connector: ResolvedConnector,
   changes: ChangeRecord[],
@@ -146,12 +160,16 @@ export function stageCodexBundle(
   const stagingRoot = codexStagingRoot();
   const pluginDir = join(stagingRoot, connector.id);
   const existed = existsSync(pluginDir);
-  const result = packageConnector(connector, { outDir: stagingRoot, format: "codex-plugin" });
+  const result = packageConnector(connector, {
+    outDir: stagingRoot,
+    format: FORMAT,
+    hostHint: PLATFORM,
+  });
   changes.push({
     platform: PLATFORM,
     action: existed ? "update" : "create",
     path: pluginDir,
-    detail: `staged marketplace bundle (${result.files.length} files, codex-plugin)`,
+    detail: `staged marketplace bundle (${result.files.length} files, ${FORMAT})`,
   });
   regenerateCodexCatalog(stagingRoot, changes);
   return { pluginDir, contentHash: hashDirectory(pluginDir) };
@@ -327,7 +345,7 @@ async function driveMarketplaceRemove(stagingRoot: string): Promise<ChangeRecord
 
 export const codexDriver: MarketplaceDriver = {
   platform: PLATFORM,
-  format: "codex-plugin",
+  format: FORMAT,
 
   binary: codexBinary,
   stagingRoot: codexStagingRoot,

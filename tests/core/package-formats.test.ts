@@ -34,10 +34,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineConnector } from "../../src/core/define-connector.js";
 import {
   ALL_FORMATS,
+  DEFAULT_PACKAGE_FORMAT,
   FEASIBLE_FORMATS,
+  LEGACY_FORMAT_ALIASES,
   isPackageFormat,
   packageConnector,
   packageConnectorAll,
+  resolvePackageFormat,
 } from "../../src/core/package.js";
 import { readTomlString } from "../../src/core/toml.js";
 import type { ResolvedConnector } from "../../src/core/types.js";
@@ -165,99 +168,35 @@ function hookCommand(host: string, event: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// codex-plugin — claude-plugin variant (.codex-plugin/ manifest dir)
+// Retired formats — codex-plugin / copilot-plugin resolve to agent-plugin
 // ─────────────────────────────────────────────────────────────────────────
 
-describe("packageConnector — codex-plugin", () => {
-  it("emits .codex-plugin/plugin.json (only file in the manifest dir) + root components", () => {
-    const res = packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN });
-    const manifestDir = join(res.pluginDir, ".codex-plugin");
-    expect(readdirSync(manifestDir)).toEqual(["plugin.json"]);
-    const m = readJson(join(manifestDir, "plugin.json"));
-    expect(m.name).toBe(CONNECTOR_ID);
-    expect(m.version).toBeUndefined(); // unpinned → omitted (no requireVersion)
-    // Components at the plugin ROOT.
-    expect(existsSync(join(res.pluginDir, "commands", "deploy.md"))).toBe(true);
-    expect(existsSync(join(res.pluginDir, "agents", "reviewer.md"))).toBe(true);
-    expect(existsSync(join(res.pluginDir, "skills", "pdf-tools", "SKILL.md"))).toBe(true);
+describe("retired formats — codex-plugin / copilot-plugin", () => {
+  it("are no longer live formats but resolve to agent-plugin with a deprecation", () => {
+    for (const legacy of ["codex-plugin", "copilot-plugin"]) {
+      expect(isPackageFormat(legacy)).toBe(false);
+      expect(ALL_FORMATS).not.toContain(legacy);
+      expect(LEGACY_FORMAT_ALIASES[legacy]).toBe("agent-plugin");
+      const resolved = resolvePackageFormat(legacy);
+      expect(resolved?.format).toBe("agent-plugin");
+      expect(resolved?.deprecation).toContain(legacy);
+      expect(resolved?.deprecation).toContain("agent-plugin");
+    }
+    // Live formats resolve to themselves without a deprecation; junk is null.
+    expect(resolvePackageFormat("agent-plugin")).toEqual({ format: "agent-plugin" });
+    expect(resolvePackageFormat("claude-plugin")).toEqual({ format: "claude-plugin" });
+    expect(resolvePackageFormat("vsix")).toBeNull();
+    expect(resolvePackageFormat("all")).toBeNull();
   });
 
-  it("refuses to emit through a symlinked package path", () => {
-    const pluginDir = join(outDir, CONNECTOR_ID);
-    const outside = join(outDir, "outside-manifest");
-    const victim = join(outside, "plugin.json");
-    mkdirSync(pluginDir, { recursive: true });
-    mkdirSync(outside, { recursive: true });
-    writeFileSync(victim, "original", "utf8");
-    if (!symlinkOrSkipTest(outside, join(pluginDir, ".codex-plugin"), "dir")) return;
-
-    expect(() =>
-      packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN }),
-    ).toThrow(/symbolic link/i);
-    expect(readFileSync(victim, "utf8")).toBe("original");
-  });
-
-  it("emits an .agents/plugins/marketplace.json catalog, hooks (--host codex), and serve-wrapped .mcp.json", () => {
-    const res = packageConnector(connector, { outDir, format: "codex-plugin", homeBinPath: HOME_BIN });
-    // codex's documented catalog location — `codex plugin marketplace add`
-    // REJECTS a .codex-plugin/ catalog ("marketplace root does not contain a
-    // supported manifest"; live-verified against codex-cli 0.139.0).
-    expect(res.marketplacePath).toBe(join(outDir, ".agents", "plugins", "marketplace.json"));
-    const mkt = readJson(res.marketplacePath!);
-    expect(mkt.owner).toEqual({ name: "Acme Inc" }); // publish.author attributes the catalog to the dev
-
-    const hooks = readJson(join(res.pluginDir, "hooks", "hooks.json")).hooks as Record<
-      string,
-      Array<{ matcher?: string; hooks: Array<{ command: string }> }>
-    >;
-    expect(Object.keys(hooks).sort()).toEqual(["PreToolUse", "SessionStart"]);
-    expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe(hookCommand("codex", "PreToolUse"));
-
-    const mcp = readJson(join(res.pluginDir, ".mcp.json")).mcpServers as Record<string, never>;
-    expectServeWrapper(mcp[CONNECTOR_ID] as never, "codex");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// copilot-plugin — claude-plugin bundle restamped --host copilot-cli
-// (GitHub Copilot CLI accepts a Claude-shaped `.claude-plugin/` bundle as-is)
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("packageConnector — copilot-plugin", () => {
-  it("emits the SAME claude-plugin layout (.claude-plugin/plugin.json + $schema + components)", () => {
-    const res = packageConnector(connector, { outDir, format: "copilot-plugin", homeBinPath: HOME_BIN });
-    const manifestDir = join(res.pluginDir, ".claude-plugin");
-    expect(readdirSync(manifestDir)).toEqual(["plugin.json"]);
-    const m = readJson(join(manifestDir, "plugin.json"));
-    expect(m.name).toBe(CONNECTOR_ID);
-    // copilot uses the claude manifest verbatim, including the $schema field.
-    expect(m.$schema).toBe(
-      "https://json.schemastore.org/claude-code-plugin-manifest.json",
-    );
-    // Components at the plugin ROOT (commands/, agents/, skills/).
-    expect(existsSync(join(res.pluginDir, "commands", "deploy.md"))).toBe(true);
-    expect(existsSync(join(res.pluginDir, "agents", "reviewer.md"))).toBe(true);
-    expect(existsSync(join(res.pluginDir, "skills", "pdf-tools", "SKILL.md"))).toBe(true);
-  });
-
-  it("emits a .claude-plugin/marketplace.json catalog, hooks + MCP serve-wrapped --host copilot-cli", () => {
-    const res = packageConnector(connector, { outDir, format: "copilot-plugin", homeBinPath: HOME_BIN });
-    // Same catalog location + shape as claude (copilot reads it live-verified).
-    expect(res.marketplacePath).toBe(join(outDir, ".claude-plugin", "marketplace.json"));
-    const mkt = readJson(res.marketplacePath!);
-    expect(mkt.owner).toEqual({ name: "Acme Inc" }); // publish.author attributes the catalog
-
-    // Hooks + MCP are stamped --host copilot-cli so telemetry routes to copilot,
-    // NOT claude-code (the one byte-level difference from a claude-plugin bundle).
-    const hooks = readJson(join(res.pluginDir, "hooks", "hooks.json")).hooks as Record<
-      string,
-      Array<{ matcher?: string; hooks: Array<{ command: string }> }>
-    >;
-    expect(Object.keys(hooks).sort()).toEqual(["PreToolUse", "SessionStart"]);
-    expect(hooks.PreToolUse![0]!.hooks[0]!.command).toBe(hookCommand("copilot-cli", "PreToolUse"));
-
-    const mcp = readJson(join(res.pluginDir, ".mcp.json")).mcpServers as Record<string, never>;
-    expectServeWrapper(mcp[CONNECTOR_ID] as never, "copilot-cli");
+  it("agent-plugin is the default format packageConnector emits", () => {
+    expect(DEFAULT_PACKAGE_FORMAT).toBe("agent-plugin");
+    expect(ALL_FORMATS[0]).toBe("agent-plugin");
+    expect(FEASIBLE_FORMATS[0]).toBe("agent-plugin");
+    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    expect(existsSync(join(res.pluginDir, "plugin.json"))).toBe(true);
+    expect(existsSync(join(res.pluginDir, ".claude-plugin"))).toBe(false);
+    expect(existsSync(join(res.pluginDir, ".codex-plugin"))).toBe(false);
   });
 });
 
@@ -583,19 +522,27 @@ describe("packageConnector — npm-plugin", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// agent-plugin — Agent Plugins 1.0.0 (portable: NO absolute path embedded)
+// agent-plugin — Agent Plugins 1.0.0: the SSOT bundle for every spec-speaking
+// host (Codex, Copilot CLI / VS Code, Kiro, Hermes, …). Portable: the MCP entry
+// + Copilot hooks run through a bundled launcher, never an absolute path.
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("packageConnector — agent-plugin", () => {
   const PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
   const MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
-  const NAMESPACE = "com.github.copilot";
+  const COPILOT_NS = "com.github.copilot";
+  const CODEX_NS = "com.openai";
+  const LAUNCHER = "bin/agent-connector.mjs";
+  const LAUNCHER_AT_ROOT = "${PLUGIN_ROOT}/bin/agent-connector.mjs";
 
-  it("emits a ROOT plugin.json carrying the const $schema, a slug name, version-less when unpinned, author from publish", () => {
+  type HooksFile = {
+    hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>>;
+  };
+
+  it("emits a ROOT plugin.json carrying the const $schema, a slug name, version-less when unpinned, author from publish, + the Codex extension", () => {
     const res = packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
     const pluginDir = join(outDir, CONNECTOR_ID);
     expect(res.pluginDir).toBe(pluginDir);
-    expect(res.marketplacePath).toBeUndefined(); // the spec defines no catalog
 
     const m = readJson(join(pluginDir, "plugin.json"));
     expect(m.$schema).toBe(PLUGIN_SCHEMA);
@@ -604,6 +551,9 @@ describe("packageConnector — agent-plugin", () => {
     expect(m.version).toBeUndefined();
     expect(m.description).toContain("Acme Connector");
     expect(m.author).toEqual({ name: "Acme Inc" });
+    // Codex parses extensions["com.openai"] as its manifest overlay — the hooks
+    // pointer is how it finds the namespaced hooks file.
+    expect(m.extensions).toEqual({ [CODEX_NS]: { hooks: `./${CODEX_NS}/hooks/hooks.json` } });
     // Closed schema: nothing beyond the permitted top-level fields.
     for (const key of Object.keys(m)) {
       expect(["$schema", "name", "version", "description", "author", "homepage", "repository", "license", "keywords", "extensions"]).toContain(key);
@@ -611,26 +561,53 @@ describe("packageConnector — agent-plugin", () => {
     expect(existsSync(join(pluginDir, "README.md"))).toBe(true);
   });
 
-  it("emits mcp.json ($schema + mcpServers) with a stdio entry serve-wrapped through the BARE bin — no absolute home-bin path, no --host", () => {
+  it("emits local marketplace catalogs at BOTH documented locations (copilot/claude + codex), outside the plugin dir", () => {
+    const res = packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    expect(res.marketplacePath).toBe(join(outDir, ".claude-plugin", "marketplace.json"));
+    const copilotCatalog = readJson(res.marketplacePath!);
+    const codexCatalog = readJson(join(outDir, ".agents", "plugins", "marketplace.json"));
+    expect(codexCatalog).toEqual(copilotCatalog);
+    expect(copilotCatalog.name).toBe("agent-connector");
+    expect(copilotCatalog.owner).toEqual({ name: "Acme Inc" });
+    expect((copilotCatalog.plugins as Array<Record<string, unknown>>)[0]?.source).toBe(`./${CONNECTOR_ID}`);
+    // The plugin dir itself carries no host-specific manifest dirs.
+    expect(existsSync(join(res.pluginDir, ".claude-plugin"))).toBe(false);
+    expect(existsSync(join(res.pluginDir, ".codex-plugin"))).toBe(false);
+  });
+
+  it("emits mcp.json ($schema + mcpServers) whose stdio entry runs the serve-wrapper through the bundled LAUNCHER — no absolute home-bin path, no --host", () => {
     packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
-    const mcp = readJson(join(outDir, CONNECTOR_ID, "mcp.json"));
+    const pluginDir = join(outDir, CONNECTOR_ID);
+    const mcp = readJson(join(pluginDir, "mcp.json"));
     expect(mcp.$schema).toBe(MCP_SCHEMA);
     const servers = mcp.mcpServers as Record<string, { type: string; command: string; args: string[]; env?: Record<string, string> }>;
-    const entry = servers[CONNECTOR_ID];
+    const entry = servers[CONNECTOR_ID]!;
     expect(entry.type).toBe("stdio");
-    expect(entry.command).toBe("agent-connector");
-    expect(entry.command).not.toBe(HOME_BIN);
-    expect(entry.args).toEqual(["serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@acme/db-mcp", "--flag"]);
+    expect(entry.command).toBe("node"); // ONE bare token (spec §7.2.1)
+    expect(entry.args).toEqual([
+      LAUNCHER_AT_ROOT, // ${PLUGIN_ROOT} expansion in args is spec-mandated (§7.2.3)
+      "serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@acme/db-mcp", "--flag",
+    ]);
     expect(entry.args).not.toContain("--host");
     expect(entry.env).toEqual({ API_TOKEN: "${env:ACME_TOKEN}" });
-    // Nothing in the bundle embeds the machine-local home-bin path.
-    const pluginDir = join(outDir, CONNECTOR_ID);
+
+    // The launcher is a self-contained ESM script resolving home-bin → PATH → npx.
+    const launcher = readFileSync(join(pluginDir, LAUNCHER), "utf8");
+    expect(launcher.startsWith("#!/usr/bin/env node")).toBe(true);
+    expect(launcher).toContain('join(dataRoot, "bin"');
+    expect(launcher).toContain('onPath("agent-connector")');
+    expect(launcher).toMatch(/"@ken-jo\/agent-connector(@\^\d+\.\d+\.\d+)?"/);
+    expect(launcher).not.toContain(HOME_BIN);
+
+    // Nothing in the PORTABLE surfaces embeds the machine-local home-bin path
+    // (only the Codex namespace does, by design — see the com.openai test).
     for (const f of walk(pluginDir)) {
+      if (f.includes(`${CODEX_NS}/`)) continue;
       expect(readFileSync(f, "utf8"), `${f} embeds the home-bin path`).not.toContain(HOME_BIN);
     }
   });
 
-  it("keeps skills at the portable root, relocates hooks/commands/agents into the com.github.copilot/ namespace, and returns notes", () => {
+  it("keeps skills at the portable root and relocates hooks/commands/agents into the com.github.copilot/ namespace (launcher-routed hooks, .agent.md agents)", () => {
     const res = packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
     const pluginDir = join(outDir, CONNECTOR_ID);
 
@@ -642,21 +619,59 @@ describe("packageConnector — agent-plugin", () => {
     expect(existsSync(join(pluginDir, "commands"))).toBe(false);
     expect(existsSync(join(pluginDir, "agents"))).toBe(false);
 
-    // Client extension namespace (VS Code documents com.github.copilot/hooks/hooks.json).
-    const hooks = readJson(join(pluginDir, NAMESPACE, "hooks", "hooks.json")) as {
-      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>>;
-    };
+    // VS Code documents com.github.copilot/hooks/hooks.json + agents/<n>.agent.md;
+    // ${PLUGIN_ROOT} is expanded in hook commands, so hooks route via the launcher.
+    const hooks = readJson(join(pluginDir, COPILOT_NS, "hooks", "hooks.json")) as unknown as HooksFile;
     expect(Object.keys(hooks.hooks).sort()).toEqual(["PreToolUse", "SessionStart"]);
-    expect(hooks.hooks.PreToolUse[0].matcher).toBe("acme_query|acme_write");
-    expect(hooks.hooks.PreToolUse[0].hooks[0].command).toBe(
-      `"agent-connector" hook copilot-cli PreToolUse --connector ${CONNECTOR_ID}`,
+    expect(hooks.hooks.PreToolUse![0]!.matcher).toBe("acme_query|acme_write");
+    expect(hooks.hooks.PreToolUse![0]!.hooks[0]!.command).toBe(
+      `node "${LAUNCHER_AT_ROOT}" hook copilot-cli PreToolUse --connector ${CONNECTOR_ID}`,
     );
-    expect(existsSync(join(pluginDir, NAMESPACE, "commands", "deploy.md"))).toBe(true);
-    expect(existsSync(join(pluginDir, NAMESPACE, "agents", "reviewer.md"))).toBe(true);
+    expect(existsSync(join(pluginDir, COPILOT_NS, "commands", "deploy.md"))).toBe(true);
+    expect(existsSync(join(pluginDir, COPILOT_NS, "agents", "reviewer.agent.md"))).toBe(true);
+    expect(existsSync(join(pluginDir, COPILOT_NS, "agents", "reviewer.md"))).toBe(false);
 
     const notes = res.notes ?? [];
-    expect(notes.some((n) => n.includes(`${NAMESPACE}/`))).toBe(true);
-    expect(notes.some((n) => n.includes("on PATH"))).toBe(true);
+    expect(notes.some((n) => n.includes(`${COPILOT_NS}/`) && n.includes(`${CODEX_NS}/`))).toBe(true);
+    expect(notes.some((n) => n.includes(LAUNCHER))).toBe(true);
+  });
+
+  it("gives Codex its com.openai/ namespace: hooks only, in the SAME home-bin command form the native codex bundle carried", () => {
+    const res = packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const pluginDir = join(outDir, CONNECTOR_ID);
+    const hooks = readJson(join(pluginDir, CODEX_NS, "hooks", "hooks.json")) as unknown as HooksFile;
+    expect(Object.keys(hooks.hooks).sort()).toEqual(["PreToolUse", "SessionStart"]);
+    expect(hooks.hooks.PreToolUse![0]!.hooks[0]!.command).toBe(hookCommand("codex", "PreToolUse"));
+    // Codex reads no agents/commands from plugins → nothing else in its namespace.
+    expect(existsSync(join(pluginDir, CODEX_NS, "commands"))).toBe(false);
+    expect(existsSync(join(pluginDir, CODEX_NS, "agents"))).toBe(false);
+    // The machine-local path is called out, never silent.
+    expect((res.notes ?? []).some((n) => n.includes(`${CODEX_NS}/`) && n.includes(HOME_BIN))).toBe(true);
+  });
+
+  it("hostHint stamps --host on the MCP entry and restamps only the namespace that host reads", () => {
+    // Codex staging: MCP carries --host codex; both namespaces keep their own host.
+    const codexOut = join(outDir, "codex-staging");
+    packageConnector(connector, { outDir: codexOut, format: "agent-plugin", homeBinPath: HOME_BIN, hostHint: "codex" });
+    const codexMcp = readJson(join(codexOut, CONNECTOR_ID, "mcp.json")).mcpServers as Record<string, { args: string[] }>;
+    expect(codexMcp[CONNECTOR_ID]!.args.slice(0, 7)).toEqual([
+      LAUNCHER_AT_ROOT, "serve", "--connector", CONNECTOR_ID, "--host", "codex", "--",
+    ]);
+    const codexCopilotHooks = readJson(join(codexOut, CONNECTOR_ID, COPILOT_NS, "hooks", "hooks.json")) as unknown as HooksFile;
+    expect(codexCopilotHooks.hooks.PreToolUse![0]!.hooks[0]!.command).toContain("hook copilot-cli PreToolUse");
+
+    // VS Code Copilot staging: the copilot namespace restamps to that exact host;
+    // Codex's namespace is untouched.
+    const vscodeOut = join(outDir, "vscode-staging");
+    packageConnector(connector, { outDir: vscodeOut, format: "agent-plugin", homeBinPath: HOME_BIN, hostHint: "vscode-copilot" });
+    const vscodeMcp = readJson(join(vscodeOut, CONNECTOR_ID, "mcp.json")).mcpServers as Record<string, { args: string[] }>;
+    expect(vscodeMcp[CONNECTOR_ID]!.args).toContain("vscode-copilot");
+    const vscodeCopilotHooks = readJson(join(vscodeOut, CONNECTOR_ID, COPILOT_NS, "hooks", "hooks.json")) as unknown as HooksFile;
+    expect(vscodeCopilotHooks.hooks.PreToolUse![0]!.hooks[0]!.command).toBe(
+      `node "${LAUNCHER_AT_ROOT}" hook vscode-copilot PreToolUse --connector ${CONNECTOR_ID}`,
+    );
+    const vscodeCodexHooks = readJson(join(vscodeOut, CONNECTOR_ID, CODEX_NS, "hooks", "hooks.json")) as unknown as HooksFile;
+    expect(vscodeCodexHooks.hooks.PreToolUse![0]!.hooks[0]!.command).toBe(hookCommand("codex", "PreToolUse"));
   });
 
   it("carries a REMOTE http server as streamable-http (url + headers), sse as sse, and drops ws with a note", () => {
@@ -678,6 +693,7 @@ describe("packageConnector — agent-plugin", () => {
       headers: { "X-Tenant": "public" },
     });
     expect(res.notes ?? []).toEqual([]); // https + no auth → fully conformant, nothing to flag
+    expect(existsSync(join(outDir, "acme-remote", LAUNCHER))).toBe(false); // nothing to launch
 
     const sse = defineConnector({
       id: "acme-sse",
@@ -721,8 +737,9 @@ describe("packageConnector — agent-plugin", () => {
     const notes = res.notes ?? [];
     expect(notes.some((n) => n.includes('dropped cwd "/abs/elsewhere"'))).toBe(true);
     expect(notes.some((n) => n.includes('dropped env "PLUGIN_ROOT"'))).toBe(true);
-    // No wrap + no hooks → no PATH prerequisite note.
-    expect(notes.some((n) => n.includes("on PATH"))).toBe(false);
+    // No wrap + no hooks → no launcher shipped, no launcher note.
+    expect(existsSync(join(outDir, "acme-direct", LAUNCHER))).toBe(false);
+    expect(notes.some((n) => n.includes(LAUNCHER))).toBe(false);
 
     const relative = defineConnector({
       id: "acme-rel",
@@ -734,7 +751,7 @@ describe("packageConnector — agent-plugin", () => {
     expect(relEntry).toEqual({ type: "stdio", command: "./bin/server", cwd: "${PLUGIN_ROOT}/work" });
   });
 
-  it("emits neither mcp.json nor the extension namespace for a content-only connector", () => {
+  it("emits neither mcp.json, the launcher, nor any extension namespace for a content-only connector", () => {
     const contentOnly = defineConnector({
       id: "acme-skills",
       displayName: "Acme Skills",
@@ -743,9 +760,12 @@ describe("packageConnector — agent-plugin", () => {
     const res = packageConnector(contentOnly, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
     const pluginDir = join(outDir, "acme-skills");
     expect(existsSync(join(pluginDir, "plugin.json"))).toBe(true);
+    expect(readJson(join(pluginDir, "plugin.json")).extensions).toBeUndefined();
     expect(existsSync(join(pluginDir, "skills", "only", "SKILL.md"))).toBe(true);
     expect(existsSync(join(pluginDir, "mcp.json"))).toBe(false);
-    expect(existsSync(join(pluginDir, NAMESPACE))).toBe(false);
+    expect(existsSync(join(pluginDir, LAUNCHER))).toBe(false);
+    expect(existsSync(join(pluginDir, COPILOT_NS))).toBe(false);
+    expect(existsSync(join(pluginDir, CODEX_NS))).toBe(false);
     expect(res.notes ?? []).toEqual([]);
   });
 
@@ -759,6 +779,17 @@ describe("packageConnector — agent-plugin", () => {
     for (const s of ["acme-connector", "Acme_DB Tools", "--weird..name--", "a-.b", "x.-y"]) {
       expect(toAgentPluginName(s)).toMatch(/^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
     }
+  });
+
+  it("readAgentPluginManifest recognizes ONLY a root plugin.json carrying the AP $schema (the drivers' staged-bundle marker)", async () => {
+    const { readAgentPluginManifest } = await import("../../src/core/package-formats/agent-plugin.js");
+    packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const parsed = readAgentPluginManifest(readFileSync(join(outDir, CONNECTOR_ID, "plugin.json"), "utf8"));
+    expect(parsed?.name).toBe(CONNECTOR_ID);
+    expect(parsed?.description).toContain("Acme Connector");
+    // An agy-plugin root plugin.json (no AP $schema) is NOT an Agent Plugins manifest.
+    expect(readAgentPluginManifest(JSON.stringify({ name: "x", version: "0.0.1" }))).toBeNull();
+    expect(readAgentPluginManifest("not json")).toBeNull();
   });
 });
 

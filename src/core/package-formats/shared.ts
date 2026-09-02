@@ -17,6 +17,7 @@
 
 import { dirname, relative, resolve, sep } from "node:path";
 import { writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 import type {
   HookEventName,
@@ -38,6 +39,40 @@ export interface EmitContext {
   homeBinPath: string;
   /** Enumerate the file list without writing anything. */
   dryRun: boolean;
+  /**
+   * The host this bundle is being staged FOR, when known (the marketplace
+   * drivers stage into a per-host root). Host-agnostic formats (agent-plugin)
+   * use it to stamp `--host` for telemetry attribution; a shared-distribution
+   * `package` run leaves it undefined and the runtime detects the host.
+   */
+  hostHint?: PlatformId;
+}
+
+/** The framework's own npm package name (what bundles depend on / fall back to). */
+export const AGENT_CONNECTOR_PACKAGE_NAME = "@ken-jo/agent-connector";
+
+/**
+ * The caret range of the framework version that emitted the bundle
+ * (`^<version>`), read from this package's own package.json; `*` when it
+ * cannot be resolved (e.g. an unusual bundler layout).
+ */
+export function resolveFrameworkDependencyRange(): string {
+  const req = createRequire(import.meta.url);
+  for (const rel of ["../../../package.json", "../../package.json", "../package.json"]) {
+    try {
+      const pkg = req(rel) as { name?: string; version?: string };
+      if (
+        pkg.name === AGENT_CONNECTOR_PACKAGE_NAME &&
+        typeof pkg.version === "string" &&
+        /^\d+\.\d+\.\d+/.test(pkg.version)
+      ) {
+        return `^${pkg.version}`;
+      }
+    } catch {
+      /* keep walking */
+    }
+  }
+  return "*";
 }
 
 /** What every format emitter returns. */

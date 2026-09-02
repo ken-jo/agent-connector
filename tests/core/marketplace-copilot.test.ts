@@ -5,7 +5,7 @@
  * driver added as a first-class `--method marketplace` target. Three hermetic
  * lanes, no real `copilot` binary spawned:
  *   1. registry + format mapping  — copilot-cli is drivable and maps to
- *      copilot-plugin (driver.format === MARKETPLACE_FORMAT_BY_PLATFORM entry);
+ *      agent-plugin (driver.format === MARKETPLACE_FORMAT_BY_PLATFORM entry);
  *   2. install --dry-run          — emits the exact `copilot plugin marketplace
  *      add <stagingRoot>` + `copilot plugin install <id>@agent-connector`
  *      commands as ChangeRecords and writes NOTHING / spawns nothing;
@@ -124,12 +124,14 @@ function writeCopilotState(opts: {
 }
 
 describe("copilot-cli marketplace driver — registry + format mapping", () => {
-  it("copilot-cli is drivable and maps to the copilot-plugin format", () => {
+  it("copilot-cli is drivable and maps to the agent-plugin format (the Agent Plugins 1.0.0 SSOT bundle)", () => {
     const driver = getMarketplaceDriver("copilot-cli");
     expect(driver).toBe(copilotDriver);
     expect(driver!.platform).toBe("copilot-cli");
-    expect(driver!.format).toBe("copilot-plugin");
-    expect(MARKETPLACE_FORMAT_BY_PLATFORM["copilot-cli"]).toBe("copilot-plugin");
+    expect(driver!.format).toBe("agent-plugin");
+    expect(MARKETPLACE_FORMAT_BY_PLATFORM["copilot-cli"]).toBe("agent-plugin");
+    expect(MARKETPLACE_FORMAT_BY_PLATFORM["vscode-copilot"]).toBe("agent-plugin");
+    expect(MARKETPLACE_FORMAT_BY_PLATFORM["codex"]).toBe("agent-plugin");
   });
 });
 
@@ -154,7 +156,7 @@ describe("installViaMarketplace — copilot-cli (--dry-run)", () => {
       `run: copilot plugin install ${CONNECTOR_ID}@agent-connector`,
     );
 
-    // The staged file tree is enumerated (a copilot-plugin bundle), but nothing
+    // The staged file tree is enumerated (an agent-plugin bundle), but nothing
     // is written and no host CLI is spawned.
     const stagedFiles = result.changes.filter(
       (c) => c.platform === "copilot-cli" && c.action === "create" && c.path,
