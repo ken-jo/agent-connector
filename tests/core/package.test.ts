@@ -120,9 +120,11 @@ function readJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
 }
 
+// The claude-plugin bundle is requested explicitly: the DEFAULT format is now
+// agent-plugin (covered in tests/core/package-formats.test.ts).
 describe("packageConnector — claude-plugin bundle", () => {
   it("emits a plugin.json with the required name + description, version omitted", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
     const manifestPath = join(res.pluginDir, ".claude-plugin", "plugin.json");
     expect(existsSync(manifestPath)).toBe(true);
 
@@ -134,7 +136,7 @@ describe("packageConnector — claude-plugin bundle", () => {
   });
 
   it("plugin.json lives in .claude-plugin/ but component dirs are at the plugin ROOT", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
     // STRICT rule: only plugin.json under .claude-plugin/.
     const pluginClaudeDir = join(res.pluginDir, ".claude-plugin");
     expect(readdirSync(pluginClaudeDir)).toEqual(["plugin.json"]);
@@ -146,7 +148,7 @@ describe("packageConnector — claude-plugin bundle", () => {
   });
 
   it("emits a marketplace.json listing the plugin with source ./<id> and object owner", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
     expect(res.marketplacePath).toBe(join(outDir, ".claude-plugin", "marketplace.json"));
     expect(existsSync(res.marketplacePath)).toBe(true);
 
@@ -161,7 +163,7 @@ describe("packageConnector — claude-plugin bundle", () => {
   });
 
   it("emits command/agent/skill files with correct frontmatter + body", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
 
     const cmd = readFileSync(join(res.pluginDir, "commands", "deploy.md"), "utf8");
     expect(cmd).toContain("description: Deploy the app to an environment.");
@@ -189,7 +191,7 @@ describe("packageConnector — claude-plugin bundle", () => {
   });
 
   it("emitted command + skill markdown is BYTE-IDENTICAL to the claude-code adapter", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
 
     // Render via the adapter into a fresh isolated project dir and compare bytes.
     const adapterDir = mkdtempSync(join(tmpdir(), "ac-pkg-adapter-"));
@@ -223,7 +225,7 @@ describe("packageConnector — claude-plugin bundle", () => {
   });
 
   it("emits hooks.json referencing the home-bin hook entrypoint for MAPPED events only", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
     const hooksPath = join(res.pluginDir, "hooks", "hooks.json");
     expect(existsSync(hooksPath)).toBe(true);
 
@@ -257,7 +259,7 @@ describe("packageConnector — claude-plugin bundle", () => {
   });
 
   it("emits .mcp.json with the serve-wrapper command (--host claude-code)", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
     const mcpPath = join(res.pluginDir, ".mcp.json");
     expect(existsSync(mcpPath)).toBe(true);
 
@@ -281,7 +283,7 @@ describe("packageConnector — claude-plugin bundle", () => {
   });
 
   it("dry-run writes NOTHING but still reports the planned file list", () => {
-    const res = packageConnector(connector, { outDir, homeBinPath: HOME_BIN, dryRun: true });
+    const res = packageConnector(connector, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN, dryRun: true });
     expect(res.files.length).toBeGreaterThan(0);
     for (const f of res.files) {
       expect(existsSync(f)).toBe(false);
@@ -296,7 +298,7 @@ describe("packageConnector — claude-plugin bundle", () => {
       id: "content-only",
       commands: [{ name: "hello", prompt: "Say hi." }],
     });
-    const res = packageConnector(contentOnly, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(contentOnly, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
     expect(existsSync(join(res.pluginDir, "hooks", "hooks.json"))).toBe(false);
     expect(existsSync(join(res.pluginDir, ".mcp.json"))).toBe(false);
     // Still emits the manifest, the command, and the marketplace.
@@ -311,7 +313,7 @@ describe("packageConnector — claude-plugin bundle", () => {
       version: "2.3.4",
       commands: [{ name: "hello", prompt: "Say hi." }],
     });
-    const res = packageConnector(pinned, { outDir, homeBinPath: HOME_BIN });
+    const res = packageConnector(pinned, { outDir, format: "claude-plugin", homeBinPath: HOME_BIN });
     const manifest = readJson(join(res.pluginDir, ".claude-plugin", "plugin.json"));
     expect(manifest.version).toBe("2.3.4");
   });

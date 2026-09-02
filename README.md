@@ -17,7 +17,8 @@ the native config — or `package` it as a real plugin — across every detected
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
 [![install verified](https://img.shields.io/badge/install%20verified-registry%20harness-22c55e)](https://agent-connector.ai/coverage)
 [![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
-![marketplace](https://img.shields.io/badge/package-10%20marketplace%20formats-2563eb)
+![marketplace](https://img.shields.io/badge/package-11%20marketplace%20formats-2563eb)
+[![agent plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-2563eb)](https://agent-plugins.org)
 ![tests](https://img.shields.io/badge/tests-passing-22c55e)
 
 **Two audiences:** connector developers start at [Quick start](#quick-start);
@@ -238,13 +239,15 @@ with `npx @ken-jo/agent-connector package --connector ...`. If you already keep
 the framework CLI installed globally, `agent-connector package --connector ...`
 is only the shorter equivalent. Hooks + MCP keep the
 telemetry serve-wrapper, so a marketplace-installed connector still reports
-per-tool tokens for its stdio server. `--format all` emits **10 host formats**:
+per-tool tokens for its stdio server. `--format all` emits **9 host formats**
+— the portable, vendor-neutral [Agent Plugins 1.0.0](https://agent-plugins.org)
+package (the default) plus eight host-native bundles for hosts that do not
+speak the spec:
 
 | Format | Hosts |
 |---|---|
-| `claude-plugin` | Claude Code · Codex · VS Code Copilot · OpenClaw · OMP |
-| `codex-plugin` | Codex (`.codex-plugin/` manifest variant) |
-| `copilot-plugin` | GitHub Copilot CLI |
+| `agent-plugin` | **Agent Plugins 1.0.0** (default — one bundle, single source of truth): Codex · GitHub Copilot CLI · VS Code / JetBrains Copilot · Kiro · Hermes · Cursor · OpenClaw · … |
+| `claude-plugin` | Claude Code · OpenClaw · OMP |
 | `factory-plugin` | Droid |
 | `gemini-extension` | Gemini CLI |
 | `qwen-extension` | Qwen Code |
@@ -252,6 +255,23 @@ per-tool tokens for its stdio server. `--format all` emits **10 host formats**:
 | `cursor-plugin` | Cursor |
 | `kimi-plugin` | Kimi CLI |
 | `npm-plugin` | OpenCode · Kilo CLI · Pi |
+
+> **`agent-plugin` is the single source of truth for every spec-speaking host.**
+> It follows the open [Agent Plugins](https://agent-plugins.org) spec
+> (Vercel-led, co-maintained with AWS, Cursor, GitHub, Microsoft and OpenAI): a
+> root `plugin.json`, `mcp.json` (stdio **and** remote `streamable-http`/`sse`
+> servers) and `skills/` that any conforming client installs. Hooks, slash
+> commands and subagents are not portable v1 components, so the one bundle
+> carries them per client-extension namespace — `com.github.copilot/` (Copilot
+> CLI, VS Code, JetBrains) and `com.openai/` (Codex, wired through the manifest's
+> `extensions` block); clients ignore namespaces they do not own. The
+> `install --method marketplace` drivers for Codex and GitHub Copilot CLI stage
+> exactly this bundle (live-verified on codex 0.149 + Copilot CLI 1.0.80), and
+> VS Code auto-discovers what the CLI installed. The spec forbids absolute
+> command paths, so the bundle ships a small `bin/agent-connector.mjs` launcher
+> that resolves the runtime at run time (home binary → PATH → `npx`); no global
+> install is required for telemetry to carry through. The retired
+> `codex-plugin` / `copilot-plugin` names still parse and emit this bundle.
 
 Two official **MCP standard artifacts** are opt-in (they need a `publish` block,
 so they're excluded from `--format all`) — `mcp-server-json` (an MCP Registry
@@ -274,7 +294,8 @@ agent-connector package --connector ./agent-connector.config.mjs --format all --
 > **Embedded-path caveat.** Most host bundles bake in the absolute home-bin
 > launcher path of the machine that ran `package`, so they're valid for a
 > **local install on that same machine/home**. For shared distribution use
-> `npm-plugin` or the MCP standard artifacts, or re-run `package` per machine.
+> `agent-plugin`, `npm-plugin` or the MCP standard artifacts, or re-run
+> `package` per machine.
 
 **Let your branded MCP package drive the host's own install flow** with
 `install --method marketplace`:

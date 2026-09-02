@@ -630,7 +630,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(snippets).not.toContain("acme-db package");
     expect(brandedExample).toContain("npx @ken-jo/agent-connector package --connector");
     expect(brandedExample).not.toContain("acme-db package");
-    expect(architecture).toContain("framework tooling: 10 host bundle formats");
+    expect(architecture).toContain("framework tooling: 9 host bundle formats");
     expect(guide).toContain("<Badge variant=\"muted\">npx @ken-jo/agent-connector package</Badge>");
     expect(guide).toContain("Packaging emits distribution artifacts");
     expect(wizard).toContain('title="Add the framework dependency"');

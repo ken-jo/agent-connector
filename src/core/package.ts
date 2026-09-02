@@ -8,9 +8,13 @@
  * the single, consistent dispatch over them.
  *
  * Supported formats (PackageFormat):
- *   • claude-plugin    — Claude Code / codex / vscode-copilot / openclaw / omp
- *   • codex-plugin     — Codex `.codex-plugin/` manifest variant of claude-plugin
- *   • copilot-plugin   — GitHub Copilot CLI (claude-plugin bundle, --host copilot-cli)
+ *   • agent-plugin     — Agent Plugins 1.0.0 (agent-plugins.org), the DEFAULT and
+ *                        the single source of truth for every spec-speaking host:
+ *                        Codex, GitHub Copilot CLI, VS Code / JetBrains Copilot,
+ *                        Kiro, Hermes, Cursor, OpenClaw, … (plugin.json + mcp.json
+ *                        + skills/ + per-client extension namespaces; NO absolute
+ *                        path embedded — a portable launcher resolves the runtime)
+ *   • claude-plugin    — Claude Code / omp / openclaw (`.claude-plugin/` manifest)
  *   • factory-plugin   — droid `.factory-plugin/` (droids/, mcp.json) variant
  *   • gemini-extension — Gemini CLI extension (gemini-extension.json + TOML commands)
  *   • qwen-extension   — Qwen Code extension (qwen-extension.json + Markdown commands)
@@ -18,6 +22,12 @@
  *   • cursor-plugin    — Cursor (.cursor-plugin/ + pointer fields + marketplace.json)
  *   • kimi-plugin      — Kimi (skills + MCP only; hooks/commands/subagents dropped)
  *   • npm-plugin       — opencode / kilo-cli / pi (publishable npm package + bridge)
+ *
+ * Retired formats (LEGACY_FORMAT_ALIASES): `codex-plugin` and `copilot-plugin`
+ * were per-host copies of the claude-plugin tree with a different manifest dir
+ * or --host stamp. Both hosts read the Agent Plugins bundle natively, so the
+ * names now resolve to `agent-plugin` (with a deprecation note) instead of
+ * emitting a second, drifting layout.
  *
  * The command / skill / subagent markdown is rendered through the SAME shared
  * claude-code renderers the live adapters write with (where the target uses
@@ -29,15 +39,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import type { ResolvedConnector } from "./types.js";
+import type { PlatformId, ResolvedConnector } from "./types.js";
 import { homeBinPath as defaultHomeBinPath } from "./paths.js";
 import type { EmitContext, FormatEmitter, PackageResult } from "./package-formats/shared.js";
-import {
-  emitClaudePlugin,
-  emitCodexPlugin,
-  emitCopilotPlugin,
-  emitFactoryPlugin,
-} from "./package-formats/claude-family.js";
+import { emitClaudePlugin, emitFactoryPlugin } from "./package-formats/claude-family.js";
 import { emitCursorPlugin } from "./package-formats/cursor.js";
 import {
   emitGeminiExtension,
@@ -46,6 +51,7 @@ import {
 import { emitAgyPlugin } from "./package-formats/agy.js";
 import { emitKimiPlugin } from "./package-formats/kimi.js";
 import { emitNpmPlugin } from "./package-formats/npm.js";
+import { emitAgentPlugin } from "./package-formats/agent-plugin.js";
 import { emitMcpServerJson } from "./package-formats/mcp-server.js";
 import { emitMcpbBundle } from "./package-formats/mcpb.js";
 
@@ -53,9 +59,10 @@ export type { PackageResult } from "./package-formats/shared.js";
 
 /** Every packaging format `package` can emit. */
 export type PackageFormat =
+  // The portable Agent Plugins 1.0.0 package (agent-plugins.org) — one bundle
+  // every conforming client installs; no host restamp, no absolute path.
+  | "agent-plugin"
   | "claude-plugin"
-  | "codex-plugin"
-  | "copilot-plugin"
   | "factory-plugin"
   | "gemini-extension"
   | "qwen-extension"
@@ -69,11 +76,23 @@ export type PackageFormat =
   | "mcp-server-json"
   | "mcpb";
 
+/** The format `package` emits when none is requested. */
+export const DEFAULT_PACKAGE_FORMAT: PackageFormat = "agent-plugin";
+
+/**
+ * Retired format names → the format that replaced them. Accepted everywhere a
+ * format name is parsed so existing scripts keep working; callers surface the
+ * deprecation via {@link resolvePackageFormat}.
+ */
+export const LEGACY_FORMAT_ALIASES: Readonly<Record<string, PackageFormat>> = {
+  "codex-plugin": "agent-plugin",
+  "copilot-plugin": "agent-plugin",
+};
+
 /** The single consistent dispatch map: format → emitter. */
 const EMITTERS: Record<PackageFormat, FormatEmitter> = {
+  "agent-plugin": emitAgentPlugin,
   "claude-plugin": emitClaudePlugin,
-  "codex-plugin": emitCodexPlugin,
-  "copilot-plugin": emitCopilotPlugin,
   "factory-plugin": emitFactoryPlugin,
   "gemini-extension": emitGeminiExtension,
   "qwen-extension": emitQwenExtension,
@@ -87,9 +106,8 @@ const EMITTERS: Record<PackageFormat, FormatEmitter> = {
 
 /** All formats, in a stable, documented order. */
 export const ALL_FORMATS: readonly PackageFormat[] = [
+  "agent-plugin",
   "claude-plugin",
-  "codex-plugin",
-  "copilot-plugin",
   "factory-plugin",
   "gemini-extension",
   "qwen-extension",
@@ -110,9 +128,8 @@ export const ALL_FORMATS: readonly PackageFormat[] = [
  * when requested explicitly by name.
  */
 export const FEASIBLE_FORMATS: readonly PackageFormat[] = [
+  "agent-plugin",
   "claude-plugin",
-  "codex-plugin",
-  "copilot-plugin",
   "factory-plugin",
   "gemini-extension",
   "qwen-extension",
@@ -127,10 +144,29 @@ export function isPackageFormat(s: string): s is PackageFormat {
   return Object.prototype.hasOwnProperty.call(EMITTERS, s);
 }
 
+/**
+ * Resolve a user-supplied format name: a live format returns itself; a retired
+ * alias returns its replacement plus a deprecation message; anything else
+ * returns null.
+ */
+export function resolvePackageFormat(
+  s: string,
+): { format: PackageFormat; deprecation?: string } | null {
+  if (isPackageFormat(s)) return { format: s };
+  const replacement = Object.prototype.hasOwnProperty.call(LEGACY_FORMAT_ALIASES, s)
+    ? LEGACY_FORMAT_ALIASES[s]
+    : undefined;
+  if (replacement === undefined) return null;
+  return {
+    format: replacement,
+    deprecation: `--format ${s} is retired — emitting ${replacement} instead (the Agent Plugins 1.0.0 bundle both Codex and GitHub Copilot install natively)`,
+  };
+}
+
 export interface PackageOptions {
   /** Directory the bundle is written under (the format root). */
   outDir: string;
-  /** Output format. Defaults to "claude-plugin". */
+  /** Output format. Defaults to {@link DEFAULT_PACKAGE_FORMAT} (agent-plugin). */
   format?: PackageFormat;
   /**
    * Absolute path to agent-connector's stable home-bin that hooks + the MCP
@@ -139,26 +175,24 @@ export interface PackageOptions {
   homeBinPath?: string;
   /** Compute the file list without writing anything. */
   dryRun?: boolean;
+  /**
+   * The host the bundle is being staged FOR, when known (the marketplace
+   * drivers pass their platform). Host-agnostic formats stamp `--host` from it
+   * for telemetry attribution; omitted for a shared-distribution `package`.
+   */
+  hostHint?: PlatformId;
 }
 
-/**
- * Emit a bundle for `connector` in a single `format` (default claude-plugin).
- *
- * Writes (or, for dryRun, only enumerates) the bundle under `opts.outDir`.
- * Returns the absolute file list, the plugin root dir, an optional marketplace
- * path, and optional drop notes (for lossy formats like kimi-plugin).
- */
 /**
  * Host-bundle formats whose hooks/MCP entries embed the ABSOLUTE home-bin path
  * of the machine that ran `package`. They install fine locally, but on another
  * machine/user the baked path points at nothing — so every emit carries a note.
- * (npm-plugin resolves the CLI by name on PATH; mcp-server-json/mcpb describe
- * the dev's real upstream server — none of those embed a local path.)
+ * (agent-plugin ships a portable launcher, npm-plugin resolves the CLI by name,
+ * mcp-server-json/mcpb describe the dev's real upstream server — none of those
+ * embed a local path in their portable surfaces.)
  */
 const HOME_BIN_EMBED_FORMATS: ReadonlySet<PackageFormat> = new Set([
   "claude-plugin",
-  "codex-plugin",
-  "copilot-plugin",
   "factory-plugin",
   "gemini-extension",
   "qwen-extension",
@@ -167,11 +201,18 @@ const HOME_BIN_EMBED_FORMATS: ReadonlySet<PackageFormat> = new Set([
   "kimi-plugin",
 ]);
 
+/**
+ * Emit a bundle for `connector` in a single `format` (default agent-plugin).
+ *
+ * Writes (or, for dryRun, only enumerates) the bundle under `opts.outDir`.
+ * Returns the absolute file list, the plugin root dir, an optional marketplace
+ * path, and optional drop notes (for lossy formats like kimi-plugin).
+ */
 export function packageConnector(
   connector: ResolvedConnector,
   opts: PackageOptions,
 ): PackageResult {
-  const format = opts.format ?? "claude-plugin";
+  const format = opts.format ?? DEFAULT_PACKAGE_FORMAT;
   const emitter = EMITTERS[format];
   if (!emitter) {
     throw new Error(`unsupported package format: ${format}`);
@@ -182,6 +223,7 @@ export function packageConnector(
     homeBinPath: opts.homeBinPath ?? defaultHomeBinPath(),
     dryRun: opts.dryRun ?? false,
   };
+  if (opts.hostHint !== undefined) ctx.hostHint = opts.hostHint;
   const result = emitter(connector, ctx);
   if (HOME_BIN_EMBED_FORMATS.has(format)) {
     const note =
@@ -233,21 +275,18 @@ export function installInstructions(
   outDir: string,
 ): string[] {
   switch (format) {
+    case "agent-plugin":
+      return [
+        `copilot plugin marketplace add ${outDir} && copilot plugin install ${id}@agent-connector`,
+        `codex plugin marketplace add ${outDir} && codex plugin add ${id}@agent-connector`,
+        `(share: push ${join(outDir, id)} to a git repo, then VS Code → "Chat: Install Plugin From Source" <repo url>;`,
+        ` Kiro / Hermes / Cursor / other clients: https://agent-plugins.org/compatible-clients)`,
+      ];
     case "claude-plugin":
       return [
         `/plugin marketplace add ${outDir}`,
         `/plugin install ${id}@agent-connector`,
         `(CLI: claude plugin marketplace add ${outDir} && claude plugin install ${id}@agent-connector)`,
-      ];
-    case "codex-plugin":
-      return [
-        `codex plugin marketplace add ${outDir}`,
-        `codex plugin add ${id}@agent-connector`,
-      ];
-    case "copilot-plugin":
-      return [
-        `copilot plugin marketplace add ${outDir}`,
-        `copilot plugin install ${id}@agent-connector`,
       ];
     case "factory-plugin":
       return [

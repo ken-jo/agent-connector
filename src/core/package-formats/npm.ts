@@ -25,21 +25,20 @@
  * opencode.json "mcp" key, out of band for the npm package; a note records this.)
  */
 
-import { createRequire } from "node:module";
 import { join } from "node:path";
 
 import type { HookEventName, ResolvedConnector } from "../types.js";
 import { renderSkillMd } from "../../adapters/claude-code/render.js";
 import {
+  AGENT_CONNECTOR_PACKAGE_NAME,
   createEmitter,
   json,
+  resolveFrameworkDependencyRange,
   resolveWithin,
   type EmitContext,
   type FormatEmitter,
   type PackageResult,
 } from "./shared.js";
-
-const AGENT_CONNECTOR_PACKAGE_NAME = "@ken-jo/agent-connector";
 
 /** OpenCode event keys this connector can bridge (PreToolUse/PostToolUse/SessionStart). */
 const EVENT_TO_OPENCODE: Partial<Record<HookEventName, string>> = {
@@ -47,25 +46,6 @@ const EVENT_TO_OPENCODE: Partial<Record<HookEventName, string>> = {
   PostToolUse: "tool.execute.after",
   SessionStart: "experimental.chat.system.transform",
 };
-
-function resolveFrameworkDependencyRange(): string {
-  const req = createRequire(import.meta.url);
-  for (const rel of ["../../../package.json", "../../package.json", "../package.json"]) {
-    try {
-      const pkg = req(rel) as { name?: string; version?: string };
-      if (
-        pkg.name === AGENT_CONNECTOR_PACKAGE_NAME &&
-        typeof pkg.version === "string" &&
-        /^\d+\.\d+\.\d+/.test(pkg.version)
-      ) {
-        return `^${pkg.version}`;
-      }
-    } catch {
-      /* keep walking */
-    }
-  }
-  return "*";
-}
 
 /** Build the publishable package.json for an opencode/kilo/pi plugin package. */
 function buildPackageJson(connector: ResolvedConnector): Record<string, unknown> {

@@ -19,10 +19,13 @@
  *                     records the registered local marketplace dir
  *                     (copilotMarketplaceSource — presence + collision check).
  *
- * Copilot accepts a Claude-shaped bundle as-is, so the staged bundle is the
- * claude-family `copilot-plugin` format (`.claude-plugin/` manifest + the shared
- * `.claude-plugin/marketplace.json` catalog), differing from claude-plugin ONLY
- * in the --host stamp so telemetry routes to the copilot host.
+ * The staged bundle is the `agent-plugin` format — the Agent Plugins 1.0.0
+ * package Copilot CLI, VS Code and the Copilot app all read (hooks, agents and
+ * commands ride in the `com.github.copilot/` namespace; the shared
+ * `.claude-plugin/marketplace.json` catalog is still what `marketplace add`
+ * resolves plugins through). Live-verified on GitHub Copilot CLI 1.0.80:
+ * `plugin marketplace add` + `plugin install` accept it as-is. VS Code
+ * auto-discovers what the CLI installed under ~/.copilot/installed-plugins.
  *
  * NAME-COLLISION SAFETY (== claude/codex): a marketplace named "agent-connector"
  * registered at a path OTHER than our staging root belongs to the user; the
@@ -44,10 +47,12 @@ import {
 } from "../marketplace-state.js";
 import { ensureDir } from "../paths.js";
 import { packageConnector } from "../package.js";
+import { readAgentPluginManifest } from "../package-formats/agent-plugin.js";
 import { findOnPath, firstLine, runHostCommand, samePath } from "./shared.js";
 import type { MarketplaceDriveOutcome, MarketplaceDriver } from "./types.js";
 
 const PLATFORM = "copilot-cli" as const;
+const FORMAT = "agent-plugin" as const;
 
 /** Absolute path of the copilot CLI on PATH, or null. */
 export function copilotBinary(): string | null {
@@ -83,17 +88,27 @@ function failDetail(
 // ─────────────────────────────────────────────────────────────────────────
 // Staging: bundle emit + shared-catalog regeneration. Copilot reads the same
 // `.claude-plugin/marketplace.json` catalog as claude (live-verified), and the
-// staged plugins carry `.claude-plugin/plugin.json`.
+// staged plugins carry a root Agent Plugins `plugin.json`.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Staged plugin dirs (those carrying a .claude-plugin/plugin.json manifest). */
+/** The staged plugin's Agent Plugins manifest, or null when absent/foreign. */
+function stagedManifest(
+  stagingRoot: string,
+  name: string,
+): { description?: string } | null {
+  try {
+    return readAgentPluginManifest(readFileSync(join(stagingRoot, name, "plugin.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Staged plugin dirs (those carrying a root Agent Plugins plugin.json manifest). */
 export function stagedCopilotPlugins(stagingRoot: string): string[] {
   if (!existsSync(stagingRoot)) return [];
   try {
     return readdirSync(stagingRoot)
-      .filter((name) =>
-        existsSync(join(stagingRoot, name, ".claude-plugin", "plugin.json")),
-      )
+      .filter((name) => stagedManifest(stagingRoot, name) !== null)
       .sort();
   } catch {
     return [];
@@ -112,15 +127,11 @@ function copilotCatalogPath(stagingRoot: string): string {
 export function regenerateCopilotCatalog(stagingRoot: string, changes: ChangeRecord[]): void {
   const catalogPath = copilotCatalogPath(stagingRoot);
   const plugins = stagedCopilotPlugins(stagingRoot).map((name) => {
-    let description = `${name} — connector emitted by agent-connector`;
-    try {
-      const manifest = JSON.parse(
-        readFileSync(join(stagingRoot, name, ".claude-plugin", "plugin.json"), "utf8"),
-      ) as { description?: string };
-      if (typeof manifest.description === "string") description = manifest.description;
-    } catch {
-      /* keep the default description */
-    }
+    const manifest = stagedManifest(stagingRoot, name);
+    const description =
+      typeof manifest?.description === "string"
+        ? manifest.description
+        : `${name} — connector emitted by agent-connector`;
     return { name, source: `./${name}`, description };
   });
   const catalog = { name: MARKETPLACE_NAME, owner: { name: MARKETPLACE_NAME }, plugins };
@@ -142,7 +153,7 @@ export function regenerateCopilotCatalog(stagingRoot: string, changes: ChangeRec
   });
 }
 
-/** Stage (or re-stage) the connector's copilot-plugin bundle in the shared root. */
+/** Stage (or re-stage) the connector's agent-plugin bundle in the shared root. */
 export function stageCopilotBundle(
   connector: ResolvedConnector,
   changes: ChangeRecord[],
@@ -150,12 +161,16 @@ export function stageCopilotBundle(
   const stagingRoot = copilotStagingRoot();
   const pluginDir = join(stagingRoot, connector.id);
   const existed = existsSync(pluginDir);
-  const result = packageConnector(connector, { outDir: stagingRoot, format: "copilot-plugin" });
+  const result = packageConnector(connector, {
+    outDir: stagingRoot,
+    format: FORMAT,
+    hostHint: PLATFORM,
+  });
   changes.push({
     platform: PLATFORM,
     action: existed ? "update" : "create",
     path: pluginDir,
-    detail: `staged marketplace bundle (${result.files.length} files, copilot-plugin)`,
+    detail: `staged marketplace bundle (${result.files.length} files, ${FORMAT})`,
   });
   regenerateCopilotCatalog(stagingRoot, changes);
   return { pluginDir, contentHash: hashDirectory(pluginDir) };
@@ -331,7 +346,7 @@ async function driveMarketplaceRemove(stagingRoot: string): Promise<ChangeRecord
 
 export const copilotDriver: MarketplaceDriver = {
   platform: PLATFORM,
-  format: "copilot-plugin",
+  format: FORMAT,
 
   binary: copilotBinary,
   stagingRoot: copilotStagingRoot,

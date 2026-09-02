@@ -107,20 +107,28 @@ export const MARKETPLACE_FORMAT_BY_PLATFORM: Partial<
   Record<PlatformId, PackageFormat>
 > = {
   "claude-code": "claude-plugin",
-  codex: "codex-plugin",
-  "copilot-cli": "copilot-plugin",
+  // Agent Plugins 1.0.0 (agent-plugins.org) — the ONE bundle every
+  // spec-speaking host installs. codex + copilot-cli are driven (catalog
+  // drivers stage this bundle); the rest get the bundle + manual install hint.
+  codex: "agent-plugin",
+  "copilot-cli": "agent-plugin",
+  "vscode-copilot": "agent-plugin",
+  "jetbrains-copilot": "agent-plugin",
+  kiro: "agent-plugin",
+  hermes: "agent-plugin",
   droid: "factory-plugin",
   "gemini-cli": "gemini-extension",
   "qwen-code": "qwen-extension",
   antigravity: "agy-plugin",
   "antigravity-cli": "agy-plugin",
+  // Cursor + OpenClaw read Agent Plugins bundles too, but their own docs say the
+  // client-specific format is the one that carries hooks/commands — keep it.
   cursor: "cursor-plugin",
   kimi: "kimi-plugin",
   opencode: "npm-plugin",
   kilo: "npm-plugin",
   "kilo-cli": "npm-plugin",
   pi: "npm-plugin",
-  "vscode-copilot": "claude-plugin",
   openclaw: "claude-plugin",
   omp: "claude-plugin",
 };

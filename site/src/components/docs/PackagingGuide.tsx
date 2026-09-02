@@ -57,7 +57,7 @@ function FormatRow({ r, index }: { r: PackageFormatRow; index: number }) {
         <code className="whitespace-nowrap font-mono text-[0.78rem] font-semibold text-foreground">
           {r.format}
         </code>
-        {r.format === "claude-plugin" ? (
+        {r.format === "agent-plugin" ? (
           <span className="mt-1 block">
             <Badge variant="muted" className="px-1.5 py-0 text-[0.6rem]">
               default
@@ -136,8 +136,12 @@ export function PackagingGuideSection() {
         directly with your branded package/bin, or emit a marketplace / extension{" "}
         <strong>bundle</strong> others install through their host&apos;s own plugin
         flow. The framework <C>package</C> command renders the
-        bundle for any of <strong>ten</strong>{/* keep in sync with the host-ecosystem (non-MCP) packageFormatRows: those with format !== "mcp-server-json" && !== "mcpb" */}{" "}
-        host ecosystem formats — plus two
+        bundle for any of <strong>nine</strong>{/* keep in sync with the host-ecosystem (non-MCP) packageFormatRows: those with format !== "mcp-server-json" && !== "mcpb" */}{" "}
+        host ecosystem formats (the portable{" "}
+        <a href="https://agent-plugins.org">Agent Plugins 1.0.0</a>{" "}
+        <C>agent-plugin</C> package — the default, and the single source of
+        truth for Codex, GitHub Copilot CLI, VS Code / JetBrains Copilot, Kiro
+        and Hermes — plus eight host-native bundles) — plus two
         official <strong>MCP standard artifacts</strong> (a registry{" "}
         <C>server.json</C> and an <C>mcpb</C> bundle) that plug your real upstream
         server into the cross-vendor distribution graph.
@@ -162,8 +166,10 @@ export function PackagingGuideSection() {
       </P>
       <List>
         <LI>
-          <strong>Default <C>--format claude-plugin</C>.</strong> Omitting{" "}
-          <C>--format</C> emits a Claude-family plugin bundle.
+          <strong>Default <C>--format agent-plugin</C>.</strong> Omitting{" "}
+          <C>--format</C> emits the Agent Plugins 1.0.0 bundle. The retired{" "}
+          <C>codex-plugin</C> / <C>copilot-plugin</C> names still parse and
+          resolve to it with a deprecation line.
         </LI>
         <LI>
           <strong><C>--format all</C></strong> emits EVERY feasible format, each
@@ -212,9 +218,12 @@ export function PackagingGuideSection() {
         <strong>skills + MCP only</strong> — commands, subagents, and hooks are
         dropped. <C>npm-plugin</C> bundles only the hook bridge (+ skills for Pi);
         commands/subagents are native host dirs and MCP is a config key, so they
-        aren&apos;t bundled. In both cases the emitter returns explicit{" "}
-        <strong>drop notes</strong> the CLI prints, so a lossy bundle is never
-        silent.
+        aren&apos;t bundled. <C>agent-plugin</C> keeps skills + MCP portable and
+        carries hooks/commands/subagents per client-extension namespace —{" "}
+        <C>com.github.copilot/</C> (Copilot CLI, VS Code, JetBrains) and{" "}
+        <C>com.openai/</C> (Codex) — which other clients ignore. In every case
+        the emitter returns explicit <strong>drop notes</strong> the CLI prints,
+        so a lossy bundle is never silent.
       </Callout>
     </DocSection>
   );

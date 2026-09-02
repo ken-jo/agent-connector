@@ -1173,10 +1173,27 @@ or a global `agent-connector package` CLI. Keep `install`, `doctor`,
 `upgrade`/`update`, `uninstall`, and connector telemetry under the branded MCP
 package/bin. The command emits a marketplace/extension-installable bundle into `--out` (default
 `<cwd>/dist-plugin`), printing the emitted file tree + per-format install
-instructions. Host formats (default `claude-plugin`; `--format all` emits all 10):
-claude-plugin · codex-plugin · copilot-plugin · factory-plugin ·
-gemini-extension · qwen-extension · agy-plugin · cursor-plugin · kimi-plugin ·
-npm-plugin. Two OFFICIAL MCP standard artifacts are emitted only by explicit name
+instructions. Host formats (default `agent-plugin`; `--format all` emits all 9):
+agent-plugin · claude-plugin · factory-plugin · gemini-extension ·
+qwen-extension · agy-plugin · cursor-plugin · kimi-plugin · npm-plugin.
+`agent-plugin` is the portable Agent Plugins 1.0.0 package
+(https://agent-plugins.org — Vercel-led, co-maintained with AWS, Cursor,
+GitHub, Microsoft, OpenAI) and the SINGLE SOURCE OF TRUTH for every host that
+speaks the spec — Codex, GitHub Copilot CLI, VS Code / JetBrains Copilot, Kiro,
+Hermes, Cursor, OpenClaw: root `plugin.json` (+ `$schema`, `extensions`),
+`mcp.json` (stdio and remote streamable-http/sse servers), `skills/<n>/SKILL.md`,
+plus hooks / commands / subagents under per-client extension namespaces —
+`com.github.copilot/` (Copilot CLI + VS Code + JetBrains) and `com.openai/`
+(Codex, pointed at by `extensions["com.openai"].hooks`); clients ignore
+namespaces they do not own. It embeds NO absolute path in its portable
+surfaces: the MCP serve-wrapper and Copilot hooks run `node
+${PLUGIN_ROOT}/bin/agent-connector.mjs`, a bundled launcher that resolves the
+runtime at run time (home binary → PATH → `npx @ken-jo/agent-connector`), so no
+global install is required. The codex and copilot-cli marketplace drivers stage
+this exact bundle (`install --method marketplace --targets codex,copilot-cli`;
+live-verified on codex 0.149 + GitHub Copilot CLI 1.0.80). The retired
+`codex-plugin` / `copilot-plugin` names still parse and resolve to agent-plugin
+with a deprecation line. Two OFFICIAL MCP standard artifacts are emitted only by explicit name
 (they require the connector's `publish` block and are excluded from `all`):
 `mcp-server-json` (an MCP Registry server.json, schema 2025-12-11, describing
 your REAL upstream server — not the serve wrapper) and `mcpb` (an MCPB manifest,
