@@ -23,6 +23,12 @@ install/list/uninstall commands. Every host-CLI call was wrapped
 `timeout 180 ... </dev/null` with capped output; only self-created sandbox
 dirs were removed. Real homes were never touched.
 
+> **2026-09-02 update:** `codex-plugin` and `copilot-plugin` are retired; codex and
+> copilot-cli now install the `agent-plugin` bundle (Agent Plugins 1.0.0) through the same
+> marketplace verbs, live-verified L3 through our CLI on codex-cli 0.149.0 and GitHub Copilot
+> CLI 1.0.80 (`install --method marketplace` → host `plugin list` → `doctor` → `uninstall`,
+> zero residue). Rows below record the earlier per-format probes.
+
 ## The matrix
 
 | Host | Format | Level | Evidence summary | Host limits | Date |

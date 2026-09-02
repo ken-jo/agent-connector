@@ -4,7 +4,14 @@ Live-probed 2026-06-14 with codex-cli **0.139.0** and agy **1.0.7** in isolated
 sandboxes against the CURRENT emitter output. These are the ground facts the
 `install --method marketplace` drivers for codex + agy are built on.
 
-## codex (format `codex-plugin`) — mirrors the claude driver closely
+> **Superseded (2026-09-02):** the `codex-plugin` format is retired. The codex driver now
+> stages the `agent-plugin` bundle (Agent Plugins 1.0.0: root `plugin.json` + `mcp.json`
+> + `com.openai/hooks/hooks.json`, launcher-routed MCP entry) — live-verified on codex-cli
+> 0.149.0 with the same `plugin marketplace add` / `plugin add` verbs. The catalog-location
+> fact below (`.agents/plugins/marketplace.json`, never `.codex-plugin/`) still holds and the
+> agent-plugin emitter writes that catalog. Layout details below describe the RETIRED bundle.
+
+## codex (format `codex-plugin`, retired) — mirrors the claude driver closely
 
 Emitter layout for `package --format codex-plugin --out <root>`:
 - `<root>/.agents/plugins/marketplace.json` — SHARED catalog at the root

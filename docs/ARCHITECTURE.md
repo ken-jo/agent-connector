@@ -554,7 +554,7 @@ src/
     spawn.ts               Windows-safe build/parseNodeCommand, runtime resolution
     spawn-child.ts         Windows-safe child_process.spawn wrapper
     mcp-standard.ts        pinned official-MCP literals + guards (server.json / MCPB / wire)
-    package-formats/       per-host marketplace bundle renderers (claude-family, gemini, …)
+    package-formats/       marketplace bundle renderers — agent-plugin (Agent Plugins 1.0.0, the default + SSOT for spec-speaking hosts; portable launcher + per-client namespaces), claude-family, gemini, …
     logger.ts
   adapters/
     spi.ts                 Adapter interface (generalized HookAdapter + MCP render)
