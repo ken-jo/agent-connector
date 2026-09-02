@@ -637,6 +637,22 @@ export const platforms: Platform[] = [
     hostNative: s(true, false, true, true, false, true, false, false),
   },
   {
+    id: "grok-build",
+    name: "Grok Build",
+    paradigm: "json-stdio",
+    surfaces: s(true, true, true, true, true, true, false, false),
+    // xAI's OFFICIAL agent (xai-org/grok-build, Apache-2.0, bin `grok`), NOT the
+    // community grok-cli below. All wired surfaces live under $GROK_HOME
+    // (default ~/.grok): MCP in config.toml [mcp_servers.<id>]; hooks in
+    // hooks/*.json (Claude-compatible JSON); commands/<n>.md, skills/<n>/SKILL.md
+    // and agents/<n>.md; memory = AGENTS.md (project) / rules/*.md (user).
+    // statusline hostNative=true but NOT wired by us — the host HAS
+    // [ui.status_line] type="command" with JSON on stdin (25-status-line.md), so
+    // this is a genuine AC gap, not a host N/A. actions=false both ways: Grok's
+    // commands/*.md are prompt templates, with no shell-exec affordance to bind.
+    hostNative: s(true, true, true, true, true, true, true, false),
+  },
+  {
     id: "grok-cli",
     name: "Grok CLI",
     paradigm: "json-stdio",
@@ -755,7 +771,8 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
     "claude-code", "codebuddy", "codex", "gemini-cli", "copilot-cli", "qwen-code", "amp",
     "codebuff", "continue", "crush", "goose", "amazon-q", "droid", "openhands",
     "opencode", "kilo-cli", "omp", "openclaw", "nemoclaw", "hermes", "mimo-code",
-    "kimi", "pi", "antigravity-cli", "grok-cli", "devin", "open-interpreter", "junie", "mistral-vibe",
+    "kimi", "pi", "antigravity-cli", "grok-build", "grok-cli", "devin", "open-interpreter",
+    "junie", "mistral-vibe",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],
@@ -814,30 +831,31 @@ export const hostSource: Record<string, HostSource> = {
   // --- Public product/source repo verified ---
   codex: { repo: "openai/codex" },
   "gemini-cli": { repo: "google-gemini/gemini-cli" },
-  opencode: { repo: "sst/opencode" },
+  opencode: { repo: "anomalyco/opencode" }, // SST rebranded to Anomaly; sst/opencode 301s here
   "mimo-code": { repo: "XiaomiMiMo/MiMo-Code" }, // adapter header cites this repo
   "kilo-cli": { repo: "Kilo-Org/kilocode" }, // OpenCode-fork CLI shares the kilocode source
-  openhands: { repo: "All-Hands-AI/OpenHands" },
-  "roo-code": { repo: "RooCodeInc/Roo-Code" },
+  openhands: { repo: "OpenHands/OpenHands" }, // moved to its own org; All-Hands-AI/OpenHands 301s here
+  "roo-code": { repo: "RooCodeInc/Roo-Code" }, // ARCHIVED upstream — see hostLifecycle
   kilo: { repo: "Kilo-Org/kilocode" }, // VS Code ext, same source repo as kilo-cli
   cline: { repo: "cline/cline" },
   zed: { repo: "zed-industries/zed" },
-  codebuff: { repo: "CodebuffAI/codebuff" },
+  codebuff: { repo: "CodebuffAI/freebuff" }, // repo + product renamed to Freebuff (freebuff.com); old path 301s here
   pi: { repo: "earendil-works/pi" }, // badlogic/pi-mono redirects here (canonical)
   omp: { repo: "earendil-works/pi" }, // OMP is a pi fork; same upstream source repo
   "qwen-code": { repo: "QwenLM/qwen-code" },
   kimi: { repo: "MoonshotAI/kimi-cli" }, // Kimi Code CLI, open product source
   crush: { repo: "charmbracelet/crush" },
-  goose: { repo: "block/goose" },
+  goose: { repo: "aaif-goose/goose" }, // moved out of the Block org; block/goose 301s here
   nemoclaw: { repo: "NVIDIA/NemoClaw" },
   openclaw: { repo: "openclaw/openclaw" }, // homepage openclaw.ai, active TS source
   "amazon-q": { repo: "aws/amazon-q-developer-cli" }, // the CLI IS open source (Rust)
   continue: { repo: "continuedev/continue" },
+  "grok-build": { repo: "xai-org/grok-build" }, // xAI's official agent (Apache-2.0)
   "grok-cli": { repo: "superagent-ai/grok-cli" }, // community grok-cli (npm grok-dev)
-  "open-interpreter": { repo: "OpenInterpreter/open-interpreter" },
+  "open-interpreter": { repo: "openinterpreter/openinterpreter" }, // handle normalized; old path 301s here
   "mistral-vibe": { repo: "mistralai/mistral-vibe" },
   junie: { repo: "JetBrains/junie" }, // JetBrains' own open agent CLI
-  mux: { repo: "coder/mux" }, // Coder's mux, mux.coder.com, open TS source
+  mux: { repo: "coder/xum" }, // Coder renamed mux → Xum (xum.coder.com); coder/mux 301s here
   kiro: { repo: "kirodotdev/Kiro" }, // Kiro's public product repo
   hermes: { repo: "NousResearch/hermes-agent" }, // Nous Research's open Hermes Agent
 
@@ -931,6 +949,7 @@ export const brandColor: Record<string, string> = {
   nemoclaw: "#5A9216", // NVIDIA NemoClaw green (darkened)
   openclaw: "#C06A1E", // OpenClaw orange
   continue: "#2C7FB8", // Continue blue
+  "grok-build": "#1D1D1F", // xAI near-black (the x.ai / Grok wordmark ground)
   "grok-cli": "#5A6470", // xAI Grok neutral slate (no obvious brand hue)
   "open-interpreter": "#2E8B3D", // Open Interpreter green
   "mistral-vibe": "#D2691E", // Mistral Vibe orange (darkened)
@@ -1021,30 +1040,31 @@ export const hostLinks: Record<string, HostLink> = {
   // OSS hosts → their product repo (same as hostSource).
   codex: gh("openai/codex"),
   "gemini-cli": gh("google-gemini/gemini-cli"),
-  opencode: gh("sst/opencode"),
+  opencode: gh("anomalyco/opencode"),
   "mimo-code": gh("XiaomiMiMo/MiMo-Code"),
   "kilo-cli": gh("Kilo-Org/kilocode"),
-  openhands: gh("All-Hands-AI/OpenHands"),
+  openhands: gh("OpenHands/OpenHands"),
   "roo-code": gh("RooCodeInc/Roo-Code"),
   kilo: gh("Kilo-Org/kilocode"),
   cline: gh("cline/cline"),
   zed: gh("zed-industries/zed"),
-  codebuff: gh("CodebuffAI/codebuff"),
+  codebuff: gh("CodebuffAI/freebuff"),
   pi: gh("earendil-works/pi"),
   omp: gh("earendil-works/pi"),
   "qwen-code": gh("QwenLM/qwen-code"),
   kimi: gh("MoonshotAI/kimi-cli"),
   crush: gh("charmbracelet/crush"),
-  goose: gh("block/goose"),
+  goose: gh("aaif-goose/goose"),
   nemoclaw: gh("NVIDIA/NemoClaw"),
   openclaw: gh("openclaw/openclaw"),
   "amazon-q": gh("aws/amazon-q-developer-cli"),
   continue: gh("continuedev/continue"),
+  "grok-build": gh("xai-org/grok-build"),
   "grok-cli": gh("superagent-ai/grok-cli"),
-  "open-interpreter": gh("OpenInterpreter/open-interpreter"),
+  "open-interpreter": gh("openinterpreter/openinterpreter"),
   "mistral-vibe": gh("mistralai/mistral-vibe"),
   junie: gh("JetBrains/junie"),
-  mux: gh("coder/mux"),
+  mux: gh("coder/xum"),
   kiro: gh("kirodotdev/Kiro"),
   hermes: gh("NousResearch/hermes-agent"),
 
@@ -1074,6 +1094,130 @@ export function hostLinkUrl(id: string): string | undefined {
   const l = hostLinks[id];
   if (!l) return undefined;
   return l.kind === "github" ? `https://github.com/${l.repo}` : l.url;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent Plugins 1.0.0 — per-host spec state                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How a host relates to Agent Plugins 1.0.0 (agent-plugins.org — the open
+ * bundle spec Vercel maintains with AWS, Cursor, GitHub, Microsoft and
+ * OpenAI). Three honest states, and NOT a capability claim about the host:
+ *
+ *   - "delivered" — agent-connector packages this host as the spec bundle
+ *     (plugin.json · mcp.json · skills/ · its client namespace) AND the host's
+ *     own marketplace/plugin flow installs it.
+ *   - "delegated" — the SAME bundle reaches the host through a sibling
+ *     client rather than a flow of its own. VS Code documents this outright
+ *     ("automatically discovers plugins that you install with the GitHub
+ *     Copilot CLI"); for Copilot in JetBrains the documented route is the
+ *     Copilot CLI running in its integrated terminal, since GitHub documents
+ *     no plugin-install path for the JetBrains IDE plugin itself.
+ *   - "client"    — the host is a listed Agent Plugins client, but
+ *     agent-connector still ships its client-specific format, because that is
+ *     the one carrying hooks and commands there (Cursor).
+ *
+ * Client roster verified against https://agent-plugins.org/compatible-clients
+ * (2026-09-02) — NINE clients: VS Code, GitHub Copilot, Cursor, ChatGPT &
+ * Codex, Kiro, OpenClaw, Hermes Agent, Grok Bot, NanoClaw. Two near-misses are
+ * deliberately NOT marked — xAI's "Grok Bot" is not the community `grok-cli`
+ * we adapt, and Nanoco's "NanoClaw" is not NVIDIA's NemoClaw. GitHub Copilot
+ * in JetBrains is NOT separately listed; it is marked "delegated" because it
+ * reads the Copilot plugin store, not because the spec site names it.
+ *
+ * Drift-guarded (tests/docs/platform-drift.test.ts): the delivered ∪ delegated
+ * ids must EQUAL the platforms that `MARKETPLACE_FORMAT_BY_PLATFORM` routes to
+ * the `agent-plugin` format, so a routing change cannot silently rot the wall.
+ */
+export type AgentPluginState = "delivered" | "delegated" | "client";
+
+export const agentPluginSupport: Record<string, AgentPluginState> = {
+  // Packaged AND installed by a headless plugin verb we drive.
+  codex: "delivered", // codex plugin marketplace add → plugin add
+  "copilot-cli": "delivered", // copilot plugin marketplace add → plugin install
+  kiro: "delivered", // listed client; one-click "Add to Kiro" install
+  hermes: "delivered", // hermes plugins install → plugins enable
+  // Same bundle, no headless verb of its own — it arrives through the editor's
+  // own install command or the sibling Copilot CLI plugin store.
+  "vscode-copilot": "delegated", // listed client; auto-discovers the CLI's store
+  "jetbrains-copilot": "delegated", // reachable via Copilot CLI in its terminal
+  // Listed clients whose OWN format carries hooks/commands — we ship that.
+  cursor: "client", // .cursor-plugin/ carries rules, agents, commands, hooks
+  openclaw: "client", // ai.openclaw namespace; we install the claude-plugin tree
+};
+
+/** Badge copy for the wall's Agent Plugins marker. */
+export const agentPluginBadge: Record<
+  AgentPluginState,
+  { label: string; short: string; title: string }
+> = {
+  delivered: {
+    label: "AP 1.0",
+    short: "Agent Plugins bundle",
+    title:
+      "Agent Plugins 1.0.0 — agent-connector packages this host as the spec bundle (plugin.json · mcp.json · skills/) and the host's own plugin flow installs it",
+  },
+  delegated: {
+    label: "AP 1.0",
+    short: "Agent Plugins bundle, installed by a sibling flow",
+    title:
+      "Agent Plugins 1.0.0 — the same spec bundle, but this host has no headless install verb of its own: it arrives via the GitHub Copilot CLI (VS Code auto-discovers what the CLI installed; in JetBrains, run the CLI in the integrated terminal)",
+  },
+  client: {
+    label: "AP client",
+    short: "Agent Plugins client",
+    title:
+      "Listed Agent Plugins 1.0.0 client — agent-connector still ships this host its client-specific format, because that is the one carrying hooks and commands here",
+  },
+};
+
+/** A host's Agent Plugins state, or undefined when it does not speak the spec. */
+export function agentPluginStateOf(id: string): AgentPluginState | undefined {
+  return agentPluginSupport[id];
+}
+
+/* ------------------------------------------------------------------ */
+/* Host lifecycle — upstream status that outlives our adapter          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Hosts whose UPSTREAM product is no longer on a normal active track. Absence
+ * from this map means "active" — only the exceptions are listed, each with the
+ * evidence that put it here. The adapter keeps working either way; this is an
+ * honesty marker on the wall, not a capability change.
+ *
+ *   - "archived"   — the product repo is archived / the project has shut down.
+ *   - "sunsetting" — still shipping, but the vendor has started winding it down
+ *     or steering users to a successor.
+ *
+ * Drift-guarded (tests/docs/platform-drift.test.ts): every key must be a real
+ * platform id, so a renamed or dropped host cannot leave a dangling marker.
+ */
+export type HostLifecycle = {
+  status: "archived" | "sunsetting";
+  label: string;
+  note: string;
+};
+
+export const hostLifecycle: Record<string, HostLifecycle> = {
+  "roo-code": {
+    status: "archived",
+    label: "EOL",
+    note:
+      "Upstream archived — RooCodeInc/Roo-Code is archived on GitHub (last push 2026-05-15) and the team wound the project down; migration guidance points users to Cline. The adapter still installs, but the host is no longer developed.",
+  },
+  "gemini-cli": {
+    status: "sunsetting",
+    label: "Sunsetting",
+    note:
+      "The repo is still active, but Google stopped serving Gemini CLI to personal accounts (free / AI Pro / Ultra) on 2026-06-18 and points users at Antigravity CLI as the successor.",
+  },
+};
+
+/** A host's lifecycle exception, or undefined when it is on a normal active track. */
+export function hostLifecycleOf(id: string): HostLifecycle | undefined {
+  return hostLifecycle[id];
 }
 
 /**

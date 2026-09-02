@@ -1411,7 +1411,7 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 Current counts and per-host coverage are canonical at https://agent-connector.ai/coverage.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
-### `json-stdio` — full hook dispatch (22)
+### `json-stdio` — full hook dispatch (23)
 One universal hook entrypoint binary handles all of them.
 
 | Platform | id | MCP native target (root key / file) |
@@ -1436,7 +1436,8 @@ One universal hook entrypoint binary handles all of them.
 | Antigravity CLI (`agy`) | `antigravity-cli` | shares `~/.gemini/antigravity/` |
 | Continue | `continue` | `~/.continue/config.yaml` → `mcpServers` (YAML ARRAY, keyed by `name`); hooks in a separate `settings.json` (honors `CONTINUE_GLOBAL_DIR`) |
 | Amazon Q Developer CLI | `amazon-q` | `~/.aws/amazonq/mcp.json` (user) / `.amazonq/mcp.json` (project) → `mcpServers` (hooks in the built-in default agent file `cli-agents/q_cli_default.json` — a bare `default.json` would be an inactive custom agent: trigger-keyed `hooks` object, entries `{ command, matcher? }`; subagents as per-agent JSON `cli-agents/<name>.json` where the filename is the agent name) |
-| Grok CLI | `grok-cli` | `~/.grok/user-settings.json` → `mcp.servers` (JSON ARRAY, keyed by `id`); hooks in the SAME file under top-level `hooks` (Claude nested-rule shape). USER-SCOPE ONLY — community superagent-ai/grok-cli (npm `grok-dev`, bin `grok`) |
+| Grok Build (xAI) | `grok-build` | `$GROK_HOME/config.toml` (default `~/.grok`) → `[mcp_servers.*]` TOML (stdio `{ command, args, env, enabled }`, remote `{ url, headers }`; Grok expands its OWN `${VAR}` in these string fields at load time); hooks in a SEPARATE `$GROK_HOME/hooks/*.json` (Claude-compatible `{ hooks: { <Event>: [{ matcher?, hooks:[...] }] } }`); skills `skills/<n>/SKILL.md`, commands `commands/<n>.md`, agents `agents/<n>.md`, memory `AGENTS.md`. xAI's OFFICIAL agent (xai-org/grok-build, Apache-2.0, bin `grok`) — shares the default `~/.grok` DIRECTORY with `grok-cli` but never a file, so each adapter detects on its own marker (`config.toml` vs `user-settings.json`) |
+| Grok CLI | `grok-cli` | `~/.grok/user-settings.json` → `mcp.servers` (JSON ARRAY, keyed by `id`); hooks in the SAME file under top-level `hooks` (Claude nested-rule shape). USER-SCOPE ONLY — community superagent-ai/grok-cli (npm `grok-dev`, bin `grok`), UNRELATED to `grok-build` above |
 | Devin CLI (Cognition) | `devin` | `~/.config/devin/config.json` (user; `%APPDATA%\devin\config.json` on Windows) / `.devin/config.json` (project) → `mcpServers` (object map; native `${env:VAR}`); hooks under the SAME file's `hooks` key (Claude-compatible NESTED-rule shape; reply is the simple top-level `{decision:"approve"\|"block"\|"deny", reason}`, exit 2 blocks) |
 
 ### `mcp-only` — MCP registration only, no hook layer (12)

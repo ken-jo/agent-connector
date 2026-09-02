@@ -425,6 +425,16 @@ export const hostVerificationResults = [
     "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
+    "host": "grok-build",
+    "installProbe": "PASS",
+    "doctorProbe": "PASS",
+    "hostCliSurface": "official xAI grok binary not installed (curl|bash installer from x.ai, not an npm package)",
+    "headlessModelMcpE2e": "NOT_RUN",
+    "result": "ADAPTER_PLACEMENT_VERIFIED",
+    "issueOrBlocker": "no local host CLI accept/runtime lane; config contract verified against xai-org/grok-build sources, adapter placement only",
+    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id into ~/.grok/config.toml [mcp_servers] + ~/.grok/hooks/agent-connector.json and uninstall removed it"
+  },
+  {
     "host": "grok-cli",
     "installProbe": "PASS",
     "doctorProbe": "PASS",

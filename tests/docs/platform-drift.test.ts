@@ -22,6 +22,8 @@ import { describe, expect, it } from "vitest";
 
 import { BaseAdapter } from "../../src/adapters/base.js";
 import { ADAPTER_REGISTRY } from "../../src/adapters/registry.js";
+import { DRIVABLE_MARKETPLACE_PLATFORMS } from "../../src/core/marketplace-drivers/registry.js";
+import { MARKETPLACE_FORMAT_BY_PLATFORM } from "../../src/core/marketplace.js";
 import {
   adapterCapabilityCount,
   adapterCapabilityProfiles,
@@ -38,9 +40,12 @@ import {
   tsPluginPlatforms,
 } from "../../site/src/components/docs/docs-data.js";
 import {
+  agentPluginBadge,
+  agentPluginSupport,
   brandColor,
   formFactorIds,
   formFactorOf,
+  hostLifecycle,
   hostLinks,
   hostSource,
   platforms as landingPlatforms,
@@ -656,5 +661,111 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(docsData).toContain("Global framework CLI guidance is for connector-free agent token telemetry");
     expect(docsData).not.toContain("Global framework CLI is for connector-free telemetry or framework tooling");
     expect(docs).toContain("You do <strong>not</strong> need a global install for branded MCP");
+  });
+
+  /**
+   * The site quotes the marketplace-drivable host COUNT and the catalog-driver
+   * roster in prose (data.ts install methods + CLI table, docs-data packaging
+   * blurb). Those numbers went stale the moment copilot-cli gained a driver, so
+   * pin them to DRIVABLE_MARKETPLACE_PLATFORMS instead of trusting a hand count.
+   */
+  it("site marketplace prose quotes the real drivable-host count and names every catalog host", () => {
+    const data = readFileSync("site/src/data.ts", "utf8");
+    const docsData = readFileSync("site/src/components/docs/docs-data.ts", "utf8");
+    const count = new Set(DRIVABLE_MARKETPLACE_PLATFORMS).size;
+
+    expect(count, "no marketplace drivers resolved").toBeGreaterThanOrEqual(3);
+    expect(data, "site install-method scope quotes a stale drivable-host count").toContain(
+      `Drives ${count} hosts:`,
+    );
+    expect(data, "site CLI table quotes a stale drivable-host count").toContain(
+      `marketplace/plugin flow for ${count} hosts`,
+    );
+    expect(
+      docsData,
+      "docs-data packaging blurb quotes a stale drivable-host count",
+    ).toContain(`DRIVEN end-to-end for ${count} hosts`);
+
+    // Every CATALOG-driver host must be named in the packaging blurb's roster.
+    const catalogHosts = ["Claude Code", "Codex", "GitHub Copilot CLI", "Droid"];
+    const blurbCatalog = docsData.slice(
+      docsData.indexOf("DRIVEN end-to-end for"),
+      docsData.indexOf("NPM-LOCAL file:// config entry"),
+    );
+    for (const host of catalogHosts) {
+      expect(blurbCatalog, `docs-data catalog roster omits "${host}"`).toContain(host);
+    }
+  });
+
+  it("agentPluginSupport matches the platforms actually routed to the agent-plugin format", () => {
+    // The wall's "AP 1.0" marker is a DELIVERY claim, so it must be derived from
+    // the same routing table the packager uses. delivered ∪ delegated has to
+    // EQUAL the agent-plugin-routed platforms — a routing change that forgets
+    // this map would otherwise leave the site advertising a bundle we no longer
+    // ship (or hiding one we do).
+    const routed = new Set(
+      Object.entries(MARKETPLACE_FORMAT_BY_PLATFORM)
+        .filter(([, format]) => format === "agent-plugin")
+        .map(([id]) => id),
+    );
+    const shipped = new Set(
+      Object.entries(agentPluginSupport)
+        .filter(([, state]) => state === "delivered" || state === "delegated")
+        .map(([id]) => id),
+    );
+    expect([...shipped].sort(), "agentPluginSupport disagrees with MARKETPLACE_FORMAT_BY_PLATFORM").toEqual(
+      [...routed].sort(),
+    );
+
+    // A "client" host reads the spec but gets its OWN format from us — so it
+    // must NOT be routed to agent-plugin, or the label contradicts the routing.
+    for (const [id, state] of Object.entries(agentPluginSupport)) {
+      if (state !== "client") continue;
+      expect(
+        MARKETPLACE_FORMAT_BY_PLATFORM[id as keyof typeof MARKETPLACE_FORMAT_BY_PLATFORM],
+        `agentPluginSupport["${id}"] is "client" but the packager routes it to agent-plugin`,
+      ).not.toBe("agent-plugin");
+    }
+
+    // No dangling keys, and every state has badge copy to render.
+    const ids = new Set(landingPlatforms.map((p) => p.id));
+    for (const [id, state] of Object.entries(agentPluginSupport)) {
+      expect(ids.has(id), `agentPluginSupport["${id}"] is not a known platform id`).toBe(true);
+      expect(agentPluginBadge[state], `agentPluginBadge is missing "${state}"`).toBeDefined();
+    }
+  });
+
+  it("ARCHITECTURE.md paradigm taxonomy counts match the registry", async () => {
+    // These three counts were hand-maintained and had silently drifted to
+    // 18/8/9 while the registry said 23/8/12 — nothing guarded them. Pin the
+    // NUMBERS to the registry so the next adapter addition fails here instead
+    // of quietly making the architecture doc lie.
+    const truth = await registryParadigms();
+    const doc = readFileSync(
+      new URL("../../docs/ARCHITECTURE.md", import.meta.url),
+      "utf8",
+    );
+    for (const paradigm of ["json-stdio", "ts-plugin", "mcp-only"] as const) {
+      expect(
+        doc,
+        `ARCHITECTURE.md paradigm taxonomy quotes a stale \`${paradigm}\` count`,
+      ).toContain(`**\`${paradigm}\`** (${truth[paradigm]!.length})`);
+    }
+  });
+
+  it("hostLifecycle marks only real platforms and carries its evidence", () => {
+    // Absence means "active", so this guard only has to catch dangling keys and
+    // empty markers — a renamed or dropped host must not leave an EOL badge on
+    // the wall, and a badge with no note would be an unsourced claim.
+    const ids = new Set(landingPlatforms.map((p) => p.id));
+    for (const [id, entry] of Object.entries(hostLifecycle)) {
+      expect(ids.has(id), `hostLifecycle["${id}"] is not a known platform id`).toBe(true);
+      expect(["archived", "sunsetting"]).toContain(entry.status);
+      expect(entry.label.length, `hostLifecycle["${id}"].label is empty`).toBeGreaterThan(0);
+      expect(
+        entry.note.length,
+        `hostLifecycle["${id}"].note must cite why the host is marked`,
+      ).toBeGreaterThan(40);
+    }
   });
 });

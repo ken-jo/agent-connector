@@ -4,11 +4,14 @@ import { Link } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
 import {
+  agentPluginBadge,
+  agentPluginStateOf,
   byParadigmFamilyName,
   formatStars,
   formFactorOf,
   formFactorShort,
   handlerChips,
+  hostLifecycleOf,
   hostLinks,
   hostLinkUrl,
   paradigms,
@@ -16,8 +19,10 @@ import {
   surfaceChips,
   surfaceState,
   tierOf,
+  type AgentPluginState,
   type CoverageTier,
   type FormFactorId,
+  type HostLifecycle,
   type Platform,
   type PlatformSurfaces,
   type SurfaceState,
@@ -192,9 +197,54 @@ export function SurfaceLegend() {
           them (a blank &ne; a missing host feature). Each links to its setup docs.
         </span>
       </p>
+      <p className="mt-1.5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center font-sans text-[11px] text-muted-foreground">
+        <span className={cn(markerChip, agentPluginChip.delivered)}>AP 1.0</span>
+        <span>we package and install the Agent Plugins 1.0.0 bundle</span>
+        <span aria-hidden="true" className="opacity-40">·</span>
+        <span className={cn(markerChip, agentPluginChip.delegated)}>AP 1.0</span>
+        <span>same bundle, installed by a sibling flow</span>
+        <span aria-hidden="true" className="opacity-40">·</span>
+        <span className={cn(markerChip, agentPluginChip.client)}>AP client</span>
+        <span>reads the spec, but we ship its own format</span>
+        <span aria-hidden="true" className="opacity-40">·</span>
+        <span className={cn(markerChip, lifecycleChip.archived)}>EOL</span>
+        <span aria-hidden="true" className="opacity-40">/</span>
+        <span className={cn(markerChip, lifecycleChip.sunsetting)}>Sunsetting</span>
+        <span>upstream archived or winding down — hover for the evidence</span>
+      </p>
     </div>
   );
 }
+
+/**
+ * Shared shape for a card marker — also reused for the legend's inline samples,
+ * so the legend swatch is byte-identical to what the card renders.
+ */
+const markerChip =
+  "rounded border px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase leading-none tracking-wide";
+
+/**
+ * Per-state treatment for the Agent Plugins marker. Emerald across all three so
+ * the marker reads as ONE family against the tier palette, with the border
+ * carrying the distinction: solid = we install it, dashed = a sibling flow
+ * installs it, dotted = the host reads the spec but we ship its own format.
+ */
+const agentPluginChip: Record<AgentPluginState, string> = {
+  delivered:
+    "border-emerald-500 bg-emerald-200/70 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-400/15 dark:text-emerald-200",
+  delegated:
+    "border-dashed border-emerald-500/70 bg-emerald-100/60 text-emerald-900 dark:border-emerald-400/45 dark:bg-emerald-400/10 dark:text-emerald-200",
+  client:
+    "border-dotted border-emerald-600/60 bg-transparent text-emerald-800 dark:border-emerald-400/40 dark:text-emerald-300/90",
+};
+
+/** Per-state treatment for the upstream-lifecycle marker (archived / sunsetting). */
+const lifecycleChip: Record<HostLifecycle["status"], string> = {
+  archived:
+    "border-red-500/70 bg-red-200/60 text-red-900 dark:border-red-400/50 dark:bg-red-500/15 dark:text-red-200",
+  sunsetting:
+    "border-orange-500/60 bg-orange-200/50 text-orange-900 dark:border-orange-400/45 dark:bg-orange-500/15 dark:text-orange-200",
+};
 
 /**
  * One agent on the wall: name + its exact surface profile as 3-state chips, a
@@ -227,6 +277,8 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
         ? `★ Frontier — ${stars.toLocaleString()} GitHub stars`
         : "★ Frontier — closed-source flagship"
       : `${style.label} — ${stars?.toLocaleString() ?? "?"} GitHub stars`;
+  const apState = agentPluginStateOf(platform.id);
+  const lifecycle = hostLifecycleOf(platform.id);
   const link = hostLinks[platform.id];
   const linkUrl = hostLinkUrl(platform.id);
   const SourceIcon = link?.kind === "github" ? Github : ExternalLink;
@@ -298,6 +350,24 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
             title="Closed-source flagship host"
           >
             ★ flagship
+          </span>
+        ) : null}
+        {apState ? (
+          <span
+            className={cn(markerChip, agentPluginChip[apState])}
+            title={agentPluginBadge[apState].title}
+          >
+            {agentPluginBadge[apState].label}
+            <span className="sr-only"> — {agentPluginBadge[apState].short}</span>
+          </span>
+        ) : null}
+        {lifecycle ? (
+          <span
+            className={cn(markerChip, lifecycleChip[lifecycle.status])}
+            title={lifecycle.note}
+          >
+            {lifecycle.label}
+            <span className="sr-only"> — {lifecycle.note}</span>
           </span>
         ) : null}
       </div>
@@ -385,6 +455,46 @@ const SERVER_TYPE_TAGS = paradigms.map((p) => ({
 }));
 const SERVER_TYPE_KEYS = SERVER_TYPE_TAGS.map((t) => t.key);
 
+/**
+ * The Agent Plugins filter row. `key` is an `AgentPluginState`, plus a "none"
+ * bucket for the hosts that do not speak the spec at all — so the four tags
+ * partition the wall exactly once each.
+ */
+type SpecKey = AgentPluginState | "none";
+
+const SPEC_TAGS: { key: SpecKey; label: string; title: string }[] = [
+  {
+    key: "delivered",
+    label: "AP 1.0",
+    title:
+      "Agent Plugins 1.0.0 bundle — agent-connector packages it and the host's own plugin flow installs it",
+  },
+  {
+    key: "delegated",
+    label: "AP via sibling",
+    title:
+      "Agent Plugins 1.0.0 bundle, but the host has no headless install verb — it arrives through the editor's own command or the GitHub Copilot CLI plugin store",
+  },
+  {
+    key: "client",
+    label: "AP client",
+    title:
+      "A listed Agent Plugins client that agent-connector still serves with its client-specific format, because that is the format carrying hooks and commands there",
+  },
+  {
+    key: "none",
+    label: "Native",
+    title:
+      "Host does not speak Agent Plugins — agent-connector installs its native config format",
+  },
+];
+const SPEC_KEYS = SPEC_TAGS.map((t) => t.key);
+
+/** Spec match: the host's Agent Plugins state (or "none") is enabled. */
+function matchesSpec(platform: Platform, enabled: Set<SpecKey>): boolean {
+  return enabled.has(agentPluginStateOf(platform.id) ?? "none");
+}
+
 /** Tiers represented by public coverage hosts, in display order. */
 const ALL_COVERAGE_TIERS: CoverageTier[] = ["frontier", ...STAR_TIERS.map((t) => t.tier)];
 const ALL_TIERS: CoverageTier[] = ALL_COVERAGE_TIERS.filter(
@@ -436,11 +546,15 @@ export function CoverageWall() {
   const [enabledTiers, setEnabledTiers] = useState<Set<CoverageTier>>(
     () => new Set(ALL_TIERS),
   );
+  const [enabledSpecs, setEnabledSpecs] = useState<Set<SpecKey>>(
+    () => new Set(SPEC_KEYS),
+  );
 
   const allTypesOn = enabledTypes.size === TYPE_KEYS.length;
   const allServerTypesOn = enabledServerTypes.size === SERVER_TYPE_KEYS.length;
   const allSurfacesOn = enabledSurfaces.size === SURFACE_KEYS.length;
   const allTiersOn = enabledTiers.size === ALL_TIERS.length;
+  const allSpecsOn = enabledSpecs.size === SPEC_KEYS.length;
 
   const toggleType = (key: FormFactorId) =>
     setEnabledTypes((prev) => {
@@ -469,11 +583,19 @@ export function CoverageWall() {
       return next;
     });
 
+  const toggleSpec = (key: SpecKey) =>
+    setEnabledSpecs((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+
   const reset = () => {
     setEnabledTypes(new Set(TYPE_KEYS));
     setEnabledServerTypes(new Set(SERVER_TYPE_KEYS));
     setEnabledSurfaces(new Set(SURFACE_KEYS));
     setEnabledTiers(new Set(ALL_TIERS));
+    setEnabledSpecs(new Set(SPEC_KEYS));
   };
 
   const ordered = useMemo(() => {
@@ -486,11 +608,12 @@ export function CoverageWall() {
         matchesType(p, enabledTypes) &&
         matchesServerType(p, enabledServerTypes) &&
         matchesTier(p, enabledTiers) &&
+        matchesSpec(p, enabledSpecs) &&
         matchesSurface(p, enabledSurfaces);
       (isMatch ? match : dim).push(p);
     }
     return { match, dim };
-  }, [enabledTypes, enabledServerTypes, enabledSurfaces, enabledTiers]);
+  }, [enabledTypes, enabledServerTypes, enabledSurfaces, enabledTiers, enabledSpecs]);
 
   return (
     <div>
@@ -509,7 +632,7 @@ export function CoverageWall() {
             <span aria-hidden="true" className="text-muted-foreground/40">
               ·
             </span>
-            <span>Type ∩ Server ∩ Tier ∩ Surface</span>
+            <span>Type ∩ Server ∩ Tier ∩ Spec ∩ Surface</span>
           </div>
           <button
             type="button"
@@ -638,6 +761,49 @@ export function CoverageWall() {
                     )}
                   >
                     {style.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid gap-1.5 sm:grid-cols-[4.5rem_1fr] sm:items-start">
+            <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Spec
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEnabledSpecs(new Set(SPEC_KEYS))}
+                aria-pressed={allSpecsOn}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+                  allSpecsOn
+                    ? "border-foreground/50 bg-foreground/15 text-foreground"
+                    : "border-border bg-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                All
+              </button>
+              {SPEC_TAGS.map((t) => {
+                const on = enabledSpecs.has(t.key);
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => toggleSpec(t.key)}
+                    aria-pressed={on}
+                    title={t.title}
+                    className={cn(
+                      "rounded-full border px-2 py-0.5 font-mono text-[10px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40",
+                      on
+                        ? t.key === "none"
+                          ? "border-foreground/40 bg-foreground/10 text-foreground"
+                          : agentPluginChip[t.key]
+                        : "border-border bg-transparent text-muted-foreground line-through decoration-muted-foreground/60",
+                    )}
+                  >
+                    {t.label}
                   </button>
                 );
               })}

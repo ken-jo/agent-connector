@@ -47,7 +47,7 @@ function TwoWaysToShip() {
 }
 
 /* ------------------------------------------------------------------ */
-/* The 10-format table                                                 */
+/* The format table — 9 host formats + 2 opt-in standard artifacts      */
 /* ------------------------------------------------------------------ */
 
 function FormatRow({ r, index }: { r: PackageFormatRow; index: number }) {

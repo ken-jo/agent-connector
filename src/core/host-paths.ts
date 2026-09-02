@@ -56,3 +56,27 @@ export function codexConfigHome(): string {
   }
   return join(homedir(), ".codex");
 }
+
+/**
+ * Grok Build's config home: $GROK_HOME (tilde-expanded, then resolved) when set
+ * & non-empty, else ~/.grok.
+ *
+ * Source: xai-org/grok-build user guide 05-configuration.md ("`GROK_HOME` |
+ * Override config directory (default: `~/.grok`)") and 26-config-reference.md
+ * ("`$GROK_HOME/config.toml` … Default `$GROK_HOME` is `~/.grok`").
+ *
+ * COLLISION NOTE: the unrelated community CLI behind adapter id `grok-cli`
+ * (superagent-ai/grok-cli) hardcodes `~/.grok` too and does NOT honor
+ * $GROK_HOME. The two products therefore share the default directory but never
+ * a FILE: Grok Build owns `config.toml`, Grok CLI owns `user-settings.json`.
+ * Both adapters key detection on their own exclusive marker file and bow out of
+ * a bare shared dir that carries only the sibling's marker.
+ */
+export function grokBuildConfigHome(): string {
+  const env = process.env.GROK_HOME;
+  if (env && env.trim() !== "") {
+    if (env.startsWith("~")) return join(homedir(), env.replace(/^~[/\\]?/, ""));
+    return resolve(env);
+  }
+  return join(homedir(), ".grok");
+}

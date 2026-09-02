@@ -258,14 +258,26 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "windsurf",
     load: () => import("./windsurf/index.js").then((m) => m.default),
   },
+  // Grok Build (xAI's OFFICIAL coding agent, xai-org/grok-build, Apache-2.0,
+  // bin `grok`) — json-stdio. MCP lives in $GROK_HOME/config.toml (default
+  // ~/.grok) under [mcp_servers.<id>]; hooks in $GROK_HOME/hooks/*.json
+  // (Claude-compatible JSON). Placed immediately BEFORE grok-cli because the two
+  // are UNRELATED products that share the default ~/.grok directory: keeping
+  // them adjacent keeps the disambiguation readable. There is no fork-ordering
+  // constraint (neither exports runtime env markers we detect on); the shared
+  // dir is handled by per-adapter marker-file detection with a sibling bow-out,
+  // not by registry order.
+  {
+    id: "grok-build",
+    load: () => import("./grok-build/index.js").then((m) => m.default),
+  },
   // Grok CLI (the community superagent-ai/grok-cli, npm `grok-dev`, bin `grok`,
   // MIT) — json-stdio. Id is `grok-cli` (NOT `grok`) to stay distinct from xAI's
-  // separate "Grok Build" product. USER-SCOPE ONLY: both MCP servers (nested
-  // `mcp.servers` JSON ARRAY, keyed by `id`) and hooks (top-level `hooks`,
-  // Claude nested-rule shape) live in ~/.grok/user-settings.json (project
-  // .grok/settings.json holds neither — Grok excludes project hooks for
-  // security). Distinct ~/.grok marker — no fork-ordering constraint vs any
-  // sibling.
+  // separate "Grok Build" product above. USER-SCOPE ONLY: both MCP servers
+  // (nested `mcp.servers` JSON ARRAY, keyed by `id`) and hooks (top-level
+  // `hooks`, Claude nested-rule shape) live in ~/.grok/user-settings.json
+  // (project .grok/settings.json holds neither — Grok excludes project hooks for
+  // security). Shares the ~/.grok DIRECTORY with grok-build but never a FILE.
   {
     id: "grok-cli",
     load: () => import("./grok-cli/index.js").then((m) => m.default),
