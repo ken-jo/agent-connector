@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.6.0 — 2026-09-02
+
+The public host wall now tells the truth: it marks which hosts receive the Agent Plugins 1.0.0 bundle, adds xAI's Grok Build, retires a dead host, and corrects a set of upstream facts that had quietly rotted. The registry goes from 43 adapters to 42; the public wall shows 35 of them.
+
+### Added
+
+- **Agent Plugins marker on the coverage wall.** Each card carries an `AP` badge, filterable by a new Spec row, in three evidence-backed states: `delivered` (we package the spec bundle and a plugin verb we drive installs it — Codex, GitHub Copilot CLI, Kiro, Hermes), `delegated` (same bundle, no headless verb of its own — VS Code / JetBrains Copilot), and `client` (a listed Agent Plugins client whose own format carries hooks and commands, so we ship that — Cursor, OpenClaw). The roster was verified against agent-plugins.org/compatible-clients, which lists nine clients; xAI's "Grok Bot" and Nanoco's "NanoClaw" are deliberately not marked, being different products from our `grok-cli` and `nemoclaw`.
+- **New host `grok-build`** — xAI's Grok Build (`xai-org/grok-build`, Apache-2.0), `json-stdio`, full surface coverage. MCP as TOML at `$GROK_HOME/config.toml` under `[mcp_servers.<name>]`, hooks as JSON at `$GROK_HOME/hooks/*.json`, skills/commands/subagents under `.grok/`, memory via `AGENTS.md` — every path byte-confirmed against the upstream repo.
+- `hostLifecycle` (archived / sunsetting) with per-host evidence, and a `Sunsetting` badge for hosts a vendor has started winding down.
+- A **Host, client, harness** section in the Platforms reference, stating with sources why this project says "host" where vendors increasingly say "harness".
+
+### Changed
+
+- **The public wall is curated, not just star-gated.** Three rules: an archived upstream is never public; independent OSS projects need 5,000 stars rather than 1,000, with a major vendor's flagship agent exempt from the raised floor only (never the base one); and an editorial opt-out handles closed hosts, which have no star signal at all. Adapters, drivers and install behaviour are untouched — this governs public pages only.
+- **Mux is now Xum** (`coder/mux` → `coder/xum`). The config home moved `.mux` → `.xum`; root key `servers` unchanged. Xum still reads a legacy home, so the adapter resolves the way the host does: prefer `.xum`, keep an *existing* `.mux` home, default new installs to `.xum`.
+- **Codebuff is now Freebuff** (`CodebuffAI/codebuff` → `CodebuffAI/freebuff`). The config contract is unchanged — `.agents/mcp.json`, root key `mcpServers` — so no adapter path moved. The npm package and binary did, so `verify-host.mjs` installs `freebuff`.
+- Both platform **ids** stay `mux` and `codebuff`; only the display names changed. Renaming an id would break existing connector configs and telemetry keys for a change users never see.
+- Repo pointers corrected for four more renames with no config impact: `sst/opencode` → `anomalyco/opencode`, `All-Hands-AI/OpenHands` → `OpenHands/OpenHands`, `block/goose` → `aaif-goose/goose`, `OpenInterpreter/open-interpreter` → `openinterpreter/openinterpreter`.
+- Marketplace hints for `vscode-copilot` / `jetbrains-copilot` now point at the GitHub Copilot CLI driver instead of a manual two-step.
+
+### Removed
+
+- **The `roo-code` adapter**, its usage reader, its tests and every doc reference. `RooCodeInc/Roo-Code` is archived upstream (last push 2026-05-15) and the team pointed users at Cline. **Breaking:** `"roo-code"` is no longer a valid `PlatformId`.
+
+### Fixed
+
+- **Host misdetection between the two Grok hosts.** `grok-cli` and `grok-build` both default to `~/.grok`, and the old adapter detected on the bare directory — so on a Grok-Build-only machine it reported Grok CLI as installed and would have written a config that host never reads. Both adapters now bow out on the sibling's exclusive marker (`user-settings.json` vs `config.toml`).
+- Stale documentation counts. `docs/ARCHITECTURE.md` claimed 18/8/9 hook-paradigm hosts against a real 23/8/12, the site quoted a drivable-host count that omitted GitHub Copilot CLI, and an AGENTS.md tally's denominator matched no real number. Every count that can be derived is now pinned by a drift test; the one that could not be derived cleanly was de-numbered rather than guessed.
+
+### Verified
+
+- Live on macOS: `freebuff --help` against the renamed binary (only a `login` command, so the host's placement-only verification lane is unchanged), and `verify-host.mjs grok-build` (`placementOk`, `uninstallClean`).
+- Config contracts for Xum and Freebuff read from upstream source (`docs/config/mcp-servers.mdx`, `sdk/src/agents/load-mcp-config.ts`) rather than inferred from the rename.
+- Full suite: 147 files, 3481 tests passing; root and site typechecks clean; site build succeeds.
+
 ## 0.5.0 — 2026-09-02
 
 Agent Plugins 1.0.0 becomes the single source of truth for every host that speaks the open spec. One `package` run (or one `install --method marketplace`) now produces the bundle Codex, GitHub Copilot CLI, VS Code / JetBrains Copilot, Kiro and Hermes all install, instead of a per-host copy of the Claude plugin tree.
