@@ -136,8 +136,10 @@ export function PackagingGuideSection() {
         directly with your branded package/bin, or emit a marketplace / extension{" "}
         <strong>bundle</strong> others install through their host&apos;s own plugin
         flow. The framework <C>package</C> command renders the
-        bundle for any of <strong>ten</strong>{/* keep in sync with the host-ecosystem (non-MCP) packageFormatRows: those with format !== "mcp-server-json" && !== "mcpb" */}{" "}
-        host ecosystem formats — plus two
+        bundle for any of <strong>eleven</strong>{/* keep in sync with the host-ecosystem (non-MCP) packageFormatRows: those with format !== "mcp-server-json" && !== "mcpb" */}{" "}
+        host ecosystem formats (ten host-native bundles plus the portable{" "}
+        <a href="https://agent-plugins.org">Agent Plugins 1.0.0</a>{" "}
+        <C>agent-plugin</C> package) — plus two
         official <strong>MCP standard artifacts</strong> (a registry{" "}
         <C>server.json</C> and an <C>mcpb</C> bundle) that plug your real upstream
         server into the cross-vendor distribution graph.
@@ -212,9 +214,11 @@ export function PackagingGuideSection() {
         <strong>skills + MCP only</strong> — commands, subagents, and hooks are
         dropped. <C>npm-plugin</C> bundles only the hook bridge (+ skills for Pi);
         commands/subagents are native host dirs and MCP is a config key, so they
-        aren&apos;t bundled. In both cases the emitter returns explicit{" "}
-        <strong>drop notes</strong> the CLI prints, so a lossy bundle is never
-        silent.
+        aren&apos;t bundled. <C>agent-plugin</C> keeps skills + MCP portable and
+        relocates hooks/commands/subagents into the <C>com.github.copilot/</C>{" "}
+        client-extension namespace (only Copilot/VS Code read it). In every case
+        the emitter returns explicit <strong>drop notes</strong> the CLI prints,
+        so a lossy bundle is never silent.
       </Callout>
     </DocSection>
   );

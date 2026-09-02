@@ -583,6 +583,197 @@ describe("packageConnector — npm-plugin", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// agent-plugin — Agent Plugins 1.0.0 (portable: NO absolute path embedded)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("packageConnector — agent-plugin", () => {
+  const PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+  const MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
+  const NAMESPACE = "com.github.copilot";
+
+  it("emits a ROOT plugin.json carrying the const $schema, a slug name, version-less when unpinned, author from publish", () => {
+    const res = packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const pluginDir = join(outDir, CONNECTOR_ID);
+    expect(res.pluginDir).toBe(pluginDir);
+    expect(res.marketplacePath).toBeUndefined(); // the spec defines no catalog
+
+    const m = readJson(join(pluginDir, "plugin.json"));
+    expect(m.$schema).toBe(PLUGIN_SCHEMA);
+    expect(m.name).toBe(CONNECTOR_ID);
+    expect(m.name).toMatch(/^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
+    expect(m.version).toBeUndefined();
+    expect(m.description).toContain("Acme Connector");
+    expect(m.author).toEqual({ name: "Acme Inc" });
+    // Closed schema: nothing beyond the permitted top-level fields.
+    for (const key of Object.keys(m)) {
+      expect(["$schema", "name", "version", "description", "author", "homepage", "repository", "license", "keywords", "extensions"]).toContain(key);
+    }
+    expect(existsSync(join(pluginDir, "README.md"))).toBe(true);
+  });
+
+  it("emits mcp.json ($schema + mcpServers) with a stdio entry serve-wrapped through the BARE bin — no absolute home-bin path, no --host", () => {
+    packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const mcp = readJson(join(outDir, CONNECTOR_ID, "mcp.json"));
+    expect(mcp.$schema).toBe(MCP_SCHEMA);
+    const servers = mcp.mcpServers as Record<string, { type: string; command: string; args: string[]; env?: Record<string, string> }>;
+    const entry = servers[CONNECTOR_ID];
+    expect(entry.type).toBe("stdio");
+    expect(entry.command).toBe("agent-connector");
+    expect(entry.command).not.toBe(HOME_BIN);
+    expect(entry.args).toEqual(["serve", "--connector", CONNECTOR_ID, "--", "npx", "-y", "@acme/db-mcp", "--flag"]);
+    expect(entry.args).not.toContain("--host");
+    expect(entry.env).toEqual({ API_TOKEN: "${env:ACME_TOKEN}" });
+    // Nothing in the bundle embeds the machine-local home-bin path.
+    const pluginDir = join(outDir, CONNECTOR_ID);
+    for (const f of walk(pluginDir)) {
+      expect(readFileSync(f, "utf8"), `${f} embeds the home-bin path`).not.toContain(HOME_BIN);
+    }
+  });
+
+  it("keeps skills at the portable root, relocates hooks/commands/agents into the com.github.copilot/ namespace, and returns notes", () => {
+    const res = packageConnector(connector, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const pluginDir = join(outDir, CONNECTOR_ID);
+
+    // Portable core: skills/<n>/SKILL.md (+ resources) exactly as the claude-code adapter renders it.
+    expect(existsSync(join(pluginDir, "skills", "pdf-tools", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(pluginDir, "skills", "pdf-tools", "scripts", "extract.sh"))).toBe(true);
+    // NOT at the root (they are not portable v1 components).
+    expect(existsSync(join(pluginDir, "hooks"))).toBe(false);
+    expect(existsSync(join(pluginDir, "commands"))).toBe(false);
+    expect(existsSync(join(pluginDir, "agents"))).toBe(false);
+
+    // Client extension namespace (VS Code documents com.github.copilot/hooks/hooks.json).
+    const hooks = readJson(join(pluginDir, NAMESPACE, "hooks", "hooks.json")) as {
+      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>>;
+    };
+    expect(Object.keys(hooks.hooks).sort()).toEqual(["PreToolUse", "SessionStart"]);
+    expect(hooks.hooks.PreToolUse[0].matcher).toBe("acme_query|acme_write");
+    expect(hooks.hooks.PreToolUse[0].hooks[0].command).toBe(
+      `"agent-connector" hook copilot-cli PreToolUse --connector ${CONNECTOR_ID}`,
+    );
+    expect(existsSync(join(pluginDir, NAMESPACE, "commands", "deploy.md"))).toBe(true);
+    expect(existsSync(join(pluginDir, NAMESPACE, "agents", "reviewer.md"))).toBe(true);
+
+    const notes = res.notes ?? [];
+    expect(notes.some((n) => n.includes(`${NAMESPACE}/`))).toBe(true);
+    expect(notes.some((n) => n.includes("on PATH"))).toBe(true);
+  });
+
+  it("carries a REMOTE http server as streamable-http (url + headers), sse as sse, and drops ws with a note", () => {
+    const http = defineConnector({
+      id: "acme-remote",
+      displayName: "Acme Remote",
+      server: {
+        transport: "http",
+        url: "https://mcp.example.com/mcp",
+        headers: { "X-Tenant": "public" },
+      },
+    });
+    const res = packageConnector(http, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const mcp = readJson(join(outDir, "acme-remote", "mcp.json"));
+    const servers = mcp.mcpServers as Record<string, Record<string, unknown>>;
+    expect(servers["acme-remote"]).toEqual({
+      type: "streamable-http",
+      url: "https://mcp.example.com/mcp",
+      headers: { "X-Tenant": "public" },
+    });
+    expect(res.notes ?? []).toEqual([]); // https + no auth → fully conformant, nothing to flag
+
+    const sse = defineConnector({
+      id: "acme-sse",
+      displayName: "Acme SSE",
+      server: { transport: "sse", url: "http://localhost:8080/sse" },
+    });
+    packageConnector(sse, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const sseMcp = readJson(join(outDir, "acme-sse", "mcp.json"));
+    expect((sseMcp.mcpServers as Record<string, Record<string, unknown>>)["acme-sse"]).toEqual({
+      type: "sse",
+      url: "http://localhost:8080/sse",
+    });
+
+    const ws = defineConnector({
+      id: "acme-ws",
+      displayName: "Acme WS",
+      server: { transport: "ws", url: "wss://mcp.example.com/ws" },
+    });
+    const wsRes = packageConnector(ws, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    expect(existsSync(join(outDir, "acme-ws", "mcp.json"))).toBe(false);
+    expect((wsRes.notes ?? []).some((n) => n.includes('"ws"'))).toBe(true);
+  });
+
+  it("passes an UNWRAPPED stdio command straight through, keeps a ./-relative cwd, and drops a non-conformant cwd + reserved env keys with notes", () => {
+    const direct = defineConnector({
+      id: "acme-direct",
+      displayName: "Acme Direct",
+      server: {
+        transport: "stdio",
+        command: "node",
+        args: ["./server.mjs"],
+        cwd: "/abs/elsewhere",
+        env: { PLUGIN_ROOT: "nope", KEEP: "yes" },
+        wrapForTelemetry: false,
+      },
+    });
+    const res = packageConnector(direct, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const mcp = readJson(join(outDir, "acme-direct", "mcp.json"));
+    const entry = (mcp.mcpServers as Record<string, Record<string, unknown>>)["acme-direct"];
+    expect(entry).toEqual({ type: "stdio", command: "node", args: ["./server.mjs"], env: { KEEP: "yes" } });
+    const notes = res.notes ?? [];
+    expect(notes.some((n) => n.includes('dropped cwd "/abs/elsewhere"'))).toBe(true);
+    expect(notes.some((n) => n.includes('dropped env "PLUGIN_ROOT"'))).toBe(true);
+    // No wrap + no hooks → no PATH prerequisite note.
+    expect(notes.some((n) => n.includes("on PATH"))).toBe(false);
+
+    const relative = defineConnector({
+      id: "acme-rel",
+      displayName: "Acme Rel",
+      server: { transport: "stdio", command: "./bin/server", cwd: "${PLUGIN_ROOT}/work", wrapForTelemetry: false },
+    });
+    packageConnector(relative, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const relEntry = (readJson(join(outDir, "acme-rel", "mcp.json")).mcpServers as Record<string, Record<string, unknown>>)["acme-rel"];
+    expect(relEntry).toEqual({ type: "stdio", command: "./bin/server", cwd: "${PLUGIN_ROOT}/work" });
+  });
+
+  it("emits neither mcp.json nor the extension namespace for a content-only connector", () => {
+    const contentOnly = defineConnector({
+      id: "acme-skills",
+      displayName: "Acme Skills",
+      skills: [{ name: "only", description: "Only a skill.", body: "# Only" }],
+    });
+    const res = packageConnector(contentOnly, { outDir, format: "agent-plugin", homeBinPath: HOME_BIN });
+    const pluginDir = join(outDir, "acme-skills");
+    expect(existsSync(join(pluginDir, "plugin.json"))).toBe(true);
+    expect(existsSync(join(pluginDir, "skills", "only", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(pluginDir, "mcp.json"))).toBe(false);
+    expect(existsSync(join(pluginDir, NAMESPACE))).toBe(false);
+    expect(res.notes ?? []).toEqual([]);
+  });
+
+  it("toAgentPluginName coerces ids into the spec slug (lowercase, no --/.., alphanumeric ends, <= 64)", async () => {
+    const { toAgentPluginName } = await import("../../src/core/package-formats/agent-plugin.js");
+    expect(toAgentPluginName("acme-connector")).toBe("acme-connector");
+    expect(toAgentPluginName("Acme_DB Tools")).toBe("acme-db-tools");
+    expect(toAgentPluginName("--weird..name--")).toBe("weird.name");
+    expect(toAgentPluginName("!!!")).toBe("connector");
+    expect(toAgentPluginName("a".repeat(70) + "-b")).toHaveLength(64);
+    for (const s of ["acme-connector", "Acme_DB Tools", "--weird..name--", "a-.b", "x.-y"]) {
+      expect(toAgentPluginName(s)).toMatch(/^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
+    }
+  });
+});
+
+/** Every regular file under `dir`, recursively. */
+function walk(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walk(p));
+    else out.push(p);
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // --format all + dispatch invariants
 // ─────────────────────────────────────────────────────────────────────────
 

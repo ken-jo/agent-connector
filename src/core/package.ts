@@ -18,6 +18,11 @@
  *   • cursor-plugin    — Cursor (.cursor-plugin/ + pointer fields + marketplace.json)
  *   • kimi-plugin      — Kimi (skills + MCP only; hooks/commands/subagents dropped)
  *   • npm-plugin       — opencode / kilo-cli / pi (publishable npm package + bridge)
+ *   • agent-plugin     — Agent Plugins 1.0.0 (agent-plugins.org): the portable
+ *                        plugin.json + mcp.json + skills/ package every conforming
+ *                        client installs (VS Code, Cursor, Copilot, Codex, Kiro, …);
+ *                        hooks/commands/subagents ride in the com.github.copilot/
+ *                        client extension namespace; NO absolute path embedded
  *
  * The command / skill / subagent markdown is rendered through the SAME shared
  * claude-code renderers the live adapters write with (where the target uses
@@ -46,6 +51,7 @@ import {
 import { emitAgyPlugin } from "./package-formats/agy.js";
 import { emitKimiPlugin } from "./package-formats/kimi.js";
 import { emitNpmPlugin } from "./package-formats/npm.js";
+import { emitAgentPlugin } from "./package-formats/agent-plugin.js";
 import { emitMcpServerJson } from "./package-formats/mcp-server.js";
 import { emitMcpbBundle } from "./package-formats/mcpb.js";
 
@@ -63,6 +69,9 @@ export type PackageFormat =
   | "cursor-plugin"
   | "kimi-plugin"
   | "npm-plugin"
+  // The portable Agent Plugins 1.0.0 package (agent-plugins.org) — one bundle
+  // every conforming client installs; no host restamp, no absolute path.
+  | "agent-plugin"
   // Official MCP standard artifacts (describe the dev's REAL upstream server,
   // not our serve wrapper; require `publish` metadata, so they are opt-in and
   // excluded from `--format all`).
@@ -81,6 +90,7 @@ const EMITTERS: Record<PackageFormat, FormatEmitter> = {
   "cursor-plugin": emitCursorPlugin,
   "kimi-plugin": emitKimiPlugin,
   "npm-plugin": emitNpmPlugin,
+  "agent-plugin": emitAgentPlugin,
   "mcp-server-json": emitMcpServerJson,
   mcpb: emitMcpbBundle,
 };
@@ -97,6 +107,7 @@ export const ALL_FORMATS: readonly PackageFormat[] = [
   "cursor-plugin",
   "kimi-plugin",
   "npm-plugin",
+  "agent-plugin",
   "mcp-server-json",
   "mcpb",
 ] as const;
@@ -120,6 +131,7 @@ export const FEASIBLE_FORMATS: readonly PackageFormat[] = [
   "cursor-plugin",
   "kimi-plugin",
   "npm-plugin",
+  "agent-plugin",
 ] as const;
 
 /** Type guard: is `s` a supported {@link PackageFormat}? */
@@ -152,8 +164,8 @@ export interface PackageOptions {
  * Host-bundle formats whose hooks/MCP entries embed the ABSOLUTE home-bin path
  * of the machine that ran `package`. They install fine locally, but on another
  * machine/user the baked path points at nothing — so every emit carries a note.
- * (npm-plugin resolves the CLI by name on PATH; mcp-server-json/mcpb describe
- * the dev's real upstream server — none of those embed a local path.)
+ * (npm-plugin and agent-plugin resolve the CLI by name on PATH; mcp-server-json/
+ * mcpb describe the dev's real upstream server — none of those embed a local path.)
  */
 const HOME_BIN_EMBED_FORMATS: ReadonlySet<PackageFormat> = new Set([
   "claude-plugin",
@@ -273,6 +285,13 @@ export function installInstructions(
     case "npm-plugin":
       return [
         `npm publish ${join(outDir, id)}  (then: opencode plugin install <pkg> | kilo plugin <pkg> | pi install npm:<pkg>)`,
+      ];
+    case "agent-plugin":
+      return [
+        `push ${join(outDir, id)} to a git repository, then install it from source in any Agent Plugins client`,
+        `  VS Code: Command Palette → "Chat: Install Plugin From Source" → <repo url>`,
+        `  other clients (Cursor, GitHub Copilot, Codex, Kiro, …): https://agent-plugins.org/compatible-clients`,
+        `(prerequisite on the consumer machine: npm i -g @ken-jo/agent-connector — the bundle invokes the bare \`agent-connector\` bin)`,
       ];
     case "mcp-server-json":
       return [
