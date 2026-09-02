@@ -59,7 +59,6 @@ const ALL_PLATFORM_IDS_MAP: Record<PlatformId, true> = {
   omp: true,
   droid: true,
   openhands: true,
-  "roo-code": true,
   cline: true,
   trae: true,
   amp: true,

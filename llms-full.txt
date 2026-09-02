@@ -235,7 +235,7 @@ interface ServerDef {
 
 Each adapter renders `ServerDef` into the host's dialect. The **root key and field
 names differ per host** (constant per adapter): `mcpServers` (Claude Code, Cursor,
-Copilot CLI, Amp, Codebuff, Crush, Antigravity, …), `servers` (VS Code Copilot),
+Copilot CLI, Amp, Freebuff, Crush, Antigravity, …), `servers` (VS Code Copilot),
 `mcp_servers` (Codex TOML), `mcp` (Warp). Field renames like `cwd`↔`working_directory`
 and `env`↔`environment` are handled per adapter. An adapter that cannot honor a
 requested transport downgrades-or-skips and **reports** it — it never throws.
@@ -562,8 +562,8 @@ on Windows), amp `~/.config/amp/AGENTS.md`, mux `~/.mux/AGENTS.md`, pi
 `~/.omp/agent/AGENTS.md` — and the host's own documented file otherwise:
 qwen-code `~/.qwen/QWEN.md`, goose `.goosehints` beside config.yaml,
 copilot-cli `~/.copilot/copilot-instructions.md`, kilo/kilo-cli
-`~/.kilocode/rules/agent-connector.md`, roo-code
-`~/.roo/rules/agent-connector.md`, kiro `~/.kiro/steering/agent-connector.md`
+`~/.kilocode/rules/agent-connector.md`, kiro
+`~/.kiro/steering/agent-connector.md`
 (dedicated agent-connector-owned rules-dir files — deletable on uninstall).
 Hosts whose user-scope rules are app/UI/cloud-managed (cursor, warp, trae,
 jetbrains-copilot, …) have no writable user file → the standard skip-warn,
@@ -1440,18 +1440,17 @@ One universal hook entrypoint binary handles all of them.
 | Grok CLI | `grok-cli` | `~/.grok/user-settings.json` → `mcp.servers` (JSON ARRAY, keyed by `id`); hooks in the SAME file under top-level `hooks` (Claude nested-rule shape). USER-SCOPE ONLY — community superagent-ai/grok-cli (npm `grok-dev`, bin `grok`), UNRELATED to `grok-build` above |
 | Devin CLI (Cognition) | `devin` | `~/.config/devin/config.json` (user; `%APPDATA%\devin\config.json` on Windows) / `.devin/config.json` (project) → `mcpServers` (object map; native `${env:VAR}`); hooks under the SAME file's `hooks` key (Claude-compatible NESTED-rule shape; reply is the simple top-level `{decision:"approve"\|"block"\|"deny", reason}`, exit 2 blocks) |
 
-### `mcp-only` — MCP registration only, no hook layer (12)
+### `mcp-only` — MCP registration only, no hook layer (11)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
 |---|---|---|
 | Warp | `warp` | `.warp` → `mcp` |
-| Roo Code | `roo-code` | mcp config |
 | Cline | `cline` | globalStorage saoudrizwan.claude-dev/settings/cline_mcp_settings.json mcpServers |
 | Trae | `trae` | mcp config |
 | Zed | `zed` | host config |
-| Codebuff | `codebuff` | `mcp.json` → `mcpServers` |
-| Mux | `mux` | mcp config |
+| Freebuff | `codebuff` | `mcp.json` → `mcpServers` |
+| Xum | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 | Windsurf | `windsurf` | `~/.codeium/windsurf/mcp_config.json` (user/global ONLY) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ serverUrl, headers? }` — `serverUrl` not `url`) |
 | Open Interpreter | `open-interpreter` | `~/.openinterpreter/config.toml` (`$INTERPRETER_HOME`; NOT `$CODEX_HOME`) → `[mcp_servers.*]` TOML table (stdio `{ command, args, env }`, streamable-HTTP `{ url, bearer_token_env_var?, http_headers? }`). The new Rust `interpreter`/`i` CLI — a fork of OpenAI's Codex |

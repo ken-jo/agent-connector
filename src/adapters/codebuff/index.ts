@@ -1,7 +1,16 @@
 /**
- * adapters/codebuff — Codebuff platform adapter for agent-connector.
+ * adapters/codebuff — Freebuff (formerly Codebuff) platform adapter.
  *
- * Codebuff is an **mcp-only** host: it exposes no lifecycle hook system, and MCP
+ * RENAME (verified 2026-09-02): CodebuffAI renamed the product to **Freebuff**
+ * (repo CodebuffAI/codebuff → CodebuffAI/freebuff, freebuff.com; npm package and
+ * binary `codebuff` → `freebuff`). The CONFIG CONTRACT is unchanged — confirmed
+ * by reading sdk/src/agents/load-mcp-config.ts, which still searches
+ * `{cwd}/.agents/mcp.json`, `{cwd}/../.agents/mcp.json` and
+ * `{homedir}/.agents/mcp.json` for the root key `mcpServers` — so no path here
+ * moved. The platform id stays `codebuff`: renaming it would break existing
+ * connector configs and telemetry keys for a change users never see.
+ *
+ * Freebuff is an **mcp-only** host: it exposes no lifecycle hook system, and MCP
  * is its extensibility mechanism. This adapter therefore installs only the MCP
  * server and reports hooks as unavailable (mirrors the Warp reference path that
  * validates the `mcp-only` paradigm end-to-end).
@@ -14,8 +23,8 @@
  *   sensibly.
  *
  * A stdio server entry is the standard `{ type:"stdio", command, args, env }`
- * shape. Codebuff supports native `$VAR` interpolation, so `${env:VAR}` refs are
- * rewritten to Codebuff's native `$VAR` token (rewriteEnvRefs) rather than being
+ * shape. Freebuff supports native `$VAR` interpolation, so `${env:VAR}` refs are
+ * rewritten to its native `$VAR` token (rewriteEnvRefs) rather than being
  * resolved to literals — secrets are never baked into the config file.
  */
 
@@ -46,9 +55,9 @@ const HOST: PlatformId = "codebuff";
 const MCP_ROOT_KEY = "mcpServers";
 
 /**
- * Render `${env:VAR}`/`${env:VAR:-default}` into Codebuff's native `$VAR` token.
+ * Render `${env:VAR}`/`${env:VAR:-default}` into Freebuff's native `$VAR` token.
  *
- * When the portable ref carried a default (`${env:VAR:-fallback}`), Codebuff's
+ * When the portable ref carried a default (`${env:VAR:-fallback}`), Freebuff's
  * native `$VAR` token cannot express it — so a bare native token would silently
  * DROP the default. Instead, resolve the default at install time: emit the live
  * value when VAR is set and non-empty, else the literal fallback. The native
@@ -93,7 +102,7 @@ function renderAgentField(key: string, value: unknown): string {
 }
 
 /**
- * Native MCP server entry shapes Codebuff accepts under `mcpServers`.
+ * Native MCP server entry shapes Freebuff accepts under `mcpServers`.
  * A stdio entry is tagged with `type:"stdio"`; remote transports carry a `url`.
  */
 interface CodebuffStdioServer {
@@ -110,14 +119,14 @@ interface CodebuffHttpServer {
 
 export class CodebuffAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
-  readonly name = "Codebuff";
+  readonly name = "Freebuff";
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
     // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
-    // Codebuff has no lifecycle hook system — every hook capability is false.
+    // Freebuff has no lifecycle hook system — every hook capability is false.
     preToolUse: false,
     postToolUse: false,
     preCompact: false,
@@ -129,17 +138,17 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: false,
-    // Codebuff registers stdio and Streamable HTTP MCP servers.
+    // Freebuff registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
-    // Server env/url use Codebuff's NATIVE ${env:VAR} interpolation
+    // Server env/url use Freebuff's NATIVE ${env:VAR} interpolation
     // (rewriteEnvRefs) — the token survives into the config, never a baked
     // literal — so the installer's unset-env-ref bake warn does not apply here.
     nativeServerEnvInterpolation: true,
-    // Content surfaces: Codebuff reads AgentSkills from
+    // Content surfaces: Freebuff reads AgentSkills from
     // <configDir>/skills/<name>/SKILL.md (configDir is .agents, so the path is
     // .agents/skills/<name>/SKILL.md). Verified against codebuff source
     // sdk/src/skills/load-skills.ts — the frontmatter `name` MUST equal the dir
-    // name. Commands have no native Codebuff surface. Subagents ARE natively
+    // name. Commands have no native Freebuff surface. Subagents ARE natively
     // supported — executable .agents/*.ts AgentDefinition modules (codebuff docs:
     // "Create a new TypeScript file in .agents/") — and are now WIRED:
     // installSubagents emits one `.agents/<id>.ts` AgentDefinition module per
@@ -175,7 +184,7 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
       configPath,
       scope,
       reason: installed
-        ? `found Codebuff config (${scope})`
+        ? `found Freebuff config (${scope})`
         : `no .agents config dir at ${userDir} or ${projDir}`,
       confidence: installed ? "high" : "low",
     };
@@ -194,7 +203,7 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Codebuff has no hook file — hooks are not a thing here. The hook "config
+   * Freebuff has no hook file — hooks are not a thing here. The hook "config
    * path" is the same mcp.json so the generic doctor/backup behave sensibly.
    */
   getHookConfigPath(ctx: InstallContext): string {
@@ -239,7 +248,7 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
     ];
   }
 
-  /** Render a normalized ServerDef into Codebuff's native mcpServers entry. */
+  /** Render a normalized ServerDef into Freebuff's native mcpServers entry. */
   private renderServerEntry(
     ctx: InstallContext,
     server: ServerDef,
@@ -254,7 +263,7 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
       // `<homeBin> serve --connector <id> -- <command> <args...>`.
       ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
-      // Codebuff supports native `$VAR` interpolation, so rewrite every
+      // Freebuff supports native `$VAR` interpolation, so rewrite every
       // ${env:VAR} ref to `$VAR` rather than baking literals into the config.
       const entry: CodebuffStdioServer = {
         type: "stdio",
@@ -266,7 +275,7 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
       return entry;
     }
 
-    // http (and any other remote transport) — Codebuff registers a URL.
+    // http (and any other remote transport) — Freebuff registers a URL.
     const entry: CodebuffHttpServer = {
       type: "http",
       url: rewriteEnvRefsDeep(server.url ?? ""),
@@ -277,7 +286,7 @@ export class CodebuffAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Render env/header values. Codebuff supports native `$VAR` interpolation, so
+   * Render env/header values. Freebuff supports native `$VAR` interpolation, so
    * rewrite `${env:VAR}` references to `$VAR` rather than resolving to literals.
    */
   private renderEnv(

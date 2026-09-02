@@ -315,16 +315,6 @@ export const hostVerificationResults = [
     "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
-    "host": "roo-code",
-    "installProbe": "PASS",
-    "doctorProbe": "PASS",
-    "hostCliSurface": "Roo Code extension config host; no local host CLI",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "ADAPTER_PLACEMENT_VERIFIED",
-    "issueOrBlocker": "IDE/extension host only; adapter placement only",
-    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
-  },
-  {
     "host": "cline",
     "installProbe": "PASS",
     "doctorProbe": "PASS",

@@ -109,24 +109,20 @@ export const ADAPTER_REGISTRY: readonly AdapterFactory[] = [
     id: "openhands",
     load: () => import("./openhands/index.js").then((m) => m.default),
   },
-  {
-    id: "roo-code",
-    load: () => import("./roo-code/index.js").then((m) => m.default),
-  },
-  // kilo is the Kilo Code VS Code extension (kilocode.kilo-code) — a Roo/Cline
-  // fork, so it sits beside roo-code (mcp-only, root key "mcpServers", VS Code
+  // kilo is the Kilo Code VS Code extension (kilocode.kilo-code) — a Cline
+  // fork, so it sits beside cline (mcp-only, root key "mcpServers", VS Code
   // globalStorage / .kilocode project scope). Distinct host from "kilo-cli".
   {
     id: "kilo",
     load: () => import("./kilo/index.js").then((m) => m.default),
   },
   // cline is the Cline VS Code extension (saoudrizwan.claude-dev) — the most-
-  // installed AI coding extension and the PARENT that roo-code and kilo forked.
+  // installed AI coding extension and the PARENT that kilo forked.
   // mcp-only (no hook layer); MCP at the globalStorage cline_mcp_settings.json
   // ("mcpServers"); content lives in the .clinerules tree + ~/Documents/Cline.
-  // NO runtime-marker collision with roo-code (rooveterinaryinc.roo-cline / .roo)
-  // or kilo (kilocode.kilo-code / .kilo) — distinct ext ids + dotdirs — so there
-  // is NO fork-before-parent ordering constraint here; it simply sits beside them.
+  // NO runtime-marker collision with kilo (kilocode.kilo-code / .kilo) —
+  // distinct ext ids + dotdirs — so there is NO fork-before-parent ordering
+  // constraint here; it simply sits beside it.
   {
     id: "cline",
     load: () => import("./cline/index.js").then((m) => m.default),

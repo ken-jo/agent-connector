@@ -119,9 +119,6 @@ const HOST_LANES = {
   kiro: adapterPlacementLane(
     "Kiro IDE adapter; no login-free headless host CLI, so this verifies adapter placement/uninstall only.",
   ),
-  "roo-code": adapterPlacementLane(
-    "Roo Code extension adapter; no local host CLI, so this verifies adapter placement/uninstall only.",
-  ),
   windsurf: adapterPlacementLane(
     "Windsurf editor adapter; no local headless config verb, so this verifies adapter placement/uninstall only.",
   ),
@@ -255,14 +252,17 @@ const HOST_LANES = {
     note: "`amp mcp list` lists our amp.mcpServers entry offline (live-verified); turn is auth-gated.",
   },
   codebuff: {
-    bin: "codebuff",
+    bin: "freebuff",
     // Resolves ~/.agents off homedir → HOME isolation suffices.
-    // CORRECTED via live `codebuff --help`: codebuff has NO `mcp` subcommand
-    // (only login/publish). `codebuff mcp list` is parsed as a PROMPT, which
-    // boots the agent runtime (downloads a ~47MB binary on first run + needs
-    // auth) — not an offline config-accept verb. Placement-only.
+    // RE-VERIFIED 2026-09-02 against the RENAMED product via live
+    // `freebuff --help` (npm `freebuff`, replacing `codebuff`): the CLI exposes
+    // exactly one command — `login` — plus --version/--continue/--cwd/--help.
+    // Still NO `mcp` subcommand, so there is no offline config-accept verb; a
+    // bare `mcp list` is parsed as a PROMPT and boots the agent runtime
+    // (downloads a ~34MB binary on first run + needs auth). Placement-only,
+    // same conclusion as the pre-rename `codebuff` binary.
     placementOnly: true,
-    note: "no offline accept verb — placement+uninstall-clean only (codebuff has no `mcp` subcommand; `mcp list` is parsed as a prompt → 47MB agent boot + auth).",
+    note: "no offline accept verb — placement+uninstall-clean only (freebuff exposes only `login`; `mcp list` is parsed as a prompt → 34MB agent boot + auth).",
   },
   continue: {
     bin: "cn",
@@ -433,7 +433,7 @@ const HOST_INSTALL = {
   // ── npm packages, identity npm-PROBED to match the real host (2026-06-19) ──
   "qwen-code": { kind: "npm", pkg: "@qwen-code/qwen-code", bin: "qwen", identity: "github.com/QwenLM/qwen-code" },
   amp: { kind: "npm", pkg: "@sourcegraph/amp", bin: "amp", identity: "ampcode.com (Sourcegraph)" },
-  codebuff: { kind: "npm", pkg: "codebuff", bin: "codebuff", identity: "github.com/CodebuffAI/codebuff" },
+  codebuff: { kind: "npm", pkg: "freebuff", bin: "freebuff", identity: "github.com/CodebuffAI/freebuff" }, // product renamed Codebuff → Freebuff; platform id kept
   continue: { kind: "npm", pkg: "@continuedev/cli", bin: "cn", identity: "github.com/continuedev/continue" },
   "mimo-code": { kind: "npm", pkg: "@mimo-ai/cli", bin: "mimo", identity: "github.com/XiaomiMiMo/MiMo-Code" },
   "kilo-cli": { kind: "npm", pkg: "@kilocode/cli", bin: "kilo", identity: "github.com/Kilo-Org/kilocode" },
@@ -558,7 +558,6 @@ const UNINSTALLABLE_HERE = {
   zed: "GUI editor (the `zed` bin launches the GUI; no headless config verb)",
   warp: "terminal app (GUI; no headless config verb)",
   cline: "IDE extension (no CLI)",
-  "roo-code": "IDE extension (no CLI)",
   kilo: "IDE extension (no CLI; the `kilo` binary present is kilo-cli, a different adapter)",
   "vscode-copilot": "IDE extension (no CLI)",
   "jetbrains-copilot": "IDE extension (no CLI)",

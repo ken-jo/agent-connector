@@ -9,8 +9,8 @@
  * Covers:
  *   1. Baseline adapter contract (shared factory; paradigm "mcp-only").
  *   2. Skills surface (merged from the former mux-skills.test.ts):
- *        project scope → <projectDir>/.mux/skills/<name>/SKILL.md (workspace-local)
- *        user scope    → ~/.mux/skills/<name>/SKILL.md (global, Mux-specific)
+ *        project scope → <projectDir>/.xum/skills/<name>/SKILL.md (workspace-local)
+ *        user scope    → ~/.xum/skills/<name>/SKILL.md (global, Xum-specific)
  *      The skill dir name MUST match ^[a-z0-9]+(?:-[a-z0-9]+)*$ (1–64 chars) and
  *      the SKILL.md `name` field must equal it — a name that cannot be
  *      represented is skip-warned; a skills path that is a FILE is skip-warned
@@ -18,7 +18,7 @@
  *      platforms["mux"].skills === false opt-out honored; no skills → skip.
  *   3. MCP render / round-trip (absorbed from the former wave1-render.test.ts):
  *        installServer → servers.<id> as a single shell-command STRING
- *        (space-joined home-bin serve wrapper) into .mux/mcp.jsonc; root key is
+ *        (space-joined home-bin serve wrapper) into .xum/mcp.jsonc; root key is
  *        "servers" (NOT mcpServers); ${env:VAR} resolved to a LITERAL (Mux
  *        documents no native interpolation token; the string form drops env);
  *        installHooks → exactly ONE skip, NO hook file; idempotent; uninstall.
@@ -92,12 +92,12 @@ describe("mux adapter — skills surface", () => {
     expect(muxAdapter.capabilities.supportsSkills).toBe(true);
   });
 
-  it("installSkills (project scope) writes .mux/skills/<n>/SKILL.md with correct frontmatter", () => {
+  it("installSkills (project scope) writes .xum/skills/<n>/SKILL.md with correct frontmatter", () => {
     const changes = muxAdapter.installSkills!(ctx);
     expect(changes[0]?.action).toBe("create");
     expect(changes[0]?.platform).toBe("mux");
 
-    const skillMd = join(projectDir, ".mux", "skills", "pdf-tools", "SKILL.md");
+    const skillMd = join(projectDir, ".xum", "skills", "pdf-tools", "SKILL.md");
     expect(changes[0]?.path).toBe(skillMd);
     expect(existsSync(skillMd)).toBe(true);
 
@@ -113,18 +113,18 @@ describe("mux adapter — skills surface", () => {
 
   it("installSkills (project scope) writes resource files beside SKILL.md", () => {
     muxAdapter.installSkills!(ctx);
-    const resource = join(projectDir, ".mux", "skills", "pdf-tools", "scripts", "extract.sh");
+    const resource = join(projectDir, ".xum", "skills", "pdf-tools", "scripts", "extract.sh");
     expect(existsSync(resource)).toBe(true);
     expect(readFileSync(resource, "utf8")).toBe(SKILL.resources["scripts/extract.sh"]);
   });
 
-  it("installSkills (user scope) writes ~/.mux/skills/<n>/SKILL.md", () => {
+  it("installSkills (user scope) writes ~/.xum/skills/<n>/SKILL.md", () => {
     const userCtx = buildCtx(projectDir, buildConnector(), "user");
     const changes = muxAdapter.installSkills!(userCtx);
     expect(changes[0]?.action).toBe("create");
 
-    // HOME redirected to projectDir → ~/.mux === projectDir/.mux
-    const skillMd = join(projectDir, ".mux", "skills", "pdf-tools", "SKILL.md");
+    // HOME redirected to projectDir → ~/.xum === projectDir/.mux
+    const skillMd = join(projectDir, ".xum", "skills", "pdf-tools", "SKILL.md");
     expect(changes[0]?.path).toBe(skillMd);
     expect(existsSync(skillMd)).toBe(true);
   });
@@ -142,7 +142,7 @@ describe("mux adapter — skills surface", () => {
     expect(changes[0]?.action).toBe("warn");
     expect(changes[0]?.detail).toContain("cannot be represented");
     // Nothing was written for the unrepresentable name.
-    expect(existsSync(join(projectDir, ".mux", "skills"))).toBe(false);
+    expect(existsSync(join(projectDir, ".xum", "skills"))).toBe(false);
   });
 
   it("installSkills is idempotent — second call yields skip", () => {
@@ -153,20 +153,20 @@ describe("mux adapter — skills surface", () => {
 
   it("uninstallSkills removes SKILL.md, resource, and the empty skill dir", () => {
     muxAdapter.installSkills!(ctx);
-    const skillMd = join(projectDir, ".mux", "skills", "pdf-tools", "SKILL.md");
-    const resource = join(projectDir, ".mux", "skills", "pdf-tools", "scripts", "extract.sh");
+    const skillMd = join(projectDir, ".xum", "skills", "pdf-tools", "SKILL.md");
+    const resource = join(projectDir, ".xum", "skills", "pdf-tools", "scripts", "extract.sh");
     expect(existsSync(skillMd)).toBe(true);
 
     const changes = muxAdapter.uninstallSkills!(ctx);
     expect(changes.every((c) => c.platform === "mux")).toBe(true);
     expect(existsSync(skillMd)).toBe(false);
     expect(existsSync(resource)).toBe(false);
-    expect(existsSync(join(projectDir, ".mux", "skills", "pdf-tools"))).toBe(false);
+    expect(existsSync(join(projectDir, ".xum", "skills", "pdf-tools"))).toBe(false);
   });
 
   it("skips-warns when the skills path is a FILE (no ENOTDIR crash)", () => {
-    // Plant .mux/skills as a regular FILE where we need a directory.
-    const skillsDir = join(projectDir, ".mux", "skills");
+    // Plant .xum/skills as a regular FILE where we need a directory.
+    const skillsDir = join(projectDir, ".xum", "skills");
     mkdirSync(dirname(skillsDir), { recursive: true });
     writeFileSync(skillsDir, "not a dir", "utf8");
 
@@ -185,7 +185,7 @@ describe("mux adapter — skills surface", () => {
     const c2 = buildCtx(projectDir, disabled);
     const changes = muxAdapter.installSkills!(c2);
     expect(changes[0]?.action).toBe("skip");
-    expect(existsSync(join(projectDir, ".mux", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
+    expect(existsSync(join(projectDir, ".xum", "skills", "pdf-tools", "SKILL.md"))).toBe(false);
   });
 
   it("installSkills with no skills declared returns skip", () => {
@@ -198,7 +198,7 @@ describe("mux adapter — skills surface", () => {
 
 // ── MCP render / round-trip (absorbed from the former wave1-render.test.ts) ───
 // root key "servers", value is a single shell-command STRING (space-joined
-// home-bin serve wrapper); project → .mux/mcp.jsonc. Its own connector (id
+// home-bin serve wrapper); project → .xum/mcp.jsonc. Its own connector (id
 // "acme-db", a stdio server with an env-ref + a PreToolUse hook) is kept verbatim
 // so it does not collide with the skills-surface fixtures above.
 
@@ -253,6 +253,48 @@ const wrappedArgs = (host: string, dataDir: string): string[] => [
   "@x/y",
 ];
 
+/*
+ * Coder renamed Mux to Xum and moved the config home from `.mux` to `.xum`,
+ * but the host still reads a legacy `.mux` home. These pin BOTH directions:
+ * a fresh machine must land in `.xum`, and a machine that already has `.mux`
+ * must keep using it — writing `.xum` there would leave the user's existing
+ * servers configured in a file the adapter no longer touches.
+ */
+describe("mux adapter — .xum / legacy .mux home resolution", () => {
+  it("writes .xum on a machine with neither home", () => {
+    const projectDir = freshProject("ac-wave1-xum-fresh-");
+    const ctx = buildCtx(projectDir, buildMcpConnector(), { dataRoot: projectDir });
+    muxAdapter.installServer(ctx);
+
+    expect(existsSync(join(projectDir, ".xum", "mcp.jsonc"))).toBe(true);
+    expect(existsSync(join(projectDir, ".mux"))).toBe(false);
+  });
+
+  it("keeps using an EXISTING legacy .mux home instead of stranding it", () => {
+    const projectDir = freshProject("ac-wave1-xum-legacy-");
+    mkdirSync(join(projectDir, ".mux"), { recursive: true });
+    const ctx = buildCtx(projectDir, buildMcpConnector(), { dataRoot: projectDir });
+
+    expect(muxAdapter.getServerConfigPath(ctx)).toBe(
+      join(projectDir, ".mux", "mcp.jsonc"),
+    );
+    muxAdapter.installServer(ctx);
+    expect(existsSync(join(projectDir, ".mux", "mcp.jsonc"))).toBe(true);
+    expect(existsSync(join(projectDir, ".xum", "mcp.jsonc"))).toBe(false);
+  });
+
+  it("prefers .xum when BOTH homes exist", () => {
+    const projectDir = freshProject("ac-wave1-xum-both-");
+    mkdirSync(join(projectDir, ".mux"), { recursive: true });
+    mkdirSync(join(projectDir, ".xum"), { recursive: true });
+    const ctx = buildCtx(projectDir, buildMcpConnector(), { dataRoot: projectDir });
+
+    muxAdapter.installServer(ctx);
+    expect(existsSync(join(projectDir, ".xum", "mcp.jsonc"))).toBe(true);
+    expect(existsSync(join(projectDir, ".mux", "mcp.jsonc"))).toBe(false);
+  });
+});
+
 describe("mux adapter render/round-trip", () => {
   let projectDir: string;
   let ctx: InstallContext;
@@ -264,11 +306,11 @@ describe("mux adapter render/round-trip", () => {
     ctx = buildCtx(projectDir, buildMcpConnector(), { dataRoot: projectDir });
   });
 
-  it("installServer writes servers.<id> as a STRING (space-joined home-bin serve wrapper) into .mux/mcp.jsonc", () => {
+  it("installServer writes servers.<id> as a STRING (space-joined home-bin serve wrapper) into .xum/mcp.jsonc", () => {
     const changes = muxAdapter.installServer(ctx);
     expect(changes[0]?.action).toBe("create");
 
-    const serverPath = join(projectDir, ".mux", "mcp.jsonc");
+    const serverPath = join(projectDir, ".xum", "mcp.jsonc");
     expect(serverPath).toBe(muxAdapter.getServerConfigPath(ctx));
     expect(existsSync(serverPath)).toBe(true);
 
@@ -303,14 +345,14 @@ describe("mux adapter render/round-trip", () => {
     const second = muxAdapter.installServer(ctx);
     expect(second[0]?.action).toBe("skip");
 
-    const cfg = readJson(join(projectDir, ".mux", "mcp.jsonc"));
+    const cfg = readJson(join(projectDir, ".xum", "mcp.jsonc"));
     expect(Object.keys(cfg.servers)).toEqual([MCP_CONNECTOR_ID]);
   });
 
   it("uninstallServer removes the entry (re-read confirms gone)", () => {
     muxAdapter.installServer(ctx);
     muxAdapter.uninstallServer(ctx);
-    const cfg = readJson(join(projectDir, ".mux", "mcp.jsonc"));
+    const cfg = readJson(join(projectDir, ".xum", "mcp.jsonc"));
     expect(cfg.servers?.[MCP_CONNECTOR_ID]).toBeUndefined();
   });
 });

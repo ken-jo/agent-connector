@@ -2,11 +2,11 @@
  * usage/readers/kilo — Kilo Code (VS Code extension) task-log reader.
  *
  * Faithful port of tokscale sessions/kilocode.rs, which is a one-line wrapper
- * around roocode.rs `parse_roo_kilo_file(path, "kilocode")` — Kilo Code shares
- * the EXACT same task-log format as Roo Code, differing only in its VS Code
- * extension id (`kilocode.kilo-code`) and the source label. This is the Kilo
- * VS Code extension usage (distinct from the kilo-cli SQLite reader, platformId
- * "kilo-cli", which lands separately).
+ * around the shared `parse_roo_kilo_file(path, "kilocode")` Cline-fork task-log
+ * parser — the format is identical across those forks, differing only in the VS
+ * Code extension id (`kilocode.kilo-code`) and the source label. This is the
+ * Kilo VS Code extension usage (distinct from the kilo-cli SQLite reader,
+ * platformId "kilo-cli", which lands separately).
  *
  * Kilo Code (kilocode.kilo-code) persists per-task logs under its VS Code
  * globalStorage:
@@ -19,7 +19,7 @@
  *
  * kilo is NOT in paths.ts hostRoots (that per-platform table targets CLIs with
  * ~/.<tool> roots, not VS Code extension globalStorage), so this reader resolves
- * the cross-OS VS Code "User" dir itself, mirroring readers/roo-code.ts:
+ * the cross-OS VS Code "User" dir itself:
  *   - macOS   → ~/Library/Application Support/Code/User
  *   - Windows → %APPDATA%/Code/User  (else ~/AppData/Roaming/Code/User)
  *   - Linux   → ~/.config/Code/User
@@ -29,7 +29,7 @@
  *
  * Tokens (ui_messages.json): the file is a JSON ARRAY of entries; only entries
  * with type=="say" AND say=="api_req_started" carry usage. Each such entry's
- * `text` field is a JSON-in-string payload (SAME shape as Roo Code):
+ * `text` field is a JSON-in-string payload:
  *   tokensIn     → input
  *   tokensOut    → output
  *   cacheReads   → cacheRead
@@ -74,7 +74,7 @@ const DEFAULT_SESSION = "unknown";
 const KILO_EXTENSION_ID = "kilocode.kilo-code";
 
 // ─────────────────────────────────────────────────────────────────────────
-// Storage-root resolution (mirrors readers/roo-code.ts vscodeUserDir + the
+// Storage-root resolution (cross-OS vscodeUserDir + the
 // AGENT_CONNECTOR_<PLATFORM>_DIR env convention in paths.ts hostRoots, plus the
 // remote .vscode-server server path the Rust scanner adds for KiloCode)
 // ─────────────────────────────────────────────────────────────────────────

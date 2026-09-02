@@ -1,26 +1,46 @@
 /**
- * adapters/mux — Mux (Coder) platform adapter for agent-connector.
+ * adapters/mux — Xum (Coder, formerly Mux) platform adapter for agent-connector.
  *
- * Mux is an **mcp-only** host: it exposes no lifecycle hook system, and MCP is
+ * Xum is an **mcp-only** host: it exposes no lifecycle hook system, and MCP is
  * its extensibility mechanism. This adapter therefore installs only the MCP
  * server and reports hooks as unavailable — the same shape as the Warp
  * reference adapter.
  *
  * MCP config:
- *   - user scope    → ~/.mux/mcp.jsonc
- *   - project scope → <projectDir>/.mux/mcp.jsonc
+ *   - user scope    → ~/.xum/mcp.jsonc   (legacy home: ~/.mux/mcp.jsonc)
+ *   - project scope → <projectDir>/.xum/mcp.jsonc (legacy: .mux/mcp.jsonc)
+ *
+ * RENAME (verified 2026-09-02): Coder renamed Mux to **Xum** (repo coder/mux →
+ * coder/xum, xum.coder.com) and moved the config home from `.mux` to `.xum`.
+ * The docs are explicit that the old home still works — "Legacy project files
+ * under `.mux/` remain readable when the corresponding `.xum/` file is absent",
+ * and "the exact location derives from the active Xum home (a legacy `~/.mux`
+ * home keeps working)" (docs/config/mcp-servers.mdx). So `xumHome()` mirrors the
+ * host: prefer `.xum`, fall back to an EXISTING `.mux`, and default new installs
+ * to `.xum`. Writing blindly to `.xum` would strand every current user; writing
+ * blindly to `.mux` would rot. The platform id stays `mux` — renaming it would
+ * break existing connector configs and telemetry keys for no user benefit.
+ *
+ * NOT WIRED (noted 2026-09-02): Xum has an EXPERIMENTAL Agent Plugins reader
+ * (Settings → Experiments) that installs plugins into `~/.xum/plugins`, honors
+ * the spec's `PLUGIN_ROOT`/`PLUGIN_DATA`, and surfaces a plugin's `mcp.json`
+ * servers. We deliberately do NOT route this host to the `agent-plugin` format:
+ * Xum is absent from agent-plugins.org/compatible-clients, the reader is behind
+ * an experiment flag, and its plugin servers are disabled-by-default and
+ * trust-gated — so an AP bundle would install into a surface most users have
+ * turned off. Revisit if Xum ships it on by default or joins the client list.
  *   Both are JSONC (comments allowed) but we write strict JSON. The root key is
  *   "servers", and this file doubles as the (non-existent) hook config — there
  *   is no separate hook file here.
  *
- * QUIRK: Mux models each server entry as a single shell-command STRING, not an
+ * QUIRK: Xum models each server entry as a single shell-command STRING, not an
  * object. So `servers[id]` is `"<exe> <arg1> <arg2> ..."` — space-joined, with
  * any token containing whitespace double-quoted. We therefore build that string
  * ourselves and upsert it idempotently (the generic object upsert helper would
  * write the wrong shape). When telemetry-wrapping, the string is the home-bin
  * `serve` wrapper command followed by its args.
  *
- * Mux documents no native `${env:VAR}` interpolation token, so env-refs in the
+ * Xum documents no native `${env:VAR}` interpolation token, so env-refs in the
  * command/args are resolved to literals at install time. The string form has no
  * place for an env map, so server.env is dropped with no native equivalent.
  */
@@ -50,34 +70,51 @@ const HOST: PlatformId = "mux";
 const MCP_ROOT_KEY = "servers";
 
 /**
- * Mux enforces this exact pattern (1–64 chars) on a SKILL directory name, and
+ * Xum enforces this exact pattern (1–64 chars) on a SKILL directory name, and
  * the SKILL.md `name` field MUST equal the directory name
  * (mux.coder.com/agents/agent-skills). A skill name that does not match is
- * skip-warned rather than written to a dir Mux would reject.
+ * skip-warned rather than written to a dir Xum would reject.
  */
 const MUX_SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MUX_SKILL_NAME_MAX = 64;
 
-/** Quote a token only when it contains whitespace (Mux command-string form). */
+/**
+ * Resolve Xum's config home under `base`, mirroring the host's own rule.
+ *
+ * Xum reads `.xum/` and falls back to a legacy `.mux/` home
+ * (docs/config/mcp-servers.mdx). We resolve the same way so that:
+ *   - a machine already running the old Mux keeps its servers in `.mux/`
+ *     instead of silently gaining a second, ignored config;
+ *   - anything new lands in `.xum/`, which is where Xum looks first.
+ * Only an EXISTING legacy dir wins — `.xum` is the default for fresh installs.
+ */
+function xumHome(base: string): string {
+  const current = join(base, ".xum");
+  if (existsSync(current)) return current;
+  const legacy = join(base, ".mux");
+  return existsSync(legacy) ? legacy : current;
+}
+
+/** Quote a token only when it contains whitespace (Xum command-string form). */
 function quoteToken(token: string): string {
   return /\s/.test(token) ? `"${token}"` : token;
 }
 
-/** Join an executable + args into Mux's single shell-command string. */
+/** Join an executable + args into Xum's single shell-command string. */
 function buildCommandString(command: string, args: readonly string[]): string {
   return [command, ...args].map(quoteToken).join(" ");
 }
 
 export class MuxAdapter extends BaseAdapter implements Adapter {
   readonly id: PlatformId = HOST;
-  readonly name = "Mux";
+  readonly name = "Xum";
   readonly paradigm: HookParadigm = "mcp-only";
 
   readonly capabilities: PlatformCapabilities = {
     // Memory surface: AGENTS.md-first managed block via the BaseAdapter default
     // (memoryTargets: project <projectDir>/AGENTS.md; user scope where documented).
     supportsMemory: true,
-    // Mux has no lifecycle hook system — every hook capability is false.
+    // Xum has no lifecycle hook system — every hook capability is false.
     preToolUse: false,
     postToolUse: false,
     preCompact: false,
@@ -89,13 +126,13 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: false,
-    // Mux's command-string server entry is stdio-only.
+    // Xum's command-string server entry is stdio-only.
     transports: ["stdio"],
-    // Content surface: Mux auto-discovers dir-per-skill SKILL.md from its
+    // Content surface: Xum auto-discovers dir-per-skill SKILL.md from its
     // workspace-local and global roots (mux.coder.com/agents/agent-skills,
     // fetched 2026-06-16):
-    //   project → <projectDir>/.mux/skills/<name>/SKILL.md (workspace-local)
-    //   user    → ~/.mux/skills/<name>/SKILL.md (global, Mux-specific)
+    //   project → <projectDir>/.xum/skills/<name>/SKILL.md (workspace-local)
+    //   user    → ~/.xum/skills/<name>/SKILL.md (global, Xum-specific)
     // The skill directory name MUST match ^[a-z0-9]+(?:-[a-z0-9]+)*$ (1–64
     // chars) and the SKILL.md `name` field must equal it — a name that cannot
     // be represented is skip-warned (see installSkills).
@@ -105,9 +142,9 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
   // ── Detection ────────────────────────────────────────────────────────────
 
   detectInstalled(projectDir: string): DetectedPlatform {
-    const userDir = join(homedir(), ".mux");
+    const userDir = xumHome(homedir());
     const userMcp = join(userDir, "mcp.jsonc");
-    const projDir = join(projectDir, ".mux");
+    const projDir = xumHome(projectDir);
     const projMcp = join(projDir, "mcp.jsonc");
 
     const userInstalled = existsSync(userDir) || existsSync(userMcp);
@@ -125,8 +162,8 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
       configPath,
       scope,
       reason: installed
-        ? `found Mux config (${scope})`
-        : `no Mux config at ${userDir} or ${projDir}`,
+        ? `found Xum config (${scope})`
+        : `no Xum config at ${userDir} or ${projDir}`,
       confidence: installed ? "high" : "low",
     };
   }
@@ -134,9 +171,7 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
   // ── Native paths ─────────────────────────────────────────────────────────
 
   getConfigDir(ctx: InstallContext): string {
-    return ctx.scope === "project"
-      ? join(ctx.projectDir, ".mux")
-      : join(homedir(), ".mux");
+    return xumHome(ctx.scope === "project" ? ctx.projectDir : homedir());
   }
 
   getServerConfigPath(ctx: InstallContext): string {
@@ -144,7 +179,7 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Mux has no hook file — hooks are not a thing here. The hook "config path"
+   * Xum has no hook file — hooks are not a thing here. The hook "config path"
    * is the same mcp.jsonc so the generic doctor/backup behave sensibly.
    */
   getHookConfigPath(ctx: InstallContext): string {
@@ -177,7 +212,7 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     const path = this.getServerConfigPath(ctx);
 
     if (server.transport !== "stdio" || !server.command) {
-      // Mux's command-string entry is stdio-only; remote transports skip.
+      // Xum's command-string entry is stdio-only; remote transports skip.
       return [
         {
           platform: this.id,
@@ -189,7 +224,7 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     }
 
     const entry = this.renderCommandString(ctx, server);
-    // Mux's server VALUE is a command string, but the object-map upsert is
+    // Xum's server VALUE is a command string, but the object-map upsert is
     // value-agnostic — route through the shared helper (byte-identical output).
     return [this.upsertServerInJson(path, MCP_ROOT_KEY, connector.id, entry, dryRun)];
   }
@@ -202,8 +237,8 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
   }
 
   /**
-   * Render a stdio ServerDef into Mux's single shell-command string. Honors the
-   * telemetry serve-wrapper and resolves every `${env:VAR}` to a literal (Mux
+   * Render a stdio ServerDef into Xum's single shell-command string. Honors the
+   * telemetry serve-wrapper and resolves every `${env:VAR}` to a literal (Xum
    * documents no native interpolation token).
    */
   private renderCommandString(ctx: InstallContext, server: ServerDef): string {
@@ -214,21 +249,21 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     // `<homeBin> serve --connector <id> -- <command> <args...>`.
     ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
 
-    // Resolve env-refs to literals (Mux has no native interpolation token).
+    // Resolve env-refs to literals (Xum has no native interpolation token).
     command = resolveEnvRefs(command);
     args = resolveEnvRefsDeep(args);
 
     return buildCommandString(command, args);
   }
 
-  // ── Hooks (unavailable — Mux is mcp-only) ─────────────────────────────────
+  // ── Hooks (unavailable — Xum is mcp-only) ─────────────────────────────────
 
   installHooks(_ctx: InstallContext): ChangeRecord[] {
     return [
       {
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Mux is mcp-only)",
+        detail: "hooks unavailable (Xum is mcp-only)",
       },
     ];
   }
@@ -238,7 +273,7 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
       {
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Mux is mcp-only)",
+        detail: "hooks unavailable (Xum is mcp-only)",
       },
     ];
   }
@@ -248,11 +283,11 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
   // runtime dispatch, no home-bin pointer, no telemetry wrap. Idempotent
   // (byte-identical → skip) via writeContentFile and reversible via
   // removeContentFile + removeDirIfEmpty. Honors platforms["mux"].skills ===
-  // false. No mcp.jsonc entry — Mux auto-discovers the skills dirs.
+  // false. No mcp.jsonc entry — Xum auto-discovers the skills dirs.
   //
   // Native locations (mux.coder.com/agents/agent-skills):
-  //   project → <projectDir>/.mux/skills/<name>/SKILL.md (workspace-local)
-  //   user    → ~/.mux/skills/<name>/SKILL.md (global, Mux-specific)
+  //   project → <projectDir>/.xum/skills/<name>/SKILL.md (workspace-local)
+  //   user    → ~/.xum/skills/<name>/SKILL.md (global, Xum-specific)
   // The dir name MUST match MUX_SKILL_NAME_RE (1–64 chars) and the SKILL.md
   // `name` field must equal it — a name that can't be represented is skip-warned.
 
@@ -276,9 +311,9 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     }
     const changes: ChangeRecord[] = [];
     for (const skill of connector.skills) {
-      // Mux REQUIRES the dir name (and SKILL.md `name`) to match its pattern;
+      // Xum REQUIRES the dir name (and SKILL.md `name`) to match its pattern;
       // a name we cannot represent is skip-warned rather than written to a dir
-      // Mux would reject (the honesty bar — never write an unreadable path).
+      // Xum would reject (the honesty bar — never write an unreadable path).
       if (!this.isValidSkillName(skill.name)) {
         changes.push({
           platform: this.id,
@@ -352,7 +387,7 @@ export class MuxAdapter extends BaseAdapter implements Adapter {
     return changes;
   }
 
-  /** True when a skill name is representable as a Mux skill directory name. */
+  /** True when a skill name is representable as a Xum skill directory name. */
   private isValidSkillName(name: string): boolean {
     return name.length >= 1 && name.length <= MUX_SKILL_NAME_MAX && MUX_SKILL_NAME_RE.test(name);
   }

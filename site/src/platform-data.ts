@@ -147,8 +147,7 @@ const s = (
  *     repo docs), qwen-code (.qwen/skills, official docs), kimi
  *     (~/.kimi-code/skills — flagged in our own adapter header), goose (press +
  *     skills.sh listing; dirs unverified → medium), warp
- *     (docs.warp.dev skills.mdx: .agents/.warp/.claude/… dirs), roo-code
- *     (docs.roocode.com/features/skills), kilo + kilo-cli
+ *     (docs.warp.dev skills.mdx: .agents/.warp/.claude/… dirs), kilo + kilo-cli
  *     (kilo.ai/docs/customize/skills), droid
  *     (docs.factory.ai/cli/configuration/skills), trae (docs.trae.ai/ide/
  *     skills), amp (ampcode.com/manual Agent Skills), codebuff
@@ -179,10 +178,6 @@ const s = (
  *     ("Kilo Code's CLI supports custom subagents", `kilo agent create`).
  *   - droid commands/skills/subagents=true: docs.factory.ai/cli/configuration/
  *     custom-slash-commands, /skills, /custom-droids — Droid offers all six.
- *   - roo-code: hooks=false (no hook layer), commands=true
- *     (docs.roocode.com/features/slash-commands, .roo/commands),
- *     subagents=false (sequential mode delegation only; enhancement issues
- *     RooCodeInc/Roo-Code #11741, #12330).
  *   - kilo (VS Code ext): hooks=false (no hook layer); skills=true supersedes
  *     the stale low-confidence surfaces-matrix "false" row (kilo.ai docs).
  *   - trae: hooks=false; commands=false [uncertain → defaulted to ours; skills
@@ -353,15 +348,6 @@ export const platforms: Platform[] = [
     hostNative: s(true, true, false, false, false, true, false, false),
   },
   {
-    id: "roo-code",
-    name: "Roo Code",
-    paradigm: "mcp-only",
-    surfaces: s(true, false, true, true, false, true, false, false),
-    // commands (.roo/commands) + skills (.roo/skills, AgentSkills) wired —
-    // docs.roocode.com. N/A: hooks, subagents.
-    hostNative: s(true, false, true, true, false, true, false, false),
-  },
-  {
     id: "kilo",
     name: "Kilo Code",
     paradigm: "ts-plugin",
@@ -376,7 +362,7 @@ export const platforms: Platform[] = [
     name: "Cline",
     paradigm: "mcp-only",
     surfaces: s(true, false, true, true, false, true, false, false),
-    // The most-installed AI coding VS Code ext + the parent roo-code/kilo forked.
+    // The most-installed AI coding VS Code ext + the parent kilo forked.
     // mcp-only: MCP at <vscodeUserDir>/globalStorage/saoudrizwan.claude-dev/
     // settings/cline_mcp_settings.json ("mcpServers" — cline/cline disk.ts
     // GlobalFileNames). Wired: commands (.clinerules/workflows + Documents/Cline/
@@ -439,7 +425,7 @@ export const platforms: Platform[] = [
   },
   {
     id: "codebuff",
-    name: "Codebuff",
+    name: "Freebuff",
     paradigm: "mcp-only",
     surfaces: s(true, false, false, true, true, true, false, false),
     // skills wired (.agents/skills, AgentSkills — docs + load-skills.ts verified).
@@ -449,7 +435,7 @@ export const platforms: Platform[] = [
   },
   {
     id: "mux",
-    name: "Mux",
+    name: "Xum",
     paradigm: "mcp-only",
     surfaces: s(true, false, false, true, false, true, false, false),
     // skills now wired (.mux/skills project, ~/.mux/skills user; dir name must
@@ -775,7 +761,7 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
     "junie", "mistral-vibe",
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
-  extension: ["cline", "roo-code", "kilo", "vscode-copilot", "jetbrains-copilot"],
+  extension: ["cline", "kilo", "vscode-copilot", "jetbrains-copilot"],
   // Standalone GUI apps / editors (Cursor is the IDE; antigravity is the app,
   // antigravity-cli is the CLI).
   app: ["cursor", "windsurf", "trae", "kiro", "zed", "warp", "mux", "antigravity"],
@@ -835,7 +821,6 @@ export const hostSource: Record<string, HostSource> = {
   "mimo-code": { repo: "XiaomiMiMo/MiMo-Code" }, // adapter header cites this repo
   "kilo-cli": { repo: "Kilo-Org/kilocode" }, // OpenCode-fork CLI shares the kilocode source
   openhands: { repo: "OpenHands/OpenHands" }, // moved to its own org; All-Hands-AI/OpenHands 301s here
-  "roo-code": { repo: "RooCodeInc/Roo-Code" }, // ARCHIVED upstream — see hostLifecycle
   kilo: { repo: "Kilo-Org/kilocode" }, // VS Code ext, same source repo as kilo-cli
   cline: { repo: "cline/cline" },
   zed: { repo: "zed-industries/zed" },
@@ -936,11 +921,10 @@ export const brandColor: Record<string, string> = {
   "mimo-code": "#D2691E", // Xiaomi MiMoCode orange (darkened)
   "kilo-cli": "#2E8B3D", // Kilo green
   openhands: "#B5860B", // All-Hands OpenHands gold-amber
-  "roo-code": "#9333A8", // Roo Code purple
   kilo: "#2E8B3D", // Kilo green (same source as kilo-cli)
   cline: "#1F8C84", // Cline teal
   zed: "#2D5FD0", // Zed blue (readable #084CCF)
-  codebuff: "#C0492B", // Codebuff orange-red
+  codebuff: "#C0492B", // Freebuff (ex-Codebuff) orange-red
   pi: "#6D4FC0", // pi violet
   omp: "#6D4FC0", // Oh My Pi violet (pi fork)
   kimi: "#6A55D6", // Moonshot Kimi indigo
@@ -954,7 +938,7 @@ export const brandColor: Record<string, string> = {
   "open-interpreter": "#2E8B3D", // Open Interpreter green
   "mistral-vibe": "#D2691E", // Mistral Vibe orange (darkened)
   junie: "#9333A8", // JetBrains Junie magenta
-  mux: "#3A6FD8", // Coder Mux blue
+  mux: "#3A6FD8", // Coder Xum (ex-Mux) blue
 };
 
 /**
@@ -1044,7 +1028,6 @@ export const hostLinks: Record<string, HostLink> = {
   "mimo-code": gh("XiaomiMiMo/MiMo-Code"),
   "kilo-cli": gh("Kilo-Org/kilocode"),
   openhands: gh("OpenHands/OpenHands"),
-  "roo-code": gh("RooCodeInc/Roo-Code"),
   kilo: gh("Kilo-Org/kilocode"),
   cline: gh("cline/cline"),
   zed: gh("zed-industries/zed"),
@@ -1201,12 +1184,6 @@ export type HostLifecycle = {
 };
 
 export const hostLifecycle: Record<string, HostLifecycle> = {
-  "roo-code": {
-    status: "archived",
-    label: "EOL",
-    note:
-      "Upstream archived — RooCodeInc/Roo-Code is archived on GitHub (last push 2026-05-15) and the team wound the project down; migration guidance points users to Cline. The adapter still installs, but the host is no longer developed.",
-  },
   "gemini-cli": {
     status: "sunsetting",
     label: "Sunsetting",
@@ -1358,7 +1335,7 @@ export function formatStars(stars: number): string {
  *   - claude-code: codebuddy is a Claude Code fork (registry.ts "Claude Code fork").
  *   - codex: open-interpreter is "a fork of OpenAI's Codex" (registry.ts).
  *   - opencode: mimo-code + kilo-cli are OpenCode forks (registry.ts "OpenCode FORK").
- *   - cline: roo-code + kilo forked from cline ("the PARENT that roo-code and kilo forked").
+ *   - cline: kilo forked from cline (registry.ts "the PARENT that kilo forked").
  *   - copilot-cli: vscode-copilot + jetbrains-copilot share the GitHub Copilot surface.
  *   - pi: omp is a "pi fork" (platform-data.ts omp comment).
  *   - openclaw: nemoclaw wraps/extends OpenClaw (registry.ts "wraps OpenClaw").
@@ -1377,7 +1354,6 @@ export const familyOf: Record<string, string> = {
   "kilo-cli": "opencode",
   // cline lineage
   cline: "cline",
-  "roo-code": "cline",
   kilo: "cline",
   // GitHub Copilot lineage
   "copilot-cli": "copilot-cli",

@@ -1,7 +1,7 @@
 /**
  * adapters/cline.test.ts — Cline (VS Code extension) adapter tests.
  *
- * Cline (`saoudrizwan.claude-dev`) is the PARENT that roo-code and kilo forked.
+ * Cline (`saoudrizwan.claude-dev`) is the PARENT that kilo forked.
  * It is mcp-only and exposes:
  *   MCP      → <vscodeUserDir>/globalStorage/saoudrizwan.claude-dev/settings/
  *              cline_mcp_settings.json  (root "mcpServers"), USER SCOPE ONLY.
@@ -12,8 +12,7 @@
  *   skill    → project <projectDir>/.clinerules/skills/<name>/SKILL.md.
  *
  * All tests are HOME-isolated via the shared harness (separate HOME + project/
- * subdir + APPDATA/XDG roots) and deterministic. Mirrors tests/adapters/
- * roo-code.test.ts.
+ * subdir + APPDATA/XDG roots) and deterministic.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -158,22 +157,6 @@ describe("cline adapter — detection", () => {
     expect(d.installed).toBe(true);
     expect(d.scope).toBe("project");
     expect(d.configPath).toBe(join(projectDir, ".clinerules"));
-  });
-
-  it("does NOT collide with a roo-code-only box (.roo / rooveterinaryinc.roo-cline)", () => {
-    // A box that has ONLY roo-code markers must NOT register as cline.
-    mkdirSync(join(projectDir, ".roo"), { recursive: true });
-    const rooExtDir = join(
-      home,
-      ".config",
-      "Code",
-      "User",
-      "globalStorage",
-      "rooveterinaryinc.roo-cline",
-    );
-    mkdirSync(rooExtDir, { recursive: true });
-    const d = clineAdapter.detectInstalled(projectDir);
-    expect(d.installed).toBe(false);
   });
 
   it("does NOT collide with a kilo-only box (.kilo / kilocode.kilo-code)", () => {

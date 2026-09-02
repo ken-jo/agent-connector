@@ -255,21 +255,6 @@ export const adapterCapabilityProfiles = [
     }
   },
   {
-    "id": "roo-code",
-    "name": "Roo Code",
-    "paradigm": "mcp-only",
-    "surfaces": {
-      "mcp": true,
-      "hooks": false,
-      "commands": true,
-      "skills": true,
-      "subagents": false,
-      "memory": true,
-      "statusline": false,
-      "actions": false
-    }
-  },
-  {
     "id": "kilo",
     "name": "Kilo Code",
     "paradigm": "ts-plugin",
@@ -376,7 +361,7 @@ export const adapterCapabilityProfiles = [
   },
   {
     "id": "codebuff",
-    "name": "Codebuff",
+    "name": "Freebuff",
     "paradigm": "mcp-only",
     "surfaces": {
       "mcp": true,
@@ -391,7 +376,7 @@ export const adapterCapabilityProfiles = [
   },
   {
     "id": "mux",
-    "name": "Mux",
+    "name": "Xum",
     "paradigm": "mcp-only",
     "surfaces": {
       "mcp": true,

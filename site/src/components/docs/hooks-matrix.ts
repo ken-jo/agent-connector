@@ -979,35 +979,6 @@ export const platforms: PlatformHookEntry[] = [
       "mcp-only: no hook system AND no writable MCP config — installServer AND installHooks both 'skip'; all events null. Only surface implemented is Agent Skills (~/.pi/skills/<name>/SKILL.md). transports: [] (no server registration possible). All hook capabilities false.",
   },
   {
-    platform: "roo-code",
-    displayName: "Roo Code",
-    paradigm: "mcp-only",
-    hasHooks: false,
-    configPath: "—",
-    capabilities: {
-      canModifyArgs: false,
-      canModifyOutput: false,
-      canInjectSessionContext: false,
-    },
-    events: {
-      SessionStart: null,
-      SessionEnd: null,
-      UserPromptSubmit: null,
-      PreToolUse: null,
-      PostToolUse: null,
-      PreCompact: null,
-      Stop: null,
-      Notification: null,
-      PermissionRequest: null,
-      PostToolUseFailure: null,
-      SubagentStart: null,
-      SubagentStop: null,
-      PostCompact: null,
-    },
-    notes:
-      "Roo Code VS Code extension (Cline fork). mcp-only: no hook system; installHooks 'skip' ('hooks unavailable (Roo Code is mcp-only)'); all events null. MCP only: VS Code globalStorage <userDir>/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json (project <projectDir>/.roo/mcp.json), root 'mcpServers'. All hook capabilities false.",
-  },
-  {
     platform: "cline",
     displayName: "Cline",
     paradigm: "mcp-only",
@@ -1034,7 +1005,7 @@ export const platforms: PlatformHookEntry[] = [
       PostCompact: null,
     },
     notes:
-      "Cline VS Code extension (saoudrizwan.claude-dev — the PARENT roo-code/kilo forked). mcp-only: no hook system; installHooks 'skip'; all events null. MCP only: VS Code globalStorage <userDir>/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json (NO project MCP file), root 'mcpServers'. Content surfaces: memory → .clinerules/agent-connector.md, commands → .clinerules/workflows/, skills → .clinerules/skills/. All hook capabilities false.",
+      "Cline VS Code extension (saoudrizwan.claude-dev — the PARENT kilo forked). mcp-only: no hook system; installHooks 'skip'; all events null. MCP only: VS Code globalStorage <userDir>/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json (NO project MCP file), root 'mcpServers'. Content surfaces: memory → .clinerules/agent-connector.md, commands → .clinerules/workflows/, skills → .clinerules/skills/. All hook capabilities false.",
   },
   {
     platform: "trae",

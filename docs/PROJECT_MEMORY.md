@@ -31,7 +31,7 @@ The public site should not read like a generic agent-user tool. It should explai
   - **goose** moved out of the Block org (`block/goose` → `aaif-goose/goose`); product name unchanged, low risk.
   - **Open Interpreter** handle normalized (`OpenInterpreter/open-interpreter` → `openinterpreter/openinterpreter`); low risk.
   - **OpenCode** (`sst/opencode` → `anomalyco/opencode`, SST rebranded to Anomaly) and **OpenHands** (`All-Hands-AI/OpenHands` → `OpenHands/OpenHands`); product names unchanged.
-  - **Roo Code is ARCHIVED** upstream (last push 2026-05-15) and is now marked `EOL` on the coverage wall via `hostLifecycle`. Decide whether to retire the adapter or keep it as a legacy target.
+  - **Roo Code was ARCHIVED** upstream (last push 2026-05-15) and the team wound the project down, pointing users at Cline. The adapter, its usage reader, its tests and every enumeration of it have since been removed entirely — do not reintroduce the host. `cline` keeps the fork family, now with `kilo` as its only other member.
 
 - `docs/ARCHITECTURE.md` carried a hand-written "29/35 hosts read the open AGENTS.md standard" tally whose denominator matched neither the registry (43 adapters) nor the memory-supporting set (39). It has been de-numbered rather than guessed at, because 33 memory adapters override `memoryTargets()` for probing reasons while still landing on AGENTS.md for project scope, so a grep cannot separate a genuine exception from a probe. If the exact tally is wanted back, derive it from the resolved project-scope target per adapter and pin it with a drift test — an un-guarded number here will just rot again.
 
