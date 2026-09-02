@@ -1213,6 +1213,36 @@ export const platforms: PlatformHookEntry[] = [
       "Windsurf (Codeium / Cognition's Cascade agent). mcp-only: GUI editor with no user-installable hook/plugin layer; installHooks 'skip' ('hooks unavailable (Windsurf is mcp-only)'); all events null. MCP config is USER/GLOBAL scope ONLY — JSON at ~/.codeium/windsurf/mcp_config.json (the docs document no project/workspace path; a project-scope install returns 'skip'). Root key 'mcpServers' is a Claude-Desktop-style OBJECT map keyed by server name (like cursor) — set-if-absent by connector id, siblings preserved, malformed-non-object skip-warn. stdio entry { command, args?, env? }; remote entry { serverUrl, headers? } (the documented `serverUrl`, NOT `url`; NO type/disabled keys). The .windsurfrules / global-rules memory surface is a not-yet-wired host-gap. All hook capabilities false.",
   },
   {
+    platform: "grok-build",
+    displayName: "Grok Build",
+    paradigm: "json-stdio",
+    hasHooks: true,
+    configPath:
+      "$GROK_HOME/hooks/*.json (default ~/.grok/hooks/agent-connector.json; project <repo>/.grok/hooks/*.json needs folder trust)",
+    capabilities: {
+      canModifyArgs: true,
+      canModifyOutput: true,
+      canInjectSessionContext: false,
+    },
+    events: {
+      SessionStart: "SessionStart",
+      SessionEnd: "SessionEnd",
+      UserPromptSubmit: "UserPromptSubmit",
+      PreToolUse: "PreToolUse",
+      PostToolUse: "PostToolUse",
+      PreCompact: "PreCompact",
+      Stop: "Stop",
+      Notification: "Notification",
+      PermissionRequest: null,
+      PostToolUseFailure: "PostToolUseFailure",
+      SubagentStart: "SubagentStart",
+      SubagentStop: "SubagentStop",
+      PostCompact: "PostCompact",
+    },
+    notes:
+      "xAI's OFFICIAL agent (xai-org/grok-build, Apache-2.0, bin `grok`) — NOT the community grok-cli below, though both default to ~/.grok (they never share a FILE: Grok Build owns config.toml, Grok CLI owns user-settings.json, and each adapter bows out of a dir holding only the sibling's marker). Hooks live in their OWN directory as Claude-compatible JSON { hooks: { <Event>: [{ matcher?, hooks:[{type:'command',command,timeout?}] }] } }; the same object is also readable from config.toml [[hooks.<Event>]], and Grok additionally scans ~/.claude/settings.json and ~/.cursor/hooks.json for compatibility. 12 of 13 canonical events map 1:1 (PascalCase). PermissionRequest is null: Grok's nearest event, PermissionDenied, fires AFTER the permission system denied a call and is documented non-blocking — an observation, not a decision gate. Grok also fires host-only StopFailure/StopCancelled (no canonical analog → nativeHooks passthrough). Wire shape is camelCase (sessionId/toolName/toolInput/workspaceRoot) with ADDITIVE snake_case aliases; two false friends vs Claude: PostToolUse carries `toolResult` (NOT tool_response/toolOutput) and PreCompact/PostCompact carry `source` (NOT `trigger`). PostToolUse has no is_error — a dispatch failure or MCP error result fires PostToolUseFailure instead. Reply: PreToolUse uses hookSpecificOutput.permissionDecision (allow|deny|ask|defer, canonical over a top-level `decision`) + permissionDecisionReason; `ask` is NATIVE; `updatedInput` rewrites the call with NO paired allow needed (canModifyArgs true). PostToolUse `updatedToolOutput` replaces the model's copy of the result (canModifyOutput true). Stop/SubagentStop/UserPromptSubmit deny via top-level { decision:'block', reason }. canInjectSessionContext FALSE: stdout is ignored on SessionStart/Notification/Pre|PostCompact/SubagentStart and discarded on an allowing UserPromptSubmit — additionalContext is honored only on the tool events and the Stop gates.",
+  },
+  {
     platform: "grok-cli",
     displayName: "Grok CLI",
     paradigm: "json-stdio",

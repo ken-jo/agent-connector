@@ -68,6 +68,7 @@ export type PlatformId =
   | "amazon-q"
   | "continue"
   | "windsurf"
+  | "grok-build"
   | "grok-cli"
   | "devin"
   | "open-interpreter"

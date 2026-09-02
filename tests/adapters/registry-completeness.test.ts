@@ -70,6 +70,7 @@ const ALL_PLATFORM_IDS_MAP: Record<PlatformId, true> = {
   "amazon-q": true,
   continue: true,
   windsurf: true,
+  "grok-build": true,
   "grok-cli": true,
   devin: true,
   "open-interpreter": true,

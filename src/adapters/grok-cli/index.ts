@@ -220,7 +220,15 @@ export class GrokCliAdapter extends BaseAdapter implements Adapter {
   detectInstalled(_projectDir: string): DetectedPlatform {
     const userDir = join(homedir(), ".grok");
     const userSettings = join(userDir, "user-settings.json");
-    const installed = existsSync(userDir) || existsSync(userSettings);
+    // SIBLING BOW-OUT: xAI's Grok Build (adapter id `grok-build`) is an
+    // UNRELATED product that also defaults to ~/.grok, so the bare directory no
+    // longer proves this community CLI is installed. Each adapter owns an
+    // exclusive marker file — grok-cli `user-settings.json`, Grok Build
+    // `config.toml` — and claims the shared dir only when the sibling's marker
+    // is not the sole occupant. Without this, a Grok-Build-only machine would
+    // report Grok CLI as installed and install into a config it never reads.
+    const siblingOnly = existsSync(join(userDir, "config.toml")) && !existsSync(userSettings);
+    const installed = existsSync(userSettings) || (existsSync(userDir) && !siblingOnly);
     return {
       id: this.id,
       name: this.name,
@@ -232,7 +240,9 @@ export class GrokCliAdapter extends BaseAdapter implements Adapter {
       scope: "user",
       reason: installed
         ? `found Grok CLI config at ${userSettings}`
-        : `no Grok CLI config at ${userDir}`,
+        : siblingOnly
+          ? `${userDir} holds only Grok Build's config.toml`
+          : `no Grok CLI config at ${userDir}`,
       confidence: installed ? "high" : "low",
     };
   }

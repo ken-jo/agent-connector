@@ -141,17 +141,18 @@ Distilled from the union of platform behaviors (report §3).
   hosts ship a native analog (TaskCreated/TaskCompleted first candidates). Full
   contract: `llms-full.txt` §2.3.
 - **Hook I/O paradigm taxonomy** (the deepest divergence — exactly three):
-  - **`json-stdio`** (18) — Claude Code, Codex, Cursor, VS Code Copilot,
-    JetBrains Copilot, Copilot CLI, Gemini CLI, Qwen, Kiro, Kimi, Crush, Goose,
-    Hermes, Droid (Factory), Antigravity, Antigravity CLI, Continue, Amazon Q.
-    One universal hook entrypoint binary reads host JSON, the adapter normalizes
-    it, the dev's handler runs, the adapter formats the reply.
-  - **`ts-plugin`** (8) — OpenCode, MiMoCode, Kilo CLI, Kilo, OMP, NemoClaw,
-    OpenClaw, Amp. Framework *generates* an exported plugin module importing the
-    dev's handler.
-  - **`mcp-only`** (9) — Warp, Roo Code, Cline, Trae, Zed, Codebuff, Mux, Pi,
-    Windsurf. No hook layer; install only the MCP server; detection surfaces
-    "hooks unavailable here."
+  - **`json-stdio`** (23) — CodeBuddy, Claude Code, Codex, Cursor, VS Code
+    Copilot, Copilot CLI, Gemini CLI, Droid (Factory), OpenHands, Antigravity
+    CLI, Antigravity, JetBrains Copilot, Qwen, Kiro, Kimi, Crush, Goose, Hermes,
+    Amazon Q, Continue, Grok Build, Grok CLI, Devin. One universal hook
+    entrypoint binary reads host JSON, the adapter normalizes it, the dev's
+    handler runs, the adapter formats the reply.
+  - **`ts-plugin`** (8) — OpenCode, MiMoCode, Kilo CLI, Kilo, Amp, OMP,
+    NemoClaw, OpenClaw. Framework *generates* an exported plugin module
+    importing the dev's handler.
+  - **`mcp-only`** (12) — Warp, Roo Code, Cline, Trae, Zed, Codebuff, Mux, Pi,
+    Windsurf, Open Interpreter, Junie, Mistral Vibe. No hook layer; install only
+    the MCP server; detection surfaces "hooks unavailable here."
 - **`PlatformCapabilities`** flags (`preToolUse`, `postToolUse`, `preCompact`,
   `sessionStart`, `canModifyArgs`, `canModifyOutput`, `canInjectSessionContext`) —
   the single-API layer queries these and degrades gracefully.
@@ -179,8 +180,8 @@ Distilled from the union of platform behaviors (report §3).
   only under `install --force` after a timestamped backup). Replacement is
   in-place — zero bytes outside the marker pair ever change; the scanner is
   line-anchored, CRLF-preserving, BOM-safe, and fence-aware. **AGENTS.md-first
-  policy (grammar v1):** 29/35 hosts read the open AGENTS.md standard, so
-  project scope targets `<projectDir>/AGENTS.md` — with exclusive/first-match
+  policy (grammar v1):** most memory-supporting hosts read the open AGENTS.md
+  standard, so project scope targets `<projectDir>/AGENTS.md` — with exclusive/first-match
   readers PROBED so the block lands in the file the host will actually read
   (zed's first-match candidate list, warp's WARP.md priority, hermes'
   .hermes.md, opencode's CLAUDE.md fallback, codex's AGENTS.override.md;

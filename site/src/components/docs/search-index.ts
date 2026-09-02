@@ -236,6 +236,7 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "internal-entrypoints", title: "Internal entrypoints" },
   ],
   platforms: [
+    { id: "host-client-harness", title: "Host, client, harness" },
     { id: "paradigm-json-stdio", title: "json-stdio" },
     { id: "paradigm-mcp-only", title: "mcp-only" },
     { id: "paradigm-ts-plugin", title: "ts-plugin" },

@@ -5192,6 +5192,73 @@ export function PlatformsSection() {
           See the full interactive coverage matrix on the dedicated coverage page →
         </Link>
       </P>
+      <H3 id="host-client-harness">Host, client, harness</H3>
+      <P>
+        Three words circulate for the things this page lists, and they are{" "}
+        <em>not</em> synonyms. agent-connector writes configuration into an app
+        that owns a writable config file, so the word that fits is{" "}
+        <strong>host</strong> — or <strong>client</strong>, which is what the
+        specs themselves say.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Term</Th>
+            <Th>Who uses it</Th>
+            <Th>What it names</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td className="whitespace-nowrap font-medium">host</Td>
+            <Td className="text-muted-foreground">this reference</Td>
+            <Td className="text-muted-foreground">
+              the app with a config file we can write — the thing an adapter targets
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap font-medium">client</Td>
+            <Td className="text-muted-foreground">
+              the MCP, Agent Plugins 1.0.0 and Agent Skills specs
+            </Td>
+            <Td className="text-muted-foreground">
+              the same thing. Agent Plugins defines it as “a tool that discovers,
+              installs, loads, and executes plugin components”, and uses the word
+              throughout — “harness” appears nowhere in any of the three specs
+            </Td>
+          </tr>
+          <tr>
+            <Td className="whitespace-nowrap font-medium">harness</Td>
+            <Td className="text-muted-foreground">
+              Anthropic, OpenAI, Google, Microsoft, AWS, Vercel, Cloudflare
+            </Td>
+            <Td className="text-muted-foreground">
+              a <em>different</em> layer — the engine that runs the session loop
+              behind the front end
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+      <P>
+        “Agent harness” is now real product vocabulary rather than blog jargon,
+        so it is worth being precise about. VS Code carries both words in the
+        same documentation set: it supports “multiple agent harnesses: Local,
+        GitHub Copilot, Anthropic Claude, OpenAI Codex, and Cloud”, where “an
+        agent harness coordinates an agent session, including tool calls,
+        context, and code changes” — while its separate <em>Agent Host</em> is
+        the local process that owns that session. Kiro says the same
+        structurally: its IDE, CLI, Web and Mobile apps are “different ways to
+        talk to the same unified agent harness”.
+      </P>
+      <Callout>
+        The harness is the engine; the host is the surface in front of it that
+        holds the config. One harness can sit behind several hosts, which is
+        exactly why this list enumerates hosts — swapping the harness behind
+        Copilot does not change where its MCP servers, hooks and skills are
+        written. This reference therefore keeps <strong>host</strong> for the
+        config-owning app, and reserves <strong>harness</strong> for the engine
+        sense we already use it in elsewhere.
+      </Callout>
       <H3 id="generated-capability-snapshot">Generated capability snapshot</H3>
       <P>
         The support counts below are generated from the adapter registry before

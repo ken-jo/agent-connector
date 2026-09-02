@@ -100,8 +100,25 @@ export {
   hostLinks,
   hostLinkUrl,
   formatStars,
+  agentPluginSupport,
+  agentPluginBadge,
+  agentPluginStateOf,
+  hostLifecycle,
+  hostLifecycleOf,
+  majorVendorOssIds,
+  curatedOutIds,
+  isPublicCoverageHost,
+  PUBLIC_OSS_STAR_FLOOR,
+  PUBLIC_INDEPENDENT_STAR_FLOOR,
 } from "./platform-data";
-export type { HostSource, StarTier, CoverageTier, HostLink } from "./platform-data";
+export type {
+  HostSource,
+  StarTier,
+  CoverageTier,
+  HostLink,
+  AgentPluginState,
+  HostLifecycle,
+} from "./platform-data";
 
 import type { FormFactorId } from "./platform-data";
 
@@ -269,16 +286,16 @@ export const installMethods: InstallMethod[] = [
     summary:
       "Drives the host's OWN plugin install end-to-end — stage the bundle, register a local marketplace where the host has one, run its install verb. Double-install-guarded; doctor-checked. Other marketplace formats print exact manual commands.",
     scope:
-      "Drives 10 hosts: Claude Code · Codex · OpenCode · Kilo (CLI + ext) · Antigravity (CLI + IDE) live-verified, + Droid · Qwen Code driver shipped, + Gemini CLI (legacy — sunsetting toward Antigravity)",
+      "Drives 11 hosts: Claude Code · Codex · GitHub Copilot CLI · OpenCode · Kilo (CLI + ext) · Antigravity (CLI + IDE) live-verified, + Droid · Qwen Code driver shipped, + Gemini CLI (legacy — sunsetting toward Antigravity)",
   },
 ];
 
 export const cliCommands: { cmd: string; purpose: string }[] = [
   { cmd: "detect", purpose: "List installed platforms, scopes, capabilities & paradigm." },
-  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets (--method direct), OR drive the host's own marketplace/plugin flow for 10 hosts incl. Claude Code, Codex, Gemini CLI, OpenCode, Kilo, Antigravity, Droid & Qwen (--method marketplace); user-edited managed blocks are left alone unless --force (backs the file up first)." },
+  { cmd: "install", purpose: "Render + write MCP + hooks across detected targets (--method direct), OR drive the host's own marketplace/plugin flow for 11 hosts incl. Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, OpenCode, Kilo, Antigravity, Droid & Qwen (--method marketplace); user-edited managed blocks are left alone unless --force (backs the file up first)." },
   { cmd: "uninstall", purpose: "Full inverse — removes everything we wrote." },
   { cmd: "upgrade", purpose: "Bring all current: re-render config, heal pointers, managed update (alias: update, sync)." },
-  { cmd: "package", purpose: "One connector → 10 marketplace/extension formats via --format all, plus opt-in official mcp-server-json / mcpb artifacts." },
+  { cmd: "package", purpose: "One connector → 9 host formats via --format all (default agent-plugin, the portable Agent Plugins 1.0.0 bundle), plus opt-in official mcp-server-json / mcpb artifacts." },
   { cmd: "doctor", purpose: "Per-platform health checks; --probe runs a live MCP handshake." },
   { cmd: "status", purpose: "Light install-state: which connectors are present on which hosts (exits 0)." },
   { cmd: "telemetry", purpose: "Per-tool token footprint, input/output split." },

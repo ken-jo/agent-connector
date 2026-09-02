@@ -615,6 +615,21 @@ export const adapterCapabilityProfiles = [
     }
   },
   {
+    "id": "grok-build",
+    "name": "Grok Build",
+    "paradigm": "json-stdio",
+    "surfaces": {
+      "mcp": true,
+      "hooks": true,
+      "commands": true,
+      "skills": true,
+      "subagents": true,
+      "memory": true,
+      "statusline": false,
+      "actions": false
+    }
+  },
+  {
     "id": "grok-cli",
     "name": "Grok CLI",
     "paradigm": "json-stdio",

@@ -149,6 +149,9 @@ const HOST_LANES = {
   openhands: adapterPlacementLane(
     "OpenHands adapter placement only; current Python package does not expose a usable local headless CLI app here.",
   ),
+  "grok-build": adapterPlacementLane(
+    "Grok Build adapter placement only; the official xAI `grok` binary is not installed here (its installer is a curl|bash from x.ai, not an npm package), so this verifies config.toml + hooks/*.json placement and cleanup without claiming live host accept.",
+  ),
   "claude-code": {
     bin: "claude",
     env: { CLAUDE_CONFIG_DIR: [".claude"] },

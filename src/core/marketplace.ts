@@ -145,8 +145,39 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Hosts whose best marketplace path is ANOTHER host's driver, not a manual
+ * two-step. The GitHub Copilot CLI is drivable and stores plugins under
+ * `~/.copilot/installed-plugins/`, so pointing at that driver beats telling a
+ * user to hand-run a marketplace add.
+ *
+ * The two hints differ because the EVIDENCE differs, and the wording must not
+ * outrun it:
+ *   - VS Code documents the auto-discovery outright — "VS Code automatically
+ *     discovers plugins that you install with the GitHub Copilot CLI … Plugins
+ *     from ~/.copilot/installed-plugins/ appear in the Agent Plugins -
+ *     Installed view" (code.visualstudio.com/docs/agent-customization/agent-plugins).
+ *   - GitHub documents NO plugin install path for Copilot in JetBrains. What it
+ *     does document is Copilot CLI running in the JetBrains integrated terminal
+ *     as one of the three supported ways to use Copilot there, so that is the
+ *     route we name — without claiming the IDE plugin reads the CLI's store.
+ */
+const DELEGATED_MARKETPLACE_HINTS: Partial<Record<PlatformId, string>> = {
+  "vscode-copilot":
+    "install through the GitHub Copilot CLI driver — `agent-connector install --method marketplace --targets copilot-cli` — " +
+    "VS Code auto-discovers plugins the CLI installed under ~/.copilot/installed-plugins/ and lists them in its Agent Plugins view",
+  "jetbrains-copilot":
+    "install through the GitHub Copilot CLI driver — `agent-connector install --method marketplace --targets copilot-cli` — " +
+    "run it in the JetBrains integrated terminal, which GitHub documents as a supported way to use Copilot there. " +
+    "GitHub documents no plugin-install path for the JetBrains Copilot IDE plugin itself",
+};
+
 /** The manual install hint for a non-drivable marketplace target. */
 function manualHint(platform: PlatformId, format: PackageFormat, id: string): string {
+  const delegated = DELEGATED_MARKETPLACE_HINTS[platform];
+  if (delegated) {
+    return `agent-connector cannot drive the ${platform} marketplace flow directly — ${delegated}`;
+  }
   const steps = installInstructions(format, id, "<out-dir>").join("; ");
   return (
     `agent-connector cannot drive the ${platform} marketplace flow yet — install manually: ` +
