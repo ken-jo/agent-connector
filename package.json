@@ -1,6 +1,6 @@
 {
   "name": "@ken-jo/agent-connector",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "type": "module",
   "description": "SDK/runtime for branded MCP packages: declare your server + hooks once, install across the current AI-agent coverage matrix, and collect local-first token telemetry.",
   "keywords": [
@@ -74,7 +74,8 @@
     "generate:site-verification": "node scripts/generate-site-verification-results.mjs",
     "generate:site-release": "node scripts/generate-site-release-status.mjs",
     "verify:host": "node scripts/verify-host.mjs",
-    "prepublishOnly": "npm run typecheck && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "measure:footprint": "vitest run tests/docs/readme-footprint.test.ts --pool=forks --poolOptions.forks.singleFork=true"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",

@@ -205,7 +205,7 @@ describe("renderInstallResult — closing summary + next steps", () => {
       result({ changes: fullHostChanges("claude-code") }),
       "install",
     );
-    expect(out).toContain("✓ Installed acme-db to 1 CLI · 3 files. Restart each CLI to load it.");
+    expect(out).toContain("✓ Installed acme-db to 1 host · 3 files. Restart each host to load it.");
     expect(out).toContain("Verify: agent-connector doctor");
     expect(out).toContain("Remove: agent-connector uninstall");
   });
@@ -215,8 +215,8 @@ describe("renderInstallResult — closing summary + next steps", () => {
       result({ dryRun: true, changes: fullHostChanges("claude-code") }),
       "install",
     );
-    expect(out).toContain("Would install acme-db to 1 CLI · 3 files (dry-run — nothing written).");
-    expect(out).not.toContain("Restart each CLI");
+    expect(out).toContain("Would install acme-db to 1 host · 3 files (dry-run — nothing written).");
+    expect(out).not.toContain("Restart each host");
   });
 
   it("upgrade: its own verb wording ('Synced'/'synced to')", () => {
@@ -225,7 +225,7 @@ describe("renderInstallResult — closing summary + next steps", () => {
       "upgrade",
     );
     expect(out).toContain("synced to");
-    expect(out).toContain("✓ Synced acme-db to 1 CLI");
+    expect(out).toContain("✓ Synced acme-db to 1 host");
   });
 
   it("uninstall: removal wording + 'zero residue' when clean + a doctor hint", () => {
@@ -237,7 +237,7 @@ describe("renderInstallResult — closing summary + next steps", () => {
       result({ changes }),
       "uninstall",
     );
-    expect(out).toContain("✓ Removed acme-db from 1 CLI · 2 files cleaned (zero residue).");
+    expect(out).toContain("✓ Removed acme-db from 1 host · 2 files cleaned (zero residue).");
     expect(out).toContain("Verify it's gone: agent-connector doctor");
   });
 
@@ -346,7 +346,7 @@ describe("renderInstallResult — backup is incidental, not an installed surface
       backup("codex"),
     ];
     const out = renderInstallResult(result({ changes }), "install");
-    expect(out).toContain("✓ Installed acme-db to 1 CLI · 1 file. Restart each CLI to load it.");
+    expect(out).toContain("✓ Installed acme-db to 1 host · 1 file. Restart each host to load it.");
     expect(out).not.toContain("· 2 files");
   });
 

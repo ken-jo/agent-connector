@@ -397,7 +397,7 @@ export function renderInstallResult(result: InstallResult, verb: Verb): string {
     lines.push("(no changes)");
   } else {
     const verbed = verb === "uninstall" ? "removed from" : verb === "upgrade" ? "synced to" : "detected";
-    lines.push(`→ ${groups.length} agent ${groups.length === 1 ? "CLI" : "CLIs"} ${verbed}:`);
+    lines.push(`→ ${groups.length} agent ${groups.length === 1 ? "host" : "hosts"} ${verbed}:`);
     // Width-align the platform column for a scannable table; the summary column
     // gets a fixed min width but always keeps a 2-space gap before the paths
     // even when an unusually long summary overflows it.
@@ -427,7 +427,7 @@ export function renderInstallResult(result: InstallResult, verb: Verb): string {
     { files: 0, warns: 0 },
   );
   const cliCount = groups.length;
-  const cliWord = cliCount === 1 ? "CLI" : "CLIs";
+  const cliWord = cliCount === 1 ? "host" : "hosts";
   const fileWord = tally.files === 1 ? "file" : "files";
 
   lines.push("");
@@ -447,7 +447,7 @@ export function renderInstallResult(result: InstallResult, verb: Verb): string {
     } else if (tally.files === 0) {
       lines.push(`✓ ${summary?.id ?? result.connectorId}: already current on ${cliCount} ${cliWord} — nothing to write.`);
     } else {
-      lines.push(`✓ ${what} ${summary?.id ?? result.connectorId} to ${cliCount} ${cliWord} · ${tally.files} ${fileWord}. Restart each CLI to load it.`);
+      lines.push(`✓ ${what} ${summary?.id ?? result.connectorId} to ${cliCount} ${cliWord} · ${tally.files} ${fileWord}. Restart each host to load it.`);
     }
   }
 
@@ -581,7 +581,7 @@ commands:
   doctor       Health-check every detected platform; non-zero exit on any failure.
   status       Light install-state summary: which connectors are present on which hosts (always exits 0).
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
-  usage        Inspect host-native token usage from agent CLI logs (report | export | leaderboard).
+  usage        Inspect host-native token usage from agent host logs (report | export | leaderboard).
   leaderboard  Three leaderboards: 🔌 MCP/plugin (mcp-self) + 🖥️ host/user (host-scan-logs) + 🛰️ host-native turns (host-native-live) — never summed.
   hook         Universal json-stdio hook entrypoint (hosts call this).
   serve        Telemetry-wrapping MCP stdio proxy (wraps a real server command).
