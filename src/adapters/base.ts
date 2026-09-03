@@ -202,10 +202,17 @@ const AGENTS_MD_USER_PATHS: Partial<Record<PlatformId, () => MemoryTarget>> = {
     path: join(homedir(), ".config", "amp", "AGENTS.md"),
     reason: "amp user-scope AGENTS.md",
   }),
-  mux: () => ({
-    path: join(homedir(), ".mux", "AGENTS.md"),
-    reason: "mux global AGENTS.md",
-  }),
+  // Xum (platform id `mux`) renamed its config home `.mux` → `.xum` and still
+  // reads a legacy home, so this resolves the way the adapter's own xumHome()
+  // does: prefer `.xum`, keep an EXISTING `.mux`, default new installs to
+  // `.xum`. Hardcoding `.mux` would write the managed block into a home a
+  // fresh Xum install never reads.
+  mux: () => {
+    const xum = join(homedir(), ".xum");
+    const legacy = join(homedir(), ".mux");
+    const home = existsSync(xum) || !existsSync(legacy) ? xum : legacy;
+    return { path: join(home, "AGENTS.md"), reason: "xum global AGENTS.md" };
+  },
   pi: () => ({
     path: join(homedir(), ".pi", "agent", "AGENTS.md"),
     reason: "pi global AGENTS.md",

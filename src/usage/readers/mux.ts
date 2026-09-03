@@ -1,8 +1,10 @@
 /**
- * usage/readers/mux — Mux (Coder) native session-usage reader.
+ * usage/readers/mux — Xum (Coder, formerly Mux) native session-usage reader.
  *
  * Faithful port of tokscale sessions/mux.rs. Reads the aggregate
- * ~/.mux/sessions/<workspaceId>/session-usage.json file (one per workspace).
+ * <xum home>/sessions/<workspaceId>/session-usage.json file (one per workspace).
+ * The home moved `.mux` → `.xum` in the rename and the legacy one still works,
+ * so paths.ts offers both roots and firstExistingRoot() picks the live one.
  * This is NOT a JSONL log: each file is a single JSON object carrying a
  * `byModel` map keyed by `<provider>:<model>`, with one cumulative token bucket
  * group per model used in the session:
@@ -160,9 +162,9 @@ const muxReader: UsageReader = {
   kind: "local",
   async read({ sinceMs }: { sinceMs?: number }): Promise<UsageRecord[]> {
     const root = firstExistingRoot(PLATFORM_ID);
-    if (root === undefined) return []; // no ~/.mux/sessions → fail-open
+    if (root === undefined) return []; // no <xum home>/sessions → fail-open
 
-    // ~/.mux/sessions/<workspaceId>/session-usage.json
+    // <xum home>/sessions/<workspaceId>/session-usage.json
     const files = walkFiles(root, (name) => name === "session-usage.json");
 
     const records: UsageRecord[] = [];

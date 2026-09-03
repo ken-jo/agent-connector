@@ -5,12 +5,12 @@
 > the CLI detects every installed AI-agent host, renders the right config in each one's
 > native dialect, installs/syncs/uninstalls them, and gives you default, platform-
 > independent, local-first per-tool token telemetry for YOUR OWN wrapped server.
-> **(B) Agent-CLI end users** who have NOT authored a connector run one connector-free
-> command — `agent-connector usage` — to read each agent CLI's own session logs read-only
-> and see per-CLI / per-model / per-session token totals. The one accuracy-critical line:
+> **(B) Agent-host end users** who have NOT authored a connector run one connector-free
+> command — `agent-connector usage` — to read each agent host's own session logs read-only
+> and see per-host / per-model / per-session token totals. The one accuracy-critical line:
 > *if you BUILD an MCP integration, agent-connector deploys it everywhere and measures your
-> own server's per-tool tokens; if you just USE agent CLIs, agent-connector reads their logs
-> to show you per-CLI / per-model token totals* (whole-conversation, never per-MCP/per-tool).
+> own server's per-tool tokens; if you just USE agent hosts, agent-connector reads their logs
+> to show you per-host / per-model token totals* (whole-conversation, never per-MCP/per-tool).
 > See §0 Audiences. The host-usage layer plus three non-summed leaderboards are detailed below.
 
 This is the exhaustive, code-grounded reference. It is the territory; `llms.txt` is
@@ -53,11 +53,11 @@ acme-db doctor --probe                     # live initialize → ping → tools/
 acme-db telemetry report --by tool         # YOUR server's per-tool footprint
 ```
 
-### Audience B — the agent-CLI end user (has NOT authored a connector)
+### Audience B — the agent-host end user (has NOT authored a connector)
 
 You already run Claude Code / Codex / Cursor / … and you just want to know **how many
-tokens your agent CLIs are burning**. You do **not** write a connector, run no install,
-and need no config file. One connector-free command reads each agent CLI's OWN native
+tokens your agent hosts are burning**. You do **not** write a connector, run no install,
+and need no config file. One connector-free command reads each agent host's OWN native
 session logs (read-only, never writes host config):
 
 ```bash
@@ -70,7 +70,7 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 **The accuracy-critical boundary.** The connector-free `usage` path reports
 **whole-conversation totals** grouped by `platform | project | session | model | day`
 only. It does **NOT** and **cannot** itemize cost per individual MCP server or per
-tool: agent CLIs fold tool-result bytes into the session's input tokens and never log
+tool: agent hosts fold tool-result bytes into the session's input tokens and never log
 per-tool token attribution (`UsageRecord` carries no tool/mcp field; `UsageGroupBy` has
 no tool/mcp value — §5). So the literal end-user ask "how much does each MCP I use cost
 me?" is **not answerable** on this path. Per-MCP and per-tool token costs come **only**
@@ -81,7 +81,7 @@ your tools cost" (developer's own wrapped server) with "see what the MCPs you us
 
 > **One sentence to remember:** *If you BUILD an MCP integration, agent-connector
 > deploys it everywhere and measures your own server's per-tool tokens. If you just USE
-> agent CLIs, agent-connector reads their logs to show you per-CLI / per-model token
+> agent hosts, agent-connector reads their logs to show you per-host / per-model token
 > totals.*
 
 ---
@@ -555,7 +555,8 @@ workspace `~/.openclaw/workspace/AGENTS.md` (personal-assistant semantics, not
 a repo file). User scope → the host's documented user/global memory file:
 AGENTS.md where one exists — codex `$CODEX_HOME/AGENTS.md` (default
 `~/.codex/AGENTS.md`), zed `~/.config/zed/AGENTS.md` (`%APPDATA%\Zed\AGENTS.md`
-on Windows), amp `~/.config/amp/AGENTS.md`, mux `~/.mux/AGENTS.md`, pi
+on Windows), amp `~/.config/amp/AGENTS.md`, mux (Xum) `~/.xum/AGENTS.md` (an EXISTING
+legacy `~/.mux` home is kept — the rename left both readable), pi
 `~/.pi/agent/AGENTS.md`, droid `~/.factory/AGENTS.md`, opencode
 `~/.config/opencode/AGENTS.md`, antigravity + antigravity-cli
 `~/.gemini/AGENTS.md` (a shared tree — the idempotent upsert dedupes), omp
@@ -1215,7 +1216,7 @@ arguments/results).
 
 ### usage
 `agent-connector usage <report|export|leaderboard> [flags]` — host-native token usage
-parsed **read-only** from each agent CLI's own session logs/DBs (the complement to
+parsed **read-only** from each agent host's own session logs/DBs (the complement to
 `telemetry`; the two are NOT summed). Rows are aggregate counts only.
 - `report --by platform|project|session|model|day (default platform) --since … --platform <id> [--json]`
   → aggregated table; prints skip notes for platforms requiring a sync.
@@ -1332,7 +1333,7 @@ isError, ts`.
 **Host usage layer (`src/usage/`) — the end-user / Audience B view.** This is the
 subsystem behind the connector-free `agent-connector usage` command (§0 Audience B). It
 is the ONLY telemetry surface an end user can use with no `defineConnector`, no install,
-and no config file: a read-only reader set parses each agent CLI's native logs/DBs
+and no config file: a read-only reader set parses each agent host's native logs/DBs
 (JSONL / JSON / SQLite via pure-WASM `sql.js` / synced-cache artifacts) and reports
 usage aggregated by `platform | project | session | model | day`. Confidence is
 `host-reported` (real numbers) vs `host-estimated` (e.g. Kiro char/4, Crush cost-only).
@@ -1342,7 +1343,7 @@ It never writes host config and never collides with the serve-proxy store.
 groups **only** by `platform | project | session | model | day` (`UsageGroupBy` has
 exactly those five values — no `tool` or `mcp` member), and a `UsageRecord` carries no
 `toolName` / `mcp` field at all (only `platformId`, `modelId`, `providerId`,
-`sessionId`, `projectKey`, `tokens`, `ts`, …). Agent CLIs fold tool-result bytes into
+`sessionId`, `projectKey`, `tokens`, `ts`, …). Agent hosts fold tool-result bytes into
 the session's input tokens and never attribute them to a tool name, so this path can
 report **whole-conversation totals only** — it does NOT and cannot itemize cost per
 individual MCP server or per tool. **Per-MCP / per-tool token data exists ONLY in the
@@ -1376,7 +1377,7 @@ makes the audience boundary unambiguous:
   measuring the developer's OWN server). Empty for a plain end user.
 - 🖥️ **Host / User** (`host-scan-logs`) — whole-conversation usage from scanning each
   CLI's own logs. **Needs no setup** — this is the only board populated for a connector-
-  free end user (Audience B), and it shows per-CLI / per-model / per-session / per-day
+  free end user (Audience B), and it shows per-host / per-model / per-session / per-day
   totals only, never per-MCP or per-tool (same boundary as the host-usage layer above).
 - 🛰️ **Host-native turns (live, exact)** (`host-native-live`) — exact per-turn
   `model_turn` rows. **Needs the opt-in AfterModel / PostInvocation usage hook, which
@@ -1520,10 +1521,10 @@ and uninstall.
 "install to all unconditionally" path. Per-tool telemetry is automatic for **stdio**
 servers only; remote servers are registered but not wrapped.
 
-### Track B — agent-CLI end user: see the token usage of the agent CLIs I use
+### Track B — agent-host end user: see the token usage of the agent hosts I use
 
 No `defineConnector`, no install, no config file. Run it straight from npx — it reads
-your local agent-CLI logs read-only and never writes host config:
+your local agent-host logs read-only and never writes host config:
 
 ```bash
 npx @ken-jo/agent-connector usage report                  # totals by platform (default)
@@ -1534,7 +1535,7 @@ npx @ken-jo/agent-connector usage export --format csv --out usage.csv
 
 `usage` reports **whole-conversation totals** grouped by `platform | project | session |
 model | day` — counts only, never your prompts or results. It does NOT break down cost
-per MCP server or per tool (agent CLIs don't log per-tool attribution — §5); per-MCP /
+per MCP server or per tool (agent hosts don't log per-tool attribution — §5); per-MCP /
 per-tool numbers require an MCP to be deployed and wrapped via a connector (Track A). A
 few readers are host-estimated (shown in the `CONFIDENCE` column), and 5 "synced"
 platforms — `cursor`, `antigravity`, `antigravity-cli`, `trae`, `warp` — are skipped

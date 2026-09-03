@@ -1,6 +1,6 @@
 ---
 name: agent-connector
-description: Use when building, reviewing, installing, packaging, or diagnosing an agent-connector integration. Two audiences: MCP developers use agent-connector as a framework dependency inside their own branded MCP package/bin, while agent-CLI users use connector-free `agent-connector usage` for whole-conversation token totals. Always keep package.json name/mcpName/bin/version as the default identity source; explicit id/displayName/bin/version are advanced overrides only.
+description: Use when building, reviewing, installing, packaging, or diagnosing an agent-connector integration. Two audiences: MCP developers use agent-connector as a framework dependency inside their own branded MCP package/bin, while agent-host users use connector-free `agent-connector usage` for whole-conversation token totals. Always keep package.json name/mcpName/bin/version as the default identity source; explicit id/displayName/bin/version are advanced overrides only.
 ---
 
 # agent-connector
@@ -11,12 +11,12 @@ agent-connector serves two distinct audiences. Pick the track first.
   `@ken-jo/agent-connector`, write `defineConnector({...})`, expose their own
   branded package/bin, and deploy to detected agent hosts through that brand.
 - **Agent-CLI user**: not authoring a connector. They use
-  `agent-connector usage` only, which scans agent CLI logs read-only and reports
+  `agent-connector usage` only, which scans agent host logs read-only and reports
   whole-conversation totals by CLI/model/project/session/day.
 
 The accuracy boundary is strict: developer telemetry can measure per-MCP and
 per-tool tokens only for the developer's own wrapped stdio server. Connector-free
-`usage` cannot itemize arbitrary MCPs or tools because agent CLIs do not log
+`usage` cannot itemize arbitrary MCPs or tools because agent hosts do not log
 per-tool attribution.
 
 ## Read The Right Reference

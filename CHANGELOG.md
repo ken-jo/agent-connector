@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.6.1 — 2026-09-03
+
+Corrects what the project says it is — the promise covers every agent **host**, not
+every agent CLI — and removes the star curation that was hiding real hosts. The
+public wall now shows all 42 registry adapters (was 35). Two paths left behind by
+0.6.0's Mux → Xum rename are fixed.
+
+### Changed
+
+- **The promise is "every agent host", not "every agent CLI".** The target is the
+  whole class of config-owning surfaces — terminal CLIs, IDE extensions and desktop
+  apps alike — so "agent CLI" understated the scope. "Host" is also the correct noun
+  against the MCP / Agent Plugins / Agent Skills specs, all of which say *client*.
+  Updated in the README headline, the landing hero, the coverage page, the footer,
+  `llms.txt`, `llms-full.txt` and the agent-facing skill.
+- **Catchphrase: focus on the implementation, not the distribution.** Added to the
+  README headline and the footer, and recorded in `PROJECT_MEMORY.md` as the framing
+  everything else serves.
+- **The connector-free usage track reads agent HOSTS, not agent CLIs.** Its reader
+  set covers Cursor IDE, Zed, Kiro, Trae, Warp and Antigravity alongside the
+  terminal CLIs, so the docs' "each agent CLI's own session logs" was wrong about
+  its own coverage. Grouping is per-host, as `UsageRecord.platformId` always was.
+- **Public coverage now equals the registry: 42 hosts (was 35).** Every star floor
+  is gone. Stars measure repo popularity, never product reach, and they misrank in
+  both directions: a first-party agent whose public repo is an issues tracker
+  (JetBrains' Junie, 422) is under-reported, and a closed host has no count at all.
+  Once those were conceded, the last floor standing hid Grok CLI (3.4k) and Xum
+  (2.0k) while Junie was listed by exemption. `isPublicCoverageHost` keeps one
+  clause: an archived upstream never renders. The wall still shows star counts, it
+  just does not gate on them. **A host whose upstream has ENDED is removed outright,
+  not hidden** — as `roo-code` was in 0.6.0 — so the `archived` check is only a
+  safety net for the window before the adapter is cut.
+- Breadth is now stated as a goal rather than a side effect: comparing many hosts is
+  how the shared patterns get found (the three hook paradigms, the AGENTS.md
+  convergence, Agent Plugins as a common bundle).
+
+### Fixed
+
+- **Xum's user-scope memory file was written to the home Xum no longer reads.** The
+  0.6.0 rename moved the config home `.mux` → `.xum` and routed the adapter's own
+  paths through `xumHome()`, but the AGENTS.md target in `base.ts` stayed hardcoded
+  to `~/.mux/AGENTS.md`. It now resolves the way the host does: prefer `.xum`, keep
+  an EXISTING `.mux`, default new installs to `.xum`. All three cases are pinned by
+  tests.
+- **Xum usage totals were read from the legacy sessions directory only.**
+  `usage/paths.ts` offered `~/.mux/sessions` alone, so a machine on the new home
+  reported nothing. Both roots are offered now; the reader is fail-open and takes
+  whichever exists.
+- `.gitignore` ignored `.omg/` — a typo for a directory that has never existed —
+  which left `.omc/state/`, `.omc/project-memory.json` and `site/.omc/`
+  untracked-but-unignored, one `git add -A` away from being committed.
+
+### Verified
+
+- Public roster confirmed against the live star snapshot: registry 42, public 42,
+  `hostLifecycle` holding only `gemini-cli=sunsetting`.
+- `tests/docs/platform-drift.test.ts` now asserts every non-archived host is public.
+  Two star floors have been tried and both were withdrawn; a third has to break a
+  test rather than a page.
+
 ## 0.6.0 — 2026-09-02
 
 The public host wall now tells the truth: it marks which hosts receive the Agent Plugins 1.0.0 bundle, adds xAI's Grok Build, retires a dead host, and corrects a set of upstream facts that had quietly rotted. The registry goes from 43 adapters to 42; the public wall shows 35 of them.
