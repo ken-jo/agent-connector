@@ -1198,93 +1198,37 @@ export function hostLifecycleOf(id: string): HostLifecycle | undefined {
 }
 
 /**
- * OSS hosts that are a MAJOR VENDOR'S flagship agent, and are therefore exempt
- * from the raised independent-project star floor on public coverage pages
- * (see PUBLIC_INDEPENDENT_STAR_FLOOR in components/coverage-wall/public-coverage.ts).
- *
- * The exemption exists because a star count measures repo popularity, not
- * product reach, and it under-reports exactly one shape of host: a first-party
- * agent whose public repo is an issues/docs tracker or is simply new. AWS's Kiro
- * (4.2k) and Amazon Q (2.0k) are shipped to millions of AWS users; the star
- * count says otherwise.
- *
- * This is NOT "has a company behind it" — almost every host does. It is "the
- * host is the recognizable flagship agent of a vendor a reader already knows".
- * The BASE floor still applies to everyone, so an exempt host that nobody stars
- * at all (JetBrains' Junie, 422) still stays off the public wall.
- *
- * Drift-guarded: every id must be a real platform id with an OSS `hostSource`
- * (an exemption on a closed host would be dead data — closed hosts are always
- * public).
- */
-export const majorVendorOssIds = new Set<string>([
-  "codex", // OpenAI
-  "gemini-cli", // Google
-  "qwen-code", // Alibaba / Qwen
-  "amazon-q", // AWS
-  "kiro", // AWS
-  "mistral-vibe", // Mistral
-  "kimi", // Moonshot AI
-  "mimo-code", // Xiaomi
-  "nemoclaw", // NVIDIA
-  "grok-build", // xAI
-  "junie", // JetBrains
-  "goose", // Block (now the AAIF goose org)
-  "zed", // Zed Industries
-  "crush", // Charm
-  "opencode", // Anomaly (ex-SST)
-  "hermes", // Nous Research
-  "continue", // Continue
-]);
-
-/**
- * The one floor left: an OSS host that is NOT a major vendor's flagship agent
- * has to clear this to appear on public coverage pages.
- *
- * There used to be a second, lower floor applied to everyone. It was removed on
- * purpose — see `isPublicCoverageHost` for why breadth is the point.
- */
-export const PUBLIC_INDEPENDENT_STAR_FLOOR = 5000;
-
-/**
- * The public-coverage curation policy, as a PURE function of (platform, stars)
- * so the drift test can exercise the real rule without the site's bundler
- * aliases. `site/src/components/coverage-wall/public-coverage.ts` is the thin
- * wrapper that supplies `stars` from the generated snapshot.
+ * The public-coverage curation policy, as a PURE function of the platform so
+ * the drift test can exercise the real rule without the site's bundler aliases.
+ * `site/src/components/coverage-wall/public-coverage.ts` is the thin wrapper
+ * the pages call.
  *
  * BREADTH IS THE PRODUCT. Covering many hosts is not only a marketing surface;
  * comparing them is how the shared patterns get found — the three hook
  * paradigms, the AGENTS.md convergence, Agent Plugins as a common bundle. A
- * host that looks obscure by star count is still a data point in that
- * comparison, and hiding it makes the survey look narrower than it is. So the
- * bar for OMITTING a host is deliberately high:
+ * host that looks obscure by star count is still a data point in that survey,
+ * and hiding it makes the survey look narrower than it is.
  *
- *   1. An archived upstream is never public. This is a SAFETY NET, not the
- *      policy — a host whose upstream has ended gets its adapter REMOVED
- *      outright (see `roo-code`, retired in 0.6.0), so nothing lingers in a
- *      half-supported state to confuse a reader. This check only covers the
- *      window between "upstream archives" and "we cut the adapter".
- *   2. Closed-source hosts are always public. They have no star signal at all,
- *      and the counts on their public repos measure feedback-tracker
- *      engagement rather than reach — VS Code Copilot's sits near 1k against
- *      Warp's 65k, which says nothing true about which is more widely used.
- *   3. A major vendor's flagship agent is always public, at any star count. A
- *      first-party agent whose public repo is an issues tracker (AWS's Kiro,
- *      JetBrains' Junie) is under-reported by stars, not actually small.
- *   4. Everything else — independent OSS projects — needs the floor above.
- *      This is the only exclusion that fires in practice.
+ * So there is exactly one exclusion, and it is a SAFETY NET rather than a
+ * curation rule: an archived upstream never renders. A host whose upstream has
+ * ENDED gets its adapter REMOVED outright (see `roo-code`, retired in 0.6.0) so
+ * nothing lingers in a half-supported state to confuse a reader — this check
+ * only covers the window between "upstream archives" and "we cut the adapter".
+ *
+ * Every star floor is gone, on purpose. Stars measure repo popularity, never
+ * product reach, and they misrank in both directions at once: a first-party
+ * agent whose public repo is an issues tracker (JetBrains' Junie, 422) is
+ * under-reported rather than small, and a closed host has no count at all —
+ * VS Code Copilot's feedback repo sits near 1k against Warp's 65k, which says
+ * nothing true about which is more widely used. Once those two were conceded,
+ * the last floor standing (5,000 for independent OSS) was hiding Grok CLI
+ * (3.4k) and Xum (2.0k) while Junie (422) was listed by exemption — ranking
+ * hosts by a number already agreed to be the wrong measure. `stars` is
+ * therefore no longer an input here; the wall still SHOWS the count, it just
+ * does not gate on it.
  */
-export function isPublicCoverageHost(
-  platform: Platform,
-  stars: number | undefined,
-): boolean {
-  if (hostLifecycle[platform.id]?.status === "archived") return false;
-
-  const src = hostSource[platform.id];
-  if (!src || "closed" in src) return true;
-  if (majorVendorOssIds.has(platform.id)) return true;
-
-  return (stars ?? 0) >= PUBLIC_INDEPENDENT_STAR_FLOOR;
+export function isPublicCoverageHost(platform: Platform): boolean {
+  return hostLifecycle[platform.id]?.status !== "archived";
 }
 
 /**

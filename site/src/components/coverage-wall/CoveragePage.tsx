@@ -12,7 +12,6 @@ import {
   TierLegend,
 } from "@/components/coverage-wall/CoverageWall";
 import {
-  PUBLIC_INDEPENDENT_STAR_FLOOR,
   publicCoverageCount,
   publicCoverageSurfaceCounts,
   publicVerificationCounts,
@@ -63,17 +62,17 @@ export function CoveragePage() {
               Coverage
             </p>
             <h1 className="mt-2 text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-              Works with {publicCoverageCount} production-relevant agents
+              Works with {publicCoverageCount} production-relevant agent hosts
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground">
-              Every closed-source flagship and every major vendor&apos;s agent is
-              listed here whatever its star count — a first-party agent whose
-              public repo is an issues tracker is under-reported, not small.
-              Independent open-source projects are listed from{" "}
-              {PUBLIC_INDEPENDENT_STAR_FLOOR.toLocaleString()} stars. Hosts whose
-              upstream has ended are retired outright rather than left here. Each
-              card shows the surfaces agent-connector installs, and which
-              host-native surfaces are still gaps.
+              Every host with an adapter is listed, whatever its star count —
+              stars measure repo popularity, not reach, and a first-party agent
+              whose public repo is an issues tracker is under-reported rather
+              than small. Comparing this many hosts side by side is how the
+              shared patterns surface. Hosts whose upstream has ended are retired
+              outright rather than left here. Each card shows the surfaces
+              agent-connector installs, and which host-native surfaces are still
+              gaps.
             </p>
           </div>
 

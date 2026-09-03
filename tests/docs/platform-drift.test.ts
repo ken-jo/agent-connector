@@ -49,11 +49,9 @@ import {
   hostLinks,
   hostSource,
   isPublicCoverageHost,
-  majorVendorOssIds,
   platforms as landingPlatforms,
   tierOf,
 } from "../../site/src/platform-data.js";
-import coverageStars from "../../site/src/coverage-stars.generated.json" with { type: "json" };
 
 
 /** Registry-derived truth: paradigm → sorted adapter ids. */
@@ -760,35 +758,20 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     }
   });
 
-  it("majorVendorOssIds exempts only real OSS hosts, and archived hosts stay off public coverage", () => {
-    // The exemption lifts the raised independent-project floor, so a stray id
-    // here would silently re-admit a host we meant to curate out — and an
-    // exemption on a CLOSED host would be dead data, since closed hosts are
-    // always public.
-    const byId = new Map(landingPlatforms.map((p) => [p.id, p]));
-    for (const id of majorVendorOssIds) {
-      const platform = byId.get(id);
-      expect(platform, `majorVendorOssIds has unknown platform id "${id}"`).toBeDefined();
-      const src = hostSource[id];
-      expect(src, `majorVendorOssIds["${id}"] has no hostSource entry`).toBeDefined();
-      expect(
-        src && "repo" in src,
-        `majorVendorOssIds["${id}"] is a CLOSED host — closed hosts are always public, so the exemption is dead data`,
-      ).toBe(true);
-    }
-
-    // The curation policy itself: nothing archived may reach a public page.
+  it("every non-archived host is public, and archived hosts never are", () => {
+    // Breadth is the product: comparing many hosts is how the shared patterns
+    // get found, so the public wall shows the whole registry. This guard exists
+    // because the wall has twice grown a quiet star filter that ranked hosts by
+    // a number nobody trusts — it hid Grok CLI (3.4k) and Xum (2.0k) while
+    // listing Junie (422). Re-introducing one has to break a test, not a page.
     for (const platform of landingPlatforms) {
-      if (hostLifecycle[platform.id]?.status !== "archived") continue;
-      const src = hostSource[platform.id];
-      const stars =
-        src && "repo" in src
-          ? (coverageStars as Record<string, number>)[src.repo]
-          : undefined;
+      const archived = hostLifecycle[platform.id]?.status === "archived";
       expect(
-        isPublicCoverageHost(platform, stars),
-        `"${platform.id}" is archived upstream but still renders on public coverage`,
-      ).toBe(false);
+        isPublicCoverageHost(platform),
+        archived
+          ? `"${platform.id}" is archived upstream but still renders on public coverage`
+          : `"${platform.id}" is hidden from public coverage — only an archived upstream may be`,
+      ).toBe(!archived);
     }
   });
 

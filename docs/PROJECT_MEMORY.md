@@ -16,12 +16,10 @@ The public site should not read like a generic agent-user tool. It should explai
 
 ## Improvements To Finish First
 
-1. Keep public coverage broad, and omit a host only for a reason that survives scrutiny. The rule (2026-09-03, `isPublicCoverageHost` in `site/src/platform-data.ts`):
-   - **Closed-source hosts are always listed.** They have no star signal, and their public repos measure feedback-tracker engagement rather than reach — VS Code Copilot's sits near 1k against Warp's 65k.
-   - **A major vendor's flagship agent is always listed, at any star count** (`majorVendorOssIds`). A first-party agent whose public repo is an issues tracker — AWS's Kiro, JetBrains' Junie — is under-reported, not small.
-   - **Independent open-source projects** must clear `PUBLIC_INDEPENDENT_STAR_FLOOR`. This is the only exclusion that fires in practice.
-   - **A host whose upstream has ENDED is removed outright, not hidden.** Leaving a dead host in a half-supported state is the confusing outcome; `roo-code` was retired this way in 0.6.0. The `archived` check in the public filter is only a safety net for the window before the adapter is cut.
-   This supersedes the earlier "hide OSS below 1,000 stars, preserve the full registry in code" rule, which hid real hosts and kept dead ones.
+1. Keep public coverage equal to the registry. The rule (2026-09-03, `isPublicCoverageHost` in `site/src/platform-data.ts`) has exactly two clauses:
+   - **Every host with an adapter is listed**, at any star count, open or closed. Stars measure repo popularity, never product reach, and they misrank in both directions: a first-party agent whose public repo is an issues tracker (JetBrains' Junie, 422) is under-reported, and a closed host has no count at all — VS Code Copilot's feedback repo sits near 1k against Warp's 65k.
+   - **A host whose upstream has ENDED is removed outright, not hidden.** Leaving a dead host in a half-supported state is the confusing outcome; `roo-code` was retired this way in 0.6.0. The `archived` check in the filter is only a safety net for the window before the adapter is cut.
+   Two star floors have been tried and both were withdrawn. A flat 1,000 hid Junie; a raised 5,000 for independent OSS hid Grok CLI (3.4k) and Xum (2.0k) while Junie stayed listed by a vendor exemption — ranking hosts by a number already conceded to be the wrong measure. `tests/docs/platform-drift.test.ts` now fails if any non-archived host is hidden, so a third attempt has to break a test rather than a page.
 2. Keep the root-level `/docs/guides` track focused on beginner education. The agent-connector beginner guide should teach protocol architecture, terms, surfaces, tool contracts, server lifecycle, tool-call flow, transports, verification, debugging, and safety while explaining how agent-connector maps those concepts into host CLIs; adjacent guide pages should explain host hooks, HUD/statusline, actions, and special surfaces in beginner terms.
 3. Add a blog surface for AI and product writing. Until editorial direction is reviewed, publish only a single BUILDING test post that verifies routing, RSS, and image rendering instead of exposing draft-like articles.
 4. Keep release and verification hygiene visible: repository version, npm latest, GitHub release, CI, and live host verification should not drift silently.
