@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.2 — 2026-09-03
+
+Documentation-only. The npm `dist/` is identical to 0.6.1.
+
+### Changed
+
+- `llms.txt` Product Scope states what the SDK does and nothing else. The positioning
+  sentences added in 0.6.1 ("the one-line promise is…", "the framing is…") are removed:
+  the file is a usage guide, not a place to explain the project to its reader.
+- `llms-full.txt` states Xum's user-scope memory target as a rule — `~/.xum/AGENTS.md`,
+  or `~/.mux/AGENTS.md` when only that home exists — instead of narrating the rename.
+  The `codex-plugin` / `copilot-plugin` alias line is likewise a plain fact.
+- `skills/agent-connector/references/package-first.md` showed `^0.4.94` as the
+  dependency example. It now tracks the released version: `prepare-release.mjs`
+  bumps it alongside the README example and the package-audit test.
+
 ## 0.6.1 — 2026-09-03
 
 Corrects what the project says it is — the promise covers every agent **host**, not

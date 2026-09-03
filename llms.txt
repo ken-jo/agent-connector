@@ -6,12 +6,9 @@ public host coverage lives at https://agent-connector.ai/coverage.
 
 ## Product Scope
 
-agent-connector is an SDK and CLI for MCP package authors. The one-line promise is
-"deploy one MCP to every agent host" — host meaning any config-owning surface, so
-terminal CLIs, IDE extensions and desktop apps alike, not CLIs only. The framing is
-"focus on the implementation, not the distribution": the author stays in their MCP
-server and never hand-maintains a per-host integration, package format, or install
-path.
+agent-connector is an SDK and CLI for MCP package authors. One connector definition
+targets every supported agent host — terminal CLIs, IDE extensions and desktop apps —
+so the author does not write a per-host integration, package format, or install path.
 
 A connector package declares one MCP server plus optional hooks, commands, skills,
 subagents, memory, statusline, actions, telemetry, and per-host overrides. The CLI
