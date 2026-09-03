@@ -47,7 +47,7 @@ describe("auditConnectorPackage", () => {
       mcpName: "io.github.acme/acme-db",
       bin: { "acme-db": "./bin.mjs" },
       files: ["bin.mjs", "agent-connector.config.mjs", "server.mjs"],
-      dependencies: { "@ken-jo/agent-connector": "^0.6.2" },
+      dependencies: { "@ken-jo/agent-connector": "^0.6.3" },
     });
     writeFileSync(join(tmp, "bin.mjs"), "#!/usr/bin/env node\n", "utf8");
     writeFileSync(join(tmp, "server.mjs"), "\n", "utf8");

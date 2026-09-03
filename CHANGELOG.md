@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.6.3 — 2026-09-03
+
+The README quotes numbers now, and every one of them is pinned to its source. One
+CLI-output wording fix.
+
+### Changed
+
+- **README "By the numbers" table** in the lead: 42 agent hosts; 8 surfaces with the
+  per-surface host count (MCP 41, memory 40, skills 34, hooks 31, commands 19,
+  subagents 16, actions 9, status line 3); 13 hook events through 3 paradigms
+  (23 · 11 · 8); 9 host plugin formats + 2 MCP standard artifacts; 25 of 42 hosts
+  verified against the real host binary (5 end-to-end), 17 by the registry install
+  harness; one 135-line `defineConnector()` → 64 host-native files in 6 file
+  extensions across 41 of 42 hosts at user scope (61 at project scope); 149 test
+  files.
+- **Two drift tests hold that table to its sources.** `tests/docs/readme-facts.test.ts`
+  derives every figure from the registry, the generated capability profiles, the
+  verification matrix and the test tree. `tests/docs/readme-footprint.test.ts`
+  *measures* the footprint row: it installs `examples/acme-db` through its own bin
+  into an isolated HOME once per host, at both scopes, and counts the files that
+  appear. `npm run measure:footprint` prints the same JSON.
+- Badges: the host badge carries the registry count (was "see /coverage"); the
+  package badge says 9 plugin formats + 2 MCP artifacts (was "11 marketplace
+  formats", which counted `mcp-server-json` and `mcpb` as marketplaces); the
+  surfaces badge carries the count, 8 (it listed six, including a "tools" surface
+  that does not exist); the tests badge carries the test-file count.
+- The README drift guard is inverted: it used to assert the host badge carried NO
+  number; it now asserts the number equals the registry.
+
+### Removed
+
+- The "~20,322 lines → ~76 lines (99.63%)" dogfood claim. It cited reports under
+  `docs/research/` that do not exist anywhere in the repository, and re-measuring
+  the current context-mode source does not reproduce the figure. A number that
+  cannot be re-derived from the repo is not evidence.
+
+### Fixed
+
+- CLI summaries said "to 1 CLI · 4 files. Restart each CLI to load it" and the
+  `usage` help said "agent CLI logs"; they say **host** now, like every other surface.
+
 ## 0.6.2 — 2026-09-03
 
 Documentation-only. The npm `dist/` is identical to 0.6.1.

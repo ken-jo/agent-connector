@@ -368,14 +368,20 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
   // NOTE: the llms.txt / llms-full.txt paradigm-partition assertions moved to
   // tests/docs/robot-support.test.ts (the single home for robot-doc drift).
 
-  it("README routes platform-count badges to coverage and Droid sits in the json-stdio row", () => {
+  it("README host badge carries the registry count and Droid sits in the json-stdio row", () => {
+    // The badge used to be de-numbered ("see /coverage") to stop it rotting.
+    // The README now quotes numbers on purpose — they are the evidence a
+    // reader or a search index ranks on — so the guard flipped: the number
+    // must EQUAL the registry, not be absent. tests/docs/readme-facts.test.ts
+    // pins the rest of the fact table the same way.
     const text = readFileSync("README.md", "utf8");
-    expect(text).toContain("platform%20coverage-see%20%2Fcoverage");
+    expect(text).toContain(`agent%20hosts-${ADAPTER_REGISTRY.length}-`);
     expect(text).toContain("https://agent-connector.ai/coverage");
-    expect(text).not.toContain(`platforms-${ADAPTER_REGISTRY.length}-`);
-    expect(text).toContain("tests-passing");
-    expect(text).not.toMatch(/tests-\d+%20passing/);
-    const jsonStdioRow = text.split("\n").find((l) => l.includes("`json-stdio`") && l.includes("|"));
+    expect(text).not.toContain("platform%20coverage-see%20%2Fcoverage");
+    expect(text).not.toContain("tests-passing-");
+    // The paradigm TABLE row, not the "By the numbers" row that also names the
+    // paradigm — the table row is the one that lists hosts.
+    const jsonStdioRow = text.split("\n").find((l) => l.startsWith("| `json-stdio`"));
     expect(jsonStdioRow, "README json-stdio table row not found").toBeTruthy();
     expect(jsonStdioRow).toContain("Droid");
   });

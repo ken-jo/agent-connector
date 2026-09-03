@@ -15,17 +15,30 @@ Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
 
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
-[![platform coverage](https://img.shields.io/badge/platform%20coverage-see%20%2Fcoverage-2563eb)](https://agent-connector.ai/coverage)
-![surfaces](https://img.shields.io/badge/surfaces-MCP%20%7C%20hooks%20%7C%20commands%20%7C%20tools%20%7C%20memory%20%7C%20status%20line-2563eb)
+[![agent hosts](https://img.shields.io/badge/agent%20hosts-42-2563eb)](https://agent-connector.ai/coverage)
+![surfaces](https://img.shields.io/badge/surfaces-8-2563eb)
 ![hook paradigms](https://img.shields.io/badge/hook%20paradigms-3-2563eb)
 [![install verified](https://img.shields.io/badge/install%20verified-registry%20harness-22c55e)](https://agent-connector.ai/coverage)
 [![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
-![marketplace](https://img.shields.io/badge/package-11%20marketplace%20formats-2563eb)
+![package formats](https://img.shields.io/badge/package-9%20plugin%20formats%20%2B%202%20MCP%20artifacts-2563eb)
 [![agent plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-2563eb)](https://agent-plugins.org)
-![tests](https://img.shields.io/badge/tests-passing-22c55e)
+![tests](https://img.shields.io/badge/tests-149%20files-22c55e)
+
+**By the numbers.** Every figure is derived from the adapter registry or measured
+by a test on each run, and a drift test fails if the README and the source disagree.
+
+| | |
+|---|---|
+| Agent hosts with an adapter | **42** — terminal CLIs, IDE extensions and desktop apps ([coverage wall](https://agent-connector.ai/coverage)) |
+| Surfaces rendered per host | **8** — MCP server (41 hosts), memory (40), skills (34), hooks (31), commands (19), subagents (16), actions (9), status line (3) |
+| Hook events normalized | **13**, dispatched through **3** paradigms (`json-stdio` 23 hosts · `mcp-only` 11 · `ts-plugin` 8) |
+| Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
+| Hosts verified against the real host binary | **25 of 42** (5 of them end-to-end through a model tool call); the other **17** by the registry install harness in an isolated HOME |
+| Measured footprint | one 135-line `defineConnector()` → **64 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (61 at project scope) — `npm run measure:footprint` |
+| Test suite | **149** test files |
 
 **Two audiences:** connector developers start at [Quick start](#quick-start);
-if you already run an agent CLI and just want token totals, jump straight to
+if you already run an agent host and just want token totals, jump straight to
 [`usage`](#token-telemetry--usage).
 
 - [Quick start](#quick-start) — depend on the SDK, declare a connector, install it
@@ -54,7 +67,7 @@ if you already run an agent CLI and just want token totals, jump straight to
 agent-connector is an **SDK connector developers depend on**. Add it to the
 package that holds your connector, declare the connector once, then ship a
 branded MCP package/bin such as `npx @acme/acme-db-mcp install` — it deploys to
-every detected agent CLI in that host's own native config. Installing
+every detected agent host in that host's own native config. Installing
 `@ken-jo/agent-connector` globally is not the branded MCP lifecycle path; reserve
 the global CLI guidance for connector-free token usage reports. Framework
 artifact tooling stays developer-facing and normally runs through
@@ -79,7 +92,7 @@ npm install @ken-jo/agent-connector
   "name": "@acme/acme-db-mcp",
   "mcpName": "io.github.acme/acme-db",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "@ken-jo/agent-connector": "^0.6.2" }
+  "dependencies": { "@ken-jo/agent-connector": "^0.6.3" }
 }
 ```
 
@@ -550,9 +563,9 @@ Two independent, never-summed views of token cost:
   npx @ken-jo/agent-connector usage export --format csv --out usage.csv
   ```
 
-  It reports **whole-conversation totals** per agent CLI / model / project /
+  It reports **whole-conversation totals** per agent host / model / project /
   session / day. It does **not** itemize cost by individual MCP server or tool —
-  agent CLIs don't log per-tool attribution.
+  agent hosts don't log per-tool attribution.
 
 **Privacy & tokenizer.** Default tokenizer is `gpt-tokenizer` (pure-JS, no native
 build) — `o200k_base` for OpenAI/Codex-family, a documented approximation for
@@ -617,10 +630,14 @@ telemetry are proven end-to-end where the host can run headlessly. IDE
 extensions / GUI editors with no headless CLI stay covered by the
 install-roundtrip harness.
 
-**Dogfood result:** porting the real multi-host context-mode plugin to
-`defineConnector` collapsed **~20,322 lines of hand-maintained per-host code down
-to ~76 lines** (a 99.63% reduction). See the reports under
-[`docs/research/`](docs/research/) and [`CHANGELOG.md`](CHANGELOG.md).
+**Measured footprint.** The runnable example ([`examples/acme-db`](examples/acme-db/),
+a 135-line `defineConnector()` declaring an MCP server, `PreToolUse` + `SessionStart`
+hooks, a status line and an action) is installed through its own bin into an isolated
+HOME, once per registered host, and the files that appear on that disk are counted —
+the numbers in [By the numbers](#agent-connector) above. Every host takes the example
+at user scope or project scope. `tests/docs/readme-footprint.test.ts` measures it on
+every run and fails if the README quotes anything else; `npm run measure:footprint`
+prints the same JSON.
 
 ## Development
 
@@ -639,7 +656,7 @@ npm run test:single -- tests/adapters/<host>.test.ts
 PRs welcome — especially new host adapters and fixes verified against a host's
 primary source. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the dev workflow,
 the single-fork test discipline, the **verify-first** rule for adapters, and the
-new-host checklist. Want a new agent CLI supported? Open a
+new-host checklist. Want a new agent host supported? Open a
 [host adapter request](https://github.com/ken-jo/agent-connector/issues/new?template=host_adapter_request.yml).
 
 Security reports: see [SECURITY.md](SECURITY.md).
