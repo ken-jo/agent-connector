@@ -6,13 +6,19 @@ public host coverage lives at https://agent-connector.ai/coverage.
 
 ## Product Scope
 
-agent-connector is an SDK and CLI for MCP package authors. A connector package
-declares one MCP server plus optional hooks, commands, skills, subagents, memory,
-statusline, actions, telemetry, and per-host overrides. The CLI renders those
-surfaces into each supported host's native files, verifies install health, and can
-wrap stdio servers for local per-tool token telemetry.
+agent-connector is an SDK and CLI for MCP package authors. The one-line promise is
+"deploy one MCP to every agent host" — host meaning any config-owning surface, so
+terminal CLIs, IDE extensions and desktop apps alike, not CLIs only. The framing is
+"focus on the implementation, not the distribution": the author stays in their MCP
+server and never hand-maintains a per-host integration, package format, or install
+path.
 
-A separate connector-free usage track reads agent CLI session logs read-only and
+A connector package declares one MCP server plus optional hooks, commands, skills,
+subagents, memory, statusline, actions, telemetry, and per-host overrides. The CLI
+renders those surfaces into each supported host's native files, verifies install
+health, and can wrap stdio servers for local per-tool token telemetry.
+
+A separate connector-free usage track reads agent host session logs read-only and
 reports host-level token totals by platform, project, session, model, or day. It
 does not provide per-MCP or per-tool attribution; those numbers come from a
 developer-owned connector using the serve telemetry proxy.
@@ -23,7 +29,7 @@ developer-owned connector using the serve telemetry proxy.
   public identity; `@ken-jo/agent-connector/sdk` supplies authoring helpers;
   `@ken-jo/agent-connector/cli` exposes lifecycle commands through the package's
   own bin. Framework packaging artifacts are produced by the framework CLI.
-- Agent CLI usage track: inspect local host usage logs without authoring or
+- Agent host usage track: inspect local host usage logs without authoring or
   installing a connector. Relevant verbs are `usage report`, `usage export`, and
   `usage leaderboard`.
 

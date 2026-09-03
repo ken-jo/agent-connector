@@ -211,6 +211,10 @@ export function hostRoots(platformId: string): string[] {
       out.push(join(homedir(), ".factory", "sessions"));
       break;
     case "mux":
+      // Xum renamed its home `.mux` → `.xum` and still reads the legacy one, so
+      // a machine can hold either (or both, mid-migration). Both roots are
+      // pushed — the reader is fail-open and merges whatever it finds.
+      out.push(join(homedir(), ".xum", "sessions"));
       out.push(join(homedir(), ".mux", "sessions"));
       break;
     case "kiro":

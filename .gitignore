@@ -17,7 +17,16 @@ archive-*/
 
 # agent-connector local test harness + OMC orchestration (never commit)
 .acverify/
-.omg/
+# OMC runtime state. This entry read `.omg/` until 2026-09-03 — a typo for a
+# directory that has never existed, so `.omc/state/`, `.omc/project-memory.json`
+# and `site/.omc/` sat untracked-but-unignored and were one `git add -A` away
+# from being committed. Ignore the CONTENTS, not the directory: git cannot
+# re-include a path whose parent directory is excluded, and `.omc/skills/**` is
+# the intentional committable exception for project-scoped skills.
+.omc/*
+!.omc/RELEASE_RULE.md
+!.omc/skills/
+site/.omc/
 
 # scripts/verify-host.mjs local toolchain prefix: host CLIs installed for LIVE
 # verification on a box that lacks them (npm --prefix .verify-tools). Persists as

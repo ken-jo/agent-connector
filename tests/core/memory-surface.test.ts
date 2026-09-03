@@ -39,6 +39,7 @@ import hermesAdapter from "../../src/adapters/hermes/index.js";
 import kiloAdapter from "../../src/adapters/kilo/index.js";
 import kiloCliAdapter from "../../src/adapters/kilo-cli/index.js";
 import kiroAdapter from "../../src/adapters/kiro/index.js";
+import muxAdapter from "../../src/adapters/mux/index.js";
 import openclawAdapter from "../../src/adapters/openclaw/index.js";
 import opencodeAdapter from "../../src/adapters/opencode/index.js";
 import qwenCodeAdapter from "../../src/adapters/qwen-code/index.js";
@@ -731,4 +732,41 @@ describe("memory surface: user-scope host-file targets", () => {
       expect(readFileSync(target, "utf8")).toContain("agent-connector:begin acme-db/memory");
     });
   }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Xum (platform id `mux`) — the user-scope memory file follows the ACTIVE home
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("memory surface: xum user-scope home resolution", () => {
+  // Xum renamed its home `.mux` → `.xum` and still reads the legacy one. The
+  // adapter's config/skills paths went through xumHome() at the rename, but
+  // this target stayed pinned to `.mux` in base.ts until 0.6.1 — so a fresh
+  // Xum install had its managed block written into a home it never reads.
+  // These pin all three cases the way the adapter's own home tests do.
+  it("writes ~/.xum/AGENTS.md on a machine with neither home", () => {
+    const dir = freshProject();
+    const changes = muxAdapter.installMemory!(buildCtx(dir, buildConnector(), "user"));
+    const target = join(dir, ".xum", "AGENTS.md");
+    expect(changes.some((c) => c.path === target)).toBe(true);
+    expect(readFileSync(target, "utf8")).toContain("agent-connector:begin acme-db/memory");
+    expect(existsSync(join(dir, ".mux"))).toBe(false);
+  });
+
+  it("keeps an EXISTING legacy ~/.mux home instead of stranding it", () => {
+    const dir = freshProject();
+    mkdirSync(join(dir, ".mux"), { recursive: true });
+    const changes = muxAdapter.installMemory!(buildCtx(dir, buildConnector(), "user"));
+    expect(changes.some((c) => c.path === join(dir, ".mux", "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(dir, ".xum", "AGENTS.md"))).toBe(false);
+  });
+
+  it("prefers ~/.xum when BOTH homes exist", () => {
+    const dir = freshProject();
+    mkdirSync(join(dir, ".mux"), { recursive: true });
+    mkdirSync(join(dir, ".xum"), { recursive: true });
+    const changes = muxAdapter.installMemory!(buildCtx(dir, buildConnector(), "user"));
+    expect(changes.some((c) => c.path === join(dir, ".xum", "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(dir, ".mux", "AGENTS.md"))).toBe(false);
+  });
 });
