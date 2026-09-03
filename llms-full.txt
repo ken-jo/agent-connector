@@ -555,8 +555,8 @@ workspace `~/.openclaw/workspace/AGENTS.md` (personal-assistant semantics, not
 a repo file). User scope → the host's documented user/global memory file:
 AGENTS.md where one exists — codex `$CODEX_HOME/AGENTS.md` (default
 `~/.codex/AGENTS.md`), zed `~/.config/zed/AGENTS.md` (`%APPDATA%\Zed\AGENTS.md`
-on Windows), amp `~/.config/amp/AGENTS.md`, mux (Xum) `~/.xum/AGENTS.md` (an EXISTING
-legacy `~/.mux` home is kept — the rename left both readable), pi
+on Windows), amp `~/.config/amp/AGENTS.md`, mux (Xum) `~/.xum/AGENTS.md` (or `~/.mux/AGENTS.md`
+when only that home exists), pi
 `~/.pi/agent/AGENTS.md`, droid `~/.factory/AGENTS.md`, opencode
 `~/.config/opencode/AGENTS.md`, antigravity + antigravity-cli
 `~/.gemini/AGENTS.md` (a shared tree — the idempotent upsert dedupes), omp
@@ -1192,9 +1192,9 @@ ${PLUGIN_ROOT}/bin/agent-connector.mjs`, a bundled launcher that resolves the
 runtime at run time (home binary → PATH → `npx @ken-jo/agent-connector`), so no
 global install is required. The codex and copilot-cli marketplace drivers stage
 this exact bundle (`install --method marketplace --targets codex,copilot-cli`;
-live-verified on codex 0.149 + GitHub Copilot CLI 1.0.80). The retired
-`codex-plugin` / `copilot-plugin` names still parse and resolve to agent-plugin
-with a deprecation line. Two OFFICIAL MCP standard artifacts are emitted only by explicit name
+live-verified on codex 0.149 + GitHub Copilot CLI 1.0.80). The aliases
+`codex-plugin` / `copilot-plugin` resolve to `agent-plugin` and print a deprecation
+line. Two OFFICIAL MCP standard artifacts are emitted only by explicit name
 (they require the connector's `publish` block and are excluded from `all`):
 `mcp-server-json` (an MCP Registry server.json, schema 2025-12-11, describing
 your REAL upstream server — not the serve wrapper) and `mcpb` (an MCPB manifest,

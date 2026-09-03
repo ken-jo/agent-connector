@@ -156,7 +156,11 @@ if (lock.packages?.[""]) lock.packages[""].version = version;
 writeJson("package-lock.json", lock);
 
 const dependencyLiteral = `"@ken-jo/agent-connector": "^${version}"`;
-for (const relativePath of ["README.md", "tests/core/package-audit.test.ts"]) {
+for (const relativePath of [
+  "README.md",
+  "tests/core/package-audit.test.ts",
+  "skills/agent-connector/references/package-first.md",
+]) {
   const original = readText(relativePath);
   const updated = original.replace(
     /"@ken-jo\/agent-connector": "\^\d+\.\d+\.\d+"/g,
