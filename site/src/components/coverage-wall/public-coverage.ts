@@ -22,7 +22,7 @@ import {
 
 const STARS: Record<string, number> = coverageStars;
 
-export { PUBLIC_OSS_STAR_FLOOR, PUBLIC_INDEPENDENT_STAR_FLOOR } from "@/data";
+export { PUBLIC_INDEPENDENT_STAR_FLOOR } from "@/data";
 
 export function starsForPlatform(id: string): number | undefined {
   const src = hostSource[id];

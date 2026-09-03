@@ -13,7 +13,6 @@ import {
 } from "@/components/coverage-wall/CoverageWall";
 import {
   PUBLIC_INDEPENDENT_STAR_FLOOR,
-  PUBLIC_OSS_STAR_FLOOR,
   publicCoverageCount,
   publicCoverageSurfaceCounts,
   publicVerificationCounts,
@@ -67,14 +66,14 @@ export function CoveragePage() {
               Works with {publicCoverageCount} production-relevant agents
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground">
-              This public matrix highlights closed-source flagship hosts,
-              major-vendor agents from{" "}
-              {PUBLIC_OSS_STAR_FLOOR.toLocaleString()} GitHub stars up, and
-              independent open-source projects from{" "}
-              {PUBLIC_INDEPENDENT_STAR_FLOOR.toLocaleString()}. Hosts whose
-              upstream has been archived are dropped. Each card shows the
-              surfaces agent-connector installs, and which host-native surfaces
-              are still gaps.
+              Every closed-source flagship and every major vendor&apos;s agent is
+              listed here whatever its star count — a first-party agent whose
+              public repo is an issues tracker is under-reported, not small.
+              Independent open-source projects are listed from{" "}
+              {PUBLIC_INDEPENDENT_STAR_FLOOR.toLocaleString()} stars. Hosts whose
+              upstream has ended are retired outright rather than left here. Each
+              card shows the surfaces agent-connector installs, and which
+              host-native surfaces are still gaps.
             </p>
           </div>
 

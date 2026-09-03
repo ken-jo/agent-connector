@@ -48,7 +48,6 @@ import {
   hostLifecycle,
   hostLinks,
   hostSource,
-  curatedOutIds,
   isPublicCoverageHost,
   majorVendorOssIds,
   platforms as landingPlatforms,
@@ -443,7 +442,10 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
         "platformCount",
       );
     }
-    expect(docs).toContain("publicCoverageCount} production-relevant agents");
+    // "agent hosts", not "agents" or "agent CLIs": the promise covers every
+    // config-owning surface (CLI, IDE extension, desktop app), and the noun is
+    // load-bearing — see PROJECT_MEMORY "Current Product Direction".
+    expect(docs).toContain("publicCoverageCount} production-relevant agent hosts");
     expect(docs).toContain("publicCapabilityProfiles.length");
     expect(docs).toContain("internal full registry currently has");
     expect(docs).not.toContain("{platformCount} registered deploy adapters");
@@ -773,11 +775,6 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
         src && "repo" in src,
         `majorVendorOssIds["${id}"] is a CLOSED host — closed hosts are always public, so the exemption is dead data`,
       ).toBe(true);
-    }
-
-    // The editorial opt-out must not name a host that no longer exists.
-    for (const id of curatedOutIds) {
-      expect(byId.has(id), `curatedOutIds has unknown platform id "${id}"`).toBe(true);
     }
 
     // The curation policy itself: nothing archived may reach a public page.

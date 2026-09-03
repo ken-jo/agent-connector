@@ -4,11 +4,14 @@
 
 # agent-connector
 
-### Deploy one MCP to every agent CLI.
+### Deploy one MCP to every agent host.
+
+**Focus on the implementation, not the distribution.**
 
 Write your server + hooks once with `defineConnector()`, then `install` it into
-the native config — or `package` it as a real plugin — across every detected agent CLI
-(Claude Code, Codex, Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
+the native config — or `package` it as a real plugin — across every detected agent
+host: terminal CLIs, IDE extensions and desktop apps alike (Claude Code, Codex,
+Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
 
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)

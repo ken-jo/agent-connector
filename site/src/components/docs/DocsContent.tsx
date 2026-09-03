@@ -16,7 +16,6 @@ import {
 // hosts can stay supported without becoming marketing noise.
 import { platformCount } from "@/data";
 import {
-  PUBLIC_OSS_STAR_FLOOR,
   publicCapabilityProfiles,
   publicCoverageCount,
 } from "@/components/coverage-wall/public-coverage";
@@ -932,11 +931,11 @@ export function Introduction() {
         framework: where context-mode hardcoded the served identity, here the MCP
         package metadata (<C>package.json</C> <C>name</C>, <C>bin</C>, and{" "}
         <C>mcpName</C>) becomes the source of truth. Public guides focus on{" "}
-        <strong>{publicCoverageCount} production-relevant agents</strong>:
-        closed-source flagship hosts plus open-source hosts with{" "}
-        {PUBLIC_OSS_STAR_FLOOR.toLocaleString()}+ GitHub stars. The internal
-        adapter registry can stay broader for compatibility, while install still
-        targets only the hosts detected on your machine or the targets you name.
+        <strong>{publicCoverageCount} production-relevant agent hosts</strong>:
+        every closed-source flagship and every major vendor&apos;s agent,
+        whatever its star count, plus independent open-source projects above the
+        listing floor. Install still targets only the hosts detected on your
+        machine or the targets you name.
         It is Windows-first (no symlinks, no POSIX-only assumptions).
       </P>
     </DocSection>

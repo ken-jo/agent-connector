@@ -1238,38 +1238,11 @@ export const majorVendorOssIds = new Set<string>([
 ]);
 
 /**
- * Hosts deliberately kept OFF public coverage pages by editorial decision.
+ * The one floor left: an OSS host that is NOT a major vendor's flagship agent
+ * has to clear this to appear on public coverage pages.
  *
- * The star floors below cannot curate CLOSED hosts — they have no star signal,
- * and the counts on their public repos measure feedback-tracker engagement
- * rather than product reach (VS Code Copilot's repo sits at ~1k while Warp's is
- * ~65k, which says nothing true about which is more widely used). So the call
- * for a closed host is editorial, and each one is recorded here with its reason
- * rather than hidden behind a fake metric.
- *
- * NOTE on `droid`: unlike the other three, Droid IS one of the marketplace
- * hosts agent-connector drives end-to-end, and the packaging docs name it in
- * the CATALOG driver roster. Those docs stay accurate — this set governs the
- * public WALL only, not the registry, the driver, or what we claim to install.
- * The asymmetry (we drive a host we do not showcase) is intentional and was
- * decided deliberately; do not "fix" it by re-adding Droid here without asking.
- *
- * Drift-guarded: every id must be a real platform id.
- */
-export const curatedOutIds = new Set<string>([
-  "codebuddy", // Tencent CodeBuddy — no public repo at all, China-market only
-  "trae", // ByteDance Trae — Trae-AI/TRAE ~0.9k, recognized mainly in Asia
-  "amp", // Sourcegraph Amp — no public repo; niche outside Sourcegraph's base
-  "droid", // Factory Droid — Factory-AI/factory ~15 stars; see NOTE above
-]);
-
-/** Base floor: below this, an OSS host is too small to be worth listing. */
-export const PUBLIC_OSS_STAR_FLOOR = 1000;
-
-/**
- * Raised floor for OSS hosts that are NOT a major vendor's flagship agent.
- * An independent project between the two floors is real, but too niche for a
- * page whose whole claim is "the hosts you actually recognize".
+ * There used to be a second, lower floor applied to everyone. It was removed on
+ * purpose — see `isPublicCoverageHost` for why breadth is the point.
  */
 export const PUBLIC_INDEPENDENT_STAR_FLOOR = 5000;
 
@@ -1279,31 +1252,39 @@ export const PUBLIC_INDEPENDENT_STAR_FLOOR = 5000;
  * aliases. `site/src/components/coverage-wall/public-coverage.ts` is the thin
  * wrapper that supplies `stars` from the generated snapshot.
  *
- * Four rules, in order:
- *   0. `curatedOutIds` wins over everything — the editorial opt-out, and the
- *      only lever that can curate a closed host.
- *   1. An archived upstream is never public — a dead host is not something to
- *      advertise support for. (The ADAPTER stays in the registry; this governs
- *      public pages only.)
- *   2. Closed-source hosts are always public: they have no star signal, and
- *      every one of them is a flagship commercial agent.
- *   3. OSS hosts clear the base floor, and independents additionally clear the
- *      raised floor. `majorVendorOssIds` is exempt from the raised floor only —
- *      never from the base one.
+ * BREADTH IS THE PRODUCT. Covering many hosts is not only a marketing surface;
+ * comparing them is how the shared patterns get found — the three hook
+ * paradigms, the AGENTS.md convergence, Agent Plugins as a common bundle. A
+ * host that looks obscure by star count is still a data point in that
+ * comparison, and hiding it makes the survey look narrower than it is. So the
+ * bar for OMITTING a host is deliberately high:
+ *
+ *   1. An archived upstream is never public. This is a SAFETY NET, not the
+ *      policy — a host whose upstream has ended gets its adapter REMOVED
+ *      outright (see `roo-code`, retired in 0.6.0), so nothing lingers in a
+ *      half-supported state to confuse a reader. This check only covers the
+ *      window between "upstream archives" and "we cut the adapter".
+ *   2. Closed-source hosts are always public. They have no star signal at all,
+ *      and the counts on their public repos measure feedback-tracker
+ *      engagement rather than reach — VS Code Copilot's sits near 1k against
+ *      Warp's 65k, which says nothing true about which is more widely used.
+ *   3. A major vendor's flagship agent is always public, at any star count. A
+ *      first-party agent whose public repo is an issues tracker (AWS's Kiro,
+ *      JetBrains' Junie) is under-reported by stars, not actually small.
+ *   4. Everything else — independent OSS projects — needs the floor above.
+ *      This is the only exclusion that fires in practice.
  */
 export function isPublicCoverageHost(
   platform: Platform,
   stars: number | undefined,
 ): boolean {
-  if (curatedOutIds.has(platform.id)) return false;
   if (hostLifecycle[platform.id]?.status === "archived") return false;
 
   const src = hostSource[platform.id];
   if (!src || "closed" in src) return true;
+  if (majorVendorOssIds.has(platform.id)) return true;
 
-  const count = stars ?? 0;
-  if (count < PUBLIC_OSS_STAR_FLOOR) return false;
-  return majorVendorOssIds.has(platform.id) || count >= PUBLIC_INDEPENDENT_STAR_FLOOR;
+  return (stars ?? 0) >= PUBLIC_INDEPENDENT_STAR_FLOOR;
 }
 
 /**
