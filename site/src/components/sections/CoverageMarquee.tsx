@@ -12,7 +12,6 @@ import {
   type Platform,
 } from "@/data";
 import {
-  PUBLIC_OSS_STAR_FLOOR,
   publicCoverageCount,
   publicCoveragePlatforms,
 } from "@/components/coverage-wall/public-coverage";
@@ -135,7 +134,7 @@ export function CoverageMarquee() {
             <span className="text-gradient">{publicCoverageCount} agents</span>
           </>
         }
-        description={`One connector deploys across the agent CLIs, IDE extensions, and apps that matter most first: closed-source flagships plus open-source hosts with ${PUBLIC_OSS_STAR_FLOOR.toLocaleString()}+ GitHub stars.`}
+        description="One connector deploys across the agent hosts that matter — CLIs, IDE extensions and desktop apps. Closed-source flagships and every major vendor's agent are listed regardless of star count; only niche independent projects are held back."
       />
 
       {/* Edge fade masks: a left/right gradient mask so chips dissolve at the

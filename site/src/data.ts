@@ -105,11 +105,7 @@ export {
   agentPluginStateOf,
   hostLifecycle,
   hostLifecycleOf,
-  majorVendorOssIds,
-  curatedOutIds,
   isPublicCoverageHost,
-  PUBLIC_OSS_STAR_FLOOR,
-  PUBLIC_INDEPENDENT_STAR_FLOOR,
 } from "./platform-data";
 export type {
   HostSource,

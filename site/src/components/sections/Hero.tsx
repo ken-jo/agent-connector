@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { BRANDED_INSTALL_CMD, REPO_URL } from "@/data";
 import {
-  PUBLIC_OSS_STAR_FLOOR,
   publicCoverageCount,
 } from "@/components/coverage-wall/public-coverage";
 
@@ -46,16 +45,16 @@ export function Hero() {
 
           <h1 className="animate-fade-up mt-6 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
             Ship one branded MCP package to{" "}
-            <span className="text-gradient">every agent CLI.</span>
+            <span className="text-gradient">every agent host.</span>
           </h1>
 
           <p className="animate-fade-up mt-6 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
             One declarative <code className="font-mono text-foreground">defineConnector</code>{" "}
             lives inside your package. Your users run your branded MCP bin across{" "}
-            {publicCoverageCount} production-relevant AI-agent platforms — closed-source
-            flagships plus {PUBLIC_OSS_STAR_FLOOR.toLocaleString()}+ star OSS hosts —
-            while agent-connector stays underneath with direct config-write,
-            host marketplace packaging, and platform-independent per-tool telemetry.
+            {publicCoverageCount} production-relevant agent hosts — CLIs, IDE
+            extensions and desktop apps alike — while agent-connector stays
+            underneath with direct config-write, host marketplace packaging, and
+            platform-independent per-tool telemetry.
           </p>
 
           <div className="animate-fade-up mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center">

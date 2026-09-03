@@ -19,7 +19,7 @@ import { Cli } from "@/components/sections/Cli";
 import { HowItWorks } from "@/components/sections/HowItWorks";
 import { Footer } from "@/components/sections/Footer";
 
-const LANDING_TITLE = "agent-connector — Deploy one MCP to every agent CLI";
+const LANDING_TITLE = "agent-connector — Deploy one MCP to every agent host";
 
 export function Landing() {
   const { hash } = useLocation();

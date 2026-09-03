@@ -4,13 +4,22 @@ Last updated: 2026-09-02
 
 ## Current Product Direction
 
-agent-connector should focus on MCP implementers: developers who already have, or are about to build, an MCP server and need to ship it across agent CLIs, IDE extensions, and apps without maintaining one integration per host.
+agent-connector should focus on MCP implementers: developers who already have, or are about to build, an MCP server and need to ship it across agent hosts without maintaining one integration per host.
+
+**The promise is "every agent HOST", not "every agent CLI".** The target is the whole class of config-owning surfaces — terminal CLIs, IDE extensions and desktop apps alike — so copy that says "agent CLI" understates the scope. ("Host" is also the correct noun against the specs and against vendor usage of "harness"; see the Platforms reference's *Host, client, harness* section.)
+
+**Catchphrase: focus on the implementation, not the distribution.** Everything the framework does is in service of letting a developer stay in their MCP server and never hand-maintain a per-host integration, a per-host package format, or a per-host install path.
 
 The public site should not read like a generic agent-user tool. It should explain MCP terms, implementation steps, packaging choices, host coverage confidence, and why the framework belongs in the developer's own branded MCP package.
 
+**Breadth is itself a goal, not just marketing.** Analyzing many agent hosts side by side is how the shared patterns get found — the three hook paradigms, the AGENTS.md convergence, Agent Plugins as a common bundle. Each additional host is a data point in that survey, so the bar for omitting one from public coverage is deliberately high.
+
 ## Improvements To Finish First
 
-1. Keep marketing coverage focused on recognizable or production-relevant hosts. Public coverage surfaces should hide open-source hosts below 1,000 GitHub stars, while preserving the full adapter registry in code and technical references.
+1. Keep public coverage equal to the registry. The rule (2026-09-03, `isPublicCoverageHost` in `site/src/platform-data.ts`) has exactly two clauses:
+   - **Every host with an adapter is listed**, at any star count, open or closed. Stars measure repo popularity, never product reach, and they misrank in both directions: a first-party agent whose public repo is an issues tracker (JetBrains' Junie, 422) is under-reported, and a closed host has no count at all — VS Code Copilot's feedback repo sits near 1k against Warp's 65k.
+   - **A host whose upstream has ENDED is removed outright, not hidden.** Leaving a dead host in a half-supported state is the confusing outcome; `roo-code` was retired this way in 0.6.0. The `archived` check in the filter is only a safety net for the window before the adapter is cut.
+   Two star floors have been tried and both were withdrawn. A flat 1,000 hid Junie; a raised 5,000 for independent OSS hid Grok CLI (3.4k) and Xum (2.0k) while Junie stayed listed by a vendor exemption — ranking hosts by a number already conceded to be the wrong measure. `tests/docs/platform-drift.test.ts` now fails if any non-archived host is hidden, so a third attempt has to break a test rather than a page.
 2. Keep the root-level `/docs/guides` track focused on beginner education. The agent-connector beginner guide should teach protocol architecture, terms, surfaces, tool contracts, server lifecycle, tool-call flow, transports, verification, debugging, and safety while explaining how agent-connector maps those concepts into host CLIs; adjacent guide pages should explain host hooks, HUD/statusline, actions, and special surfaces in beginner terms.
 3. Add a blog surface for AI and product writing. Until editorial direction is reviewed, publish only a single BUILDING test post that verifies routing, RSS, and image rendering instead of exposing draft-like articles.
 4. Keep release and verification hygiene visible: repository version, npm latest, GitHub release, CI, and live host verification should not drift silently.

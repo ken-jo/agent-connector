@@ -81,7 +81,8 @@ export function Footer() {
             </div>
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
               Generalizes context-mode's adapter layer into a reusable framework.
-              Write your MCP server + hooks once. Ship to every agent.
+              Write your MCP server + hooks once. Focus on the implementation,
+              not the distribution.
             </p>
             <div className="mt-5 flex max-w-sm items-center gap-2 rounded-lg border border-border bg-card/60 px-3 py-2 font-mono text-xs">
               <span className="min-w-0 truncate text-foreground">{BRANDED_INSTALL_CMD}</span>
