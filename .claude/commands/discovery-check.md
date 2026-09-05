@@ -24,8 +24,13 @@ Site `sc-domain:agent-connector.ai`; use `site_snapshot` / `advanced_search_anal
 
 ## 2. Bing Webmaster Tools (`bing-webmaster` MCP)
 
-- Same window: impressions, clicks, and the query stats for the same keyword set.
-- Crawl stats: pages crawled, crawl errors, if exposed.
+- `get_query_stats` returns weekly buckets (the `Date` field is an epoch-ms
+  `/Date(…)/` string; the bucket dated at the window's end covers the window). Sum
+  impressions and clicks over that bucket, and list queries from the keyword set.
+- `get_crawl_stats` is daily: sum `CrawledPages` and `CrawlErrors` over the window,
+  and report the latest `InIndex`.
+- `get_rank_and_traffic_stats` and `get_query_traffic_stats` fail in server 1.0.2 with
+  a pydantic `dict_type` error (the API returns a list); do not use them.
 
 ## 3. Cloudflare (`cloudflare-graphql` MCP)
 
