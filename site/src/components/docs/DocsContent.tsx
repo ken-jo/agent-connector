@@ -1742,118 +1742,179 @@ export function UcpMcpServerGuide() {
     <DocSection
       id="ucp-mcp-server"
       eyebrow="Guides"
-      title="Ship a UCP-compliant MCP server (Universal Commerce Protocol) to every agent host with one command"
+      title="Tutorial: ship a UCP-compliant commerce MCP server to every agent host with one command"
     >
       <Lead>
-        UCP servers are MCP servers with a commerce contract on top. That means the
-        distribution problem is the ordinary one: get the server into the agent
-        hosts developers use. This page wraps Shopify&apos;s public Global Catalog
-        UCP endpoint in a connector and installs it into every detected host, and
-        the same steps apply to a UCP server you run yourself.
+        In this tutorial you wrap a Universal Commerce Protocol (UCP) MCP server
+        in an agent-connector package and install it into every agent host on
+        your machine with one command. The server is Shopify&apos;s public Global
+        Catalog endpoint, so there is nothing to deploy first; the same steps
+        apply to a UCP server you run yourself.
       </Lead>
 
-      <H3 id="ucp-what-it-is">What UCP is, in MCP terms</H3>
+      <H3 id="ucp-what-it-is">Before you start: UCP in MCP terms</H3>
       <P>
         The{" "}
         <a className="underline hover:text-foreground" href="https://ucp.dev/specification/overview/" rel="noreferrer" target="_blank">
           Universal Commerce Protocol
         </a>{" "}
         lets a business declare commerce capabilities (catalog search, checkout,
-        fulfillment, discounts, orders) in a profile served at{" "}
-        <C>/.well-known/ucp</C>, and offer them over REST, MCP, A2A or an embedded
-        protocol. The MCP binding is plain MCP: <C>tools/call</C> with the
-        operation name as the tool, the platform&apos;s agent profile URL in{" "}
+        fulfillment, discounts, orders) in a profile at <C>/.well-known/ucp</C>{" "}
+        and offer them over REST, MCP, A2A or an embedded protocol. The MCP
+        binding is plain MCP: <C>tools/call</C> with the operation name as the
+        tool, the platform&apos;s agent profile URL in{" "}
         <C>params.arguments.meta[&quot;ucp-agent&quot;].profile</C>, the UCP
-        payload returned in <C>structuredContent</C>, and tool definitions that
-        declare <C>outputSchema</C> against the UCP JSON Schemas.
+        payload in <C>structuredContent</C>, and <C>outputSchema</C> pointing at
+        the UCP JSON Schemas. So distributing a UCP server is distributing an MCP
+        server.
       </P>
       <CodeBlock code={S.ucpBusinessProfileSnippet} language="json" filename="/.well-known/ucp" />
       <P>
-        Shopify publishes UCP-compliant MCP servers for its{" "}
+        Shopify&apos;s{" "}
         <a className="underline hover:text-foreground" href="https://shopify.dev/docs/agents/catalog/global-catalog" rel="noreferrer" target="_blank">
           Global Catalog
-        </a>
-        , per-store catalog, cart, checkout and orders. The Global Catalog
-        endpoint accepts <C>initialize</C> and <C>tools/list</C> without
-        authentication, which makes it a good first target.
-      </P>
-
-      <H3 id="ucp-shopify-problem">The distribution problem UCP servers have today</H3>
-      <P>
-        Shopify&apos;s own{" "}
+        </a>{" "}
+        profile declares the endpoint used below, and Shopify&apos;s own{" "}
         <a className="underline hover:text-foreground" href="https://shopify.dev/docs/agents/get-started/quickstart" rel="noreferrer" target="_blank">
           quickstart
         </a>{" "}
-        installs a CLI plus a separate plugin per AI tool, with a different
-        command for each of Claude Code, Codex, Antigravity CLI, Cursor and VS
-        Code. Every other UCP publisher faces the same matrix. A connector
-        replaces the matrix with one declaration: the publisher ships a package,
-        the developer runs its install command, and agent-connector writes the
-        MCP entry and hooks into each detected host&apos;s native format.
+        installs its servers with a separate command per AI tool (Claude Code,
+        Codex, Antigravity CLI, Cursor, VS Code). You are about to replace that
+        matrix with one declaration.
       </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>You need</Th>
+            <Th>Why</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Node.js 18 or newer</Td>
+            <Td className="text-muted-foreground">agent-connector and the bin run on Node.</Td>
+          </tr>
+          <tr>
+            <Td>At least one agent host installed</Td>
+            <Td className="text-muted-foreground">
+              Claude Code, Codex, Cursor, Gemini CLI, Windsurf, Zed or any other host with an adapter; <C>detect</C> lists what it finds.
+            </Td>
+          </tr>
+          <tr>
+            <Td>Network access to <C>catalog.shopify.com</C></Td>
+            <Td className="text-muted-foreground">The endpoint answers <C>initialize</C> and <C>tools/list</C> without authentication.</Td>
+          </tr>
+        </tbody>
+      </DocsTable>
 
-      <H3 id="ucp-declare">1. Declare the UCP endpoint once</H3>
+      <H3 id="ucp-step-project">1. Create the package</H3>
       <P>
-        Remote servers use <C>transport: &quot;http&quot;</C> with the endpoint
-        from the business profile. Identity comes from <C>package.json</C>{" "}
-        (<C>name</C>, <C>mcpName</C>, <C>bin</C>, <C>version</C>), so the
-        connector declares behaviour only.
+        A connector is an npm package with agent-connector as a dependency. The
+        package name, <C>mcpName</C>, <C>bin</C> and <C>version</C> are the
+        connector&apos;s identity, so you never repeat them in the config.
       </P>
+      <CodeBlock code={S.ucpTutorialSetupSnippet} language="bash" filename="terminal" />
       <CodeBlock code={S.ucpPackageJsonSnippet} language="json" filename="package.json" />
-      <CodeBlock code={S.ucpShopifyConnectorSnippet} language="ts" filename="agent-connector.config.mjs" />
+
+      <H3 id="ucp-step-declare">2. Declare the UCP endpoint</H3>
       <P>
-        If you need a bearer token for authenticated capabilities (Shopify&apos;s
-        buyer-linked scopes, for example), declare it once as{" "}
-        <C>auth: {"{ type: \"bearerEnv\", bearerEnvVar: \"SHOP_TOKEN\" }"}</C>{" "}
-        and each host&apos;s config references the environment variable in its own
-        syntax. See{" "}
+        Remote servers use <C>transport: &quot;http&quot;</C> and the endpoint
+        from the business profile. The <C>PreToolUse</C> hook returns{" "}
+        <C>decision: &quot;ask&quot;</C> for the checkout tools, so every host that
+        supports hooks pauses before a purchase is created or completed.
+      </P>
+      <CodeBlock code={S.ucpShopifyConnectorSnippet} language="ts" filename="agent-connector.config.mjs" />
+      <Callout title="Authenticated capabilities">
+        Shopify&apos;s buyer-linked scopes and other authenticated UCP capabilities
+        take a bearer token. Declare it once as{" "}
+        <C>auth: {"{ type: \"bearerEnv\", bearerEnvVar: \"SHOP_TOKEN\" }"}</C> in{" "}
+        <C>server</C>; each host&apos;s config then references the environment
+        variable in its own syntax. Field reference:{" "}
         <Link className="underline hover:text-foreground" to="/docs/dev/server">
           Server
         </Link>
         .
-      </P>
-
-      <H3 id="ucp-confirm-checkout">2. Confirm before checkout with a hook</H3>
-      <P>
-        UCP checkout tools create and complete purchases. The <C>PreToolUse</C>{" "}
-        hook above returns <C>decision: &quot;ask&quot;</C> for the checkout tool
-        names, so every host that supports hooks pauses for the buyer. Hosts
-        without hooks (Windsurf in the output below) receive the MCP server only,
-        and the install report says so rather than pretending otherwise. The
-        per-host hook matrix is in{" "}
-        <Link className="underline hover:text-foreground" to="/docs/guides/host-hooks">
-          Host hooks
-        </Link>
-        .
-      </P>
-
-      <H3 id="ucp-dry-run">3. What one install command does</H3>
-      <P>
-        <C>bin.mjs</C> is the same three-line <C>createConnectorCli()</C> bin as in{" "}
-        <Link className="underline hover:text-foreground" to="/docs/guides/publish-mcp-server">
-          Publish your MCP server
-        </Link>
-        . The developer who installs your package runs it; <C>--dry-run</C> shows
-        the plan without writing.
-      </P>
-      <CodeBlock code={S.ucpDryRunOutputSnippet} language="bash" filename="terminal (your user)" />
-      <Callout title="Remote transport and telemetry">
-        agent-connector&apos;s per-tool token telemetry works by wrapping a stdio
-        server. A remote UCP endpoint cannot be wrapped, so the report marks
-        telemetry as not captured for this connector; the install itself is
-        unaffected.
       </Callout>
 
-      <H3 id="ucp-verify">4. Verify the UCP server like any MCP server</H3>
+      <H3 id="ucp-step-bin">3. Add the bin and audit</H3>
+      <P>
+        <C>createConnectorCli()</C> exposes every agent-connector subcommand under
+        your bin, scoped to the connector beside it. <C>audit</C> checks that
+        package.json, bin and connector agree before anything touches a host.
+      </P>
+      <CodeBlock code={S.ucpTutorialBinSnippet} language="ts" filename="bin.mjs" />
+      <CodeBlock code={S.ucpTutorialAuditSnippet} language="bash" filename="terminal" />
+
+      <H3 id="ucp-step-dry-run">4. Preview the install</H3>
+      <P>
+        <C>install --dry-run</C> detects the hosts on your machine and prints the
+        plan without writing. This is the output on a machine with six hosts on
+        2026-09-06; yours lists the hosts you have.
+      </P>
+      <CodeBlock code={S.ucpDryRunOutputSnippet} language="bash" filename="terminal" />
+      <P>
+        Read the report, not just the summary. Windsurf and Zed have no hook
+        surface, so they receive the MCP server only. The telemetry line says
+        per-tool token telemetry is not captured, because agent-connector measures
+        tokens by wrapping a stdio server and cannot sit in front of a hosted
+        endpoint. Both are facts about the hosts and the transport, reported
+        rather than hidden.
+      </P>
+
+      <H3 id="ucp-step-install">5. Install, verify, uninstall</H3>
+      <CodeBlock code={S.ucpTutorialInstallSnippet} language="bash" filename="terminal" />
+      <P>
+        After <C>install</C>, open one host and list its MCP servers: the
+        connector appears under the name from package.json. <C>doctor</C>{" "}
+        checks each host&apos;s config; for a remote transport it reports that the
+        live stdio probe is skipped, which is expected. <C>uninstall</C> removes
+        exactly what <C>install</C> wrote.
+      </P>
+
+      <H3 id="ucp-step-verify-endpoint">6. Verify the UCP endpoint itself</H3>
       <P>
         Because the binding is plain MCP, two JSON-RPC calls confirm the endpoint
-        before you publish. <C>doctor --probe</C> performs the same handshake for
-        stdio servers; for remote transports it reports that the live probe is
-        skipped, so use the calls directly.
+        independently of any host. UCP puts the platform&apos;s agent profile URL
+        in the arguments; Shopify&apos;s docs publish example profiles you can use
+        for this check.
       </P>
       <CodeBlock code={S.ucpJsonRpcProbeSnippet} language="bash" filename="terminal" />
 
-      <H3 id="ucp-scope">5. What agent-connector does not do for UCP</H3>
+      <H3 id="ucp-success">What success looks like</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Check</Th>
+            <Th>Expected result</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td><C>node bin.mjs audit</C></Td>
+            <Td className="text-muted-foreground">Four checks pass; the bin name is <C>shop-catalog</C>.</Td>
+          </tr>
+          <tr>
+            <Td><C>node bin.mjs install --dry-run</C></Td>
+            <Td className="text-muted-foreground">Every installed host is listed with the files it would receive; nothing is written.</Td>
+          </tr>
+          <tr>
+            <Td><C>node bin.mjs install</C> then a host&apos;s MCP list</Td>
+            <Td className="text-muted-foreground">The connector shows up under the package-derived name in each host you have.</Td>
+          </tr>
+          <tr>
+            <Td>Ask the host to search the catalog</Td>
+            <Td className="text-muted-foreground">
+              The host calls <C>search_catalog</C>; results carry the UCP metadata envelope with prices in minor units.
+            </Td>
+          </tr>
+          <tr>
+            <Td><C>node bin.mjs uninstall</C></Td>
+            <Td className="text-muted-foreground">The entries and hook registrations are gone; <C>doctor</C> reports nothing installed.</Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="ucp-scope">What agent-connector does not do for UCP</H3>
       <DocsTable>
         <thead>
           <tr>
@@ -1864,31 +1925,26 @@ export function UcpMcpServerGuide() {
         <tbody>
           <tr>
             <Td>Business profile at <C>/.well-known/ucp</C></Td>
-            <Td className="text-muted-foreground">
-              Served from the business origin by the merchant or platform; the connector references its endpoint.
-            </Td>
+            <Td className="text-muted-foreground">Served from the business origin; the connector references its endpoint.</Td>
           </tr>
           <tr>
             <Td>Payments (AP2), identity linking (OAuth), order webhooks</Td>
-            <Td className="text-muted-foreground">
-              The UCP server and the platform. agent-connector installs the server; it does not sit in the request path.
-            </Td>
+            <Td className="text-muted-foreground">The UCP server and the platform. agent-connector installs the server; it does not sit in the request path.</Td>
           </tr>
           <tr>
             <Td>REST, A2A and embedded transports</Td>
-            <Td className="text-muted-foreground">
-              Agent hosts consume MCP; the other transports are for platforms integrating directly.
-            </Td>
-          </tr>
-          <tr>
-            <Td>Which hosts get hooks, skills or a plugin bundle</Td>
-            <Td className="text-muted-foreground">
-              Decided per host by the adapter and reported at install time; see the{" "}
-              <Link className="underline hover:text-foreground" to="/coverage">coverage wall</Link>.
-            </Td>
+            <Td className="text-muted-foreground">Agent hosts consume MCP; the other transports are for platforms integrating directly.</Td>
           </tr>
         </tbody>
       </DocsTable>
+      <P>
+        Next: the general publisher flow, including plugin marketplaces and the
+        standard MCP artifacts, is in{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/publish-mcp-server">
+          Publish your MCP server
+        </Link>
+        .
+      </P>
     </DocSection>
   );
 }

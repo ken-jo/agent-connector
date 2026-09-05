@@ -713,3 +713,38 @@ export const ucpBusinessProfileSnippet = `// GET https://catalog.shopify.com/.we
     "capabilities": { "dev.ucp.shopping.catalog.search": [ ... ], ... }
   }
 }`;
+
+export const ucpTutorialSetupSnippet = `mkdir shop-catalog-mcp && cd shop-catalog-mcp
+npm init -y >/dev/null
+npm install @ken-jo/agent-connector
+# now replace package.json with the one below and add the two files`;
+
+export const ucpTutorialBinSnippet = `#!/usr/bin/env node
+// bin.mjs — every agent-connector subcommand under your own bin, scoped to this connector
+import { createConnectorCli } from "@ken-jo/agent-connector/cli";
+
+createConnectorCli({
+  packageJson: new URL("./package.json", import.meta.url),
+  connector: new URL("./agent-connector.config.mjs", import.meta.url),
+})
+  .run()
+  .then((code) => { process.exitCode = code; });`;
+
+/** Observed 2026-09-06 with the files from this tutorial. */
+export const ucpTutorialAuditSnippet = `$ node bin.mjs audit
+  ✓ package name: @acme/shop-catalog-mcp
+  ✓ package version: 0.1.0
+  ✓ branded bin: shop-catalog
+  ✓ @ken-jo/agent-connector dependency: ^0.6.4
+
+✓ package audit passed.`;
+
+export const ucpTutorialInstallSnippet = `# write the configs for real (same plan as the dry run)
+node bin.mjs install
+
+# health-check every host that received the connector
+node bin.mjs doctor
+
+# the full inverse — removes everything install wrote
+node bin.mjs uninstall --dry-run
+node bin.mjs uninstall`;
