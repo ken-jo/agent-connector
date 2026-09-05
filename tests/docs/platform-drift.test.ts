@@ -496,14 +496,14 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(indexHtml).toContain('href="https://agent-connector.ai/feed.xml"');
     expect(prerender).toContain("blogPosts");
     expect(prerender).toContain("feed.xml");
-    expect(blogData).toContain('slug: "building"');
-    expect(blogData).toContain('title: "BUILDING..."');
-    expect(blogData).toContain('src: "/blog/building-cover.svg"');
+    expect(blogData).toContain('slug: "ucp-mcp-servers-every-agent-host"');
+    expect(blogData).toContain('src: "/blog/ucp-every-agent-host-cover.svg"');
+    expect(blogData).not.toContain('slug: "building"');
     expect(blogData).not.toContain("mcp-implementation-starts-with-product-identity");
     expect(blogPage).toContain('href="/feed.xml"');
     expect(blogPage).toContain("post.heroImage.src");
     expect(blogPostPage).toContain("post.heroImage.caption");
-    expect(existsSync("site/public/blog/building-cover.svg")).toBe(true);
+    expect(existsSync("site/public/blog/ucp-every-agent-host-cover.svg")).toBe(true);
   });
 
   it("agent-connector beginner guide lives in the root Guides track and stays expandable", () => {

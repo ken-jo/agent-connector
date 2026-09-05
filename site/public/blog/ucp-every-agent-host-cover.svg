@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">UCP MCP server to every agent host</title>
+  <desc id="desc">A Universal Commerce Protocol MCP endpoint on the left, one defineConnector declaration in the middle, and a column of agent hosts on the right.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0a0b"/>
+      <stop offset="0.55" stop-color="#141417"/>
+      <stop offset="1" stop-color="#0b2f3a"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#ffffff" stroke-opacity="0.05"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#e7e7ea">
+    <rect x="72" y="205" width="300" height="220" rx="14" fill="#101114" stroke="#2a2b31"/>
+    <text x="96" y="248" font-size="15" fill="#8b8d96">/.well-known/ucp</text>
+    <text x="96" y="286" font-size="19">"transport": "mcp"</text>
+    <text x="96" y="318" font-size="19">"endpoint":</text>
+    <text x="96" y="348" font-size="17" fill="#7fd1c9">https://…/api/ucp/mcp</text>
+    <text x="96" y="398" font-size="15" fill="#8b8d96">dev.ucp.shopping.*</text>
+
+    <text x="412" y="322" font-size="34" fill="#7fd1c9">→</text>
+
+    <rect x="466" y="205" width="300" height="220" rx="14" fill="#101114" stroke="#2a2b31"/>
+    <text x="490" y="248" font-size="15" fill="#8b8d96">agent-connector.config.mjs</text>
+    <text x="490" y="286" font-size="19">defineConnector({</text>
+    <text x="514" y="318" font-size="19">server: { http, url },</text>
+    <text x="514" y="350" font-size="19">hooks: { PreToolUse }</text>
+    <text x="490" y="382" font-size="19">})</text>
+
+    <text x="806" y="322" font-size="34" fill="#7fd1c9">→</text>
+
+    <g font-size="18">
+      <text x="860" y="232">Claude Code</text>
+      <text x="860" y="262">Codex</text>
+      <text x="860" y="292">Cursor</text>
+      <text x="860" y="322">Copilot</text>
+      <text x="860" y="352">Gemini CLI</text>
+      <text x="860" y="382">Windsurf · Zed</text>
+      <text x="860" y="412" fill="#8b8d96">… every detected host</text>
+    </g>
+  </g>
+
+  <g font-family="Inter, system-ui, sans-serif">
+    <text x="72" y="110" font-size="44" font-weight="700" fill="#f4f4f5">UCP commerce MCP servers, installed everywhere</text>
+    <text x="72" y="152" font-size="22" fill="#a1a1aa">One declaration. One install command for your users.</text>
+    <text x="72" y="560" font-size="18" fill="#71717a">agent-connector.ai/blog</text>
+  </g>
+</svg>

@@ -126,7 +126,7 @@ const pages = [
     route: "/blog",
     title: "Blog — agent-connector",
     description:
-      "agent-connector blog is being built. This temporary post verifies routing, RSS, and image rendering before real articles are published.",
+      "Articles from agent-connector on shipping MCP servers to every agent host: what changes in the ecosystem, and what a publisher does about it.",
   },
   // The persona chooser — title matches what DocsChooser sets client-side.
   { route: "/docs", title: "Docs — agent-connector", description: DEFAULT_DESCRIPTION },
@@ -137,6 +137,7 @@ for (const post of blogPosts) {
     route: `/blog/${post.slug}`,
     title: `${post.title} — agent-connector blog`,
     description: post.description,
+    blogSlug: post.slug,
   });
 }
 
@@ -455,7 +456,7 @@ function feedXml() {
     "  <channel>",
     "    <title>agent-connector blog</title>",
     `    <link>${ORIGIN}/blog</link>`,
-    "    <description>agent-connector blog is being built. This temporary feed verifies routing, RSS, and image rendering before real articles are published.</description>",
+    "    <description>Articles from agent-connector on shipping MCP servers to every agent host: what changes in the ecosystem, and what a publisher does about it.</description>",
     "    <language>en</language>",
     `    <lastBuildDate>${lastBuildDate}</lastBuildDate>`,
     items,
@@ -492,11 +493,17 @@ async function loadDocsRenderer() {
 const docsRenderer = await loadDocsRenderer();
 let renderedBodies = 0;
 for (const page of pages) {
-  if (!page.section) continue;
-  const body = docsRenderer.renderDocsSection(page.section, page.route);
-  if (!body) throw new Error(`prerender: no component registered for docs section "${page.section}"`);
-  page.body = body;
-  renderedBodies++;
+  if (page.section) {
+    const body = docsRenderer.renderDocsSection(page.section, page.route);
+    if (!body) throw new Error(`prerender: no component registered for docs section "${page.section}"`);
+    page.body = body;
+    renderedBodies++;
+  } else if (page.blogSlug) {
+    const body = docsRenderer.renderBlogPost(page.blogSlug, page.route);
+    if (!body) throw new Error(`prerender: no blog post for slug "${page.blogSlug}"`);
+    page.body = body;
+    renderedBodies++;
+  }
 }
 
 for (const page of pages) {
@@ -523,6 +530,6 @@ writeFileSync(path.join(distDir, "sitemap.xml"), sitemapXml(buildDate()));
 writeFileSync(path.join(distDir, "feed.xml"), feedXml());
 
 console.log(
-  `[prerender] wrote ${pages.length} pages (${renderedBodies} with static docs bodies) + ${noindexStubs.length} noindex stubs + sitemap.xml + feed.xml` +
+  `[prerender] wrote ${pages.length} pages (${renderedBodies} with static bodies) + ${noindexStubs.length} noindex stubs + sitemap.xml + feed.xml` +
     (hasOgImage ? " + og.png" : " (no og.png)"),
 );
