@@ -148,12 +148,14 @@ for (const trackId of trackIds) {
     route: track.basePath,
     title: `${track.label} — agent-connector docs`,
     description: sectionDescription[firstSection] || DEFAULT_DESCRIPTION,
+    section: firstSection,
   });
   for (const id of trackOrder[trackId]) {
     pages.push({
       route: `${track.basePath}/${id}`,
       title: `${sectionLabel[id]} — agent-connector docs`,
       description: sectionDescription[id] || DEFAULT_DESCRIPTION,
+      section: id,
     });
   }
 }
@@ -362,6 +364,15 @@ function renderPage(builtHtml, page, hasOgImage) {
     html = html.replace(/\n?[ \t]*<script type="application\/ld\+json">[\s\S]*?<\/script>/, "");
   }
 
+  // Static section markup into the SPA shell, so clients that do not run
+  // JavaScript (most AI/agent crawlers) still read the page body. The client
+  // bundle replaces #root on mount.
+  if (page.body) {
+    const rootRe = /<div id="root"><\/div>/;
+    if (!rootRe.test(html)) throw new Error('index.html is missing an empty <div id="root">');
+    html = html.replace(rootRe, () => `<div id="root">${page.body}</div>`);
+  }
+
   // No browser at build time → never ship a 404 og image.
   if (!hasOgImage) {
     html = html.replace(/\n?[ \t]*<meta[^>]*(property="og:image"|name="twitter:image")[^>]*\/>/g, "");
@@ -466,6 +477,28 @@ const builtHtml = readFileSync(indexFile, "utf8");
 
 const hasOgImage = await generateOgImage();
 
+/**
+ * Render docs section bodies with React on the server (src/entry-prerender.tsx,
+ * built by Vite in SSR mode into dist-ssr/). Failure here is a build failure:
+ * shipping body-less docs pages again would silently undo what this is for.
+ */
+async function loadDocsRenderer() {
+  execSync("npx vite build --ssr src/entry-prerender.tsx --outDir dist-ssr --emptyOutDir --logLevel warn", {
+    cwd: siteDir,
+    stdio: "inherit",
+  });
+  return import(path.join(siteDir, "dist-ssr", "entry-prerender.js"));
+}
+const docsRenderer = await loadDocsRenderer();
+let renderedBodies = 0;
+for (const page of pages) {
+  if (!page.section) continue;
+  const body = docsRenderer.renderDocsSection(page.section, page.route);
+  if (!body) throw new Error(`prerender: no component registered for docs section "${page.section}"`);
+  page.body = body;
+  renderedBodies++;
+}
+
 for (const page of pages) {
   writeRoute(page.route, renderPage(builtHtml, page, hasOgImage));
 }
@@ -490,6 +523,6 @@ writeFileSync(path.join(distDir, "sitemap.xml"), sitemapXml(buildDate()));
 writeFileSync(path.join(distDir, "feed.xml"), feedXml());
 
 console.log(
-  `[prerender] wrote ${pages.length} pages + ${noindexStubs.length} noindex stubs + sitemap.xml + feed.xml` +
+  `[prerender] wrote ${pages.length} pages (${renderedBodies} with static docs bodies) + ${noindexStubs.length} noindex stubs + sitemap.xml + feed.xml` +
     (hasOgImage ? " + og.png" : " (no og.png)"),
 );
