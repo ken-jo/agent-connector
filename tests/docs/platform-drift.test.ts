@@ -518,6 +518,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(guideIds).toEqual([
       "mcp-beginner",
       "publish-mcp-server",
+      "ucp-mcp-server",
       "beginner-demo-lab",
       "first-mcp-server",
       "connect-first-host",

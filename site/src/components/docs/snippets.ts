@@ -629,3 +629,87 @@ export const operatingModelSnippet = `~/.agent-connector/
   telemetry.ndjson (or .db)        shared telemetry store, rows keyed by project
   backups/                         timestamped settings backups before each mutation
   logs/`;
+
+/* ---- UCP guide: wrap a UCP-compliant MCP server (Shopify Global Catalog) ---- */
+
+export const ucpPackageJsonSnippet = `{
+  "name": "@acme/shop-catalog-mcp",
+  "version": "0.1.0",
+  "description": "Shopify Global Catalog UCP MCP, installable into every agent host",
+  "type": "module",
+  "mcpName": "io.github.acme/shop-catalog",
+  "bin": { "shop-catalog": "./bin.mjs" },
+  "files": ["bin.mjs", "agent-connector.config.mjs"],
+  "dependencies": { "@ken-jo/agent-connector": "^0.6.4" }
+}`;
+
+export const ucpShopifyConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
+
+// Shopify's Global Catalog is a UCP-compliant MCP server: a remote JSON-RPC
+// endpoint declared in https://catalog.shopify.com/.well-known/ucp
+export default defineConnector({
+  server: {
+    transport: "http",
+    url: "https://catalog.shopify.com/api/ucp/mcp",
+    tools: { include: ["*"] },
+    timeoutMs: 30_000,
+  },
+  hooks: {
+    // UCP checkout tools move money; every host that has hooks asks first.
+    PreToolUse: {
+      matcher: "create_checkout|update_checkout|complete_checkout",
+      async handler(evt) {
+        return { decision: "ask", reason: \`Confirm \${evt.toolName} with the buyer\` };
+      },
+    },
+  },
+  targets: "auto",
+});`;
+
+/** Output of \`shop-catalog install --dry-run\` on 2026-09-06 (six hosts detected on that machine). */
+export const ucpDryRunOutputSnippet = `$ shop-catalog install --dry-run
+shop-catalog  v0.1.0
+  server      http · https://catalog.shopify.com/api/ucp/mcp
+  hooks       PreToolUse
+  telemetry   on
+
+→ 6 agent hosts detected:
+  ! claude-code   MCP server + 1 hook   ~/.claude.json, ~/.claude/settings.json
+      ! telemetry not captured for shop-catalog on claude-code — remote (http) transport; per-tool telemetry is stdio-only
+  ! codex         MCP server + 1 hook   ~/.codex/config.toml, ~/.codex/hooks.json
+  ! cursor        MCP server + 1 hook   ~/.cursor/mcp.json, ~/.cursor/hooks.json
+  ! gemini-cli    MCP server + 1 hook   ~/.gemini/settings.json
+  ! windsurf      MCP server            ~/.codeium/windsurf/mcp_config.json
+  ! zed           1 change              ~/.config/zed/settings.json
+
+✓ Would install shop-catalog to 6 hosts · 10 files (dry-run — nothing written).`;
+
+export const ucpJsonRpcProbeSnippet = `# initialize — a UCP MCP server answers like any MCP server
+curl -s https://catalog.shopify.com/api/ucp/mcp -H 'content-type: application/json' -d '{
+  "jsonrpc":"2.0","id":1,"method":"initialize",
+  "params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}
+}'
+# → {"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"universal-ucp-mcp",...}}}
+
+# tools/list — UCP puts the platform's agent profile in params.arguments.meta
+curl -s https://catalog.shopify.com/api/ucp/mcp -H 'content-type: application/json' -d '{
+  "jsonrpc":"2.0","id":2,"method":"tools/list",
+  "params":{"arguments":{"meta":{"ucp-agent":{"profile":"https://shopify.dev/ucp/agent-profiles/2026-08-25/valid-with-capabilities.json"}}}}
+}'
+# → tools: search_catalog, lookup_catalog, ... (input/response conform to dev.ucp.shopping.catalog.*)`;
+
+export const ucpBusinessProfileSnippet = `// GET https://catalog.shopify.com/.well-known/ucp  (abridged)
+{
+  "ucp": {
+    "version": "2026-08-25",
+    "services": {
+      "dev.ucp.shopping": [{
+        "version": "2026-08-25",
+        "transport": "mcp",
+        "endpoint": "https://catalog.shopify.com/api/ucp/mcp",
+        "schema": "https://ucp.dev/2026-08-25/services/shopping/mcp.openrpc.json"
+      }]
+    },
+    "capabilities": { "dev.ucp.shopping.catalog.search": [ ... ], ... }
+  }
+}`;
