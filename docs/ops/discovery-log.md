@@ -8,6 +8,7 @@ week. Interpretation belongs in `agent-discovery.md`, not here.
 
 | date | gsc_impr | gsc_clicks | gsc_pos | gsc_intent_queries | bing_impr | bing_clicks | llms_fetches | llms_agent_uas | npm_rank_name | npm_rank_publish | npm_dl_7d | context7 | stars |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2026-09-06 | 157 | 4 | 34.6 | 5 | 9 | 0 | 18 | mcpsee-observatory, Bun/1.3.14, Amazonbot | 18 | >20 | 11 | indexed | 8 |
 
 Columns
 
@@ -22,3 +23,5 @@ Columns
 - `stars` — GitHub stargazers.
 
 Baseline, read on 2026-09-05 before the routine existed: npm_rank_name 18 (was >20 before the 0.6.4 metadata), npm_rank_publish >20, npm_dl_7d 356 (per-version endpoint; release-day mirror traffic), context7 not indexed, stars 8. GSC / Bing / Cloudflare not yet read through MCP.
+
+2026-09-06: Context7 flipped to `indexed` (was `not indexed` on 2026-09-05; `/api/v1/ken-jo/agent-connector` returns content). Bing reports query stats in weekly buckets; the bucket dated 2026-09-04 (9 impressions, 0 clicks, all brand misspellings of `agent connector`) is taken as the window. Bing crawl, 08-29..09-04: 45 pages crawled, 0 crawl errors, 40 URLs in index. Cloudflare free zone allows only 1-day ranges on `httpRequestsAdaptiveGroups`; the window was read as seven daily queries. `gsc_intent_queries` counts the space-separated brand form (`agent connector`) as `agent-connector`. `npm_dl_7d` is npm's `last-week` point, which reported the range 2026-08-23..08-29.
