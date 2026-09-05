@@ -889,10 +889,10 @@ export function Introduction() {
       </Lead>
 
       <P>
-        Just <strong>use</strong> agent CLIs and have <strong>not</strong>{" "}
+        Just <strong>use</strong> agent hosts and have <strong>not</strong>{" "}
         authored a connector?{" "}
         <Link className="underline hover:text-foreground" to="/docs/user">
-          See the agent-CLI user track →
+          See the agent user track →
         </Link>{" "}
         (one connector-free command — no <C>defineConnector</C>, no install).
       </P>
@@ -1998,7 +1998,7 @@ export function ConnectFirstHostGuide() {
   return (
     <DocSection id="connect-first-host" eyebrow="Guides" title="Connect your first host">
       <Lead>
-        A host connection proves that a real agent CLI can launch your server,
+        A host connection proves that a real agent host can launch your server,
         list its tools, call one tool, and surface errors. Do this in one host
         before trying to support every CLI agent-connector can target.
       </Lead>
@@ -3305,7 +3305,7 @@ export function Installation() {
         tool your connector users install first. Add it to your MCP package,
         then ship a <strong>branded CLI</strong> your users drive directly
         (<C>npx @acme/acme-db-mcp install</C>). Developers use the framework
-        command for local fallback or packaging; agent-CLI users use the global
+        command for local fallback or packaging; agent users use the global
         CLI for connector-free token telemetry.
       </Lead>
       <P>
@@ -3337,7 +3337,7 @@ export function Installation() {
       <P>
         You do <strong>not</strong> need a global install for branded MCP
         package installs. Use the framework CLI directly for connector-free
-        token telemetry across the agent CLIs you already use. Developers can
+        token telemetry across the agent hosts you already use. Developers can
         run framework tooling with <C>npx @ken-jo/agent-connector ...</C> from
         their MCP package:
       </P>
@@ -3481,9 +3481,9 @@ export function QuickStart() {
 
       <Callout title="Just want to see the usage of the CLIs you already use?" tone="note">
         No <C>defineConnector</C>, no config file, no install. If you simply want
-        to know how many tokens your agent CLIs are burning, that is the{" "}
+        to know how many tokens your agent hosts are burning, that is the{" "}
         <Link className="underline hover:text-foreground" to="/docs/user">
-          agent-CLI user track
+          agent user track
         </Link>{" "}
         — one connector-free command that reads their own session logs
         read-only.
@@ -4233,22 +4233,22 @@ export function SurfacesSection() {
 }
 
 /* ================================================================== */
-/* Track your agent-CLI usage (the user track — Audience B)            */
+/* Track your agent-host usage (the user track — Audience B)            */
 /* ================================================================== */
 
 export function UserOverview() {
   return (
     <DocSection
       id="overview"
-      eyebrow="Agent-CLI user · start here"
-      title="See your agent-CLI usage"
+      eyebrow="Agent user · start here"
+      title="See your agent-host usage"
     >
       <Lead>
-        For the <strong>agent-CLI user</strong> who has <strong>not</strong>{" "}
+        For the <strong>agent user</strong> who has <strong>not</strong>{" "}
         authored a connector. With zero setup — no <C>defineConnector</C>, no
         config file, no install — <C>agent-connector usage</C> scans each agent
         CLI&apos;s own native session logs/DBs and shows token usage aggregated
-        by agent CLI, model, project, session, or day.
+        by agent host, model, project, session, or day.
       </Lead>
 
       <P>
@@ -4269,7 +4269,7 @@ export function UserOverview() {
 
       <Callout title="This is the connector-free track" tone="note">
         Everything here works straight from <C>npx @ken-jo/agent-connector</C>{" "}
-        with no setup. <C>usage</C> reads your local agent-CLI logs{" "}
+        with no setup. <C>usage</C> reads your local agent-host logs{" "}
         <strong>read-only</strong> and never writes any host config, never runs{" "}
         <C>install</C>, and never needs a connector. Counts only — never your
         prompts or results.
@@ -4280,7 +4280,7 @@ export function UserOverview() {
       <H3 id="qs-user">Run it — zero setup</H3>
       <P>
         No <C>defineConnector</C>, no config file, no install. If you simply want
-        to know how many tokens your agent CLIs are burning, run one command and
+        to know how many tokens your agent hosts are burning, run one command and
         agent-connector reads their own session logs read-only:
       </P>
       <CodeBlock code={S.usageQuickStartSnippet} language="bash" filename="terminal" />
@@ -4300,13 +4300,13 @@ export function Usage() {
   return (
     <DocSection
       id="usage"
-      eyebrow="Track your agent-CLI usage"
+      eyebrow="Track your agent-host usage"
       title="Usage reports & leaderboards"
     >
       <Lead>
-        <C>agent-connector usage</C> scans each agent CLI&apos;s own native
+        <C>agent-connector usage</C> scans each agent host&apos;s own native
         session logs/DBs <strong>read-only</strong> and shows token usage
-        aggregated by agent CLI, model, project, session, or day — as a report,
+        aggregated by agent host, model, project, session, or day — as a report,
         a leaderboard, or an export.
       </Lead>
 
@@ -4367,7 +4367,7 @@ export function CoverageConfidence() {
   return (
     <DocSection
       id="coverage-confidence"
-      eyebrow="Track your agent-CLI usage"
+      eyebrow="Track your agent-host usage"
       title="Coverage & confidence"
     >
       <Lead>
@@ -4792,7 +4792,7 @@ export function Leaderboards() {
         are NEVER summed.</strong> Each has its own prerequisite, so for any
         given person some boards may be empty — read the PREREQUISITE column.
       </Lead>
-      <Callout title="Agent-CLI users: use `usage`, not this unified board" tone="note">
+      <Callout title="Agent users: use `usage`, not this unified board" tone="note">
         Only the 🖥️ Host/User board works with <strong>no setup</strong>. If you
         haven&apos;t authored a connector, the connector-free{" "}
         <Link className="underline hover:text-foreground" to="/docs/user/usage">
@@ -4824,7 +4824,7 @@ export function Leaderboards() {
             </Td>
             <Td className="text-muted-foreground">
               A registered connector + serve traffic (stdio). Empty for an
-              agent-CLI user with no connector.
+              agent user with no connector.
             </Td>
           </tr>
           <tr>
@@ -4838,7 +4838,7 @@ export function Leaderboards() {
               dimension.
             </Td>
             <Td className="text-muted-foreground">
-              None — works with no setup. The only board an agent-CLI user sees.
+              None — works with no setup. The only board an agent user sees.
             </Td>
           </tr>
           <tr>

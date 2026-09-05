@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.6.4 — 2026-09-05
+
+What an agent's web search, npm search and doc index see when they look for a way
+to ship an MCP server to users' agents. No adapter or runtime change.
+
+### Fixed
+
+- **`site/index.html` still told search engines the old promise.** Its `<title>`,
+  `<meta name="description">`, Open Graph, Twitter and JSON-LD all read "Deploy one
+  MCP to every agent CLI … across the current AI-agent coverage matrix" — the file
+  #307 did not touch. The `/coverage` description still said "1k+ star open-source
+  agent hosts" after the star floor was removed in 0.6.1. Every one of these now
+  states the promise and quotes the registry count (42 agent hosts).
+- The last 69 "agent CLI" occurrences in the site — docs, audience cards, snippets,
+  the usage track, the connector wizard — say **agent host**; the audience label
+  "Agent-CLI user" is **Agent user**.
+
+### Added
+
+- **`tests/docs/site-meta-drift.test.ts`** pins the landing head, JSON-LD, docs
+  default description, `/coverage` description, og.png subtitle, npm description
+  and keywords, and `context7.json` to `ADAPTER_REGISTRY.length` and rejects the
+  stale nouns. The older guard that required the landing to be de-numbered is
+  inverted to match.
+- **README "Who it is for":** agent-connector is the publisher side of MCP
+  distribution — the server's author ships a package that installs itself into
+  users' hosts with hooks, skills and a plugin bundle. `add-mcp` and
+  `agent-install` are the end-user side; the two compose.
+- **`context7.json`** at the repo root: project title, description, the trees
+  Context7 should skip (`src`, `tests`, `site`, `scripts`, research notes) and
+  usage rules for agents.
+- **`docs/ops/agent-discovery.md`:** each discovery surface (web search, npm
+  search, Context7, LobeHub, GitHub, `llms*.txt`), its state, and the dashboard or
+  command that measures it.
+
+### Changed
+
+- `package.json` description names the hosts an agent searches for and the count;
+  keywords 12 → 25 (`publish-mcp-server`, `deploy-mcp-server`, `mcp-distribution`,
+  `agent-plugins`, `agent-skills`, `windsurf`, `zed`, `kiro`, `warp`, `cline`,
+  `openclaw`, …).
+
 ## 0.6.3 — 2026-09-03
 
 The README quotes numbers now, and every one of them is pinned to its source. One

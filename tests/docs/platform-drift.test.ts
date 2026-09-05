@@ -433,9 +433,14 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     const landing = readFileSync("site/src/components/Landing.tsx", "utf8");
     const docs = readFileSync("site/src/components/docs/DocsContent.tsx", "utf8");
 
+    // The landing head and the og.png subtitle QUOTE the registry count now —
+    // numbers are the evidence a search index ranks on — so the old
+    // "de-number, route to the coverage matrix" guard is inverted: the count
+    // must equal the registry and the vague phrase must be gone. The full
+    // string-by-string check lives in tests/docs/site-meta-drift.test.ts.
     for (const text of [indexHtml, prerender]) {
-      expect(text).toContain("current AI-agent coverage matrix");
-      expect(text).not.toMatch(/\bacross\s+\d+\s+AI-agent/i);
+      expect(text).toContain(`${ADAPTER_REGISTRY.length} agent hosts`);
+      expect(text).not.toContain("current AI-agent coverage matrix");
     }
     for (const file of publicSectionFiles) {
       const text = readFileSync(file, "utf8");
@@ -665,9 +670,9 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
 
     expect(readme).toContain("global CLI guidance for connector-free token usage reports");
     expect(readme).not.toContain("connector-free token usage reports or frequent framework tooling");
-    expect(snippets).toContain("agent-CLI users for connector-free token telemetry");
+    expect(snippets).toContain("agent users for connector-free token telemetry");
     expect(snippets).not.toContain("frequent framework tooling such as package");
-    expect(docs).toContain("agent-CLI users use the global");
+    expect(docs).toContain("agent users use the global");
     expect(docs).toContain("Developers can");
     expect(docsData).toContain("Global framework CLI guidance is for connector-free agent token telemetry");
     expect(docsData).not.toContain("Global framework CLI is for connector-free telemetry or framework tooling");

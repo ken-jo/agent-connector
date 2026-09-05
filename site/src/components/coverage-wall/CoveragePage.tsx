@@ -20,7 +20,7 @@ import {
 const CONTENT_ID = "coverage-content";
 
 const COVERAGE_DESCRIPTION =
-  "agent-connector public coverage highlights closed-source flagship hosts and 1k+ star open-source agent hosts, with per-host hook paradigm, surfaces, and rank tiers.";
+  "Every agent host agent-connector deploys to — 42 terminal CLIs, IDE extensions and desktop apps — with each host's hook paradigm, supported surfaces, verification level and star count.";
 
 const localVersion: string = releaseStatus.localVersion;
 const npmLatest: string | null = releaseStatus.npmLatest;

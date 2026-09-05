@@ -4,7 +4,7 @@
  * The primary install: agent-connector is an SDK connector developers depend on.
  * Add it to your connector package, then ship or run your branded MCP package.
  * A global framework install is not the branded MCP lifecycle path; guide it to
- * agent-CLI users for connector-free token telemetry. Developers use package
+ * agent users for connector-free token telemetry. Developers use package
  * dependency installs and npx framework tooling from the MCP package.
  */
 export const installSnippet = `npm install @ken-jo/agent-connector`;
@@ -111,11 +111,11 @@ export default defineConnector({
 /**
  * Optional convenience only: install the CLI globally to try it directly,
  * outside of any connector package. Use this for connector-free token telemetry
- * across agent CLIs. Developers should add the package dependency and run npx
+ * across agent hosts. Developers should add the package dependency and run npx
  * framework tooling from the MCP package. Not required for the SDK/branded-CLI
  * lifecycle flow.
  */
-export const globalInstallSnippet = `# optional for agent-CLI users — connector-free token telemetry
+export const globalInstallSnippet = `# optional for agent users — connector-free token telemetry
 npm i -g @ken-jo/agent-connector
 agent-connector usage report`;
 
@@ -148,19 +148,19 @@ npm test
 npm run build
 npm run dev -- detect             # run the CLI from source via tsx`;
 
-/* ---- Agent-CLI user track: connector-free token usage (Audience B) ---- */
+/* ---- Agent user track: connector-free token usage (Audience B) ---- */
 
 /**
  * The end-user entry point. NO defineConnector, NO config file, NO install.
- * `agent-connector usage` reads each agent CLI's OWN session logs read-only and
+ * `agent-connector usage` reads each agent host's OWN session logs read-only and
  * reports WHOLE-CONVERSATION totals — grouped by platform | model | project |
- * session | day. It never itemizes per-MCP or per-tool cost (agent CLIs don't
+ * session | day. It never itemizes per-MCP or per-tool cost (agent hosts don't
  * log per-tool token attribution) and never writes any host config.
  */
 export const usageQuickStartSnippet = `# no install, no config, no defineConnector — just run it with npx:
 npx @ken-jo/agent-connector usage report
 
-# which agent CLI burned the most tokens? (ranks hosts)
+# which agent host burned the most tokens? (ranks hosts)
 npx @ken-jo/agent-connector usage leaderboard --by platform
 
 # rank by model instead, scoped to the last 7 days:
@@ -190,8 +190,8 @@ kiro           0.34M    0.09M    0.00      0.00      0.00        0.43M     12   
 ----------------------------------------------------------------------------------------------
 skipped: cursor, antigravity, antigravity-cli, trae, warp (requires sync — no local cache found)
 
-# totals are WHOLE-CONVERSATION per agent CLI — NOT per-MCP or per-tool.
-# agent CLIs don't log per-tool token attribution, so usage cannot itemize it.`;
+# totals are WHOLE-CONVERSATION per agent host — NOT per-MCP or per-tool.
+# agent hosts don't log per-tool token attribution, so usage cannot itemize it.`;
 
 export const defineConnectorSnippet = `import { defineConnector } from "@ken-jo/agent-connector/sdk";
 

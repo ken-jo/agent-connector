@@ -778,7 +778,7 @@ export function WizardPage() {
                     num={6}
                     title="Optional global usage report"
                     command={telemetryCmd}
-                    description="Use the framework command directly for connector-free token telemetry across agent CLIs."
+                    description="Use the framework command directly for connector-free token telemetry across agent hosts."
                   />
                 </ol>
               </div>

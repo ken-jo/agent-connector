@@ -5,7 +5,7 @@
  */
 
 export const DEFAULT_DESCRIPTION =
-  "One declarative defineConnector deploys MCP servers, hooks, commands, skills, subagents & memory across the current AI-agent coverage matrix — with default, platform-independent per-tool token telemetry.";
+  "Build your MCP server once and ship it to 42 agent hosts. defineConnector() renders each host's native config, hooks, commands, skills, subagents and memory; the branded package installs itself with one command and reports per-tool token telemetry.";
 
 /** Set (or update) the document's <meta name="description"> content. */
 export function setMetaDescription(content: string) {

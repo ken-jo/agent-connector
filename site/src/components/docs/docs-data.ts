@@ -4,7 +4,7 @@
  *
  * The docs fork into three route-level tracks: /docs/guides for neutral
  * beginner-oriented concepts, /docs/dev for MCP package authors, and /docs/user
- * for connector-free agent-CLI usage. Each track owns its own sidebar nav,
+ * for connector-free agent-host usage. Each track owns its own sidebar nav,
  * pager order, and home page; /docs itself is the chooser.
  *
  * IMPORTANT: this module MUST stay import-free — the prerender step
@@ -41,7 +41,7 @@ export type TrackId = "guides" | "user" | "dev";
 
 export interface TrackDef {
   id: TrackId;
-  /** Human label ("Guides" / "MCP developer" / "Agent-CLI user"). */
+  /** Human label ("Guides" / "MCP developer" / "Agent user"). */
   label: string;
   /** Emoji glyph used wherever the track is named. */
   glyph: string;
@@ -144,12 +144,12 @@ export const tracks: Record<TrackId, TrackDef> = {
   },
   user: {
     id: "user",
-    label: "Agent-CLI user",
+    label: "Agent user",
     glyph: "🖥️",
     basePath: "/docs/user",
     groups: [
       {
-        title: "Track your agent-CLI usage",
+        title: "Track your agent-host usage",
         items: [
           { id: "overview", label: "Overview & quick start" },
           { id: "usage", label: "Reports & leaderboards" },
@@ -259,7 +259,7 @@ export const legacyHashRedirects: Record<string, string> = {
 /** Per-section <meta name="description"> copy (for /docs/<track>/:section deep links). */
 export const sectionDescription: Record<string, string> = {
   introduction:
-    "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across the current AI-agent coverage matrix with default local-first per-tool telemetry for your own wrapped server. Agent-CLI users author nothing — their connector-free `agent-connector usage` track is separate.",
+    "The MCP-developer track. Write your MCP server + hooks once with defineConnector, ship a branded MCP package/bin, and deploy natively across 42 agent hosts with default local-first per-tool telemetry for your own wrapped server. Agent users author nothing — their connector-free `agent-connector usage` track is separate.",
   "mcp-beginner":
     "A beginner guide for developers new to agent-connector: MCP architecture and protocol terms, how agent-connector maps servers, hooks, HUD/statusline, actions, commands, skills, subagents, and memory into host CLIs, plus first-host verification and safety checks.",
   "beginner-demo-lab":
@@ -287,7 +287,7 @@ export const sectionDescription: Record<string, string> = {
   "quick-start":
     "MCP developers: depend on agent-connector, write defineConnector, run audit, then ship a branded MCP package/bin to deploy everywhere — verify with doctor, heal with upgrade, and reverse with uninstall.",
   overview:
-    "Agent-CLI users: run `npx @ken-jo/agent-connector usage report` with zero setup — no defineConnector, no config file, no install — to see the token usage of the agent CLIs you already use, aggregated by CLI, model, project, session, or day.",
+    "Agent users: run `npx @ken-jo/agent-connector usage report` with zero setup — no defineConnector, no config file, no install — to see the token usage of the agent hosts you already use, aggregated by CLI, model, project, session, or day.",
   "coverage-confidence":
     "Local usage readers report host-logged exact counts; a few are host-estimated (labeled in the CONFIDENCE column, e.g. Kiro char/4). Five synced platforms (cursor, antigravity, antigravity-cli, trae, warp) are reported as skipped — requires sync — unless a local cache already exists.",
   "embed-cli":
@@ -305,13 +305,13 @@ export const sectionDescription: Record<string, string> = {
   packaging:
     "Two ways to ship: direct config-write (--method direct) or the host's own marketplace/plugin flow (--method marketplace). Marketplace is officially DRIVEN end-to-end for 11 hosts across 3 driver shapes — CATALOG (Claude Code, Codex, GitHub Copilot CLI, Droid), DIRECT install-by-path (Antigravity, Gemini CLI, Qwen Code), and NPM-LOCAL file:// config entry (OpenCode, Kilo, Kilo CLI). Your branded `install --method marketplace` stages the bundle, registers a local marketplace where the host has one, and runs the host's plugin-install verb; double-install-guarded, doctor-checked, reversible with `uninstall --method auto`. Claude Code / Codex / GitHub Copilot CLI / OpenCode / Kilo / Antigravity are live-verified (Copilot CLI on macOS; the rest across Linux, native Windows, and macOS (opencode npm-local on Linux+Windows; claude/codex/agy on all three); Gemini CLI is LEGACY (sunsetting toward Antigravity — driver kept, Linux/macOS-verified, degrades to an actionable warn on gemini >=0.41's folder-trust gate); Droid + Qwen ship the driver pending a live host. For non-drivable hosts, the framework `package` command (`npx @ken-jo/agent-connector package --connector ...`) emits any of 9 marketplace/extension formats (default `agent-plugin` — the portable Agent Plugins 1.0.0 package that is the single source of truth for Codex, GitHub Copilot CLI, VS Code / JetBrains Copilot, Kiro and Hermes) — each with its manifest + the exact manual install command. Every bundle keeps the telemetry serve-wrapper + home-bin hooks, so a marketplace-installed connector still reports per-tool tokens.",
   usage:
-    "Agent-CLI users (no connector): `agent-connector usage` reads each agent CLI's own session logs read-only and reports whole-conversation token totals grouped by platform, model, project, session, or day. It does NOT itemize cost per MCP server or per tool — agent CLIs don't log per-tool token attribution. Per-MCP/per-tool numbers require the MCP-developer serve-proxy telemetry track.",
+    "Agent users (no connector): `agent-connector usage` reads each agent host's own session logs read-only and reports whole-conversation token totals grouped by platform, model, project, session, or day. It does NOT itemize cost per MCP server or per tool — agent hosts don't log per-tool token attribution. Per-MCP/per-tool numbers require the MCP-developer serve-proxy telemetry track.",
   "telemetry-overview":
     "MCP-developer track. Per-MCP / per-tool token telemetry for the server YOUR connector declares and wraps: the serve proxy tokenizes input/output locally (stdio servers only — remote transports are registered but never wrapped). Aggregate counts only. To see per-CLI totals without a connector, use the connector-free `usage` command instead.",
   "telemetry-surfaces":
     "MCP-developer track. The two axes (host/user vs developer/surface) and the five developer surfaces — server, hooks (runtime) and commands, skills, subagents (static footprints) — measuring the connector's own declared+wrapped server, with the EventScope/SurfaceKind model and the per-surface leaderboard.",
   leaderboards:
-    "Three origin-labeled boards that measure different things and are never summed, each with its own prerequisite: 🔌 MCP/plugin needs an MCP-developer connector + serve traffic (your own wrapped server), 🛰️ host-native turns needs the opt-in usage hook (Gemini/Antigravity only), 🖥️ host/user works with no setup. Agent-CLI users should use `usage` as the connector-free entry point.",
+    "Three origin-labeled boards that measure different things and are never summed, each with its own prerequisite: 🔌 MCP/plugin needs an MCP-developer connector + serve traffic (your own wrapped server), 🛰️ host-native turns needs the opt-in usage hook (Gemini/Antigravity only), 🖥️ host/user works with no setup. Agent users should use `usage` as the connector-free entry point.",
   privacy:
     "Local-first telemetry with zero network egress by default. Aggregate counts only — never raw arguments or results.",
   cli: "The agent-connector CLI reference: detect, install, upgrade (aliases: sync, update), uninstall, package, audit, doctor, status, telemetry, usage, and leaderboard.",
@@ -1289,7 +1289,7 @@ export const cliCommands: CliCommand[] = [
     name: "usage",
     signature: "agent-connector usage <report|export|leaderboard> [flags]",
     summary:
-      "Host-native token usage parsed read-only from each agent CLI's own session logs/DBs (complement to telemetry; the two are NOT summed). Aggregate counts only.",
+      "Host-native token usage parsed read-only from each agent host's own session logs/DBs (complement to telemetry; the two are NOT summed). Aggregate counts only.",
     flags: [
       {
         flag: "report --by platform|project|session|model|day --since … --platform <id> [--json]",

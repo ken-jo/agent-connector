@@ -295,7 +295,7 @@ export const cliCommands: { cmd: string; purpose: string }[] = [
   { cmd: "doctor", purpose: "Per-platform health checks; --probe runs a live MCP handshake." },
   { cmd: "status", purpose: "Light install-state: which connectors are present on which hosts (exits 0)." },
   { cmd: "telemetry", purpose: "Per-tool token footprint, input/output split." },
-  { cmd: "usage", purpose: "Whole-conversation token totals per agent CLI / model / project / session — no connector needed." },
+  { cmd: "usage", purpose: "Whole-conversation token totals per agent host / model / project / session — no connector needed." },
   { cmd: "leaderboard", purpose: "Ranked MCP/plugin, host/user, and opt-in host-native turn boards — never summed across origins." },
 ];
 

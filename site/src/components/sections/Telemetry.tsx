@@ -139,14 +139,14 @@ export function Telemetry() {
             <p className="px-1 text-xs leading-relaxed text-muted-foreground">
               No connector? The connector-free{" "}
               <code className="font-mono text-foreground">usage</code> command
-              gives you a host view like this from your agent CLIs&apos; own
+              gives you a host view like this from your agent hosts&apos; own
               logs — whole-conversation token totals per CLI / model, never
               per-tool.{" "}
               <Link
                 to="/docs/user/usage"
                 className="underline underline-offset-4 transition-colors hover:text-foreground"
               >
-                See your agent-CLI usage →
+                See your agent-host usage →
               </Link>
             </p>
           </div>

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "agent-connector",
+  "description": "SDK and CLI for MCP server authors: declare the server once with defineConnector() and ship a branded package that installs itself into 42 agent hosts (Claude Code, Codex, Cursor, Copilot, Gemini CLI, Windsurf, Zed, Kiro, Warp, OpenCode, …) — native config, hooks, skills, Agent Plugins bundle, per-tool token telemetry.",
+  "excludeFolders": [
+    "src",
+    "tests",
+    "site",
+    "scripts",
+    "docs/research",
+    "docs/ops",
+    "examples/showcase-demo",
+    ".github",
+    ".omc"
+  ],
+  "excludeFiles": ["CHANGELOG.md", "PROJECT_MEMORY.md", "NOTICE"],
+  "rules": [
+    "agent-connector is a dependency of the developer's own MCP package, not a globally installed tool: add @ken-jo/agent-connector to that package and expose install/doctor/uninstall through the package's own bin via createConnectorCli().",
+    "Declare the connector once with defineConnector({ server, hooks, skills, ... }) in agent-connector.config.mjs; never hand-write per-host config files — the CLI renders each host's native format.",
+    "package.json name/mcpName/bin/version are the default identity source; explicit id/displayName/bin/version in defineConnector are advanced overrides.",
+    "The connector-free `agent-connector usage` command is for people who only USE agent hosts and want whole-conversation token totals; it is not part of the MCP-author flow.",
+    "For the full per-host reference (paths, root keys, hook events, surfaces) read llms-full.txt; llms.txt is the short route map."
+  ]
+}
