@@ -517,6 +517,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(tracks.guides.basePath).toBe("/docs/guides");
     expect(guideIds).toEqual([
       "mcp-beginner",
+      "publish-mcp-server",
       "beginner-demo-lab",
       "first-mcp-server",
       "connect-first-host",

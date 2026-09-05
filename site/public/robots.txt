@@ -2,3 +2,8 @@ User-agent: *
 Allow: /
 
 Sitemap: https://agent-connector.ai/sitemap.xml
+
+# Agent-readable documentation (llms.txt convention)
+# https://agent-connector.ai/llms.txt
+# https://agent-connector.ai/llms-full.txt
+# https://agent-connector.ai/skills/agent-connector/SKILL.md

@@ -1567,6 +1567,176 @@ export function McpBeginnerGuide() {
   );
 }
 
+export function PublishMcpServerGuide() {
+  return (
+    <DocSection
+      id="publish-mcp-server"
+      eyebrow="Guides"
+      title="Publish an MCP server so users install it in Claude Code, Cursor, Codex and every other agent host with one command"
+    >
+      <Lead>
+        You have an MCP server. This page is the publisher side of distribution:
+        how to ship it so that a developer who wants it in Claude Code, Codex,
+        Cursor, GitHub Copilot, Gemini CLI, Windsurf, Zed or any of the other{" "}
+        {platformCount} supported agent hosts runs one command, and how
+        agent-connector renders each host&apos;s native config, hooks, skills
+        and plugin bundle from a single declaration.
+      </Lead>
+
+      <H3 id="publish-what-users-run">What your users run</H3>
+      <P>
+        The end state first. Your package ships a bin (here <C>acme-db</C>); the
+        user installs the package and runs its install command. agent-connector
+        detects the hosts on that machine and writes the MCP entry, hooks and
+        other surfaces into each host&apos;s own config format.
+      </P>
+      <CodeBlock code={S.brandedUsageSnippet} language="bash" filename="terminal (your user)" />
+      <Callout title="Publisher, not end user">
+        Tools such as <C>add-mcp</C> or <C>agent-install</C> add an existing server
+        to the agents on one machine. agent-connector is the other side: the
+        server&apos;s author ships a package that installs itself, with hooks,
+        skills and a plugin bundle, and keeps working when a host changes its
+        config format because the adapters are updated in one place.
+      </Callout>
+
+      <H3 id="publish-add-dependency">1. Add agent-connector to your MCP package</H3>
+      <P>
+        agent-connector is a dependency of your package, not a global tool your
+        users install. <C>package.json</C> is the identity source: <C>name</C>,{" "}
+        <C>mcpName</C>, <C>bin</C> and <C>version</C> become the connector id,
+        display name and version, so nothing is declared twice.
+      </P>
+      <CodeBlock code={S.brandedPackageJsonSnippet} language="json" filename="package.json" />
+
+      <H3 id="publish-declare-once">2. Declare the server once</H3>
+      <P>
+        <C>agent-connector.config.mjs</C> holds the one declaration: how to launch
+        the server, which tools to expose, optional hooks with typed handlers,
+        telemetry, and per-host overrides. You never hand-write a host config
+        file; the CLI renders each host&apos;s format from this.
+      </P>
+      <CodeBlock code={S.defineConnectorSnippet} language="ts" filename="agent-connector.config.mjs" />
+      <P>
+        Field reference:{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/define-connector">
+          defineConnector
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/server">
+          Server
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/hooks">
+          Hooks
+        </Link>
+        ,{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/surfaces">
+          Commands, skills, subagents, memory, statusline and actions
+        </Link>
+        .
+      </P>
+
+      <H3 id="publish-branded-bin">3. Ship the install command under your own bin</H3>
+      <P>
+        <C>createConnectorCli()</C> exposes every agent-connector subcommand
+        (<C>detect</C>, <C>install</C>, <C>doctor</C>, <C>upgrade</C>,{" "}
+        <C>uninstall</C>, <C>package</C>, <C>telemetry</C>) under your bin,
+        auto-scoped to the connector shipped beside it. Your users never pass{" "}
+        <C>--connector</C> and never see the framework name.
+      </P>
+      <CodeBlock code={S.brandedBinSnippet} language="ts" filename="bin.mjs" />
+
+      <H3 id="publish-verify">4. Verify before you publish</H3>
+      <P>
+        Run the same commands your users will, against your own machine. Nothing
+        is written until <C>install</C> runs without <C>--dry-run</C>.
+      </P>
+      <CodeBlock code={S.quickStartSnippet} language="bash" filename="terminal (you)" />
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Command</Th>
+            <Th>What it proves</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td><C>acme-db audit</C></Td>
+            <Td className="text-muted-foreground">
+              package.json, bin and connector agree on id, name and version.
+            </Td>
+          </tr>
+          <tr>
+            <Td><C>acme-db install --dry-run</C></Td>
+            <Td className="text-muted-foreground">
+              The exact files and JSON patches per detected host, before any write.
+            </Td>
+          </tr>
+          <tr>
+            <Td><C>acme-db doctor --probe</C></Td>
+            <Td className="text-muted-foreground">
+              Each host&apos;s config resolves, and a live MCP handshake
+              (initialize → ping → tools/list) succeeds through the installed entry.
+            </Td>
+          </tr>
+          <tr>
+            <Td><C>acme-db uninstall --dry-run</C></Td>
+            <Td className="text-muted-foreground">
+              The inverse is complete: everything install wrote is listed for removal.
+            </Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="publish-what-gets-written">5. What gets written on the user&apos;s machine</H3>
+      <P>
+        One declaration becomes host-native files: the MCP server entry in each
+        host&apos;s config (JSON, TOML, YAML or the host&apos;s plugin manifest),
+        hook registrations where the host has hooks, and skills, commands,
+        subagents, memory and statusline files where the host has those
+        surfaces. The per-host paths, root keys and hook events are listed in{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/platforms">
+          Platforms
+        </Link>{" "}
+        and in the agent-readable{" "}
+        <a className="underline hover:text-foreground" href="https://agent-connector.ai/llms-full.txt">
+          llms-full.txt
+        </a>
+        . The measured footprint of the example connector is in the{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://github.com/ken-jo/agent-connector#readme"
+          rel="noreferrer"
+          target="_blank"
+        >
+          README
+        </a>
+        , pinned by a test that re-measures it on every run.
+      </P>
+
+      <H3 id="publish-marketplaces">6. Plugin marketplaces and standard artifacts</H3>
+      <P>
+        Some hosts install from a plugin marketplace rather than a config file.{" "}
+        <C>package</C> emits the host plugin formats and the two MCP standard
+        artifacts (<C>mcp-server-json</C>, <C>mcpb</C>) from the same declaration.
+      </P>
+      <CodeBlock code={S.packageSnippet} language="bash" filename="terminal (you)" />
+      <CodeBlock code={S.packageInstallSnippet} language="bash" filename="terminal (your user)" />
+      <P>
+        Formats, marketplace layouts and the Agent Plugins bundle are covered in{" "}
+        <Link className="underline hover:text-foreground" to="/docs/dev/packaging">
+          Packaging &amp; marketplaces
+        </Link>
+        . Which hosts support which surface is on the{" "}
+        <Link className="underline hover:text-foreground" to="/coverage">
+          coverage wall
+        </Link>
+        .
+      </P>
+    </DocSection>
+  );
+}
+
 export function BeginnerDemoLabGuide() {
   return (
     <DocSection id="beginner-demo-lab" eyebrow="Guides" title="Beginner demo lab">
@@ -5563,6 +5733,7 @@ export function Troubleshooting() {
  */
 export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   "mcp-beginner": McpBeginnerGuide,
+  "publish-mcp-server": PublishMcpServerGuide,
   "beginner-demo-lab": BeginnerDemoLabGuide,
   "first-mcp-server": FirstMcpServerGuide,
   "connect-first-host": ConnectFirstHostGuide,

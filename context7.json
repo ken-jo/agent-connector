@@ -17,6 +17,8 @@
   "excludeFiles": [
     "CHANGELOG.md",
     "PROJECT_MEMORY.md",
+    "CONTRIBUTING.md",
+    "ARCHITECTURE.md",
     "NOTICE"
   ],
   "rules": [

@@ -399,8 +399,11 @@ function buildDate() {
   }
 }
 
+/** Agent-facing plain-text files served beside the site (llms.txt convention). */
+const agentFiles = ["/llms.txt", "/llms-full.txt", "/skills/agent-connector/SKILL.md"];
+
 function sitemapXml(lastmod) {
-  const urls = pages
+  const urls = [...pages.map((p) => ({ route: p.route })), ...agentFiles.map((route) => ({ route }))]
     .map((p) => {
       const loc = ORIGIN + (p.route === "/" ? "/" : p.route);
       return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`;

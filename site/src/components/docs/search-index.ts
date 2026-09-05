@@ -79,6 +79,15 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "demo-lab-connector", title: "Add agent-connector surfaces" },
     { id: "demo-lab-recording", title: "Capture docs-ready demo screenshots" },
   ],
+  "publish-mcp-server": [
+    { id: "publish-what-users-run", title: "What your users run" },
+    { id: "publish-add-dependency", title: "Add agent-connector to your MCP package" },
+    { id: "publish-declare-once", title: "Declare the server once" },
+    { id: "publish-branded-bin", title: "Ship the install command under your own bin" },
+    { id: "publish-verify", title: "Verify before you publish" },
+    { id: "publish-what-gets-written", title: "What gets written on the user's machine" },
+    { id: "publish-marketplaces", title: "Plugin marketplaces and standard artifacts" },
+  ],
   "first-mcp-server": [
     { id: "first-server-reference", title: "Reference baseline" },
     { id: "first-server-create-project", title: "Create the project" },
