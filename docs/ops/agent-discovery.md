@@ -16,6 +16,7 @@ documentation; `context7.json` excludes `docs/ops`.
 | LobeHub MCP directory | Auto-scraped listing at <https://lobehub.com/mcp/ken-jo-agent-connector> | Stale: built from a 0.1.0 README — says `npm install agent-connector` (wrong, unscoped name), lists Codebuff/Mux/Roo Code, "Unvalidated" | Claim the listing on LobeHub and trigger a refresh from the current README |
 | GitHub search / topics | Topic browse, repo description | Description and topics updated 2026-09-05 (`agent-plugins`, `agent-skills`; `agent-cli`, `llm` dropped) | — |
 | `llms.txt` / `llms-full.txt` / `skills/agent-connector/SKILL.md` | Fetched once the agent knows the domain | Served from GitHub Pages behind Cloudflare | Measure fetches (below) |
+| Docs pages (`/docs/**`) | Crawlers without a JavaScript engine (ClaudeBot, GPTBot, OAI-SearchBot, PerplexityBot) read the HTML as served | Since 2026-09-06 every docs section body is rendered to static HTML at build time (`site/src/entry-prerender.tsx`, `vite build --ssr`, injected into `#root` by `prerender.mjs`); before that the HTML carried only title and description | Keep `renderDocsSection` covering every registered section (the build fails otherwise) |
 
 ## Measuring
 
