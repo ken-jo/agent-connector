@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy — agent-connector</title>
+<meta name="description" content="What agent-connector.ai and the agent-connector SDK collect, and what they do not.">
+<link rel="icon" href="/favicon.svg">
+<style>
+  :root{color-scheme:light dark;--fg:#1a1a1a;--bg:#fff;--muted:#555;--line:#ddd;--link:#0b5fd6}
+  @media (prefers-color-scheme:dark){:root{--fg:#e8e8e8;--bg:#111;--muted:#aaa;--line:#333;--link:#7ab4ff}}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  main{max-width:44rem;margin:0 auto;padding:3rem 1.25rem 4rem}
+  h1{font-size:1.75rem;margin:0 0 .25rem}h2{font-size:1.15rem;margin:2rem 0 .5rem}
+  p,li{color:var(--fg)}small{color:var(--muted)}a{color:var(--link)}
+  hr{border:0;border-top:1px solid var(--line);margin:2rem 0}
+</style>
+</head>
+<body>
+<main>
+<p><a href="/">agent-connector</a></p>
+<h1>Privacy policy</h1>
+<small>Effective 2026-09-06. Operator: the maintainer of <a href="https://github.com/ken-jo/agent-connector">github.com/ken-jo/agent-connector</a>.</small>
+
+<h2>This website (agent-connector.ai)</h2>
+<ul>
+  <li>Static pages served by GitHub Pages behind Cloudflare. Both providers log requests (IP address, user agent, requested path, time) to operate the service; the operator reads Cloudflare's aggregate analytics of those logs.</li>
+  <li>No accounts, no forms, no cookies set by the site, and no third-party analytics or advertising scripts.</li>
+</ul>
+
+<h2>The agent-connector SDK and CLI</h2>
+<ul>
+  <li>The software runs on your machine. It does not send data to the operator.</li>
+  <li>Optional per-tool token telemetry is stored locally and holds aggregate counts only, never tool arguments or results. Details and the opt-out: <a href="/docs/dev/privacy">/docs/dev/privacy</a>.</li>
+</ul>
+
+<h2>Google OAuth client</h2>
+<ul>
+  <li>The operator registers a Google OAuth client named after this project to read the operator's own Google Search Console data for agent-connector.ai (scope <code>webmasters.readonly</code>).</li>
+  <li>Tokens are stored only on the operator's machine. No other person's Google data is requested, accessed, shared, or stored, and the client is not offered to the public.</li>
+</ul>
+
+<h2>Contact</h2>
+<p>Open an issue at <a href="https://github.com/ken-jo/agent-connector/issues">github.com/ken-jo/agent-connector/issues</a>.</p>
+<hr>
+<p><a href="/terms/">Terms of service</a></p>
+</main>
+</body>
+</html>
