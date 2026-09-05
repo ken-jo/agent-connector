@@ -18,6 +18,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router";
 
+import { blogPostBySlug } from "@/components/blog/blog-data";
 import { sectionRegistry } from "@/components/docs/DocsContent";
 import { trackOrder, tracks, type TrackId } from "@/components/docs/docs-data";
 
@@ -47,4 +48,45 @@ export function docsSectionRoutes(): { track: TrackId; sectionId: string; route:
     }
   }
   return out;
+}
+
+/**
+ * Static HTML for one blog post: the article header and sections, without the
+ * nav and footer chrome (the client bundle renders the full page on mount).
+ */
+export function renderBlogPost(slug: string, route: string): string | null {
+  const post = blogPostBySlug[slug];
+  if (!post) return null;
+  return renderToStaticMarkup(
+    <StaticRouter location={route}>
+      <main data-prerender="blog" className="mx-auto w-full max-w-3xl px-6 py-14">
+        <article>
+          <header>
+            <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{post.category}</p>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight">{post.title}</h1>
+            <p className="mt-5 text-base leading-relaxed text-muted-foreground">{post.description}</p>
+            <p className="mt-5 text-sm text-muted-foreground">
+              {post.date} · {post.readingMinutes} min read
+            </p>
+            <figure className="mt-8 overflow-hidden rounded-lg border border-border">
+              <img src={post.heroImage.src} alt={post.heroImage.alt} width={1200} height={630} />
+              <figcaption className="px-4 py-2 text-xs text-muted-foreground">{post.heroImage.caption}</figcaption>
+            </figure>
+          </header>
+          <div className="mt-10 space-y-9">
+            {post.sections.map((section) => (
+              <section key={section.heading}>
+                <h2 className="text-xl font-semibold tracking-tight">{section.heading}</h2>
+                <div className="mt-3 space-y-4 text-base leading-7 text-muted-foreground">
+                  {section.body.map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </article>
+      </main>
+    </StaticRouter>,
+  );
 }

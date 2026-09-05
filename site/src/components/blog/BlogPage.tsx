@@ -10,7 +10,7 @@ import { blogPosts } from "@/components/blog/blog-data";
 
 const CONTENT_ID = "blog-content";
 const BLOG_DESCRIPTION =
-  "agent-connector blog is being built. This temporary post verifies routing, RSS, and image rendering before real articles are published.";
+  "Articles from agent-connector on shipping MCP servers to every agent host: what changes in the ecosystem, and what a publisher does about it.";
 
 export function BlogPage() {
   React.useEffect(() => {
@@ -31,12 +31,12 @@ export function BlogPage() {
                 Blog
               </p>
               <h1 className="mt-2 text-balance text-3xl font-bold tracking-tight sm:text-5xl">
-                Blog is being built
+                Shipping MCP servers to every agent host
               </h1>
               <p className="mt-5 text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-                One temporary post is published while the article model, RSS
-                output, and image layout are reviewed. Polished MCP, AI, and
-                product essays will be added after this surface is approved.
+                What changes in the agent ecosystem, checked against the real
+                endpoints and hosts, and what a publisher does about it with one
+                connector declaration.
               </p>
             </div>
             <a
