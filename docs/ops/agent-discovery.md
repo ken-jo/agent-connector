@@ -40,6 +40,15 @@ one row to `docs/ops/discovery-log.md`. Claude Code's in-session cron is session
 invoking `claude -p "/discovery-check"` or a GitHub Actions schedule with the three
 credentials as repository secrets; until one of those exists the command is run by hand.
 
+**MCP servers and what each needs.** None of the three vendors ships an official
+Search Console or Bing MCP; Cloudflare's is official.
+
+| Server | Transport | Auth | Setup |
+|---|---|---|---|
+| `cloudflare-graphql` | HTTP `https://graphql.mcp.cloudflare.com/mcp` (Cloudflare official; Cloudflare now marks it deprecated in favour of `https://mcp.cloudflare.com/mcp`) | OAuth | `/mcp` → authenticate, Cloudflare login |
+| `gsc` | stdio `npx -y suganthan-gsc-mcp` (`GSC_AUTH_MODE=oauth`, `GSC_OAUTH_SECRETS_FILE=~/.gsc-mcp/client_secrets.json`, `GSC_SITE_URL=sc-domain:agent-connector.ai`, `GSC_SCOPES=readonly`) | Google OAuth with the site owner's own OAuth client; data stays between this machine and Google; 29 tools incl. URL inspection | One-time, in Google Cloud console: create/select a project → enable **Google Search Console API** → OAuth consent screen (External, add the owner as test user) → Credentials → OAuth client ID, type **Desktop app** → download JSON → save as `~/.gsc-mcp/client_secrets.json`. First tool call opens the Google login; token cached under `~/.gsc-mcp/`. |
+| `bing-webmaster` | stdio `npx -y @isiahw1/mcp-server-bing-webmaster` | API key (the Bing Webmaster API has no OAuth) | Bing Webmaster Tools → Settings → API access → generate key, then `claude mcp add --scope user bing-webmaster -e BING_WEBMASTER_API_KEY=… -- npx -y @isiahw1/mcp-server-bing-webmaster` |
+
 **Search-engine query impressions.** Google Search Console and Bing Webmaster Tools
 show which queries surfaced the site. Bing feeds ChatGPT search and Copilot, so both
 matter. Verification needs the site owner's account: add the HTML verification `<meta>`

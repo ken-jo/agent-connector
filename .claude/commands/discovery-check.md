@@ -11,14 +11,16 @@ one-line factual note under the table only if something changed materially
 Window: the last 7 full days ending yesterday (UTC). Site property:
 `sc-domain:agent-connector.ai` (Search Console) / `https://agent-connector.ai` (Bing).
 
-## 1. Google Search Console (`gsc` MCP)
+## 1. Google Search Console (`gsc` MCP — suganthan-gsc-mcp)
+
+Site `sc-domain:agent-connector.ai`; use `site_snapshot` / `advanced_search_analytics`.
 
 - Total impressions, clicks, average position for the window.
 - Top 5 queries by impressions, and separately every query containing any of:
   `mcp`, `agent host`, `agent-connector`, `defineconnector`, `publish`, `deploy`,
   `install` — with impressions, clicks, position.
 - Index status of `https://agent-connector.ai/` and `https://agent-connector.ai/llms.txt`
-  (URL inspection), if the tool exposes it.
+  (URL inspection), (`inspect_url`).
 
 ## 2. Bing Webmaster Tools (`bing-webmaster` MCP)
 
