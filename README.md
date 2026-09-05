@@ -13,6 +13,11 @@ the native config — or `package` it as a real plugin — across every detected
 host: terminal CLIs, IDE extensions and desktop apps alike (Claude Code, Codex,
 Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
 
+Agent-readable docs: [`llms.txt`](https://agent-connector.ai/llms.txt) (route map) ·
+[`llms-full.txt`](https://agent-connector.ai/llms-full.txt) (per-host reference) ·
+[`SKILL.md`](https://agent-connector.ai/skills/agent-connector/SKILL.md) (agent skill) ·
+guide: [Publish an MCP server so users install it in every agent host](https://agent-connector.ai/docs/guides/publish-mcp-server).
+
 [![npm](https://img.shields.io/npm/v/@ken-jo/agent-connector?color=cb3837&logo=npm)](https://www.npmjs.com/package/@ken-jo/agent-connector)
 [![license](https://img.shields.io/npm/l/@ken-jo/agent-connector?color=22c55e)](LICENSE)
 [![agent hosts](https://img.shields.io/badge/agent%20hosts-42-2563eb)](https://agent-connector.ai/coverage)
