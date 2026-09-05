@@ -62,6 +62,7 @@ export const tracks: Record<TrackId, TrackDef> = {
         items: [
           { id: "mcp-beginner", label: "Agent-connector beginner guide" },
           { id: "publish-mcp-server", label: "Publish your MCP server to every host" },
+          { id: "ucp-mcp-server", label: "Ship a UCP commerce MCP to every host" },
         ],
       },
       {
@@ -211,6 +212,7 @@ export const legacyRedirects: Record<string, string> = {
   "mcp-101": "/docs/guides/mcp-beginner",
   "mcp-beginner": "/docs/guides/mcp-beginner",
   "publish-mcp-server": "/docs/guides/publish-mcp-server",
+  "ucp-mcp-server": "/docs/guides/ucp-mcp-server",
   "beginner-demo-lab": "/docs/guides/beginner-demo-lab",
   "first-mcp-server": "/docs/guides/first-mcp-server",
   "connect-first-host": "/docs/guides/connect-first-host",
@@ -266,6 +268,8 @@ export const sectionDescription: Record<string, string> = {
     "A beginner guide for developers new to agent-connector: MCP architecture and protocol terms, how agent-connector maps servers, hooks, HUD/statusline, actions, commands, skills, subagents, and memory into host CLIs, plus first-host verification and safety checks.",
   "publish-mcp-server":
     "How to publish an MCP server so its users install it into Claude Code, Codex, Cursor, Copilot, Gemini CLI, Windsurf, Zed and the rest of 42 agent hosts with one command: add @ken-jo/agent-connector, declare the server once with defineConnector(), ship a branded bin, and let the CLI render each host's native config, hooks, skills and plugin bundle.",
+  "ucp-mcp-server":
+    "How to ship a UCP-compliant MCP server (Universal Commerce Protocol — Shopify's Catalog, Cart, Checkout and Order MCPs, or your own) so developers install it into Claude Code, Codex, Cursor, Copilot, Gemini CLI, Windsurf, Zed and the rest of 42 agent hosts with one command: declare the remote UCP endpoint once with defineConnector(), add a confirm-before-checkout hook, and let agent-connector render every host's native config.",
   "beginner-demo-lab":
     "A copy-paste beginner lab for building one demo MCP server, running a smoke-test script, opening MCP Inspector, customizing tool data, adding agent-connector statusline/actions, and capturing docs-ready demo screenshots.",
   "first-mcp-server":

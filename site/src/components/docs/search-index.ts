@@ -88,6 +88,15 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "publish-what-gets-written", title: "What gets written on the user's machine" },
     { id: "publish-marketplaces", title: "Plugin marketplaces and standard artifacts" },
   ],
+  "ucp-mcp-server": [
+    { id: "ucp-what-it-is", title: "What UCP is, in MCP terms" },
+    { id: "ucp-shopify-problem", title: "The distribution problem UCP servers have today" },
+    { id: "ucp-declare", title: "Declare the UCP endpoint once" },
+    { id: "ucp-confirm-checkout", title: "Confirm before checkout with a hook" },
+    { id: "ucp-dry-run", title: "What one install command does" },
+    { id: "ucp-verify", title: "Verify the UCP server like any MCP server" },
+    { id: "ucp-scope", title: "What agent-connector does not do for UCP" },
+  ],
   "first-mcp-server": [
     { id: "first-server-reference", title: "Reference baseline" },
     { id: "first-server-create-project", title: "Create the project" },
