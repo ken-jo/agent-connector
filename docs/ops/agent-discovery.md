@@ -31,6 +31,15 @@ For counts over time rather than sampled analytics, a Worker on the route
 `agent-connector.ai/llms*` that writes `(path, user-agent)` to Workers Analytics Engine
 is the free-tier option; not deployed as of this note.
 
+**The weekly routine.** `/discovery-check` (`.claude/commands/discovery-check.md`) reads
+Search Console, Bing Webmaster and Cloudflare through their MCP servers (`gsc`,
+`bing-webmaster`, `cloudflare-graphql`, all at Claude Code user scope), plus npm search
+rank, npm downloads, Context7 index status and GitHub stars over plain HTTP, and appends
+one row to `docs/ops/discovery-log.md`. Claude Code's in-session cron is session-only
+(gone on exit, 7-day cap), so an unattended weekly run needs either a local scheduler
+invoking `claude -p "/discovery-check"` or a GitHub Actions schedule with the three
+credentials as repository secrets; until one of those exists the command is run by hand.
+
 **Search-engine query impressions.** Google Search Console and Bing Webmaster Tools
 show which queries surfaced the site. Bing feeds ChatGPT search and Copilot, so both
 matter. Verification needs the site owner's account: add the HTML verification `<meta>`
