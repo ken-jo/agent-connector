@@ -11,9 +11,14 @@
     "docs/ops",
     "examples/showcase-demo",
     ".github",
-    ".omc"
+    ".omc",
+    ".claude"
   ],
-  "excludeFiles": ["CHANGELOG.md", "PROJECT_MEMORY.md", "NOTICE"],
+  "excludeFiles": [
+    "CHANGELOG.md",
+    "PROJECT_MEMORY.md",
+    "NOTICE"
+  ],
   "rules": [
     "agent-connector is a dependency of the developer's own MCP package, not a globally installed tool: add @ken-jo/agent-connector to that package and expose install/doctor/uninstall through the package's own bin via createConnectorCli().",
     "Declare the connector once with defineConnector({ server, hooks, skills, ... }) in agent-connector.config.mjs; never hand-write per-host config files — the CLI renders each host's native format.",
