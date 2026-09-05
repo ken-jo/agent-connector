@@ -9,7 +9,7 @@ const USAGE_CMD = "npx @ken-jo/agent-connector usage report";
 /**
  * Two-card persona router directly under the hero. Card A routes
  * agent-connector beginners into the root-level guide track; card B routes
- * agent-CLI end users straight to the connector-free `usage` command —
+ * agent end users straight to the connector-free `usage` command —
  * whole-conversation totals per CLI/model, never per-tool.
  */
 export function Audiences() {
@@ -54,22 +54,22 @@ export function Audiences() {
           </div>
         </div>
 
-        {/* Track B — agent-CLI end user */}
+        {/* Track B — agent end user */}
         <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm">
           <div className="mb-2 flex items-center gap-2">
             <span aria-hidden="true" className="text-lg">
               🖥️
             </span>
             <span className="text-base font-semibold text-foreground">
-              I just use agent CLIs
+              I just use agent hosts
             </span>
           </div>
           <p className="text-sm leading-relaxed text-foreground/90">
             The connector-free <code className="font-mono text-foreground">usage</code>{" "}
             path reports whole-conversation{" "}
-            <strong>totals per agent CLI / model / project / session / day</strong>,
+            <strong>totals per agent host / model / project / session / day</strong>,
             read locally from each CLI&apos;s own session logs. It can&apos;t
-            itemize by individual MCP server or tool (agent CLIs don&apos;t log
+            itemize by individual MCP server or tool (agent hosts don&apos;t log
             per-tool attribution) — <em>see host totals, not per-MCP</em>. No
             connector, no config, nothing installed.
           </p>
@@ -89,7 +89,7 @@ export function Audiences() {
               to="/docs/user"
               className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
             >
-              See your agent-CLI usage
+              See your agent-host usage
               <ArrowRight className="size-4" />
             </Link>
           </div>

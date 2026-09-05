@@ -116,7 +116,7 @@ export function DocsChooser() {
               </div>
             </Link>
 
-            {/* Card C — agent-CLI user → /docs/user */}
+            {/* Card C — agent user → /docs/user */}
             <Link
               to="/docs/user"
               className="group flex flex-col rounded-xl border border-border bg-card/40 p-6 shadow-sm transition-colors hover:border-foreground/30 hover:bg-card/70"
@@ -126,20 +126,20 @@ export function DocsChooser() {
                   🖥️
                 </span>
                 <span className="text-base font-semibold text-foreground">
-                  Agent-CLI user
+                  Agent user
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-foreground/90">
                 <strong>You have NOT authored a connector — you just use agent
                 CLIs.</strong> You already run Claude Code / Codex / Cursor; with
                 zero setup you run <C>agent-connector usage</C> to scan each
-                agent CLI&apos;s own session logs and see how many tokens
+                agent host&apos;s own session logs and see how many tokens
                 they&apos;re burning, ranked by CLI / model / project / session /
                 day.
               </p>
               <div className="mt-auto pt-5">
                 <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 group-hover:underline">
-                  See your agent-CLI usage
+                  See your agent-host usage
                   <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                 </span>
                 <p className="mt-2 text-xs text-muted-foreground">
@@ -157,7 +157,7 @@ export function DocsChooser() {
             path reports <strong>whole-conversation totals</strong> per agent
             CLI / model / project / session / day — it does <strong>not</strong>{" "}
             and cannot itemize cost by individual MCP server or tool, because
-            agent CLIs don&apos;t log per-tool token attribution.{" "}
+            agent hosts don&apos;t log per-tool token attribution.{" "}
             <strong>Per-MCP and per-tool numbers</strong> come only from the{" "}
             <Link
               className="underline hover:text-foreground"

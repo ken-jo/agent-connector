@@ -121,7 +121,7 @@ export function Hero() {
               to="/docs/user"
               className="underline underline-offset-4 transition-colors hover:text-foreground"
             >
-              See your agent CLIs&apos; token usage →
+              See your agent hosts&apos; token usage →
             </Link>
           </p>
         </div>

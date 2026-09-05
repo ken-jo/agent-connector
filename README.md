@@ -22,7 +22,7 @@ Cursor, Copilot, Gemini, OpenCode, Warp, Zed…).
 [![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
 ![package formats](https://img.shields.io/badge/package-9%20plugin%20formats%20%2B%202%20MCP%20artifacts-2563eb)
 [![agent plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-2563eb)](https://agent-plugins.org)
-![tests](https://img.shields.io/badge/tests-149%20files-22c55e)
+![tests](https://img.shields.io/badge/tests-150%20files-22c55e)
 
 **By the numbers.** Every figure is derived from the adapter registry or measured
 by a test on each run, and a drift test fails if the README and the source disagree.
@@ -35,7 +35,14 @@ by a test on each run, and a drift test fails if the README and the source disag
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
 | Hosts verified against the real host binary | **25 of 42** (5 of them end-to-end through a model tool call); the other **17** by the registry install harness in an isolated HOME |
 | Measured footprint | one 135-line `defineConnector()` → **64 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (61 at project scope) — `npm run measure:footprint` |
-| Test suite | **149** test files |
+| Test suite | **150** test files |
+
+**Who it is for.** agent-connector is the **publisher** side of MCP distribution:
+you wrote (or are writing) an MCP server and want it to install itself into your
+users' agent hosts — with hooks, skills and a plugin bundle — from your own package,
+`npx <your-package> install`. Tools such as `add-mcp` and `agent-install` are the
+**end-user** side: they add an existing server to the agents on one machine. The two
+compose; agent-connector is what the server's author ships.
 
 **Two audiences:** connector developers start at [Quick start](#quick-start);
 if you already run an agent host and just want token totals, jump straight to
@@ -92,7 +99,7 @@ npm install @ken-jo/agent-connector
   "name": "@acme/acme-db-mcp",
   "mcpName": "io.github.acme/acme-db",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "@ken-jo/agent-connector": "^0.6.3" }
+  "dependencies": { "@ken-jo/agent-connector": "^0.6.4" }
 }
 ```
 

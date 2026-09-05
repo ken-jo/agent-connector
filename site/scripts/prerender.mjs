@@ -106,7 +106,7 @@ const pages = [
     route: "/coverage",
     title: "Coverage — agent-connector",
     description:
-      "agent-connector public coverage highlights closed-source flagship hosts and 1k+ star open-source agent hosts, with per-host hook paradigm, surfaces, and rank tiers.",
+      "Every agent host agent-connector deploys to — 42 terminal CLIs, IDE extensions and desktop apps — with each host's hook paradigm, supported surfaces, verification level and star count.",
   },
   {
     route: "/telemetry",
@@ -209,7 +209,7 @@ const OG_HTML = `<!doctype html>
 <body>
   <div class="brand"><div class="mark">ac</div><div class="name">agent-connector</div></div>
   <h1>Write your MCP server + hooks once.<br><span class="accent">Ship to every agent.</span></h1>
-  <div class="sub">One declarative defineConnector deploys MCP servers, hooks, commands, skills &amp; subagents across the current AI-agent coverage matrix.</div>
+  <div class="sub">One defineConnector() ships your MCP server, hooks, commands, skills &amp; subagents to 42 agent hosts.</div>
   <div class="url">agent-connector.ai</div>
 </body></html>`;
 
