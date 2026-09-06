@@ -2379,69 +2379,70 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
   mux: {
     status: "researched",
     sequence: 37,
-    checkedAt: "2026-07-06",
+    checkedAt: "2026-09-07",
     summary:
-      "Mux is a Coder desktop/browser host for isolated, parallel agentic development. It provides isolated workspaces, multi-model support, central git status, rich markdown outputs, MCP servers, policy, secrets, hooks, workspaces, CLI, ACP editor integration, and mobile-responsive server UI.",
+      "Xum (Coder, formerly Mux; the adapter id stays mux) is a desktop/browser host for isolated, parallel agentic development. It provides isolated workspaces, multi-model support, central git status, MCP servers, policy, secrets, skills, CLI, ACP editor integration, and a mobile-responsive server UI. Its config home moved from .mux to .xum; a legacy .mux home keeps working.",
     sources: [
       {
-        label: "Mux documentation",
-        url: "https://mux.coder.com/",
+        label: "Xum documentation",
+        url: "https://xum.coder.com/",
       },
       {
-        label: "Mux repository",
-        url: "https://github.com/coder/mux",
+        label: "Xum repository",
+        url: "https://github.com/coder/xum",
       },
     ],
     sections: [
       {
         title: "Runtime boundary",
         body:
-          "The adapter target is the Mux desktop/browser orchestration host, not a single underlying agent. Mux owns isolated workspaces, git status overview, model selection, browser/desktop UI, server mode, and agent management.",
+          "The adapter target is the Xum desktop/browser orchestration host, not a single underlying agent. Xum owns isolated workspaces, git status overview, model selection, browser/desktop UI, server mode, and agent management.",
         bullets: [
-          "Docs describe Mux as running parallel coding agents, each with its own isolated workspace.",
-          "The repository describes a desktop app for isolated, parallel agentic development.",
+          "Docs describe Xum as running parallel coding agents, each with its own isolated workspace.",
+          "The active home decides file locations: .xum is preferred, an existing .mux is still read, and new installs default to .xum.",
         ],
       },
       {
         title: "MCP registration",
         body:
-          "Mux docs list MCP Servers as a configuration topic. The page should treat MCP as a host-level tool integration for workspaces and agents, not as a capability inherited from a downstream agent by default.",
+          "MCP servers live in mcp.jsonc under the Xum home: ~/.xum/mcp.jsonc (user) and <project>/.xum/mcp.jsonc (project), with the legacy .mux paths read when the .xum file is absent. The root key is servers, and each entry is a single shell-command string rather than an object, so the adapter builds and upserts that string itself.",
         bullets: [
+          "Xum documents no ${env:VAR} interpolation, so environment references resolve to literals at install time, and server env maps have no native equivalent.",
           "Project secrets and policy files are adjacent configuration surfaces.",
-          "MCP should be diagrammed beside workspace isolation and runtime policy.",
         ],
       },
       {
         title: "Hook bridge",
         body:
-          "Mux docs expose hooks as a workspace/runtime topic, but agent-connector currently tracks Mux as MCP-only. The architecture page should explain host hooks without upgrading connector hook coverage until adapter support exists.",
+          "Xum is mcp-only: it exposes no lifecycle hook system, and MCP is its extensibility mechanism, so the adapter installs the MCP server and reports hooks as unavailable, the same shape as the Warp reference adapter.",
         bullets: [
-          "Host hooks may shape workspace workflows rather than CLI tool events.",
-          "Downstream agents can have their own hooks, but those are separate layers.",
+          "Downstream agents running inside a workspace can have their own hooks, but those belong to the downstream runtime.",
+          "There is no separate hook file; mcp.jsonc is the only runtime config the adapter touches.",
         ],
       },
       {
         title: "Content surfaces",
         body:
-          "Mux content surfaces include workspaces, forking workspaces, `.muxignore`, compaction, runtimes, instruction files, agent skills, plan mode, system prompt, and Best-of-N orchestration.",
+          "Skills are wired: <project>/.xum/skills and ~/.xum/skills (legacy .mux), with directory names matching ^[a-z0-9]+(?:-[a-z0-9]+)*$ (1 to 64 characters). Memory is wired as an instruction file. Workspaces, forking, compaction, plan mode, and Best-of-N orchestration are host features outside the file writer.",
         bullets: [
-          "Instruction files and agent skills are agent content surfaces.",
+          "No command or subagent file surface is documented for this adapter.",
           "Compaction and context boundaries are host-level context management features.",
         ],
       },
       {
         title: "Marketplace and host-only affordances",
         body:
-          "The host-only affordance is parallel orchestration: isolated workspaces, central git status, multi-model support, desktop/browser UI, mobile-responsive server mode, and ACP editor integrations.",
+          "The host-only affordance is parallel orchestration: isolated workspaces, central git status, multi-model support, desktop/browser UI, mobile-responsive server mode, and ACP editor integrations. Xum also ships an experimental Agent Plugins reader (Settings, Experiments) that installs into ~/.xum/plugins; agent-connector does not route this host to the agent-plugin format because the reader is behind a flag, absent from the compatible-clients list, and installs servers disabled by default.",
         bullets: [
-          "Mux is useful for studying multi-agent control planes rather than single-agent CLIs.",
+          "Xum is useful for studying multi-agent control planes rather than single-agent CLIs.",
           "AGPL licensing and Coder ownership should be visible source facts.",
         ],
       },
     ],
     limits: [
-      "Do not promote Mux host hooks into connector hook coverage while the row remains MCP-only.",
-      "Downstream agent capabilities should remain separated from Mux orchestration.",
+      "Xum has no hook system; do not read downstream-agent hooks as host coverage.",
+      "Revisit the agent-plugin routing if Xum ships its plugin reader on by default or joins the compatible-clients list.",
+      "Downstream agent capabilities should remain separated from Xum orchestration.",
       "Workspace and server-mode features may have account or deployment assumptions.",
     ],
   },
@@ -3006,7 +3007,7 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
   "mistral-vibe": {
     status: "researched",
     sequence: 36,
-    checkedAt: "2026-07-06",
+    checkedAt: "2026-09-07",
     summary:
       "Mistral Vibe is Mistral's open-source CLI coding assistant with interactive chat, file and shell tools, todo tracking, user questions, subagent delegation, project-aware context, skills, custom slash commands, MCP server configuration, config.toml, ACP editor support, and notifications.",
     sources: [
@@ -3032,16 +3033,16 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       {
         title: "MCP registration",
         body:
-          "Vibe documents MCP Server Configuration as part of its configuration system. The page should represent MCP through Vibe's `config.toml` and `VIBE_HOME` layout rather than a generic MCP file.",
+          "MCP servers are a TOML array of tables, [[mcp_servers]], in <project>/.vibe/config.toml (project, takes precedence) or ~/.vibe/config.toml (user). Each entry carries a required short-alias name, which the adapter sets to the connector id and keys ownership on, plus transport (stdio, http, or streamable-http) with command/args/env or url/headers/api_key_env.",
         bullets: [
-          "Default home is `~/.vibe/`, with `VIBE_HOME` override.",
-          "The home directory contains config, env, agents, prompts, tools, and logs.",
+          "This is not Codex's table-keyed [mcp_servers.<name>] shape, even though both are TOML.",
+          "TOML has no interpolation, so environment references resolve to literals at install time; remote transports are registered but never telemetry-wrapped.",
         ],
       },
       {
         title: "Hook bridge",
         body:
-          "agent-connector currently tracks Mistral Vibe as MCP-only. Vibe has tool approvals and interactive questions, but the page should not claim lifecycle hooks without a native hook API or adapter bridge.",
+          "Mistral Vibe is mcp-only in the connector matrix. The host ships only an experimental, unstable hook surface with no byte-confirmed format or event-name contract, so agent-connector wires no hooks and keeps the capability flags unset. When a first-party contract is confirmed this becomes a normal capability addition.",
         bullets: [
           "Tool execution approval is a safety prompt, not a hook event.",
           "Subagent delegation through `task` is host behavior separate from hooks.",
@@ -3068,7 +3069,7 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
     ],
     limits: [
       "MCP support should remain Vibe-config specific.",
-      "Do not treat approvals or questions as lifecycle hook support.",
+      "The experimental hook surface is a coverage ceiling, not a promised gap; do not treat approvals or questions as lifecycle hook support.",
       "Windows support exists but UNIX is the officially targeted environment.",
     ],
   },
