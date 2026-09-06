@@ -39,7 +39,7 @@ export const releaseStatus = {
   "githubLatest": "v0.6.4",
   "githubReleaseUrl": "https://github.com/ken-jo/agent-connector/releases/tag/v0.6.4",
   "githubPublishedAt": "2026-09-05T14:00:15Z",
-  "githubFetchStatus": "ok",
+  "githubFetchStatus": "fallback:HTTP 403",
   "repoUrl": "https://github.com/ken-jo/agent-connector",
   "githubActionsUrl": "https://github.com/ken-jo/agent-connector/actions",
   "ciWorkflow": {

@@ -1,4 +1,4 @@
-import { hostLinkUrl, platforms, type Platform } from "../../data";
+import { hostLinkUrl, platforms, type Platform } from "../../platform-data";
 import {
   gapRows,
   hostArchitectureAxes,
@@ -759,7 +759,7 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
   cursor: {
     status: "researched",
     sequence: 13,
-    checkedAt: "2026-07-06",
+    checkedAt: "2026-09-07",
     summary:
       "Cursor is a source-light desktop IDE host: the public GitHub repository is an issue tracker rather than full product source, while the product surface exposes agent workflows, rules, commands, extension-like behavior, and MCP-style tool integration through the IDE.",
     sources: [
@@ -790,19 +790,20 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       {
         title: "MCP registration",
         body:
-          "Cursor should be treated as MCP-capable only through documented IDE settings or product docs, not through guessed VS Code paths. The page should emphasize that MCP setup is an editor-host integration with UI and workspace consequences.",
+          "Cursor registers MCP servers in JSON files the adapter writes directly: user scope ~/.cursor/mcp.json and project scope <project>/.cursor/mcp.json, both under the mcpServers root key. Cursor supports its own ${env:VAR} interpolation, so environment, header, and URL values are rewritten to that token instead of being baked into the file.",
         bullets: [
-          "MCP registration in a desktop IDE may be tied to settings UI, JSON files, or workspace state.",
-          "The connector page must not infer exact storage paths from Visual Studio Code ancestry without current Cursor-specific evidence.",
+          "The paths come from the adapter (adapters/cursor), not from Visual Studio Code ancestry.",
+          "Project-scope MCP is workspace-visible and can be committed alongside rules and commands.",
         ],
       },
       {
         title: "Hook bridge",
         body:
-          "The current connector matrix treats Cursor as MCP-only. Desktop agent actions, rules, and commands are powerful, but they do not prove an installable lifecycle hook bridge for PreToolUse or PostToolUse events.",
+          "Cursor is a json-stdio hook host. The adapter writes <configDir>/hooks.json with the shape { version, hooks: { <cursorEvent>: [ { command, matcher? } ] } }; each entry is a flat command object rather than Claude's { matcher, hooks: [...] } wrapper. Replies are one JSON object on stdout with exit 0.",
         bullets: [
-          "IDE commands and agent modes are host UI affordances.",
-          "A future hook SDK would need a Cursor-supported extension or API contract before the coverage chip changes.",
+          "deny and ask carry permission plus user_message; modify carries updated_input.",
+          "Context injection uses agent_message on PreToolUse and additional_context on PostToolUse and SessionStart.",
+          "IDE commands and agent modes remain host UI affordances outside the hook contract.",
         ],
       },
       {
@@ -825,9 +826,9 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       },
     ],
     limits: [
-      "Cursor internals are not fully visible through the public tracker repository.",
-      "Do not claim lifecycle hook support without a documented Cursor extension or API contract.",
-      "Avoid deriving exact file paths from VS Code without current Cursor-specific documentation.",
+      "Cursor internals are not fully visible through the public tracker repository; file contracts above come from the adapter and Cursor's hooks and MCP documentation.",
+      "Statusline and actions are not host surfaces here, so those coverage chips stay off by design.",
+      "Avoid deriving further file paths from VS Code without current Cursor-specific documentation.",
     ],
   },
   zed: {
@@ -1522,17 +1523,17 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
   codebuff: {
     status: "researched",
     sequence: 20,
-    checkedAt: "2026-07-06",
+    checkedAt: "2026-09-07",
     summary:
-      "Codebuff is an open-source terminal coding agent with a codebase-indexing product story, npm CLI install path, repository folders for agents, CLI, docs, evals, packages, SDK, and a public benchmark narrative around multi-turn code workflows.",
+      "Freebuff (the product formerly named Codebuff; the adapter id stays codebuff) is an open-source terminal coding agent with a codebase-indexing product story, an npm CLI install path, and repository folders for agents, CLI, docs, evals, packages, and SDK. Its connector surfaces are MCP, skills, subagents, and memory under .agents.",
     sources: [
       {
-        label: "Codebuff website",
-        url: "https://www.codebuff.com/",
+        label: "Freebuff website",
+        url: "https://freebuff.com/",
       },
       {
-        label: "Codebuff repository",
-        url: "https://github.com/CodebuffAI/codebuff",
+        label: "Freebuff repository",
+        url: "https://github.com/CodebuffAI/freebuff",
       },
     ],
     sections: [
@@ -1541,7 +1542,7 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
         body:
           "The adapter target is the terminal CLI. Codebuff owns project indexing, code edits, command execution, conversation flow, and product account behavior; agent-connector should only claim the local files and runtime hooks it can verify.",
         bullets: [
-          "The website foregrounds terminal installation with `npm install -g codebuff`.",
+          "The npm package and binary were renamed from codebuff to freebuff; the config contract did not move.",
           "The repository contains CLI, agents, docs, evals, packages, and SDK folders.",
           "The product story emphasizes whole-codebase understanding and multi-turn workflows.",
         ],
@@ -1549,34 +1550,34 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       {
         title: "MCP registration",
         body:
-          "Codebuff is tracked as a json-stdio host in the connector matrix, while public product pages emphasize indexing and terminal coding more than MCP configuration. MCP claims should therefore stay adapter-backed.",
+          "MCP registration is the adapter's runtime surface: sdk/src/agents/load-mcp-config.ts searches <cwd>/.agents/mcp.json, <cwd>/../.agents/mcp.json, and ~/.agents/mcp.json for the mcpServers root key, and the adapter writes that file.",
         bullets: [
-          "If MCP registration exists locally, the page should point to the exact config path or adapter evidence.",
-          "Do not infer MCP semantics from the repository's SDK folder alone.",
+          "The lookup order means a parent-directory .agents/mcp.json can serve several sibling projects.",
+          "Do not infer additional MCP semantics from the repository's SDK folder alone.",
         ],
       },
       {
         title: "Hook bridge",
         body:
-          "agent-connector currently models Codebuff as a json-stdio hook host. The architecture note should describe hooks as the connector bridge, while treating benchmark, indexing, and terminal workflow behavior as Codebuff-owned agent logic.",
+          "Freebuff is mcp-only in the connector matrix: no user-installable lifecycle hook file is documented, so agent-connector wires no hook bridge. Benchmark, indexing, and terminal workflow behavior stay Freebuff-owned agent logic.",
         bullets: [
-          "Hook event details should remain bound to adapter tests and current source review.",
-          "Project indexing and code-generation loops are host behavior, not generic hook semantics.",
+          "Runtime interception, if it ever appears, would need a documented hook file or event contract before the coverage chip changes.",
+          "Project indexing and code-generation loops are host behavior, not hook semantics.",
         ],
       },
       {
         title: "Content surfaces",
         body:
-          "Codebuff content surfaces include repository context, instructions, benchmark workflows, agent definitions, CLI prompts, and SDK-facing integration points. These should be represented as terminal-agent content until exact user/project paths are verified.",
+          "Content surfaces are wired under .agents: skills as .agents/skills (AgentSkills format, verified in load-skills.ts) and subagents as project-scoped .agents/<id>.ts AgentDefinition modules that default-export one object. Memory is AGENTS.md. Slash commands are not a host surface.",
         bullets: [
-          "The `.codebuffignore` file in the repository indicates host-specific project filtering concepts.",
-          "AGENTS.md in the repository suggests standard agent guidance participates in the codebase context story.",
+          "Subagent modules must not use type-only imports; the host loads them as plain modules.",
+          "The .codebuffignore file is a host-specific project filter, separate from these content surfaces.",
         ],
       },
       {
         title: "Marketplace and host-only affordances",
         body:
-          "The host-only affordance is fast whole-codebase indexing plus a public benchmark and SDK story around terminal coding. That makes Codebuff useful for comparing codebase-awareness architectures against editor-first agents.",
+          "The host-only affordance is fast whole-codebase indexing plus a public benchmark and SDK story around terminal coding. That makes Freebuff useful for comparing codebase-awareness architectures against editor-first agents.",
         bullets: [
           "BuffBench and generated workflow evaluation are product/evaluation surfaces.",
           "The SDK folder is a future integration signal, not automatic connector SDK compatibility.",
@@ -1809,9 +1810,9 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
   "open-interpreter": {
     status: "researched",
     sequence: 34,
-    checkedAt: "2026-07-06",
+    checkedAt: "2026-09-07",
     summary:
-      "Open Interpreter is a lightweight open-source coding/computer-use agent for local and open models. Its architecture is terminal and local-runtime centered, with Python package installation, model/provider configuration, code execution, and computer-control workflows.",
+      "Open Interpreter is an open-source terminal coding agent for local and open models. The current interpreter (also installed as i) is a Rust fork of OpenAI's Codex, so its native config is Codex-shaped: a TOML config.toml under an isolated home, $INTERPRETER_HOME (default ~/.openinterpreter), never $CODEX_HOME.",
     sources: [
       {
         label: "Open Interpreter repository",
@@ -1826,35 +1827,35 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       {
         title: "Runtime boundary",
         body:
-          "The adapter target is the local Open Interpreter runtime, usually launched from the terminal. Open Interpreter owns Python package execution, model/provider selection, code execution, and local computer-use authority.",
+          "The adapter target is the local interpreter CLI. As a Codex fork it inherits Codex's agent loop, permission model, and config layout, but runs under its own home: the binary honors only $INTERPRETER_HOME, and the install script sets CODEX_COMMAND_NAME=interpreter and CODEX_HOME=$INTERPRETER_HOME.",
         bullets: [
-          "The repository describes a lightweight coding agent for open models including DeepSeek, Kimi, and Qwen.",
-          "The docs present Open Interpreter as a local, programmable interpreter-style agent.",
-          "The row should remain CLI/local runtime scoped rather than editor-extension scoped.",
+          "The README states that Open Interpreter is a fork of OpenAI's Codex; the repository positions it for open models such as DeepSeek, Kimi, and Qwen.",
+          "The isolated home keeps an Open Interpreter install from reading or writing a Codex install on the same machine.",
+          "The row stays CLI-scoped rather than editor-extension scoped.",
         ],
       },
       {
         title: "MCP registration",
         body:
-          "Open Interpreter is tracked as a json-stdio host in the connector matrix, but MCP claims should stay tied to concrete adapter support. Its main public identity is local code execution and model flexibility.",
+          "MCP is the one wired surface. The adapter writes [mcp_servers.<id>] tables into $INTERPRETER_HOME/config.toml: stdio servers carry command, args, and env; streamable-HTTP servers carry url with optional bearer_token_env_var and http_headers, the same shapes as codex-rs/config mcp_edit and mcp_types.",
         bullets: [
-          "Local execution authority is the central risk boundary.",
-          "MCP server setup, if supported, should be documented with exact local configuration evidence.",
+          "Local execution authority is the central risk boundary for any MCP tool exposed here.",
+          "TOML has no interpolation, so environment references resolve to literals at install time.",
         ],
       },
       {
         title: "Hook bridge",
         body:
-          "agent-connector treats Open Interpreter as a json-stdio hook host. The page should explain that hook support is connector-side integration, while interpreter execution and computer-control loops remain host-owned behavior.",
+          "Open Interpreter is mcp-only in the connector matrix. As a Codex fork the host inherits Codex's hook subsystem, so hooks are host-native, but the interpreter product's live wire contract and on-disk hook directory are not first-party verified, so agent-connector leaves hooks unwired rather than guess. That is a coverage ceiling, not a host limitation.",
         bullets: [
-          "Do not treat every executed code cell as a connector hook event.",
+          "The same reasoning keeps commands, skills, subagents, and AGENTS.md memory host-native but unwired.",
           "Provider and model choice are host settings rather than hook semantics.",
         ],
       },
       {
         title: "Content surfaces",
         body:
-          "Open Interpreter content surfaces include local prompts, model settings, interpreter configuration, code execution history, and computer-use instructions. These are local runtime surfaces with different safety concerns than cloud-hosted IDE agents.",
+          "Inherited from Codex: prompts and skills directories, agent definitions, and AGENTS.md memory exist in the host, but none is wired by the adapter until the interpreter product documents its own paths. Local code execution keeps the safety concerns of a terminal agent rather than a cloud-hosted IDE.",
         bullets: [
           "Open-model support makes provider configuration a first-class study axis.",
           "Local code execution requires clear permission and sandbox language on the page.",
@@ -1871,8 +1872,8 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       },
     ],
     limits: [
-      "Local code execution and computer-control authority need careful safety wording.",
-      "MCP support should not be inferred from general extensibility.",
+      "Local code execution authority needs careful safety wording.",
+      "Hook, command, skill, subagent, and memory paths are inherited from Codex and stay unwired until verified against the interpreter product itself.",
       "Open model support is not equivalent to connector plugin support.",
     ],
   },

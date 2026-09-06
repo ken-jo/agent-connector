@@ -513,6 +513,26 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(prerender).toContain("route: `/agents/${platform.id}`");
   });
 
+  it("architecture-note hook claims agree with the registry's paradigm and wired surfaces", () => {
+    // The notes are hand-written prose; the registry is the source of truth.
+    // A note may not call a hooks-wired host "mcp-only", nor describe an
+    // mcp-only host as a hook host (the 2026-07 draft did both).
+    for (const platform of landingPlatforms) {
+      const note = architectureNotes[platform.id];
+      expect(note, `architecture note missing for ${platform.id}`).toBeTruthy();
+      const hookSection = note!.sections.find((section) => section.title === "Hook bridge");
+      expect(hookSection, `${platform.id} note has no "Hook bridge" section`).toBeTruthy();
+      const prose = [hookSection!.body, ...(hookSection!.bullets ?? [])].join(" ");
+      const callsItMcpOnly = /\bmcp-only\b/i.test(prose);
+      const callsItHookHost = /\b(json-stdio|ts-plugin) hook host\b|\bhooks are wired\b/i.test(prose);
+      if (platform.surfaces.hooks) {
+        expect(callsItMcpOnly, `${platform.id}: hooks are wired but the note says mcp-only`).toBe(false);
+      } else {
+        expect(callsItHookHost, `${platform.id}: hooks are not wired but the note calls it a hook host`).toBe(false);
+      }
+    }
+  });
+
   it("agent architecture source review notes are rendered for externally checked hosts", () => {
     const reviewedIds = Object.keys(hostSourceReviewNotes).sort();
     const platformIds = landingPlatforms.map((platform) => platform.id).sort();
