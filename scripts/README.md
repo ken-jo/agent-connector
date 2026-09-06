@@ -236,3 +236,50 @@ live-confirmed). Other hosts have no deep-verb recipe yet and report `no-lane` f
 `--verb` — they remain covered for placement by `install-roundtrip.test.ts`. Adding a
 host means adding a runner + a `HOST_VERBS` entry grounded in a real live run (never a
 guessed recipe).
+
+## Mock model provider lane (no API key)
+
+Most hosts can be pointed at a custom OpenAI-compatible (or Anthropic / Gemini)
+endpoint. `scripts/verify-mock-model-provider.py` is a stdlib-only HTTP server that
+plays a scripted model: on the first turn it calls the connector's MCP tool
+(`acme_query`), then answers `done`. Paired with the committed probe connector
+(`scripts/verify-probe-connector.config.mjs` + `scripts/verify-probe-mcp-server.mjs`,
+which append `tools/call …` and `hook <Event> …` lines to `$ACME_PROBE_LOG`), one
+headless run per host proves the whole chain **host → our MCP entry → our server
+→ our hooks** with no provider account. This is the lane behind every
+`VERIFIED_E2E` row dated 2026-09-07 in `docs/host-verification-results.csv`.
+
+```
+H=$(mktemp -d)                                  # fresh HOME per host
+export ACME_PROBE_LOG=$H/probe.log
+HOME=$H node dist/cli.js install --connector scripts/verify-probe-connector.config.mjs \
+  --targets <host-id> --scope user
+MOCK_PORT=8765 python3 scripts/verify-mock-model-provider.py &   # logs one line per request
+# point the host at http://127.0.0.1:8765 (recipes below), run one headless turn, then:
+cat $H/probe.log      # expect: tools/call acme_query … plus hook <Event> host=<id> lines
+```
+
+Per-host recipes that passed (fresh `HOME=$H`, prompt "Query the acme db for select 1 then say done."):
+
+| host | point at the mock | headless turn | note |
+|---|---|---|---|
+| open-interpreter | `config.toml`: `model_provider="mock"`, `[model_providers.mock] base_url wire_api="chat" env_key="MOCK_LLM_KEY"`, `approvals="never"` and `default_tools_approval_mode = "approve"` under `[mcp_servers.acme-db]` | `interpreter exec --dangerously-bypass-hook-trust --skip-git-repo-check "<prompt>" < /dev/null` | `INTERPRETER_HOME=$H/.openinterpreter` |
+| grok-build | `~/.grok/config.toml`: `[models] default="mock"` + `[model.mock] model base_url api_key api_backend="chat_completions"` | `grok -p "<prompt>" -m mock --yolo --output-format json` | MCP tools sit behind `search_tool`/`use_tool`: `MOCK_CALL='{"name":"use_tool","arguments":{"tool_name":"acme-db__acme_query","tool_input":{"sql":"select 1"}}}'` |
+| hermes | `config.yaml`: `model: {provider: custom, base_url, api_key, default: mock-model}` | `hermes -z "<prompt>" --yolo --accept-hooks` | deferred tools: `MOCK_CALL='{"name":"tool_call","arguments":{"name":"mcp__acme_db__acme_query","arguments":{"sql":"select 1"}}}'`; `HERMES_HOME=$H/.hermes` |
+| omp / pi family | `models.json`: `providers.mock {baseUrl, api:"openai-completions", apiKey, models:[{id}]}` | `omp -p "<prompt>" --model mock/mock-model --approval-mode yolo` | `OMP_CODING_AGENT_DIR=$H/.omp/agent` |
+| kilo-cli / mimo-code (opencode family) | `<app>.json(c)`: `provider.mock {npm:"@ai-sdk/openai-compatible", options:{baseURL, apiKey}, models:{"mock-model":{}}}` | `kilo run -m mock/mock-model "<prompt>"` | `XDG_CONFIG_HOME=$H/.config` |
+| qwen-code | env `OPENAI_BASE_URL OPENAI_API_KEY OPENAI_MODEL` | `qwen -y "<prompt>"` | deferred tools: `MOCK_CALLS='[{"name":"tool_search","arguments":{"query":"acme"}}]'` |
+| gemini-cli | env `GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:8765 GEMINI_API_KEY GEMINI_CLI_TRUST_WORKSPACE=true` | `gemini -y -m mock-model -p "<prompt>"` | Gemini wire |
+| kimi | `config.toml` (top-level keys BEFORE the `[[hooks]]` tables): `default_model="mock"`, `[providers.mock] type="openai" base_url api_key`, `[models.mock] provider model protocol="openai" max_context_size` | `kimi -p "<prompt>"` | `-p` cannot combine with `--yolo` |
+| crush | `crush.json`: `providers.mock {type:"openai", base_url, api_key, models:[…]}`, `models.large/small` | `crush run -q "<prompt>"` | |
+| continue | `config.yaml`: `models: [{provider: openai, model, apiBase, apiKey, roles:[chat,edit,apply]}]` | `cn -p --auto --config $H/.continue/config.yaml "<prompt>"` | hooks did not fire in `-p` mode |
+| grok-cli (community) | flags | `grok -p "<prompt>" -u http://127.0.0.1:8765/v1 -k dummy -m mock-model` | |
+| openclaw | `openclaw.json`: `models.providers.mock {baseUrl, api:"openai-completions", apiKey, models:[…]}`, `agents.defaults.model.primary="mock/mock-model"` | `openclaw agent --local -m "<prompt>" --json` | |
+| mistral-vibe | `config.toml` (top): `active_model="mock"`, `[[providers]] name api_base api_key_env_var backend="generic"`, `[[models]] name provider alias` | `vibe -p "<prompt>" --yolo --output text` | mcp-only host |
+| goose | `config.yaml`: `GOOSE_PROVIDER: openai`, `GOOSE_MODEL: mock-model`, `OPENAI_HOST: http://127.0.0.1:8765`, `GOOSE_MODE: auto` | `goose run -q --no-session -t "<prompt>"` | `OPENAI_API_KEY=dummy` |
+
+Hosts that did **not** reach a model turn this way stay at their previous tier with the
+reason recorded in the CSV: junie (blocks on a macOS Keychain check; honors Java
+`user.home`, not `$HOME`), cline CLI (reaches the mock but exposes no MCP tools and
+does not read the extension's `cline_mcp_settings.json`), and the proprietary-backend
+CLIs (amp, cursor, droid, amazon-q) that have no custom-endpoint setting.

@@ -128,11 +128,11 @@ export const hostVerificationResults = [
     "host": "gemini-cli",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "gemini 0.36.0 installed",
-    "headlessModelMcpE2e": "BLOCKED",
-    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "Google returned UNSUPPORTED_CLIENT during model call",
-    "evidence": "MCP connected; same Google lineage model+MCP path passed through Antigravity CLI"
+    "hostCliSurface": "gemini 0.42.0 installed",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; Stop has no Gemini CLI hook equivalent; -y in an untrusted folder needs GEMINI_CLI_TRUST_WORKSPACE=true",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event) with a Gemini generateContent wire via GOOGLE_GEMINI_BASE_URL: gemini -y -p: mcp_acme-db_acme_query called -> probe logged tools/call; SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SessionEnd fired through ~/.gemini/settings.json hooks"
   },
   {
     "host": "opencode",
@@ -149,10 +149,10 @@ export const hostVerificationResults = [
     "installProbe": "PASS",
     "doctorProbe": "PASS",
     "hostCliSurface": "mimo @mimo-ai/cli installed in .verify-tools",
-    "headlessModelMcpE2e": "PARTIAL",
-    "result": "LIVE_RUNTIME_VERIFIED",
-    "issueOrBlocker": "offline runtime fired hooks and MCP load passed, but the model turn did not call the MCP tool",
-    "evidence": "mimo mcp list connected and server received initialize/tools/list; mimo run fired UserPromptSubmit, SessionStart, Stop; mcp-tool-call lane recorded no tools/call"
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): mimocode.json provider block (@ai-sdk/openai-compatible) + mimo run -m mock/mock-model: acme-db_acme_query called -> probe logged tools/call; UserPromptSubmit, SessionStart, PreToolUse, PostToolUse, Stop fired through the acme-db plugin"
   },
   {
     "host": "kilo",
@@ -168,11 +168,11 @@ export const hostVerificationResults = [
     "host": "kilo-cli",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "kilo @kilocode/cli installed in .verify-tools",
-    "headlessModelMcpE2e": "PARTIAL",
-    "result": "LIVE_RUNTIME_VERIFIED",
-    "issueOrBlocker": "offline runtime fired hooks, but no model MCP tool-call E2E was observed",
-    "evidence": "kilo mcp list accepted config; kilo run fired events.log; placement and uninstall clean passed"
+    "hostCliSurface": "kilo @kilocode/cli 7.5.15 installed in .verify-tools",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): kilo.jsonc provider block (@ai-sdk/openai-compatible) + kilo run -m mock/mock-model: acme-db_acme_query called -> probe logged tools/call; UserPromptSubmit, SessionStart, PreToolUse, PostToolUse, Stop fired through the acme-db plugin"
   },
   {
     "host": "warp",
@@ -188,11 +188,11 @@ export const hostVerificationResults = [
     "host": "hermes",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Hermes adapter config; no verified npm headless CLI",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "ADAPTER_PLACEMENT_VERIFIED",
-    "issueOrBlocker": "npm hermes-cli is unrelated; adapter placement verified without installing wrong package",
-    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
+    "hostCliSurface": "hermes 0.20.4 (~/.hermes/hermes-agent venv, official installer)",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; UserPromptSubmit and Stop have no Hermes hook equivalent (adapter skips them visibly)",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): HERMES_HOME isolated; model.provider custom + base_url; hermes -z --yolo --accept-hooks: MCP tool exposed as deferred mcp__acme_db__acme_query behind tool_search/tool_describe/tool_call, model invoked it via tool_call -> probe logged tools/call; on_session_start, pre_tool_call, post_tool_call, on_session_end ran through the agent-connector binary"
   },
   {
     "host": "nemoclaw",
@@ -208,11 +208,11 @@ export const hostVerificationResults = [
     "host": "openclaw",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "openclaw npm CLI installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no id-echoing offline accept verb; no login-free headless model tool-call lane",
-    "evidence": "openclaw placement+uninstall clean passed; configSchema validate gap remains fixed"
+    "hostCliSurface": "openclaw 2026.9.2 npm CLI installed in .verify-tools",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; OpenClaw warns that the acme-db extension has an unverifiable origin but loads it",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): openclaw.json models.providers.mock (openai-completions) + agents.defaults.model.primary; openclaw agent --local --json: acme-db__acme_query called -> probe logged tools/call; PreToolUse, PostToolUse fired through the extension"
   },
   {
     "host": "zed",
@@ -259,20 +259,20 @@ export const hostVerificationResults = [
     "installProbe": "PASS",
     "doctorProbe": "PASS",
     "hostCliSurface": "qwen @qwen-code/qwen-code installed in .verify-tools",
-    "headlessModelMcpE2e": "BLOCKED",
-    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "Qwen CLI is auth-gated before a model MCP tool-call",
-    "evidence": "qwen mcp list listed ac-verify; placement and uninstall clean passed"
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; MCP tools are deferred behind tool_search, so the model fetches mcp__acme-db__acme_query before calling it",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): OPENAI_BASE_URL/OPENAI_MODEL env; qwen -y: model called tool_search then mcp__acme-db__acme_query -> probe logged tools/call; SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop fired through ~/.qwen/settings.json hooks"
   },
   {
     "host": "kimi",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "kimi @moonshot-ai/kimi-code 0.18.0 installed in .verify-tools",
-    "headlessModelMcpE2e": "BLOCKED",
-    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "Kimi model turn is auth-gated; offline doctor validates config only",
-    "evidence": "kimi doctor config validated ac-verify config.toml; placement and uninstall clean passed"
+    "hostCliSurface": "kimi @moonshot-ai/kimi-code 0.41.0 installed in .verify-tools",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; kimi -p cannot be combined with --yolo, and top-level TOML keys must precede the [[hooks]] tables",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): config.toml [providers.mock] type openai + [models.mock] protocol openai + default_model; kimi -p: mcp__acme-db__acme_query called -> probe logged tools/call; SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop fired via [[hooks]]"
   },
   {
     "host": "pi",
@@ -288,11 +288,11 @@ export const hostVerificationResults = [
     "host": "omp",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "omp pinned Windows CLI installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no offline accept verb; omp -p is auth-gated with no offline model",
-    "evidence": "omp placement+uninstall clean passed using pinned v16.0.10 Windows exe"
+    "hostCliSurface": "omp 16.1.16 @oh-my-pi/pi-coding-agent installed globally",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; in omp -p print mode only SessionStart, PreToolUse and PostToolUse were observed (no UserPromptSubmit/Stop/SessionEnd before exit)",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): OMP_CODING_AGENT_DIR isolated; models.json custom openai-completions provider; omp -p --approval-mode yolo --model mock/mock-model: mcp__acme_db_acme_query called -> probe logged tools/call; SessionStart, PreToolUse, PostToolUse fired through the acme-db extension"
   },
   {
     "host": "droid",
@@ -318,11 +318,11 @@ export const hostVerificationResults = [
     "host": "cline",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "cline 3.0.29 installed",
-    "headlessModelMcpE2e": "BLOCKED",
-    "result": "INSTALL_DOCTOR_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "new Cline CLI requires account auth; current adapter targets VS Code extension settings, not ~/.cline CLI settings",
-    "evidence": "cline headless run returned Unauthorized; extension-path doctor passed"
+    "hostCliSurface": "cline 3.0.61 installed in .verify-tools",
+    "headlessModelMcpE2e": "PARTIAL",
+    "result": "INSTALL_DOCTOR_VERIFIED_CLI_READS_NO_MCP",
+    "issueOrBlocker": "cline CLI model turn is reachable without account auth via cline auth openai -b <base url>, but the CLI tool set (read_files, run_commands, editor, submit_and_exit) exposes no MCP tools and it does not read the VS Code extension cline_mcp_settings.json the adapter writes",
+    "evidence": "extension-path doctor passed; 2026-09-07 mock-provider lane: model requests reached the mock, no MCP tool offered, probe server never started"
   },
   {
     "host": "trae",
@@ -369,20 +369,20 @@ export const hostVerificationResults = [
     "installProbe": "PASS",
     "doctorProbe": "PASS",
     "hostCliSurface": "crush @charmland/crush installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no offline accept verb; MCP lives in crush.json and model runtime needs provider setup",
-    "evidence": "crush placement+uninstall clean passed after LOCALAPPDATA sandbox isolation"
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): crush.json providers.mock (type openai) + models.large/small; crush run -q: mcp_acme-db_acme_query called -> probe logged tools/call; the single wired hook (PreToolUse) fired"
   },
   {
     "host": "goose",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "goose pinned Windows CLI installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no offline accept verb; goose mcp takes a server name and mcp list is not a reader",
-    "evidence": "goose v1.38.0 Windows zip downloaded; placement+uninstall clean passed"
+    "hostCliSurface": "goose 1.49.0 installed via Homebrew block-goose-cli",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): config.yaml GOOSE_PROVIDER openai + OPENAI_HOST mock + GOOSE_MODE auto; goose run -q --no-session -t: acme-db__acme_query called -> probe logged tools/call; SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionEnd all fired via ~/.agents/plugins/acme-db/hooks/hooks.json"
   },
   {
     "host": "amazon-q",
@@ -398,11 +398,11 @@ export const hostVerificationResults = [
     "host": "continue",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "Continue @continuedev/cli installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no offline config-accept verb; --mcp is an add-from-hub flag, not a reader",
-    "evidence": "Continue placement+uninstall clean passed"
+    "hostCliSurface": "Continue @continuedev/cli (cn) installed in .verify-tools",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "the six config.yaml hooks did not fire in cn -p headless mode; hook lane not observed",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): config.yaml models[] (provider openai, apiBase mock) + cn -p --auto --config: acme_query called -> probe logged tools/call"
   },
   {
     "host": "windsurf",
@@ -418,21 +418,21 @@ export const hostVerificationResults = [
     "host": "grok-build",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "official xAI grok binary not installed (curl|bash installer from x.ai, not an npm package)",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "ADAPTER_PLACEMENT_VERIFIED",
-    "issueOrBlocker": "no local host CLI accept/runtime lane; config contract verified against xai-org/grok-build sources, adapter placement only",
-    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id into ~/.grok/config.toml [mcp_servers] + ~/.grok/hooks/agent-connector.json and uninstall removed it"
+    "hostCliSurface": "grok 1.0.0 official xAI binary (~/.grok/bin/grok)",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; Grok reaches MCP tools through its search_tool/use_tool meta-tools and PreToolUse did not fire for use_tool",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): GROK_HOME isolated; [model.mock] custom model (api_backend chat_completions) selected via [models].default; grok -p --yolo --output-format json: events.jsonl mcp_server_connected acme-db tools=[acme_query]; model called use_tool(tool_name acme-db__acme_query) -> probe logged tools/call; SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd fired through ~/.grok/hooks/agent-connector.json"
   },
   {
     "host": "grok-cli",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
     "hostCliSurface": "grok-dev npm CLI installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no offline id-echoing accept verb verified; model turn is API-key/keychain gated",
-    "evidence": "grok-cli placement+uninstall clean passed; npm install needs --legacy-peer-deps --engine-strict=false on Node v24.13.0"
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; PreToolUse/PostToolUse did not fire for the MCP tool call (SessionStart, UserPromptSubmit, Stop did)",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): grok -p -u <mock base url> -k -m mock-model: mcp_acme-db__acme_query called -> probe logged tools/call; SessionStart, UserPromptSubmit, Stop fired through ~/.grok/user-settings.json hooks"
   },
   {
     "host": "devin",
@@ -449,30 +449,30 @@ export const hostVerificationResults = [
     "installProbe": "PASS",
     "doctorProbe": "PASS",
     "hostCliSurface": "interpreter 0.0.41 (Rust Codex fork) installed via the official install script",
-    "headlessModelMcpE2e": "PARTIAL",
-    "result": "LIVE_RUNTIME_VERIFIED",
-    "issueOrBlocker": "offline runtime (local mock chat-completions provider) fired hooks and exposed the connector's MCP tools to the model; the mock model called exec_command, not the MCP tool, so no real-model MCP tool-call E2E was observed (no provider key)",
-    "evidence": "2026-09-07: agent-connector install wrote ~/.openinterpreter/config.toml [mcp_servers.acme-db] + hooks.json; interpreter exec fired SessionStart and PreToolUse through the agent-connector home binary (both Completed), exec_command ran, and mcp__acme_db_acme_query / mcp__acme_db_acme_write were offered to the model; direct hooks.json probe also fired UserPromptSubmit, PostToolUse, Stop, SessionEnd; doctor passed"
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; with approvals=\"never\" the server table needs default_tools_approval_mode = \"approve\" or the MCP call is denied (interactive runs prompt instead); PreToolUse fires for exec_command but not for MCP tools",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): interpreter exec --dangerously-bypass-hook-trust called mcp__acme_db_acme_query -> probe logged tools/call acme_query; hooks SessionStart, UserPromptSubmit, PostToolUse (tool=mcp__acme_db__acme_query), Stop, SessionEnd ran through ~/.openinterpreter/hooks.json"
   },
   {
     "host": "junie",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "junie @jetbrains/junie CLI installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
+    "hostCliSurface": "junie @jetbrains/junie CLI 26.8.31 (3013.7) installed in .verify-tools",
+    "headlessModelMcpE2e": "BLOCKED",
     "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no offline accept/list verb verified; no login-free headless model surface available",
-    "evidence": "junie placement+uninstall clean passed"
+    "issueOrBlocker": "junie --task --provider litellm reached startup but hung on a macOS Keychain availability check (MacOSKeychainStorage) before any model call; Junie resolves its home via Java user.home so $HOME isolation does not apply",
+    "evidence": "junie placement+uninstall clean passed; 2026-09-07 headless attempt against a local LiteLLM-shaped mock produced no model request"
   },
   {
     "host": "mistral-vibe",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "vibe pinned Windows CLI installed in .verify-tools",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "no offline accept/runtime lane verified; no login-free headless model surface available",
-    "evidence": "Mistral Vibe v2.18.4 Windows zip downloaded; placement+uninstall clean passed"
+    "hostCliSurface": "vibe 2.25.0 installed via uv tool install mistral-vibe",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none (mcp-only host, no hooks expected)",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): config.toml [[providers]] backend generic + [[models]] + active_model; vibe -p --yolo: acme-db_acme_query called -> probe logged tools/call"
   }
 ] as const satisfies readonly HostVerificationResult[];
 
