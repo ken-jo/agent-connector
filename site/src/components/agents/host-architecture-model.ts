@@ -205,7 +205,7 @@ export const hostArchitectureBriefs: Record<string, string> = {
   codebuff:
     "Freebuff (formerly Codebuff) is mcp-only for runtime interception but has strong project content: skills, memory, and TypeScript AgentDefinition modules for subagents.",
   mux:
-    "Mux is Coder's desktop/web-adjacent agent host with MCP, skills, and memory; no command, hook, or subagent writable surface is currently documented for this adapter.",
+    "Xum (Coder, formerly Mux) is a desktop/web-adjacent agent host with MCP, skills, and memory under the .xum home (legacy .mux); no command, hook, or subagent writable surface is documented for this adapter.",
   pi:
     "Pi deliberately has no MCP registration surface; its architecture centers on prompt commands, skills, memory, and generated command actions.",
   "jetbrains-copilot":
@@ -547,10 +547,11 @@ export const hostSourceReviewNotes: Record<string, HostSourceReviewNote> = {
     ],
   },
   mux: {
-    checkedAt: "2026-07-06",
-    source: "coder/mux repository",
+    checkedAt: "2026-09-07",
+    source: "coder/xum repository and xum.coder.com docs",
     findings: [
-      "Mux is a desktop and browser application for parallel agentic development, not a single terminal agent runtime.",
+      "Coder renamed Mux to Xum on 2026-09-02 (repo coder/mux to coder/xum, xum.coder.com) and moved the config home from .mux to .xum; legacy .mux files stay readable, and the adapter id stays mux.",
+      "Xum is a desktop and browser application for parallel agentic development, not a single terminal agent runtime.",
       "Its features center on isolated workspaces, git divergence views, local/worktree/SSH execution modes, and multi-model agent execution.",
       "The repository includes desktop app, browser, mobile, VS Code, and `.mux` artifacts, so the page should present Mux as an orchestration host.",
     ],
@@ -619,12 +620,12 @@ export const hostSourceReviewNotes: Record<string, HostSourceReviewNote> = {
     ],
   },
   "mistral-vibe": {
-    checkedAt: "2026-07-06",
+    checkedAt: "2026-09-07",
     source: "mistralai/mistral-vibe repository",
     findings: [
       "Mistral Vibe is an open-source CLI coding assistant with file editing, shell execution, search, todo tracking, interactive questions, and task delegation.",
       "It includes built-in agent profiles, subagents, trusted folder configuration, programmatic mode, and skills-backed custom slash commands.",
-      "MCP configuration and skill directories are first-party documented surfaces, so this row should no longer read like an unexpanded mcp-only stub.",
+      "MCP configuration is byte-confirmed as a TOML [[mcp_servers]] array of tables with a required name alias; the only hook surface is experimental and unstable, so the row stays mcp-only by evidence rather than by omission.",
     ],
   },
 };
