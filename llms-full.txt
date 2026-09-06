@@ -1412,7 +1412,7 @@ the opt-in count_tokens calibration sampler; either missing → disabled — the
 Current counts and per-host coverage are canonical at https://agent-connector.ai/coverage.
 Paradigm taxonomy (the deepest cross-platform divergence):
 
-### `json-stdio` — full hook dispatch (23)
+### `json-stdio` — full hook dispatch (24)
 One universal hook entrypoint binary handles all of them.
 
 | Platform | id | MCP native target (root key / file) |
@@ -1440,8 +1440,9 @@ One universal hook entrypoint binary handles all of them.
 | Grok Build (xAI) | `grok-build` | `$GROK_HOME/config.toml` (default `~/.grok`) → `[mcp_servers.*]` TOML (stdio `{ command, args, env, enabled }`, remote `{ url, headers }`; Grok expands its OWN `${VAR}` in these string fields at load time); hooks in a SEPARATE `$GROK_HOME/hooks/*.json` (Claude-compatible `{ hooks: { <Event>: [{ matcher?, hooks:[...] }] } }`); skills `skills/<n>/SKILL.md`, commands `commands/<n>.md`, agents `agents/<n>.md`, memory `AGENTS.md`. xAI's OFFICIAL agent (xai-org/grok-build, Apache-2.0, bin `grok`) — shares the default `~/.grok` DIRECTORY with `grok-cli` but never a file, so each adapter detects on its own marker (`config.toml` vs `user-settings.json`) |
 | Grok CLI | `grok-cli` | `~/.grok/user-settings.json` → `mcp.servers` (JSON ARRAY, keyed by `id`); hooks in the SAME file under top-level `hooks` (Claude nested-rule shape). USER-SCOPE ONLY — community superagent-ai/grok-cli (npm `grok-dev`, bin `grok`), UNRELATED to `grok-build` above |
 | Devin CLI (Cognition) | `devin` | `~/.config/devin/config.json` (user; `%APPDATA%\devin\config.json` on Windows) / `.devin/config.json` (project) → `mcpServers` (object map; native `${env:VAR}`); hooks under the SAME file's `hooks` key (Claude-compatible NESTED-rule shape; reply is the simple top-level `{decision:"approve"\|"block"\|"deny", reason}`, exit 2 blocks) |
+| Open Interpreter | `open-interpreter` | `~/.openinterpreter/config.toml` (`$INTERPRETER_HOME`; NOT `$CODEX_HOME`) → `[mcp_servers.*]` TOML table; hooks in `~/.openinterpreter/hooks.json` / `.openinterpreter/hooks.json` (Claude-shaped, a Codex fork; SessionEnd also fires) |
 
-### `mcp-only` — MCP registration only, no hook layer (11)
+### `mcp-only` — MCP registration only, no hook layer (10)
 Detection surfaces "hooks unavailable here."
 
 | Platform | id | MCP native target |
@@ -1454,7 +1455,6 @@ Detection surfaces "hooks unavailable here."
 | Xum | `mux` | mcp config |
 | Pi | `pi` | (telemetry/skills surface; no writable MCP hook config) |
 | Windsurf | `windsurf` | `~/.codeium/windsurf/mcp_config.json` (user/global ONLY) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ serverUrl, headers? }` — `serverUrl` not `url`) |
-| Open Interpreter | `open-interpreter` | `~/.openinterpreter/config.toml` (`$INTERPRETER_HOME`; NOT `$CODEX_HOME`) → `[mcp_servers.*]` TOML table (stdio `{ command, args, env }`, streamable-HTTP `{ url, bearer_token_env_var?, http_headers? }`). The new Rust `interpreter`/`i` CLI — a fork of OpenAI's Codex |
 | Junie | `junie` | JetBrains' OWN agent (distinct from jetbrains-copilot) — `~/.junie/mcp/mcp.json` (user) / `.junie/mcp/mcp.json` (project) → `mcpServers` (object map; stdio `{ command, args?, env? }`, remote `{ url, headers? }` — `url` not `serverUrl`; no type/disabled) |
 | Mistral Vibe | `mistral-vibe` | `.vibe/config.toml` (project, precedence) / `~/.vibe/config.toml` (user) → `[[mcp_servers]]` (TOML ARRAY-OF-TABLES, keyed by `name`; stdio `{ name, transport:"stdio", command, args?, env? }`, remote `{ name, transport:"http"\|"streamable-http", url, headers? }` — distinct from codex's table-keyed `[mcp_servers.<name>]`) |
 

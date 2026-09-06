@@ -647,14 +647,14 @@ export const adapterCapabilityProfiles = [
   {
     "id": "open-interpreter",
     "name": "Open Interpreter",
-    "paradigm": "mcp-only",
+    "paradigm": "json-stdio",
     "surfaces": {
       "mcp": true,
-      "hooks": false,
+      "hooks": true,
       "commands": false,
-      "skills": false,
+      "skills": true,
       "subagents": false,
-      "memory": false,
+      "memory": true,
       "statusline": false,
       "actions": false
     }

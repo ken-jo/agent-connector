@@ -1455,6 +1455,12 @@ export const jsonStdioPlatforms: PlatformEntry[] = [
     target:
       "~/.config/devin/config.json (user) / .devin/config.json (project) → mcpServers (hooks under the same file's \"hooks\" key, Claude-compatible)",
   },
+  {
+    name: "Open Interpreter",
+    id: "open-interpreter",
+    target:
+      "~/.openinterpreter/config.toml ($INTERPRETER_HOME) → [mcp_servers.<id>] TOML table; hooks in ~/.openinterpreter/hooks.json (a Codex fork)",
+  },
 ];
 
 export const mcpOnlyPlatforms: PlatformEntry[] = [
@@ -1483,12 +1489,6 @@ export const mcpOnlyPlatforms: PlatformEntry[] = [
     id: "windsurf",
     target:
       "~/.codeium/windsurf/mcp_config.json (user/global ONLY) → mcpServers (object map; remote keyed by serverUrl)",
-  },
-  {
-    name: "Open Interpreter",
-    id: "open-interpreter",
-    target:
-      "~/.openinterpreter/config.toml ($INTERPRETER_HOME) → [mcp_servers.<id>] TOML table (a Codex fork)",
   },
   {
     name: "Junie",

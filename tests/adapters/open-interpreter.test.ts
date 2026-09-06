@@ -3,7 +3,7 @@
  * Interpreter adapter.
  *
  * Open Interpreter is the new Rust `interpreter`/`i` CLI and is a FORK of OpenAI's
- * Codex (README: "Open Interpreter is a fork of OpenAI's Codex"). It is mcp-only
+ * Codex (README: "Open Interpreter is a fork of OpenAI's Codex"). It is json-stdio
  * from agent-connector's perspective (the Codex hook subsystem is present in the
  * fork, but the `interpreter` product's live hook wire contract is not first-party
  * verified, so AC does not claim hooks). Config surfaces:
@@ -79,8 +79,8 @@ function connectorWith(server: ServerDef): ResolvedConnector {
 // extraKeys: INTERPRETER_HOME (config-dir resolution — left unset so it defaults
 // to ~/.openinterpreter under the sandboxed HOME), ENV_VAR (render's ${env:VAR} →
 // TOML literal), ACME_TOKEN (remote-HTTP bearer resolution).
-isolateEnv(["INTERPRETER_HOME", ENV_VAR, BEARER_ENV]);
-createAdapterSuite({ adapter: openInterpreterAdapter, paradigm: "mcp-only" });
+isolateEnv(["INTERPRETER_HOME", "CODEX_HOME", ENV_VAR, BEARER_ENV]);
+createAdapterSuite({ adapter: openInterpreterAdapter, paradigm: "json-stdio" });
 
 // ── render + round-trip (config.toml TOML table) ─────────────────────────────
 
@@ -195,12 +195,118 @@ describe("open-interpreter adapter render/round-trip", () => {
     expect(changes[0]?.action).toBe("skip");
   });
 
-  it("hooks are unavailable (mcp-only): install/uninstall both skip", () => {
+  it("installHooks with NO hooks declared → single skip `no hooks declared`", () => {
     const installed = openInterpreterAdapter.installHooks(ctx);
+    expect(installed).toHaveLength(1);
     expect(installed[0]?.action).toBe("skip");
-    expect(installed[0]?.detail).toMatch(/mcp-only/);
-    const removed = openInterpreterAdapter.uninstallHooks(ctx);
-    expect(removed[0]?.action).toBe("skip");
+    expect(installed[0]?.detail).toBe("no hooks declared");
+  });
+
+  it("commands and subagents are NOT wired (host-native, path unconfirmed): install/uninstall skip", () => {
+    expect(openInterpreterAdapter.capabilities.supportsCommands).toBe(false);
+    expect(openInterpreterAdapter.capabilities.supportsSubagents).toBe(false);
+    expect(openInterpreterAdapter.capabilities.supportsSkills).toBe(true);
+    expect(openInterpreterAdapter.installCommands(ctx)[0]?.action).toBe("skip");
+    expect(openInterpreterAdapter.uninstallCommands(ctx)[0]?.action).toBe("skip");
+    expect(openInterpreterAdapter.installSubagents(ctx)[0]?.action).toBe("skip");
+    expect(openInterpreterAdapter.uninstallSubagents(ctx)[0]?.action).toBe("skip");
+  });
+});
+
+// ── hooks (json-stdio; Claude-shaped hooks.json under the OI home / .openinterpreter) ──
+
+function buildHookConnector(): ResolvedConnector {
+  return defineConnector({
+    id: CONNECTOR_ID,
+    displayName: "Acme DB Tools",
+    version: "1.2.3",
+    hooks: {
+      PreToolUse: { handler: () => ({ decision: "allow" }) },
+      SessionStart: { handler: () => ({ decision: "allow" }) },
+      SessionEnd: { handler: () => ({ decision: "allow" }) },
+      Notification: { handler: () => ({ decision: "allow" }) },
+    },
+    telemetry: { enabled: false },
+  });
+}
+
+describe("open-interpreter adapter hooks (json-stdio, Codex-compatible hooks.json)", () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = freshProject("ac-hooks-oi-");
+  });
+
+  it("user scope writes ~/.openinterpreter/hooks.json (NOT ~/.codex) with the open-interpreter platform token", () => {
+    const ctx = buildCtx(home, buildHookConnector(), "user");
+    const changes = openInterpreterAdapter.installHooks(ctx);
+    expect(changes.length).toBeGreaterThan(0);
+
+    const hooksPath = join(home, ".openinterpreter", "hooks.json");
+    expect(openInterpreterAdapter.getHookConfigPath(ctx)).toBe(hooksPath);
+    expect(existsSync(join(home, ".codex", "hooks.json"))).toBe(false);
+
+    const cfg = JSON.parse(readFileSync(hooksPath, "utf8"));
+    const pre = cfg.hooks.PreToolUse;
+    expect(Array.isArray(pre)).toBe(true);
+    const cmd = pre[0].hooks[0].command;
+    expect(cmd).toContain(HOME_BIN);
+    expect(cmd).toContain("hook open-interpreter PreToolUse");
+    expect(cmd).toContain(`--connector ${CONNECTOR_ID}`);
+    expect(pre[0].matcher).toContain("exec_command");
+    expect(cfg.hooks.SessionStart[0].hooks[0].command).toContain("hook open-interpreter SessionStart");
+  });
+
+  it("SessionEnd IS registered (live-verified on the interpreter product); Notification is a visible skip", () => {
+    const ctx = buildCtx(home, buildHookConnector(), "user");
+    const changes = openInterpreterAdapter.installHooks(ctx);
+    const cfg = JSON.parse(readFileSync(join(home, ".openinterpreter", "hooks.json"), "utf8"));
+    expect(cfg.hooks.SessionEnd[0].hooks[0].command).toContain("hook open-interpreter SessionEnd");
+    expect(cfg.hooks.Notification).toBeUndefined();
+    const notification = changes.find((c) => (c.detail ?? "").includes("Notification"));
+    expect(notification?.action).toBe("skip");
+    expect(notification?.detail).toBe("Notification has no Open Interpreter hook equivalent — skipped");
+  });
+
+  it("project scope writes <project>/.openinterpreter/hooks.json; install is idempotent; uninstall leaves zero residue", () => {
+    const ctx = buildCtx(home, buildHookConnector(), "project");
+    openInterpreterAdapter.installHooks(ctx);
+    const hooksPath = join(home, ".openinterpreter", "hooks.json");
+    expect(openInterpreterAdapter.getHookConfigPath(ctx)).toBe(hooksPath);
+    expect(existsSync(hooksPath)).toBe(true);
+
+    const second = openInterpreterAdapter.installHooks(ctx);
+    expect(second.every((c) => c.action === "skip")).toBe(true);
+
+    openInterpreterAdapter.uninstallHooks(ctx);
+    const after = JSON.parse(readFileSync(hooksPath, "utf8"));
+    for (const bucket of Object.values(after.hooks ?? {}) as unknown[][]) {
+      expect(bucket).toHaveLength(0);
+    }
+  });
+
+  it("$INTERPRETER_HOME relocates hooks.json too, and $CODEX_HOME never does", () => {
+    const oiHome = join(home, "oi-home");
+    mkdirSync(oiHome, { recursive: true });
+    process.env.INTERPRETER_HOME = oiHome;
+    process.env.CODEX_HOME = join(home, "codex-home");
+    const ctx = buildCtx(home, buildHookConnector(), "user");
+    expect(openInterpreterAdapter.getHookConfigPath(ctx)).toBe(join(oiHome, "hooks.json"));
+    delete process.env.INTERPRETER_HOME;
+    delete process.env.CODEX_HOME;
+  });
+
+  it("skills go to the tool-neutral .agents/skills (project) and ~/.agents/skills (user); memory targets AGENTS.md under the OI home", () => {
+    const projectCtx = buildCtx(home, buildRenderConnector(), "project");
+    const userCtx = buildCtx(home, buildRenderConnector(), "user");
+    const adapterAny = openInterpreterAdapter as unknown as {
+      skillDir(ctx: InstallContext, name: string): string;
+      memoryTargets(ctx: InstallContext): { path: string }[];
+    };
+    expect(adapterAny.skillDir(projectCtx, "acme")).toBe(join(home, ".agents", "skills", "acme"));
+    expect(adapterAny.skillDir(userCtx, "acme")).toBe(join(home, ".agents", "skills", "acme"));
+    expect(adapterAny.memoryTargets(userCtx)[0]?.path).toBe(join(home, ".openinterpreter", "AGENTS.md"));
+    expect(adapterAny.memoryTargets(projectCtx)[0]?.path).toBe(join(home, "AGENTS.md"));
   });
 });
 

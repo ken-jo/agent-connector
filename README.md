@@ -35,11 +35,11 @@ by a test on each run, and a drift test fails if the README and the source disag
 | | |
 |---|---|
 | Agent hosts with an adapter | **42** — terminal CLIs, IDE extensions and desktop apps ([coverage wall](https://agent-connector.ai/coverage)) |
-| Surfaces rendered per host | **8** — MCP server (41 hosts), memory (40), skills (34), hooks (31), commands (19), subagents (16), actions (9), status line (3) |
-| Hook events normalized | **13**, dispatched through **3** paradigms (`json-stdio` 23 hosts · `mcp-only` 11 · `ts-plugin` 8) |
+| Surfaces rendered per host | **8** — MCP server (41 hosts), memory (41), skills (35), hooks (32), commands (19), subagents (16), actions (9), status line (3) |
+| Hook events normalized | **13**, dispatched through **3** paradigms (`json-stdio` 24 hosts · `mcp-only` 10 · `ts-plugin` 8) |
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
 | Hosts verified against the real host binary | **25 of 42** (5 of them end-to-end through a model tool call); the other **17** by the registry install harness in an isolated HOME |
-| Measured footprint | one 135-line `defineConnector()` → **64 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (61 at project scope) — `npm run measure:footprint` |
+| Measured footprint | one 135-line `defineConnector()` → **65 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (62 at project scope) — `npm run measure:footprint` |
 | Test suite | **150** test files |
 
 **Who it is for.** agent-connector is the **publisher** side of MCP distribution:
@@ -526,8 +526,8 @@ set (see [`/coverage`](https://agent-connector.ai/coverage) and
 
 | Paradigm | Platforms |
 |---|---|
-| `json-stdio` (full hook dispatch) | CodeBuddy · Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Droid (Factory) · OpenHands · Antigravity · Antigravity CLI · Continue · Amazon Q · Grok Build · Grok CLI · Devin CLI |
-| `mcp-only` (MCP registration only) | Warp · Cline · Trae · Zed · Freebuff · Xum · Pi · Windsurf · Open Interpreter · Junie · Mistral Vibe |
+| `json-stdio` (full hook dispatch) | CodeBuddy · Claude Code · Codex CLI · Cursor · VS Code Copilot · JetBrains Copilot · GitHub Copilot CLI · Gemini CLI · Qwen CLI · Kiro · Kimi CLI · Crush · Goose · Hermes · Droid (Factory) · OpenHands · Antigravity · Antigravity CLI · Continue · Amazon Q · Grok Build · Grok CLI · Devin CLI · Open Interpreter |
+| `mcp-only` (MCP registration only) | Warp · Cline · Trae · Zed · Freebuff · Xum · Pi · Windsurf · Junie · Mistral Vibe |
 | `ts-plugin` (generated bridge module) | OpenCode · MiMoCode · Kilo CLI · Kilo · OMP · NemoClaw · OpenClaw · Amp |
 
 Adding a platform = **one registry entry + one adapter**.

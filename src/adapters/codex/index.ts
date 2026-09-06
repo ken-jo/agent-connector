@@ -129,7 +129,7 @@ interface CodexHookInput {
 }
 
 /** One hook entry inside hooks.json (Claude-compatible). */
-interface CodexHookEntry {
+export interface CodexHookEntry {
   matcher?: string;
   hooks: Array<{ type: "command"; command: string }>;
 }
@@ -152,7 +152,7 @@ interface CodexMcpEntry {
  * Codex uses the same PascalCase event names as Claude Code; the home-binary
  * hook command receives the lowercased event token.
  */
-const CODEX_HOOK_EVENTS = [
+export const CODEX_HOOK_EVENTS = [
   "SessionStart",
   "PreToolUse",
   "PostToolUse",
@@ -165,7 +165,7 @@ const CODEX_HOOK_EVENTS = [
   "PostCompact",
 ] as const;
 
-type CodexHookEventName = (typeof CODEX_HOOK_EVENTS)[number];
+export type CodexHookEventName = (typeof CODEX_HOOK_EVENTS)[number];
 
 /**
  * Newer E1 canonical events with NO Codex analog: Codex ships PostToolUse only —
@@ -233,7 +233,7 @@ function derivePostToolUseIsError(toolResponse: unknown): boolean {
 
 export class CodexAdapter extends BaseAdapter {
   readonly id: PlatformId = "codex";
-  readonly name = "Codex CLI";
+  readonly name: string = "Codex CLI";
   readonly paradigm: HookParadigm = "json-stdio";
 
   readonly capabilities: PlatformCapabilities = {
@@ -353,13 +353,13 @@ export class CodexAdapter extends BaseAdapter {
   /** `$CODEX_HOME` (tilde-expanded, then resolved) || `~/.codex` for user
    *  scope. Shared with marketplace detection via `codexConfigHome` so the
    *  config writer and the install probe never target different dirs. */
-  private userConfigDir(): string {
+  protected userConfigDir(): string {
     return codexConfigHome();
   }
 
   // ── TOML config IO (override JSON helpers — config.toml is TOML) ─────────
 
-  private readToml(path: string): Record<string, unknown> {
+  protected readToml(path: string): Record<string, unknown> {
     if (!existsSync(path)) return {};
     try {
       return TOML.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -368,7 +368,7 @@ export class CodexAdapter extends BaseAdapter {
     }
   }
 
-  private writeToml(path: string, data: Record<string, unknown>, dryRun: boolean): void {
+  protected writeToml(path: string, data: Record<string, unknown>, dryRun: boolean): void {
     if (dryRun) return;
     ensureDir(dirname(path));
     // @iarna/toml's stringify type wants its JsonMap; our object is structurally compatible.
@@ -379,7 +379,7 @@ export class CodexAdapter extends BaseAdapter {
    * `isPresentButUnparseable` is `() => false`: readToml fail-softs to {} and the
    * server path has historically coerced/overwritten rather than warn-skip on an
    * unparseable file — preserved here for byte-identical behavior. */
-  private tomlObjectMapCodec(): ObjectMapCodec {
+  protected tomlObjectMapCodec(): ObjectMapCodec {
     return {
       parse: (path) => this.readToml(path),
       serialize: (path, data, dryRun) => this.writeToml(path, data, dryRun),
@@ -452,6 +452,20 @@ export class CodexAdapter extends BaseAdapter {
 
   // ── Install hooks (hooks.json) ──────────────────────────────────────────
 
+  /**
+   * Host-native hook events this adapter registers. A Codex FORK that fires a
+   * superset (open-interpreter also fires SessionEnd) overrides this once; the
+   * install, descriptor and remove paths all read it.
+   */
+  protected get hookEventNames(): readonly string[] {
+    return CODEX_HOOK_EVENTS;
+  }
+
+  /** Host label used in unsupported-event warn details ("<event> has no Codex hook equivalent"). */
+  protected get hookHostLabel(): string {
+    return "Codex";
+  }
+
   override installHooks(ctx: InstallContext): ChangeRecord[] {
     const path = this.getHookConfigPath(ctx);
     const hooksOff = ctx.connector.platforms[this.id]?.hooks === false;
@@ -468,8 +482,7 @@ export class CodexAdapter extends BaseAdapter {
     // for the legacy SessionEnd/Notification whose drop predates the convention),
     // never silently dropped. matcher is "" for every item; renderEntry derives
     // the real matcher from the event (PreToolUse/PermissionRequest).
-    const supported = (e: HookEventName) =>
-      (CODEX_HOOK_EVENTS as readonly string[]).includes(e);
+    const supported = (e: HookEventName) => this.hookEventNames.includes(e);
     const pending = [
       ...declared.filter((e) => !supported(e)).map((event) => ({ event: event as string, matcher: "" })),
       ...declared.filter(supported).map((event) => ({ event: event as string, matcher: "" })),
@@ -489,15 +502,14 @@ export class CodexAdapter extends BaseAdapter {
    * count, the warn wording, and the absent/no-match skips) is carried here so
    * the engine reproduces the prior in-adapter loop byte-for-byte.
    */
-  private hookDescriptor(_ctx: InstallContext): HookMergeDescriptor<CodexHookEntry> {
+  protected hookDescriptor(_ctx: InstallContext): HookMergeDescriptor<CodexHookEntry> {
     return {
       // Codex's server path coerces a malformed root; the hook path matches it.
       malformedPolicy: "coerce",
       // Supported event → identity; any other canonical event → undefined → the
       // engine reports it (never silent), at the severity unmappedAction picks.
-      mapEvent: (e) =>
-        (CODEX_HOOK_EVENTS as readonly string[]).includes(e) ? e : undefined,
-      unmappedWarnDetail: (e) => `${e} has no Codex hook equivalent — skipped`,
+      mapEvent: (e) => (this.hookEventNames.includes(e) ? e : undefined),
+      unmappedWarnDetail: (e) => `${e} has no ${this.hookHostLabel} hook equivalent — skipped`,
       // E1 newer events (PostToolUseFailure) keep the established `warn` (exit-1);
       // the legacy SessionEnd / Notification — silently dropped before this fix —
       // become a VISIBLE `skip` so the install exit code is unchanged for them.
@@ -531,7 +543,7 @@ export class CodexAdapter extends BaseAdapter {
       // Uninstall scans EXACTLY codex's fixed event set (not Object.keys), so a
       // home-bin command hand-placed under a foreign event key is left untouched —
       // byte-identical to the prior `for (const event of CODEX_HOOK_EVENTS)` loop.
-      removeEventKeys: CODEX_HOOK_EVENTS,
+      removeEventKeys: this.hookEventNames,
     };
   }
 
@@ -617,10 +629,10 @@ export class CodexAdapter extends BaseAdapter {
   //   subagent → <codexDir>/agents/<name>.toml  TOML via writeTomlString
 
   /** Command files always live under the USER codex dir: ~/.codex/prompts. */
-  private commandPath(name: string): string {
+  protected commandPath(name: string): string {
     return join(this.userConfigDir(), "prompts", `${name}.md`);
   }
-  private skillDir(ctx: InstallContext, name: string): string {
+  protected skillDir(ctx: InstallContext, name: string): string {
     // Project scope: <projectDir>/.codex/skills/<name> — the Project config-layer
     // skills root (codex-rs/core-skills/src/loader.rs, ConfigLayerSource::Project),
     // NOT deprecated. User scope: $HOME/.agents/skills/<name> — codex's CURRENT
@@ -632,7 +644,7 @@ export class CodexAdapter extends BaseAdapter {
     if (ctx.scope === "project") return join(this.getConfigDir(ctx), "skills", name);
     return join(homedir(), ".agents", "skills", name);
   }
-  private subagentPath(ctx: InstallContext, name: string): string {
+  protected subagentPath(ctx: InstallContext, name: string): string {
     return join(this.getConfigDir(ctx), "agents", `${name}.toml`);
   }
 
@@ -720,7 +732,7 @@ export class CodexAdapter extends BaseAdapter {
    * .codex/skills is the valid, non-deprecated Project config-layer path) and when
    * a custom CODEX_HOME would make the deprecated path coincide with the new one.
    */
-  private migrateDeprecatedUserSkill(
+  protected migrateDeprecatedUserSkill(
     ctx: InstallContext,
     skill: SkillDef,
     rendered: string,
@@ -796,7 +808,7 @@ export class CodexAdapter extends BaseAdapter {
    * sandbox_mode, mcp_servers, and skills.config. Keep `extra` as the
    * author-controlled escape hatch for that native surface.
    */
-  private renderSubagent(agent: SubagentDef): string {
+  protected renderSubagent(agent: SubagentDef): string {
     const table: Record<string, unknown> = {
       name: agent.name,
       description: agent.description,
@@ -1043,7 +1055,7 @@ export class CodexAdapter extends BaseAdapter {
   // ── Internal helpers ────────────────────────────────────────────────────
 
   /** Resolve the per-platform server override into an effective ServerDef. */
-  private effectiveServer(ctx: InstallContext): ServerDef | undefined {
+  protected effectiveServer(ctx: InstallContext): ServerDef | undefined {
     const override = ctx.connector.platforms[this.id]?.server;
     if (override === false) return undefined;
     const base = ctx.connector.server;
@@ -1056,7 +1068,7 @@ export class CodexAdapter extends BaseAdapter {
    * `${env:VAR}` is resolved to a literal at install time. The env table is a
    * plain string→string map. Honors the telemetry serve-wrapper.
    */
-  private renderMcpEntry(ctx: InstallContext, server: ServerDef): CodexMcpEntry {
+  protected renderMcpEntry(ctx: InstallContext, server: ServerDef): CodexMcpEntry {
     // Streamable HTTP server: codex infers the transport from `url` (no explicit
     // transport key). VERIFIED against codex-cli 0.139.0 — `codex mcp add <id>
     // --url <U> --bearer-token-env-var <E>` writes:
@@ -1108,9 +1120,9 @@ export class CodexAdapter extends BaseAdapter {
    * event in the uninstall (whole-entry FLAT removal) and the install idempotency
    * find reuses its command body via the descriptor's entryOwnsCommand.
    */
-  private isOurEntry(ctx: InstallContext, event: CodexHookEventName, entry: CodexHookEntry): boolean {
+  protected isOurEntry(ctx: InstallContext, event: CodexHookEventName, entry: CodexHookEntry): boolean {
     if (!entry || typeof entry !== "object" || !Array.isArray(entry.hooks)) return false;
-    const ours = buildHomeBinHookCommand(ctx.homeBinPath, "codex", event, ctx.connector.id);
+    const ours = buildHomeBinHookCommand(ctx.homeBinPath, this.id, event, ctx.connector.id);
     const needle = ours.replace(/\\/g, "/");
     return entry.hooks.some((h) => (h.command ?? "").replace(/\\/g, "/") === needle);
   }

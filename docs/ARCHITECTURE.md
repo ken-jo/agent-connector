@@ -141,17 +141,18 @@ Distilled from the union of platform behaviors (report §3).
   hosts ship a native analog (TaskCreated/TaskCompleted first candidates). Full
   contract: `llms-full.txt` §2.3.
 - **Hook I/O paradigm taxonomy** (the deepest divergence — exactly three):
-  - **`json-stdio`** (23) — CodeBuddy, Claude Code, Codex, Cursor, VS Code
+  - **`json-stdio`** (24) — CodeBuddy, Claude Code, Codex, Cursor, VS Code
     Copilot, Copilot CLI, Gemini CLI, Droid (Factory), OpenHands, Antigravity
     CLI, Antigravity, JetBrains Copilot, Qwen, Kiro, Kimi, Crush, Goose, Hermes,
-    Amazon Q, Continue, Grok Build, Grok CLI, Devin. One universal hook
+    Amazon Q, Continue, Grok Build, Grok CLI, Devin, Open Interpreter (a Codex
+    fork). One universal hook
     entrypoint binary reads host JSON, the adapter normalizes it, the dev's
     handler runs, the adapter formats the reply.
   - **`ts-plugin`** (8) — OpenCode, MiMoCode, Kilo CLI, Kilo, Amp, OMP,
     NemoClaw, OpenClaw. Framework *generates* an exported plugin module
     importing the dev's handler.
-  - **`mcp-only`** (11) — Warp, Cline, Trae, Zed, Freebuff, Xum, Pi, Windsurf,
-    Open Interpreter, Junie, Mistral Vibe. No hook layer; install only the MCP
+  - **`mcp-only`** (10) — Warp, Cline, Trae, Zed, Freebuff, Xum, Pi, Windsurf,
+    Junie, Mistral Vibe. No hook layer; install only the MCP
     server; detection surfaces "hooks unavailable here."
 - **`PlatformCapabilities`** flags (`preToolUse`, `postToolUse`, `preCompact`,
   `sessionStart`, `canModifyArgs`, `canModifyOutput`, `canInjectSessionContext`) —
