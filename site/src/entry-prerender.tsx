@@ -16,11 +16,13 @@
  * client-side effect.
  */
 import { renderToStaticMarkup } from "react-dom/server";
-import { StaticRouter } from "react-router";
+import { Route, Routes, StaticRouter } from "react-router";
 
+import { AgentArchitecturePage } from "@/components/agents/AgentArchitecturePage";
 import { blogPostBySlug } from "@/components/blog/blog-data";
 import { sectionRegistry } from "@/components/docs/DocsContent";
 import { trackOrder, tracks, type TrackId } from "@/components/docs/docs-data";
+import { AgentHostArchitectureStudyPage } from "@/components/study/AgentHostArchitectureStudyPage";
 
 export { trackOrder, tracks };
 
@@ -89,4 +91,21 @@ export function renderBlogPost(slug: string, route: string): string | null {
       </main>
     </StaticRouter>,
   );
+}
+
+/**
+ * Static HTML for the /agents archive index or one /agents/:platformId page.
+ * These pages carry their own Nav/Footer, and the detail page reads its id via
+ * useParams, so they render through real <Routes> under a StaticRouter.
+ */
+export function renderAgentsPage(route: string): string | null {
+  const html = renderToStaticMarkup(
+    <StaticRouter location={route}>
+      <Routes>
+        <Route path="/agents" element={<AgentHostArchitectureStudyPage />} />
+        <Route path="/agents/:platformId" element={<AgentArchitecturePage />} />
+      </Routes>
+    </StaticRouter>,
+  );
+  return html.length > 0 ? html : null;
 }

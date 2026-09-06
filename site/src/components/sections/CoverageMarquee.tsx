@@ -146,12 +146,19 @@ export function CoverageMarquee() {
         <MarqueeRow hosts={rowB} direction="right" />
       </div>
 
-      <div className="mt-10 text-center">
+      <div className="mt-10 flex flex-wrap justify-center gap-x-5 gap-y-2 text-center">
         <Link
           to="/coverage"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
         >
           See the full coverage matrix
+          <span aria-hidden="true">→</span>
+        </Link>
+        <Link
+          to="/agents"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          Browse agent architectures
           <span aria-hidden="true">→</span>
         </Link>
       </div>

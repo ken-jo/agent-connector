@@ -30,6 +30,18 @@ const CoveragePage = React.lazy(() =>
     default: m.CoveragePage,
   })),
 );
+// /agents — source-checked agent host architecture archive with visual diagrams.
+const AgentHostArchitectureStudyPage = React.lazy(() =>
+  import("@/components/study/AgentHostArchitectureStudyPage").then((m) => ({
+    default: m.AgentHostArchitectureStudyPage,
+  })),
+);
+// /agents/:platformId — one indexable architecture page per covered host.
+const AgentArchitecturePage = React.lazy(() =>
+  import("@/components/agents/AgentArchitecturePage").then((m) => ({
+    default: m.AgentArchitecturePage,
+  })),
+);
 // /telemetry — the standalone token telemetry page. Code-split so the landing
 // keeps using the lightweight section while the indexable page loads on demand.
 const TelemetryPage = React.lazy(() =>
@@ -66,6 +78,11 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       {/* /coverage — the dedicated, indexable full interactive coverage matrix. */}
       <Route path="/coverage" element={lazyDocs(<CoveragePage />)} />
+      <Route path="/agents" element={lazyDocs(<AgentHostArchitectureStudyPage />)} />
+      <Route
+        path="/agents/:platformId"
+        element={lazyDocs(<AgentArchitecturePage />)}
+      />
       {/* /telemetry — the dedicated, indexable token telemetry page. */}
       <Route path="/telemetry" element={lazyDocs(<TelemetryPage />)} />
       {/* /wizard — the standalone connector scaffold generator. */}

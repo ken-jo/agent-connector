@@ -8,6 +8,7 @@ import { REPO_URL } from "@/data";
 const links: { label: string; to: string }[] = [
   { to: "/", label: "Home" },
   { to: "/coverage", label: "Coverage" },
+  { to: "/agents", label: "Agents" },
   { to: "/telemetry", label: "Telemetry" },
   { to: "/docs", label: "Docs" },
   { to: "/wizard", label: "Wizard" },
@@ -50,7 +51,7 @@ function Logo() {
 export function Nav() {
   const { pathname } = useLocation();
   const isActive = (to: string) =>
-    to === "/" ? pathname === "/" : pathname.startsWith(to);
+    to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(`${to}/`);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/70 backdrop-blur-xl">

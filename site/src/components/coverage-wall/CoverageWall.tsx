@@ -8,8 +8,8 @@ import {
   agentPluginStateOf,
   byParadigmFamilyName,
   formatStars,
-  formFactorOf,
-  formFactorShort,
+  formFactorsOf,
+  formFactorShortLabels,
   handlerChips,
   hostLifecycleOf,
   hostLinks,
@@ -47,7 +47,6 @@ import {
  */
 
 /** Where a card's surface/handler links land in the dev docs. */
-const PLATFORMS_DOC = "/docs/dev/platforms";
 const HANDLER_DOC: Record<"statusline" | "actions", string> = {
   statusline: "/docs/dev/surfaces#statusline",
   actions: "/docs/dev/surfaces#actions",
@@ -254,11 +253,11 @@ const lifecycleChip: Record<HostLifecycle["status"], string> = {
 };
 
 /**
- * One agent on the wall: name + its exact surface profile as 3-state chips, a
- * compact form-factor chip (CLI / IDE / Ext), the rank-tier badge + star count,
+ * One agent on the wall: name + its exact surface profile as 3-state chips,
+ * compact form-factor chips (CLI / Desktop / Ext), the rank-tier badge + star count,
  * any lit handler chips, and TWO sibling links — a top-right "go to source"
- * icon (GitHub repo or product homepage) and a bottom "Guide →" Link to our
- * Platforms reference.
+ * icon (GitHub repo or product homepage) and a bottom "Architecture →" Link to
+ * that host's generated architecture page.
  *
  * Accessibility: there is NO card-wrapping anchor anymore. The source icon and
  * the Guide link (and each ✦ handler link) are independent, focusable, sibling
@@ -269,7 +268,7 @@ const lifecycleChip: Record<HostLifecycle["status"], string> = {
  */
 function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean }) {
   const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
-  const ffShort = formFactorShort(platform.id);
+  const ffShortLabels = formFactorShortLabels(platform.id);
   const supported = surfaceChips
     .filter((c) => platform.surfaces[c.key])
     .map((c) => c.full)
@@ -313,14 +312,15 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
           {platform.name}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1 self-start">
-          {ffShort ? (
+          {ffShortLabels.map((label) => (
             <span
+              key={label}
               className="rounded border border-border bg-background/80 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground"
-              title={`Form factor: ${ffShort}`}
+              title={`Form factor: ${label}`}
             >
-              {ffShort}
+              {label}
             </span>
-          ) : null}
+          ))}
           {linkUrl ? (
             <a
               href={linkUrl}
@@ -419,11 +419,11 @@ function AgentEntry({ platform, dimmed }: { platform: Platform; dimmed?: boolean
         </div>
       )}
       <Link
-        to={PLATFORMS_DOC}
-        aria-label={`${platform.name} — open the Platforms reference (setup guide)`}
+        to={`/agents/${platform.id}`}
+        aria-label={`${platform.name} — open the architecture page`}
         className="mt-2.5 inline-flex w-fit items-center gap-0.5 font-mono text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-foreground/40"
       >
-        Guide <span aria-hidden="true">→</span>
+        Architecture <span aria-hidden="true">→</span>
       </Link>
     </div>
   );
@@ -450,7 +450,7 @@ const SURFACE_KEYS = SURFACE_TAGS.map((t) => t.key);
 
 const TYPE_TAGS: { key: FormFactorId; label: string; title: string }[] = [
   { key: "cli", label: "CLI", title: "Terminal-native agent CLIs" },
-  { key: "app", label: "IDE", title: "Standalone GUI apps and editors" },
+  { key: "desktop", label: "Desktop", title: "Standalone GUI apps and editors" },
   { key: "extension", label: "Ext", title: "Editor extensions and plugins" },
 ];
 const TYPE_KEYS = TYPE_TAGS.map((t) => t.key);
@@ -509,8 +509,8 @@ const ALL_TIERS: CoverageTier[] = ALL_COVERAGE_TIERS.filter(
 );
 
 function matchesType(platform: Platform, enabled: Set<FormFactorId>): boolean {
-  const type = formFactorOf(platform.id);
-  return type ? enabled.has(type) : false;
+  const types = formFactorsOf(platform.id);
+  return types.some((type) => enabled.has(type));
 }
 
 /** Server/adapter type match: json-stdio, mcp-only, or ts-plugin. */
@@ -532,7 +532,7 @@ function matchesTier(platform: Platform, enabled: Set<CoverageTier>): boolean {
 /**
  * Four independent filter rows (Type ∩ Server ∩ Tier ∩ Surface) + tier-colored
  * wall. Each row starts ALL ON. A host matches only when it passes every row:
- * its form factor is enabled, its server/adapter type is enabled, its tier is
+ * at least one form factor is enabled, its server/adapter type is enabled, its tier is
  * enabled, and it supports at least one enabled surface. Non-matches remain
  * visible but dimmed below the matching index.
  *

@@ -65,6 +65,7 @@ function loadTsDataModule(relPath) {
 const docsData = loadTsDataModule("src/components/docs/docs-data.ts");
 const blogData = loadTsDataModule("src/components/blog/blog-data.ts");
 const meta = loadTsDataModule("src/components/docs/meta.ts");
+const platformData = loadTsDataModule("src/platform-data.ts");
 
 const {
   tracks,
@@ -76,6 +77,7 @@ const {
 } = docsData;
 const { blogPosts } = blogData;
 const DEFAULT_DESCRIPTION = meta.DEFAULT_DESCRIPTION;
+const { platforms } = platformData;
 
 for (const [name, value] of Object.entries({
   tracks,
@@ -85,6 +87,7 @@ for (const [name, value] of Object.entries({
   sectionDescription,
   legacyRedirects,
   blogPosts,
+  platforms,
   DEFAULT_DESCRIPTION,
 })) {
   if (!value) throw new Error(`docs-data export missing: ${name}`);
@@ -114,6 +117,13 @@ const pages = [
     description:
       "agent-connector token telemetry shows local-first, platform-independent per-tool cost leaderboards for MCP servers, hooks, actions, and host usage.",
   },
+  {
+    route: "/agents",
+    agentsIndex: true,
+    title: "Agents — host architecture archive",
+    description:
+      "A source-checked architecture study of all CLI, desktop, and extension hosts supported by agent-connector, combining external docs/source review with adapter-code analysis.",
+  },
   // The standalone connector scaffold generator — title/description match what
   // WizardPage sets client-side.
   {
@@ -138,6 +148,15 @@ for (const post of blogPosts) {
     title: `${post.title} — agent-connector blog`,
     description: post.description,
     blogSlug: post.slug,
+  });
+}
+
+for (const platform of platforms) {
+  pages.push({
+    route: `/agents/${platform.id}`,
+    agentId: platform.id,
+    title: `${platform.name} architecture — agent-connector`,
+    description: `${platform.name} architecture archive: form factor, hook paradigm, MCP, memory, marketplace, host-only affordances, and agent-connector coverage gaps.`,
   });
 }
 
@@ -390,7 +409,9 @@ function writeRoute(route, html) {
     return;
   }
   const rel = route.replace(/^\//, "");
-  writeFileSync(path.join(distDir, `${rel}.html`), html);
+  const htmlFile = path.join(distDir, `${rel}.html`);
+  mkdirSync(path.dirname(htmlFile), { recursive: true });
+  writeFileSync(htmlFile, html);
   const dir = path.join(distDir, rel);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "index.html"), html);
@@ -501,6 +522,11 @@ for (const page of pages) {
   } else if (page.blogSlug) {
     const body = docsRenderer.renderBlogPost(page.blogSlug, page.route);
     if (!body) throw new Error(`prerender: no blog post for slug "${page.blogSlug}"`);
+    page.body = body;
+    renderedBodies++;
+  } else if (page.agentsIndex || page.agentId) {
+    const body = docsRenderer.renderAgentsPage(page.route);
+    if (!body) throw new Error(`prerender: agents page did not render for "${page.route}"`);
     page.body = body;
     renderedBodies++;
   }
