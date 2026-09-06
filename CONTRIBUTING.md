@@ -194,9 +194,11 @@ Add one entry to `ADAPTER_REGISTRY` in `src/adapters/registry.ts`:
 
 The drift tests assert that the registry and the site data are in sync. Add the new host's row to:
 
-- `site/src/platform-data.ts` — `id`, `name`, `paradigm`, `surfaces`, `hostNative`, form-factor band.
+- `site/src/platform-data.ts` — `id`, `name`, `paradigm`, `surfaces`, `hostNative`, and one or more form-factor bands.
 - `site/src/components/docs/docs-data.ts` — the relevant paradigm list (`jsonStdioPlatforms`, `tsPluginPlatforms`, or `mcpOnlyPlatforms`).
 - `site/src/components/docs/hooks-matrix.ts` — the per-platform event matrix row.
+- `site/src/components/agents/host-architecture-model.ts` — a `hostArchitectureBriefs` sentence and a `hostSourceReviewNotes` entry (source checked, dated findings).
+- `site/src/components/agents/architecture-notes.ts` — the host's `architectureNotes` entry (summary, sources, the five study sections). The `/agents/<id>` page renders from these three maps and the drift test requires all of them for every registry id.
 
 Do not add a host to the `surfaces` map with a flag that `hostNative` does not also have — the `ours ⊆ hostNative` invariant is enforced by the drift test and must hold.
 

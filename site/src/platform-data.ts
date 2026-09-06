@@ -2,7 +2,7 @@
  * platform-data — the landing's platform wall, single-sourced from the adapter
  * registry. Dependency-free on purpose: the root drift test
  * (tests/docs/platform-drift.test.ts) imports this module directly and asserts
- * every entry — id, display name, paradigm, and ALL six surface flags — against
+ * every entry — id, display name, paradigm, and ALL surface flags — against
  * the loaded adapter's `capabilities`, so an edit here that disagrees with
  * src/adapters/<id>/index.ts fails the suite.
  *
@@ -23,7 +23,7 @@
 
 export type ParadigmId = "json-stdio" | "mcp-only" | "ts-plugin";
 
-/** The six integration surfaces, as shown on each agent's chip row. */
+/** The integration surfaces, as shown on each agent's chip row and handler row. */
 export interface PlatformSurfaces {
   /** MCP server registration (any transport). */
   mcp: boolean;
@@ -745,11 +745,12 @@ export const platformCount = platforms.length;
  * Host form-factor — how the user actually runs the agent. Orthogonal to the hook
  * paradigm (a `cli` can be json-stdio or ts-plugin, etc.); the wall shows form
  * factor as the grouping band and paradigm as the dot color. This is hand-curated
- * HOST-NATURE metadata, NOT registry-derivable, so the platform-drift test pins
- * these three lists to partition every platform id EXACTLY (a new or
- * misclassified host fails the guard).
+ * HOST-NATURE metadata, NOT registry-derivable. Some products expose more than
+ * one surface under the same adapter id (Hermes is both CLI and desktop), so
+ * these lists may overlap. The drift test pins every registry id to at least one
+ * band and rejects stray ids.
  */
-export type FormFactorId = "cli" | "extension" | "app";
+export type FormFactorId = "cli" | "desktop" | "extension";
 
 export const formFactorIds: Record<FormFactorId, readonly string[]> = {
   // Terminal-native agent CLIs.
@@ -762,33 +763,52 @@ export const formFactorIds: Record<FormFactorId, readonly string[]> = {
   ],
   // Editor extensions / plugins — run inside an IDE, no standalone CLI.
   extension: ["cline", "kilo", "vscode-copilot", "jetbrains-copilot"],
-  // Standalone GUI apps / editors (Cursor is the IDE; antigravity is the app,
-  // antigravity-cli is the CLI).
-  app: ["cursor", "windsurf", "trae", "kiro", "zed", "warp", "mux", "antigravity"],
+  // Standalone GUI apps / editors (Cursor is the IDE; antigravity is the desktop
+  // app, antigravity-cli is the CLI). Hermes ships under one adapter id but has
+  // both CLI and desktop entrypoints, so it intentionally appears in both bands.
+  desktop: ["cursor", "windsurf", "trae", "kiro", "zed", "warp", "mux", "antigravity", "hermes"],
 };
 
-const formFactorById: Record<string, FormFactorId> = Object.fromEntries(
-  (Object.entries(formFactorIds) as [FormFactorId, readonly string[]][]).flatMap(
-    ([ff, ids]) => ids.map((id) => [id, ff] as const),
-  ),
-);
-
-/** The form-factor of a platform id (undefined if unclassified). */
-export function formFactorOf(id: string): FormFactorId | undefined {
-  return formFactorById[id];
+const formFactorsById: Record<string, FormFactorId[]> = {};
+for (const [ff, ids] of Object.entries(formFactorIds) as [FormFactorId, readonly string[]][]) {
+  for (const id of ids) {
+    (formFactorsById[id] ??= []).push(ff);
+  }
 }
 
-/** Short per-card form-factor label: CLI / IDE / Ext (from the host's form factor). */
+/** The form-factors of a platform id. Multi-surface products return more than one. */
+export function formFactorsOf(id: string): readonly FormFactorId[] {
+  return formFactorsById[id] ?? [];
+}
+
+/** Primary form-factor of a platform id (undefined if unclassified). */
+export function formFactorOf(id: string): FormFactorId | undefined {
+  return formFactorsOf(id)[0];
+}
+
+/** Short per-card form-factor label: CLI / Desktop / Ext. */
 const formFactorShortLabel: Record<FormFactorId, string> = {
   cli: "CLI",
   extension: "Ext",
-  app: "IDE",
+  desktop: "Desktop",
 };
+
+/** Full form-factor label for explanatory pages. */
+export const formFactorLabel: Record<FormFactorId, string> = {
+  cli: "CLI",
+  extension: "Extension",
+  desktop: "Desktop",
+};
+
+/** Compact form-factor chip labels for a platform id. */
+export function formFactorShortLabels(id: string): readonly string[] {
+  return formFactorsOf(id).map((ff) => formFactorShortLabel[ff]);
+}
 
 /** Compact form-factor chip label for a platform id (undefined if unclassified). */
 export function formFactorShort(id: string): string | undefined {
-  const ff = formFactorOf(id);
-  return ff ? formFactorShortLabel[ff] : undefined;
+  const labels = formFactorShortLabels(id);
+  return labels.length > 0 ? labels.join("+") : undefined;
 }
 
 /* ------------------------------------------------------------------ */

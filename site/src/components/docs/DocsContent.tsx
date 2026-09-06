@@ -4,6 +4,7 @@ import { CodeBlock } from "@/components/ui/code-block";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   adapterCapabilityCount,
   adapterCapabilityProfiles,
@@ -14,11 +15,17 @@ import {
 // `platformCount` is the internal full adapter registry. Public-facing guide
 // prose uses the production-relevant coverage count instead, so low-star OSS
 // hosts can stay supported without becoming marketing noise.
-import { platformCount } from "@/data";
+import {
+  formFactorShortLabels,
+  paradigms,
+  platformCount,
+} from "@/data";
 import {
   publicCapabilityProfiles,
   publicCoverageCount,
+  publicCoveragePlatforms,
 } from "@/components/coverage-wall/public-coverage";
+import { hostSourceReviewNote } from "@/components/agents/host-architecture-model";
 import {
   DocSection,
   H3,
@@ -2724,6 +2731,91 @@ export function ConnectorConceptsGuide() {
         when the next problem is distribution, cross-host parity, hooks, content
         surfaces, or telemetry for your package.
       </P>
+    </DocSection>
+  );
+}
+
+export function AgentArchitecturesGuide() {
+  const byId = new Map<string, (typeof publicCapabilityProfiles)[number]>(
+    publicCapabilityProfiles.map((p) => [p.id, p]),
+  );
+
+  return (
+    <DocSection
+      id="agent-architectures"
+      eyebrow="Guides"
+      title="Agent architectures"
+    >
+      <Lead>
+        Each covered host has its own architecture page. The pages are generated
+        from the same adapter capability and coverage metadata used by the
+        public matrix, so CLI, desktop, and extension surfaces stay visible
+        without hand-copying support claims.
+      </Lead>
+
+      <H3 id="architecture-index">Architecture index</H3>
+      <P>
+        Use this index when you need to compare how a host runs, which hook
+        paradigm it uses, and which connector surfaces are wired today. Hosts
+        with multiple run surfaces, such as Hermes Agent, show each type instead
+        of collapsing to one label. This docs page explains how to read the
+        archive; the canonical host-surface archive lives at <C>/agents</C>.
+      </P>
+      <div className="not-prose mt-4">
+        <Link
+          to="/agents"
+          className="inline-flex rounded-md border border-border px-3 py-2 font-mono text-xs font-semibold text-foreground transition-colors hover:border-foreground/40 hover:bg-foreground/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
+        >
+          Open host architecture archive
+        </Link>
+      </div>
+
+      <div className="not-prose mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {publicCoveragePlatforms.map((platform) => {
+          const profile = byId.get(platform.id);
+          const paradigm = paradigms.find((p) => p.id === platform.paradigm)!;
+          const factors = formFactorShortLabels(platform.id).join(" + ");
+          const wired = generatedSurfaceKeys.filter((key) => profile?.surfaces[key]).length;
+          const reviewNote = hostSourceReviewNote(platform);
+          const statusLabel = reviewNote ? `Checked ${reviewNote.checkedAt}` : "Needs source check";
+
+          return (
+            <Link
+              key={platform.id}
+              to={`/agents/${platform.id}`}
+              className="rounded-lg border border-border p-3 transition-colors hover:border-foreground/40 hover:bg-foreground/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">{platform.name}</div>
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {factors || "Unclassified"}
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 font-mono text-[9px] font-semibold text-muted-foreground">
+                  <span className={cn("size-1.5 rounded-full", paradigm.dot)} />
+                  {platform.paradigm}
+                </span>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {wired}/{generatedSurfaceKeys.length} surfaces wired
+                </span>
+                <span
+                  className={cn(
+                    "rounded border px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wide",
+                    reviewNote
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                  )}
+                >
+                  {statusLabel}
+                </span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </DocSection>
   );
 }
@@ -5952,6 +6044,7 @@ export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   "connect-first-host": ConnectFirstHostGuide,
   "first-connector-surfaces": FirstConnectorSurfacesGuide,
   "connector-concepts": ConnectorConceptsGuide,
+  "agent-architectures": AgentArchitecturesGuide,
   "host-hooks": HostHooksGuide,
   "hud-statusline": HudStatuslineGuide,
   "actions-guide": ActionsGuide,

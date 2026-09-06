@@ -61,6 +61,10 @@ developer-owned connector using the serve telemetry proxy.
 - Coverage page: https://agent-connector.ai/coverage is canonical for current
   host support, tier, surface, type, server support, verification level, and star
   index display.
+- Host architecture archive: https://agent-connector.ai/agents has one page per
+  supported host (https://agent-connector.ai/agents/<adapter-id>) covering form
+  factor, hook paradigm, MCP, memory, marketplace, host-only affordances, and
+  the surfaces this adapter still leaves unwired.
 - Full reference: `llms-full.txt` contains supported platform tables by hook
   paradigm, canonical hook events, content surfaces, statusline/action contracts,
   telemetry model, CLI reference, SDK reference, and host caveats.
