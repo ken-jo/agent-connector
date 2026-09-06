@@ -448,11 +448,11 @@ export const hostVerificationResults = [
     "host": "open-interpreter",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "interpreter installed through pipx",
-    "headlessModelMcpE2e": "BLOCKED",
-    "result": "MCP_INSTALL_VERIFIED_AUTH_BLOCKED",
-    "issueOrBlocker": "OpenAI-backed model path requires API key; free/local mode did not produce a usable stdin smoke response",
-    "evidence": "interpreter CLI repaired after python3.12-dev plus setuptools injection; doctor passed"
+    "hostCliSurface": "interpreter 0.0.41 (Rust Codex fork) installed via the official install script",
+    "headlessModelMcpE2e": "PARTIAL",
+    "result": "LIVE_RUNTIME_VERIFIED",
+    "issueOrBlocker": "offline runtime (local mock chat-completions provider) fired hooks and exposed the connector's MCP tools to the model; the mock model called exec_command, not the MCP tool, so no real-model MCP tool-call E2E was observed (no provider key)",
+    "evidence": "2026-09-07: agent-connector install wrote ~/.openinterpreter/config.toml [mcp_servers.acme-db] + hooks.json; interpreter exec fired SessionStart and PreToolUse through the agent-connector home binary (both Completed), exec_command ran, and mcp__acme_db_acme_query / mcp__acme_db_acme_write were offered to the model; direct hooks.json probe also fired UserPromptSubmit, PostToolUse, Stop, SessionEnd; doctor passed"
   },
   {
     "host": "junie",

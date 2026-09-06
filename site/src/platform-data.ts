@@ -680,9 +680,12 @@ export const platforms: Platform[] = [
   {
     id: "open-interpreter",
     name: "Open Interpreter",
-    paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, false, false, false),
-    // mcp-only here: AC installs MCP only. Open Interpreter is the new Rust
+    paradigm: "json-stdio",
+    surfaces: s(true, true, false, true, false, true, false, false),
+    // json-stdio since 2026-09-07 (hooks VERIFIED: source + live run against a
+    // mock provider fired SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
+    // Stop/SessionEnd from ~/.openinterpreter/hooks.json). AC wires MCP, hooks,
+    // skills (.agents/skills) and AGENTS.md memory. Open Interpreter is the new Rust
     // `interpreter`/`i` CLI and is a FORK of OpenAI's Codex (README: "Open
     // Interpreter is a fork of OpenAI's Codex"), so its native config is Codex's:
     // a TOML config.toml carrying [mcp_servers.<id>] tables (stdio { command,
@@ -691,11 +694,10 @@ export const platforms: Platform[] = [
     // Codex: the binary honors ONLY $INTERPRETER_HOME (NOT $CODEX_HOME) and
     // defaults to ~/.openinterpreter (codex-rs/utils/home-dir/src/lib.rs); install
     // script sets CODEX_COMMAND_NAME=interpreter, CODEX_HOME=$INTERPRETER_HOME.
-    // hostNative hooks/commands/skills/subagents/memory = true: as a Codex fork it
-    // inherits Codex's hook subsystem + content surfaces + AGENTS.md memory, but
-    // the `interpreter` PRODUCT's live wire contract / on-disk dirs are not
-    // first-party verified here, so AC leaves them UNWIRED (surfaces=false) rather
-    // than guess — an honest CEILING / host-gap, not a host limitation.
+    // hostNative commands/subagents = true but UNWIRED: subagents are
+    // `[agents.<name>]` tables in config.toml (not codex's agents/<name>.toml) and
+    // no custom-prompts dir is documented for the interpreter product, so those
+    // two stay an honest CEILING / host-gap until a path is byte-confirmed.
     hostNative: s(true, true, true, true, true, true, false, false),
   },
   {

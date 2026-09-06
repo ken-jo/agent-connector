@@ -241,7 +241,7 @@ export const hostArchitectureBriefs: Record<string, string> = {
   devin:
     "Devin CLI wires MCP, hooks, skills, and rules in first-party config paths; native commands and subagents are documented but remain path-unconfirmed adapter gaps.",
   "open-interpreter":
-    "Open Interpreter is tracked as a Codex-derived mcp-only product surface: MCP is wired, while inherited Codex-like hooks/content/memory are treated as unverified host gaps.",
+    "Open Interpreter is a Rust Codex fork under its own $INTERPRETER_HOME: the adapter extends the codex adapter and wires MCP, Claude-shaped hooks (SessionEnd included), .agents skills, and AGENTS.md memory; subagents and custom prompts stay unwired.",
   junie:
     "Junie has MCP and memory wired, with commands, skills, and subagents documented but not yet path-wired; lifecycle hooks are not a confirmed native layer.",
   "mistral-vibe":
@@ -529,12 +529,12 @@ export const hostSourceReviewNotes: Record<string, HostSourceReviewNote> = {
     ],
   },
   "open-interpreter": {
-    checkedAt: "2026-07-06",
-    source: "openinterpreter/openinterpreter repository",
+    checkedAt: "2026-09-07",
+    source: "openinterpreter/open-interpreter repository (codex-rs/hooks, features, docs/hooks.md) and a live v0.0.41 run",
     findings: [
-      "Open Interpreter's current repository describes a new Rust version and identifies itself as a low-cost-model coding agent.",
-      "It is a fork of OpenAI Codex focused on harness emulation, which explains why its adapter should avoid assuming unique hook semantics.",
-      "The `/harness` selector can emulate native, Claude Code, Kimi CLI, Qwen Code, SWE-agent, and minimal modes, making harness choice the key host surface.",
+      "Open Interpreter is a Rust fork of OpenAI's Codex; its config and hook subsystems are upstream Codex's under an isolated $INTERPRETER_HOME (default ~/.openinterpreter, $CODEX_HOME ignored) and a .openinterpreter project directory.",
+      "features.hooks is Stage::Stable and default_enabled, hooks live in hooks.json next to each config layer, and a live run against a mock provider fired SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, and SessionEnd with Claude-shaped stdin JSON.",
+      "Skills are documented at .agents/skills and ~/.agents/skills; subagents are [agents.<name>] config tables and no custom-prompts directory is documented, so those two surfaces remain unwired.",
     ],
   },
   junie: {

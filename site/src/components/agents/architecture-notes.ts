@@ -1846,16 +1846,17 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       {
         title: "Hook bridge",
         body:
-          "Open Interpreter is mcp-only in the connector matrix. As a Codex fork the host inherits Codex's hook subsystem, so hooks are host-native, but the interpreter product's live wire contract and on-disk hook directory are not first-party verified, so agent-connector leaves hooks unwired rather than guess. That is a coverage ceiling, not a host limitation.",
+          "Open Interpreter is a json-stdio hook host. As a Codex fork it ships Codex's hook subsystem with features.hooks on by default; the adapter writes the Claude-shaped hooks.json to ~/.openinterpreter (user) or <project>/.openinterpreter (trusted project), and a 2026-09-07 live run against a mock provider fired SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, and SessionEnd.",
         bullets: [
-          "The same reasoning keeps commands, skills, subagents, and AGENTS.md memory host-native but unwired.",
+          "SessionEnd is registered on top of the codex event table because the interpreter product fires it (the host clamps its hook timeout to 3 seconds).",
+          "Non-managed command hooks run only after /hooks review in the TUI or with --dangerously-bypass-hook-trust, the same trust gate as upstream Codex.",
           "Provider and model choice are host settings rather than hook semantics.",
         ],
       },
       {
         title: "Content surfaces",
         body:
-          "Inherited from Codex: prompts and skills directories, agent definitions, and AGENTS.md memory exist in the host, but none is wired by the adapter until the interpreter product documents its own paths. Local code execution keeps the safety concerns of a terminal agent rather than a cloud-hosted IDE.",
+          "Skills and memory are wired: skills go to the tool-neutral .agents/skills (project) and ~/.agents/skills (user), and memory is AGENTS.md under ~/.openinterpreter or the project root with AGENTS.override.md shadowing per directory. Subagents are [agents.<name>] tables in config.toml and no custom-prompts directory is documented, so those two stay host-native but unwired.",
         bullets: [
           "Open-model support makes provider configuration a first-class study axis.",
           "Local code execution requires clear permission and sandbox language on the page.",
@@ -1873,7 +1874,7 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
     ],
     limits: [
       "Local code execution authority needs careful safety wording.",
-      "Hook, command, skill, subagent, and memory paths are inherited from Codex and stay unwired until verified against the interpreter product itself.",
+      "Command and subagent paths stay unwired until the interpreter product documents them; hooks, skills, and memory were verified against the product on 2026-09-07.",
       "Open model support is not equivalent to connector plugin support.",
     ],
   },

@@ -7,17 +7,11 @@
  * is a fork of OpenAI's Codex, with a focus on emulating the agent harness that
  * gets the best performance out of low-cost models." (The original Python project
  * lives on as the community fork endolith/open-interpreter.) The repo at
- * github.com/openinterpreter/open-interpreter IS the codex-rs source tree.
- *
- * Because it is Codex, the native MCP config is Codex's:
- *   - config file  → <home>/config.toml (CONFIG_TOML_FILE = "config.toml";
- *     codex-rs/config/src/lib.rs:33), TOML.
- *   - MCP table    → `[mcp_servers.<id>]` (codex-rs/config/src/mcp_edit.rs:
- *     replace_mcp_servers inserts root key "mcp_servers"). stdio entry shape is
- *     { command, args, env } and the streamable-HTTP entry is { url,
- *     bearer_token_env_var?, http_headers? } (codex-rs/config/src/mcp_types.rs
- *     RawMcpServerConfig). TOML has NO native interpolation, so `${env:VAR}` refs
- *     resolve to LITERALS at install time (same rule as the codex adapter).
+ * github.com/openinterpreter/open-interpreter IS the codex-rs source tree, and
+ * docs/open-interpreter-delta.md keeps the maintained delta to product identity,
+ * installers and provider-neutral model config — the config and hook subsystems
+ * are upstream Codex's. This adapter therefore EXTENDS CodexAdapter and overrides
+ * only what the fork renames.
  *
  * Config HOME (byte-confirmed against codex-rs/utils/home-dir/src/lib.rs):
  *   - The `interpreter` binary deliberately does NOT honor $CODEX_HOME ("sharing
@@ -26,128 +20,141 @@
  *     the default is ~/.openinterpreter. The install script
  *     (scripts/install/install-open-interpreter.sh) confirms both: it sets
  *     CODEX_COMMAND_NAME=interpreter and CODEX_HOME="${INTERPRETER_HOME:-$HOME/.openinterpreter}".
+ *   - Project layer dir is `.openinterpreter` (codex-rs/config/src/loader/mod.rs:
+ *     `Product::OpenInterpreter => ".openinterpreter"`), NOT `.codex`.
  *
- * Paradigm: mcp-only. Codex's hook subsystem (codex-rs/hooks) is present in the
- * fork, but the `interpreter` PRODUCT's live hook wire contract is not first-party
- * verified here (a live authenticated run, which we cannot perform). Following the
- * project rule "MCP-only unless hooks byte-confirmed", this adapter registers the
- * MCP server only and reports hooks unavailable.
+ * MCP — inherited from codex: `[mcp_servers.<id>]` tables in <home>/config.toml
+ *   (codex-rs/config/src/mcp_edit.rs); stdio { command, args, env }, streamable-
+ *   HTTP { url, bearer_token_env_var?, http_headers? }. TOML has NO native
+ *   interpolation, so `${env:VAR}` refs resolve to LITERALS at install time.
  *
- * Mirrors the codex adapter's TOML object-map machinery (shared @iarna/toml codec
- * + the core/object-map engine, policy "coerce"), trimmed to the MCP surface.
+ * HOOKS — json-stdio, VERIFIED 2026-09-07 (source + live run, v0.0.41):
+ *   - `features.hooks` is `Stage::Stable, default_enabled: true`
+ *     (codex-rs/features/src/lib.rs) and docs/hooks.md says "enabled by default".
+ *   - Files: `~/.openinterpreter/hooks.json` (user) and `.openinterpreter/hooks.json`
+ *     (trusted project), plus inline `[[hooks.<Event>]]` in config.toml; all
+ *     matching sources run (docs/hooks.md "Where Hooks Live"). We write the
+ *     Claude-compatible hooks.json exactly as the codex adapter does.
+ *   - Live run against a local mock chat-completions provider fired, in order:
+ *     SessionStart (source=startup), UserPromptSubmit, PreToolUse (tool_name
+ *     "Bash" for exec_command), PostToolUse, Stop, SessionEnd — each with the
+ *     Claude-shaped stdin JSON (`hook_event_name`, `session_id`, `cwd`, …).
+ *     SessionEnd is therefore ADDED on top of CODEX_HOOK_EVENTS (its hook
+ *     timeout is clamped to 3s by the host; the entry we write carries none).
+ *   - Trust gate (shared with upstream Codex): non-managed command hooks run
+ *     only after `/hooks` review in the TUI or `--dangerously-bypass-hook-trust`.
+ *
+ * CONTENT SURFACES (docs/skills.md, docs/agents_md.md, docs/subagents.md):
+ *   - skills  → project `<projectDir>/.agents/skills/<name>/SKILL.md` (the
+ *     tool-neutral location the docs tell users to use; `~/.openinterpreter/skills`
+ *     is a legacy fallback) · user `~/.agents/skills/<name>/SKILL.md`.
+ *   - memory  → `~/.openinterpreter/AGENTS.md` (global) / project AGENTS.md,
+ *     with `AGENTS.override.md` shadowing per directory — codex's rule.
+ *   - commands / subagents → NOT wired. Subagents are `[agents.<name>]` tables
+ *     in config.toml (a different shape from codex's `agents/<name>.toml`), and
+ *     no custom-prompts directory is documented for the interpreter product;
+ *     both stay host-native-but-unwired until a path is byte-confirmed.
+ *
+ * DETECTION: keys on `<home>/config.toml` (or the home dir itself) under
+ * $INTERPRETER_HOME || ~/.openinterpreter, and on a project `.openinterpreter`
+ * dir — never on ~/.codex, so a Codex install is never misreported.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-
-import TOML from "@iarna/toml";
+import { join, resolve } from "node:path";
 
 import type {
   ChangeRecord,
   DetectedPlatform,
-  HealthCheck,
   HookParadigm,
   PlatformCapabilities,
   PlatformId,
-  ServerDef,
 } from "../../core/types.js";
-import { ensureDir } from "../../core/paths.js";
-import { resolveEnvRefsDeep } from "../../core/interpolate.js";
-import {
-  removeFromObjectMap,
-  upsertInObjectMap,
-  type ObjectMapCodec,
-} from "../../core/object-map.js";
-import { buildWrappedStdio } from "../../core/spawn.js";
-import { BaseAdapter } from "../base.js";
-import type { InstallContext } from "../spi.js";
+import type { InstallContext, MemoryTarget } from "../spi.js";
+import { CODEX_HOOK_EVENTS, CodexAdapter } from "../codex/index.js";
 
 const HOST: PlatformId = "open-interpreter";
-const MCP_ROOT_KEY = "mcp_servers";
 
-/** Rendered `[mcp_servers.<id>]` table — string env table, no interpolation. */
-interface OpenInterpreterMcpEntry {
-  // stdio transport
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  // streamable HTTP transport (remote): transport is inferred from `url`
-  // (no explicit transport key), exactly like codex.
-  url?: string;
-  bearer_token_env_var?: string;
-  http_headers?: Record<string, string>;
-}
+/** Codex's event table plus SessionEnd, which the interpreter product fires (live-verified). */
+const OPEN_INTERPRETER_HOOK_EVENTS: readonly string[] = [...CODEX_HOOK_EVENTS, "SessionEnd"];
 
-export class OpenInterpreterAdapter extends BaseAdapter {
-  readonly id: PlatformId = HOST;
-  readonly name = "Open Interpreter";
-  readonly paradigm: HookParadigm = "mcp-only";
+export class OpenInterpreterAdapter extends CodexAdapter {
+  override readonly id: PlatformId = HOST;
+  override readonly name = "Open Interpreter";
+  override readonly paradigm: HookParadigm = "json-stdio";
 
-  readonly capabilities: PlatformCapabilities = {
-    // mcp-only: every hook flag is false (no first-party-verified hook surface
-    // for the `interpreter` product).
-    preToolUse: false,
-    postToolUse: false,
-    preCompact: false,
-    sessionStart: false,
-    sessionEnd: false,
-    userPromptSubmit: false,
-    stop: false,
+  override readonly capabilities: PlatformCapabilities = {
+    supportsMemory: true,
+    preToolUse: true,
+    postToolUse: true,
+    preCompact: true,
+    sessionStart: true,
+    // Live-verified: the SessionEnd hook fires at process exit (host clamps its timeout to 3s).
+    sessionEnd: true,
+    userPromptSubmit: true,
+    stop: true,
     notification: false,
-    canModifyArgs: false,
+    permissionRequest: true,
+    subagentStart: true,
+    subagentStop: true,
+    postCompact: true,
+    canModifyArgs: true,
     canModifyOutput: false,
-    canInjectSessionContext: false,
-    // config.toml [mcp_servers] supports stdio (command) + streamable HTTP (url),
-    // inheriting codex's transport support.
+    canInjectSessionContext: true,
     transports: ["stdio", "http"],
+    // See header: skills are wired; commands and subagents stay unwired.
+    supportsCommands: false,
+    supportsSkills: true,
+    supportsSubagents: false,
   };
+
+  protected override get hookEventNames(): readonly string[] {
+    return OPEN_INTERPRETER_HOOK_EVENTS;
+  }
+
+  protected override get hookHostLabel(): string {
+    return "Open Interpreter";
+  }
 
   // ── Detection ──────────────────────────────────────────────────────────
 
-  detectInstalled(_projectDir: string): DetectedPlatform {
+  override detectInstalled(projectDir: string): DetectedPlatform {
     const userDir = this.userConfigDir();
+    const projDir = join(projectDir, ".openinterpreter");
     const userCfg = join(userDir, "config.toml");
-    const installed = existsSync(userDir) || existsSync(userCfg);
+    const projCfg = join(projDir, "config.toml");
+
+    const userInstalled = existsSync(userDir) || existsSync(userCfg);
+    const projInstalled = existsSync(projDir) || existsSync(projCfg);
+    const installed = userInstalled || projInstalled;
+    const scope = projInstalled && !userInstalled ? "project" : "user";
+
     return {
       id: this.id,
       name: this.name,
       installed,
       paradigm: this.paradigm,
       capabilities: this.capabilities,
-      configPath: userCfg,
-      scope: "user",
+      configPath: scope === "project" ? projCfg : userCfg,
+      scope,
       reason: installed
-        ? `Found Open Interpreter config dir (${userDir})`
-        : `No Open Interpreter config dir at ${userDir}`,
+        ? `Found Open Interpreter config dir (${scope})`
+        : `No Open Interpreter config dir at ${userDir} or ${projDir}`,
       confidence: installed ? "high" : "low",
     };
   }
 
   // ── Native paths ───────────────────────────────────────────────────────
-  // User scope only — Open Interpreter (like codex's user scope) keeps its config
-  // under the home dir. The home dir is $INTERPRETER_HOME (when set & non-empty)
-  // or ~/.openinterpreter; $CODEX_HOME is deliberately NOT consulted (the fork
-  // isolates the two identities — codex-rs/utils/home-dir/src/lib.rs).
 
-  override getConfigDir(_ctx: InstallContext): string {
+  override getConfigDir(ctx: InstallContext): string {
+    if (ctx.scope === "project") return join(ctx.projectDir, ".openinterpreter");
     return this.userConfigDir();
   }
 
-  override getServerConfigPath(ctx: InstallContext): string {
-    return join(this.getConfigDir(ctx), "config.toml");
-  }
-
-  /** Open Interpreter has no separate hook file — alias the hook config path to
-   *  the MCP file so the generic doctor/backup helpers behave sensibly (the
-   *  amazon-q / windsurf idiom for mcp-only hosts). */
-  override getHookConfigPath(ctx: InstallContext): string {
-    return this.getServerConfigPath(ctx);
-  }
-
   /** $INTERPRETER_HOME (tilde-expanded, then resolved) when set & non-empty,
-   *  else ~/.openinterpreter. Byte-confirmed against codex-rs/utils/home-dir. */
-  private userConfigDir(): string {
+   *  else ~/.openinterpreter. $CODEX_HOME is deliberately ignored (see header). */
+  protected override userConfigDir(): string {
     const env = process.env.INTERPRETER_HOME;
     if (env && env.trim() !== "") {
       if (env.startsWith("~")) return join(homedir(), env.replace(/^~[/\\]?/, ""));
@@ -156,212 +163,69 @@ export class OpenInterpreterAdapter extends BaseAdapter {
     return join(homedir(), ".openinterpreter");
   }
 
-  // ── TOML config IO (config.toml is TOML, not JSON) ───────────────────────
-
-  private readToml(path: string): Record<string, unknown> {
-    if (!existsSync(path)) return {};
-    try {
-      return TOML.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
+  /** Project skills live in the tool-neutral `.agents/skills` (docs/skills.md), not under `.openinterpreter`. */
+  protected override skillDir(ctx: InstallContext, name: string): string {
+    if (ctx.scope === "project") return join(ctx.projectDir, ".agents", "skills", name);
+    return join(homedir(), ".agents", "skills", name);
   }
 
-  private writeToml(path: string, data: Record<string, unknown>, dryRun: boolean): void {
-    if (dryRun) return;
-    ensureDir(dirname(path));
-    // @iarna/toml's stringify type wants its JsonMap; our object is structurally compatible.
-    writeFileSync(path, TOML.stringify(data as never), "utf8");
-  }
-
-  /** An ObjectMapCodec over config.toml for the core/object-map engine.
-   * `isPresentButUnparseable` is `() => false`: readToml fail-softs to {} and the
-   * server path coerces/overwrites rather than warn-skip on an unparseable file —
-   * matching the codex adapter's coerce policy. */
-  private tomlObjectMapCodec(): ObjectMapCodec {
-    return {
-      parse: (path) => this.readToml(path),
-      serialize: (path, data, dryRun) => this.writeToml(path, data, dryRun),
-      isPresentButUnparseable: () => false,
-    };
-  }
-
-  // ── Install server (config.toml → [mcp_servers.<id>]) ───────────────────
-
-  override installServer(ctx: InstallContext): ChangeRecord[] {
-    const { connector, dryRun } = ctx;
-    const server = this.effectiveServer(ctx);
-    const path = this.getServerConfigPath(ctx);
-
-    if (!server) {
-      return [{ platform: this.id, action: "skip", path, detail: "no server declared" }];
-    }
-    const isStdio = server.transport === "stdio" && !!server.command;
-    const isHttp = server.transport === "http" && !!server.url;
-    if (!isStdio && !isHttp) {
-      // config.toml [mcp_servers] supports stdio (command) + streamable HTTP
-      // (url). Other remote transports (sse/ws) have no analog.
+  // ── Memory: AGENTS.override.md > AGENTS.md per directory (codex rule, OI home) ─
+  protected override memoryTargets(ctx: InstallContext): MemoryTarget[] {
+    if (this.memoryOverride(ctx)?.path) return super.memoryTargets(ctx);
+    if (ctx.scope !== "project" && ctx.scope !== "user") return [];
+    const budgetBytes = 28 * 1024;
+    const dir = ctx.scope === "project" ? ctx.projectDir : this.userConfigDir();
+    const overrideMd = join(dir, "AGENTS.override.md");
+    if (existsSync(overrideMd)) {
       return [
         {
-          platform: this.id,
-          action: "skip",
-          path,
-          detail: `transport "${server.transport}" not registrable in config.toml (stdio + streamable-http only)`,
+          path: overrideMd,
+          reason: "AGENTS.override.md shadows AGENTS.md on Open Interpreter (one doc per directory)",
+          budgetBytes,
         },
       ];
     }
-
-    const symlink = this.symlinkPathWarning(path);
-    if (symlink) return [symlink];
-
-    const entry = this.renderMcpEntry(ctx, server);
-
     return [
-      upsertInObjectMap({
-        codec: this.tomlObjectMapCodec(),
-        rootKey: MCP_ROOT_KEY,
-        policy: "coerce",
-        platform: this.id,
-        configPath: path,
-        entryId: connector.id,
-        entry,
-        dryRun,
-      }),
+      {
+        path: join(dir, "AGENTS.md"),
+        reason:
+          ctx.scope === "project"
+            ? "AGENTS.md standard (project root; read root-down to cwd)"
+            : "Open Interpreter global guidance ($INTERPRETER_HOME/AGENTS.md)",
+        budgetBytes,
+      },
     ];
   }
 
-  override uninstallServer(ctx: InstallContext): ChangeRecord[] {
-    const { connector, dryRun } = ctx;
-    const path = this.getServerConfigPath(ctx);
-    const symlink = this.symlinkPathWarning(path);
-    if (symlink) return [symlink];
+  // ── Unwired content surfaces (host-native, path not byte-confirmed) ──────
 
-    return [
-      removeFromObjectMap({
-        codec: this.tomlObjectMapCodec(),
-        rootKey: MCP_ROOT_KEY,
-        policy: "coerce",
-        platform: this.id,
-        configPath: path,
-        entryId: connector.id,
-        dryRun,
-      }),
-    ];
-  }
-
-  // ── Hooks (unavailable — Open Interpreter is mcp-only here) ──────────────
-
-  override installHooks(_ctx: InstallContext): ChangeRecord[] {
+  override installCommands(_ctx: InstallContext): ChangeRecord[] {
     return [
       {
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Open Interpreter is mcp-only)",
+        detail: "commands unavailable (no custom-prompts directory is documented for Open Interpreter)",
       },
     ];
   }
 
-  override uninstallHooks(_ctx: InstallContext): ChangeRecord[] {
+  override uninstallCommands(_ctx: InstallContext): ChangeRecord[] {
+    return [{ platform: this.id, action: "skip", detail: "commands unavailable" }];
+  }
+
+  override installSubagents(_ctx: InstallContext): ChangeRecord[] {
     return [
       {
         platform: this.id,
         action: "skip",
-        detail: "hooks unavailable (Open Interpreter is mcp-only)",
+        detail:
+          "subagents unavailable (Open Interpreter defines roles as [agents.<name>] tables in config.toml; not wired)",
       },
     ];
   }
 
-  // ── Health checks (default doctor renders these) ────────────────────────
-
-  override getHealthChecks(ctx: InstallContext): readonly HealthCheck[] {
-    const path = this.getServerConfigPath(ctx);
-    const id = ctx.connector.id;
-    return [
-      {
-        name: `${this.name}: config.toml exists`,
-        check: () =>
-          existsSync(path)
-            ? { status: "OK", detail: path }
-            : { status: "FAIL", detail: `not found: ${path}` },
-      },
-      {
-        name: `${this.name}: ${MCP_ROOT_KEY}.${id} registered`,
-        check: () => {
-          // Only assert what the connector declares: a server-less connector
-          // never writes an [mcp_servers.<id>] table, so its absence is healthy.
-          if (!ctx.connector.server) {
-            return { status: "OK", detail: "no MCP server declared" };
-          }
-          const cfg = this.readToml(path);
-          const bucket = cfg[MCP_ROOT_KEY];
-          const present =
-            typeof bucket === "object" &&
-            bucket !== null &&
-            id in (bucket as Record<string, unknown>);
-          return present
-            ? { status: "OK", detail: `${MCP_ROOT_KEY}.${id}` }
-            : { status: "FAIL", detail: `${MCP_ROOT_KEY}.${id} not found in ${path}` };
-        },
-      },
-    ];
-  }
-
-  // ── Internal helpers ────────────────────────────────────────────────────
-
-  /** Resolve the per-platform server override into an effective ServerDef. */
-  private effectiveServer(ctx: InstallContext): ServerDef | undefined {
-    const override = ctx.connector.platforms[this.id]?.server;
-    if (override === false) return undefined;
-    const base = ctx.connector.server;
-    if (!base) return undefined;
-    return override ? { ...base, ...override } : base;
-  }
-
-  /**
-   * Render the `[mcp_servers.<id>]` table. TOML has NO interpolation, so every
-   * `${env:VAR}` is resolved to a literal at install time. Honors the telemetry
-   * serve-wrapper for stdio.
-   */
-  private renderMcpEntry(ctx: InstallContext, server: ServerDef): OpenInterpreterMcpEntry {
-    // Streamable HTTP server: transport is inferred from `url` (no explicit
-    // transport key), exactly like codex. Telemetry serve-wrapping is stdio-only
-    // (remote cannot be intercepted). installServer's guard only lets stdio+command
-    // or http+url reach here, so this branch is exactly the streamable-HTTP case.
-    if (server.transport === "http") {
-      const remote: OpenInterpreterMcpEntry = { url: resolveEnvRefsDeep(server.url ?? "") };
-      if (server.auth?.type === "bearerEnv" && server.auth.bearerEnvVar) {
-        remote.bearer_token_env_var = server.auth.bearerEnvVar;
-      }
-      if (server.headers && Object.keys(server.headers).length > 0) {
-        const headers: Record<string, string> = {};
-        for (const [k, v] of Object.entries(resolveEnvRefsDeep(server.headers))) {
-          headers[k] = String(v);
-        }
-        remote.http_headers = headers;
-      }
-      return remote;
-    }
-
-    let command = server.command as string;
-    let args = [...(server.args ?? [])];
-
-    ({ command, args } = buildWrappedStdio(ctx, server, this.id, command, args));
-
-    // Resolve env-refs to literals (TOML cannot interpolate).
-    command = resolveEnvRefsDeep(command);
-    args = resolveEnvRefsDeep(args);
-
-    const entry: OpenInterpreterMcpEntry = { command };
-    if (args.length > 0) entry.args = args;
-
-    if (server.env && Object.keys(server.env).length > 0) {
-      const env: Record<string, string> = {};
-      for (const [k, v] of Object.entries(resolveEnvRefsDeep(server.env))) {
-        env[k] = String(v);
-      }
-      entry.env = env;
-    }
-    return entry;
+  override uninstallSubagents(_ctx: InstallContext): ChangeRecord[] {
+    return [{ platform: this.id, action: "skip", detail: "subagents unavailable" }];
   }
 }
 
