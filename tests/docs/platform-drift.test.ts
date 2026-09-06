@@ -32,6 +32,19 @@ import {
 } from "../../site/src/host-verification.generated.js";
 import { releaseStatus } from "../../site/src/release-status.generated.js";
 import {
+  architectureNoteForPlatform,
+  architectureNotes,
+} from "../../site/src/components/agents/architecture-notes.js";
+import {
+  hostArchitectureBriefs,
+  hostArchitectureEvidence,
+  hostDiagramNodes,
+  hostFeatureInventory,
+  hostSurfaceProfiles,
+  hostSourceReviewNote,
+  hostSourceReviewNotes,
+} from "../../site/src/components/agents/host-architecture-model.js";
+import {
   jsonStdioPlatforms,
   mcpOnlyPlatforms,
   tracks,
@@ -41,11 +54,103 @@ import {
   brandColor,
   formFactorIds,
   formFactorOf,
+  formFactorsOf,
+  hostLinkUrl,
   hostLinks,
   hostSource,
   platforms as landingPlatforms,
   tierOf,
 } from "../../site/src/platform-data.js";
+
+const sourceReviewedHostIds = [
+  "codebuddy",
+  "claude-code",
+  "codex",
+  "gemini-cli",
+  "copilot-cli",
+  "vscode-copilot",
+  "warp",
+  "droid",
+  "opencode",
+  "openhands",
+  "mimo-code",
+  "kilo-cli",
+  "cursor",
+  "cline",
+  "trae",
+  "antigravity-cli",
+  "antigravity",
+  "roo-code",
+  "kilo",
+  "codebuff",
+  "pi",
+  "omp",
+  "qwen-code",
+  "kimi",
+  "crush",
+  "goose",
+  "nemoclaw",
+  "openclaw",
+  "amazon-q",
+  "continue",
+  "windsurf",
+  "grok-cli",
+  "devin",
+  "open-interpreter",
+  "junie",
+  "mistral-vibe",
+  "mux",
+  "zed",
+  "kiro",
+  "hermes",
+  "amp",
+  "jetbrains-copilot",
+] as const;
+
+const manualArchitectureHostIds = [
+  "claude-code",
+  "codex",
+  "gemini-cli",
+  "codebuddy",
+  "copilot-cli",
+  "vscode-copilot",
+  "warp",
+  "droid",
+  "opencode",
+  "openhands",
+  "mimo-code",
+  "kilo-cli",
+  "cursor",
+  "cline",
+  "trae",
+  "antigravity-cli",
+  "antigravity",
+  "roo-code",
+  "kilo",
+  "amp",
+  "codebuff",
+  "pi",
+  "omp",
+  "qwen-code",
+  "kimi",
+  "crush",
+  "goose",
+  "nemoclaw",
+  "openclaw",
+  "amazon-q",
+  "continue",
+  "windsurf",
+  "grok-cli",
+  "devin",
+  "open-interpreter",
+  "junie",
+  "mistral-vibe",
+  "mux",
+  "zed",
+  "kiro",
+  "hermes",
+  "jetbrains-copilot",
+] as const;
 
 /** Registry-derived truth: paradigm → sorted adapter ids. */
 async function registryParadigms(): Promise<Record<string, string[]>> {
@@ -121,24 +226,396 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     );
   });
 
-  it("form-factor lists PARTITION the registry ids exactly (every host classified, once)", () => {
+  it("form-factor lists cover the registry ids (multi-surface hosts may appear twice)", () => {
     // formFactor is hand-curated HOST-NATURE metadata, not registry-derivable, so
     // a "frozen expected map" would just mirror the data (circular). The real
-    // drift risk is a NEW registry host left unclassified — guard that with an
-    // exact partition: the three bands together = every registry id, no overlap,
-    // no stray id, and formFactorOf resolves every landing platform.
+    // drift risk is a NEW registry host left unclassified or a stale id left in
+    // a band. Some products expose multiple runnable surfaces under one adapter
+    // id (Hermes is CLI + desktop), so overlaps are intentional.
     const all = [
       ...formFactorIds.cli,
       ...formFactorIds.extension,
-      ...formFactorIds.app,
+      ...formFactorIds.desktop,
     ];
-    expect(new Set(all).size, "a host appears in more than one form-factor band").toBe(
-      all.length,
-    );
-    expect([...all].sort()).toEqual(ADAPTER_REGISTRY.map((f) => f.id).sort());
+    const registryIds = ADAPTER_REGISTRY.map((f) => f.id).sort();
+    const registryIdSet = new Set(registryIds);
+    expect([...new Set(all)].sort()).toEqual(registryIds);
+    for (const id of all) {
+      expect(registryIdSet.has(id), `"${id}" is not a registered adapter id`).toBe(true);
+    }
     for (const p of landingPlatforms) {
       expect(formFactorOf(p.id), `"${p.id}" has no form-factor band`).toBeTruthy();
+      expect(formFactorsOf(p.id).length, `"${p.id}" has no form-factor band`).toBeGreaterThan(0);
     }
+    expect([...formFactorsOf("hermes")].sort()).toEqual(["cli", "desktop"]);
+  });
+
+  it("Study page renders one per-host detail entry from platform data", () => {
+    // The Study page is an archive index for every host architecture: CLI,
+    // desktop, and extension. Full diagrams belong on the per-host detail page,
+    // while the index must make the detail route visibly reachable for every
+    // registered platform.
+    const study = readFileSync(
+      "site/src/components/study/AgentHostArchitectureStudyPage.tsx",
+      "utf8",
+    );
+    const architectureModel = readFileSync(
+      "site/src/components/agents/host-architecture-model.ts",
+      "utf8",
+    );
+
+    expect(landingPlatforms.length).toBe(ADAPTER_REGISTRY.length);
+    expect(study).toContain("const studyPlatforms = platforms");
+    expect(study).toContain("const sourceReviewDates = Array.from");
+    expect(study).toContain("const sourceReviewDateLabel =");
+    expect(study).toContain("source links checked {sourceReviewDateLabel}");
+    expect(study).not.toContain("const CHECKED_AT");
+    expect(study).toContain("surfaceEntryCount");
+    expect(study).toContain("{surfaceEntryCount} host-surface entries");
+    expect(study).toContain("{studyPlatforms.map((platform) => (");
+    expect(study).toContain('title="The three host runtime shapes"');
+    expect(study).toContain("Full host-surface analysis across CLI, desktop, and extension");
+    expect(study).not.toContain("The three CLI runtime shapes");
+    expect(study).toContain("<ArchiveAssurancePanel />");
+    expect(study).toContain("data-archive-assurance={studyPlatforms.length}");
+    expect(study).toContain("data-archive-source-checks={sourceChecked}");
+    expect(study).toContain("data-archive-feature-inventories={featureInventoried}");
+    expect(study).toContain("What this archive covers now");
+    expect(study).toContain("<HostCard key={platform.id} platform={platform} />");
+    expect(study).not.toContain("<HostArchitectureDiagram platform={platform} />");
+    expect(study).toContain("<HostArchitectureLedger />");
+    expect(study).toContain("data-host-architecture-ledger={studyPlatforms.length}");
+    expect(study).toContain("data-host-architecture-ledger-row={platform.id}");
+    expect(study).toContain("data-host-architecture-detail-link={platform.id}");
+    expect(study).toContain("data-host-card-detail-link={platform.id}");
+    expect(study).toContain("Open the detail page for adapter path, source review");
+    expect(study).toContain("Open detail");
+    expect(study).toContain("hostFeatureInventory(platform)");
+    expect(study).not.toContain("data-host-architecture-diagram={platform.id}");
+    expect(study).not.toContain("hostDiagramNodes(platform)");
+    expect(study).toContain("@/components/agents/host-architecture-model");
+    expect(study).not.toContain("hostSpecificBrief(platform)");
+    expect(study).not.toContain("hostEntryPoint(platform)");
+    expect(study).toContain("formFactorShortLabels(platform.id).map");
+    expect(study).toContain("formFactorsOf(platform.id)");
+    expect(architectureModel).toContain("hostEntryPointDetail(platform");
+    expect(architectureModel).toContain("hostCoverageCeiling(platform");
+    expect(architectureModel).toContain("hostSurfaceProfiles(platform");
+    expect(architectureModel).toContain("formFactorSurfaceCopy");
+
+    for (const requiredHost of [
+      "cursor",
+      "windsurf",
+      "zed",
+      "cline",
+      "roo-code",
+      "kilo",
+      "vscode-copilot",
+      "hermes",
+    ]) {
+      expect(
+        landingPlatforms.some((platform) => platform.id === requiredHost),
+        `Study host data is missing ${requiredHost}`,
+      ).toBe(true);
+    }
+    expect([...formFactorsOf("hermes")].sort()).toEqual(["cli", "desktop"]);
+
+    for (const requiredNode of [
+      "Entry point: ${hostEntryPoint(platform)}",
+      "Connector package",
+      "Adapter module: ${platform.id}",
+      "Native host artifacts",
+      "Runtime boundary",
+      "User-visible surface",
+      "Coverage ceiling",
+    ]) {
+      expect(architectureModel, `Shared host diagram is missing node "${requiredNode}"`).toContain(
+        requiredNode,
+      );
+    }
+  });
+
+  it("agent architecture archive carries a host-specific brief and diagram for every platform", () => {
+    const platformIds = landingPlatforms.map((platform) => platform.id).sort();
+    expect(Object.keys(hostArchitectureBriefs).sort()).toEqual(platformIds);
+
+    for (const platform of landingPlatforms) {
+      const brief = hostArchitectureBriefs[platform.id];
+      expect(brief, `${platform.id} is missing a host-specific architecture brief`).toBeTruthy();
+      expect(brief.length, `${platform.id} architecture brief is too thin`).toBeGreaterThan(80);
+      expect(brief.toLowerCase(), `${platform.id} brief must not be a queue placeholder`).not.toContain(
+        "queued",
+      );
+      expect(brief.toLowerCase(), `${platform.id} brief must not be a generic baseline`).not.toContain(
+        "baseline",
+      );
+
+      const nodes = hostDiagramNodes(platform);
+      expect(nodes.length, `${platform.id} architecture diagram should have a stable flow`).toBe(7);
+      expect(nodes.map((node) => node.tone), `${platform.id} diagram tones drifted`).toEqual([
+        "entry",
+        "adapter",
+        "adapter",
+        "artifact",
+        "runtime",
+        "surface",
+        "gap",
+      ]);
+      expect(
+        nodes.some((node) => node.label.startsWith("Entry point:")),
+        `${platform.id} diagram is missing a form-factor entry node`,
+      ).toBe(true);
+      expect(
+        nodes.some((node) => node.label === `Adapter module: ${platform.id}`),
+        `${platform.id} diagram is missing the adapter module node`,
+      ).toBe(true);
+      expect(
+        nodes.some((node) => node.detail.includes(`src/adapters/${platform.id}/index.ts`)),
+        `${platform.id} diagram is missing local adapter evidence in the node detail`,
+      ).toBe(true);
+      for (const node of nodes) {
+        expect(node.label, `${platform.id} diagram node label is missing`).toMatch(/\S/);
+        expect(node.detail.length, `${platform.id} diagram node "${node.label}" is too thin`).toBeGreaterThan(
+          35,
+        );
+        expect(node.detail.toLowerCase(), `${platform.id} diagram node must not be placeholder text`).not.toMatch(
+          /queued|placeholder|baseline/,
+        );
+      }
+
+      const profiles = hostSurfaceProfiles(platform);
+      expect(profiles.length, `${platform.id} should expose host-surface profiles`).toBe(
+        formFactorsOf(platform.id).length,
+      );
+      for (const profile of profiles) {
+        expect(["cli", "desktop", "extension"], `${platform.id} surface factor is invalid`).toContain(
+          profile.factor,
+        );
+        expect(profile.entry.length, `${platform.id} ${profile.factor} entry is too thin`).toBeGreaterThan(
+          80,
+        );
+        expect(
+          profile.hostOwns.length,
+          `${platform.id} ${profile.factor} host ownership explanation is too thin`,
+        ).toBeGreaterThan(80);
+        expect(
+          profile.connectorRole.length,
+          `${platform.id} ${profile.factor} connector role explanation is too thin`,
+        ).toBeGreaterThan(80);
+        expect(
+          profile.implementationConsequence.length,
+          `${platform.id} ${profile.factor} implementation consequence is too thin`,
+        ).toBeGreaterThan(80);
+      }
+
+      const evidence = hostArchitectureEvidence(platform);
+      expect(
+        evidence.some((item) => item.kind === "external" && item.href),
+        `${platform.id} architecture page is missing external source evidence`,
+      ).toBe(true);
+      expect(
+        evidence.filter((item) => item.kind === "local" && item.path).length,
+        `${platform.id} architecture page is missing local code evidence`,
+      ).toBeGreaterThanOrEqual(3);
+
+      const inventory = hostFeatureInventory(platform);
+      expect(
+        inventory.map((row) => row.id),
+        `${platform.id} special feature inventory is incomplete`,
+      ).toEqual(["hooks", "mcp", "memory", "marketplace", "host-affordances"]);
+      for (const row of inventory) {
+        expect(row.label, `${platform.id} inventory label is missing`).toMatch(/\S/);
+        expect(row.status, `${platform.id} inventory status is missing`).toMatch(/\S/);
+        expect(row.detail.length, `${platform.id} inventory detail is too thin`).toBeGreaterThan(
+          50,
+        );
+        expect(row.detail.toLowerCase(), `${platform.id} inventory must not be placeholder text`).not.toMatch(
+          /queued|placeholder|baseline/,
+        );
+      }
+    }
+
+    const page = readFileSync(
+      "site/src/components/agents/AgentArchitecturePage.tsx",
+      "utf8",
+    );
+    expect(page).toContain("hostArchitectureAxes(platform)");
+    expect(page).toContain("architectureNoteForPlatform(platform)");
+    expect(page).toContain('aria-label="Architecture navigation"');
+    expect(page).toContain('to="/agents"');
+    expect(page).toContain("Host archive");
+    expect(page).toContain("hostArchitectureEvidence(platform)");
+    expect(page).toContain("hostFeatureInventory(platform)");
+    expect(page).toContain("hostSurfaceProfiles(platform)");
+    expect(page).toContain("<HostSurfacePerspectives platform={platform} profiles={surfaceProfiles} />");
+    expect(page).toContain("Host Surface Perspectives");
+    expect(page).toContain("data-agent-surface-profile-count={surfaceProfiles.length}");
+    expect(page).toContain("data-agent-surface-perspectives={profiles.length}");
+    expect(page).toContain("data-agent-surface-profile={platform.id}");
+    expect(page).toContain("data-agent-surface-factor={profile.factor}");
+    expect(page).toContain("<ArchiveContext platform={platform} factors={factors} factorCounts={factorCounts} />");
+    expect(page).toContain("Archive Context");
+    expect(page).toContain("data-agent-archive-context={platform.id}");
+    expect(page).toContain("data-agent-archive-context-form-factors={factors.join(\" \")}");
+    expect(page).toContain("data-agent-archive-context-peer-counts={factorCounts");
+    expect(page).toContain("{platforms.length} host archive");
+    expect(page).toContain("<SpecialFeatureInventory rows={featureInventory} />");
+    expect(page).toContain("Special Feature Inventory");
+    expect(page).toContain("data-agent-architecture-page={platform.id}");
+    expect(page).toContain("data-agent-form-factors={factors.join(\" \")}");
+    expect(page).toContain("data-agent-feature-inventory-count={featureInventory.length}");
+    expect(page).toContain("data-agent-evidence-count={architectureEvidence.length}");
+    expect(page).toContain('data-agent-source-reviewed={sourceReviewNote ? "true" : "false"}');
+    expect(page).toContain('data-agent-source-reviewed-profile={researched ? "true" : "false"}');
+    expect(page).toContain("data-agent-architecture-section-count={note?.sections.length ?? 0}");
+    expect(page).toContain("hostDiagramNodes(platform)");
+    expect(page).toContain("data-agent-architecture-diagram={platform.id}");
+    expect(page).toContain("data-agent-architecture-svg={platform.id}");
+    expect(page).toContain("data-agent-architecture-diagram-nodes={nodes.length}");
+    expect(page).toContain("data-agent-architecture-node={index + 1}");
+    expect(page).toContain("data-agent-architecture-node-label={node.label}");
+    expect(page).toContain("data-agent-architecture-node-tone={node.tone}");
+    expect(page).toContain("data-agent-architecture-edge={`${index + 1}-${index + 2}`}");
+    expect(page).toContain("data-agent-special-feature-inventory={rows.length}");
+    expect(page).toContain("data-agent-feature-row={row.id}");
+    expect(page).toContain("data-agent-feature-status={row.status}");
+    expect(page).toContain("data-agent-feature-tone={row.tone}");
+    expect(page).toContain('data-agent-source-review="true"');
+    expect(page).toContain("data-agent-source-review-checked-at={note.checkedAt}");
+    expect(page).toContain("data-agent-source-review-findings={note.findings.length}");
+    expect(page).toContain('data-agent-source-review-source-url={sourceUrl ?? ""}');
+    expect(page).toContain("data-agent-evidence-map={evidence.length}");
+    expect(page).toContain("Source reviewed #");
+    expect(page).toContain("Generated Architecture Profile");
+    expect(page).toContain("Evidence Map");
+    expect(page.toLowerCase()).not.toContain("queue");
+    expect(page).not.toContain("Queued Source Review");
+
+    const prerender = readFileSync("site/scripts/prerender.mjs", "utf8");
+    expect(prerender).toContain('loadTsDataModule("src/platform-data.ts")');
+    expect(prerender).toContain('route: "/agents"');
+    expect(prerender).toContain('route: "/study"');
+    expect(prerender).toContain('target: "/agents"');
+    expect(prerender).toContain("for (const platform of platforms)");
+    expect(prerender).toContain("route: `/agents/${platform.id}`");
+  });
+
+  it("agent architecture source review notes are rendered for externally checked hosts", () => {
+    const reviewedIds = Object.keys(hostSourceReviewNotes).sort();
+    const platformIds = landingPlatforms.map((platform) => platform.id).sort();
+    expect([...sourceReviewedHostIds].sort()).toEqual(platformIds);
+    expect([...manualArchitectureHostIds].sort()).toEqual(platformIds);
+    expect(reviewedIds).toEqual([...sourceReviewedHostIds].sort());
+
+    for (const id of sourceReviewedHostIds) {
+      const platform = landingPlatforms.find((row) => row.id === id);
+      expect(platform, `source reviewed host "${id}" is not a landing platform`).toBeTruthy();
+
+      const note = hostSourceReviewNote(platform!);
+      const profile = architectureNoteForPlatform(platform!);
+      const sourceUrl = hostLinkUrl(id);
+      expect(note, `${id} source review note is missing`).toBeTruthy();
+      expect(profile, `${id} source-reviewed architecture profile is missing`).toBeTruthy();
+      expect(profile!.status, `${id} profile should be source-reviewed`).toBe("researched");
+      expect(profile!.checkedAt, `${id} profile should use source review date`).toBe(
+        note!.checkedAt,
+      );
+      expect(profile!.summary.length, `${id} profile summary is too thin`).toBeGreaterThan(80);
+      expect(profile!.sections.length, `${id} profile needs source pass plus study axes`).toBeGreaterThanOrEqual(
+        6,
+      );
+      expect(
+        profile!.sections.some((section) => section.title === "Source pass"),
+        `${id} profile needs a source pass section`,
+      ).toBe(true);
+      expect(
+        profile!.sections.some((section) => section.title === "Host-specific shape"),
+        `${id} profile needs host-specific architecture axis`,
+      ).toBe(true);
+      expect(sourceUrl, `${id} source review source link is missing`).toMatch(
+        /^https?:\/\/\S+$/,
+      );
+      expect(
+        profile!.sources.some((source) => source.url === sourceUrl),
+        `${id} profile should carry the current source URL`,
+      ).toBe(true);
+      expect(note!.checkedAt, `${id} source review date is missing`).toMatch(
+        /^\d{4}-\d{2}-\d{2}$/,
+      );
+      expect(note!.source, `${id} source review source is too thin`).toMatch(/\S/);
+      expect(note!.findings.length, `${id} source review needs enough findings`).toBeGreaterThanOrEqual(
+        3,
+      );
+      for (const finding of note!.findings) {
+        expect(finding.length, `${id} source review finding is too thin`).toBeGreaterThan(80);
+        expect(finding.toLowerCase(), `${id} source review must not be placeholder text`).not.toMatch(
+          /queued|placeholder|baseline/,
+        );
+      }
+    }
+
+    expect(Object.keys(architectureNotes).sort()).toEqual(
+      [...manualArchitectureHostIds].sort(),
+    );
+
+    for (const id of manualArchitectureHostIds) {
+      const note = architectureNotes[id];
+      expect(note, `${id} manual architecture note is missing`).toBeTruthy();
+      expect(note.status, `${id} manual note should be researched`).toBe("researched");
+      expect(note.summary.length, `${id} manual note summary is too thin`).toBeGreaterThan(140);
+      expect(note.sources.length, `${id} manual note needs multiple sources when available`).toBeGreaterThanOrEqual(
+        id === "cline" || id === "qwen-code" || id === "hermes" ? 1 : 2,
+      );
+      expect(note.sections.length, `${id} manual note needs deep sections`).toBeGreaterThanOrEqual(
+        5,
+      );
+      for (const section of note.sections) {
+        expect(section.body.length, `${id} section "${section.title}" is too thin`).toBeGreaterThan(
+          120,
+        );
+      }
+    }
+
+    const page = readFileSync(
+      "site/src/components/agents/AgentArchitecturePage.tsx",
+      "utf8",
+    );
+    expect(page).toContain("hostSourceReviewNote(platform)");
+    expect(page).toContain("<SourceReviewNotes note={sourceReviewNote} sourceUrl={sourceUrl} />");
+    expect(page).toContain("Source Review Notes");
+    expect(page).toContain("Open review source");
+
+    const study = readFileSync(
+      "site/src/components/study/AgentHostArchitectureStudyPage.tsx",
+      "utf8",
+    );
+    expect(study).toContain("hostSourceReviewNote(platform)");
+    expect(study).not.toContain('<FactRow label="Reviewed">');
+    expect(study).toContain("Open the detail page for adapter path, source review");
+    expect(study).toContain("const allHostSourceReviews = studyPlatforms");
+    expect(study).toContain("Source review ledger");
+    expect(study).toContain("data-host-source-review-ledger={allHostSourceReviews.length}");
+    expect(study).toContain("data-host-source-review-row={source.id}");
+    expect(study).toContain("data-host-source-review-checked-at={source.checkedAt}");
+    expect(study).toContain("data-host-source-review-findings={source.findings}");
+
+    const app = readFileSync("site/src/App.tsx", "utf8");
+    expect(app).toContain('path="/agents"');
+    expect(app).toContain('path="/study"');
+    expect(app).toContain('<Navigate to="/agents" replace />');
+    expect(app).toContain('path="/docs/guides/:section"');
+    expect(app).not.toContain('path="/docs/guides/agent-architectures"');
+    expect(app).toContain("<AgentHostArchitectureStudyPage />");
+
+    const docsContent = readFileSync(
+      "site/src/components/docs/DocsContent.tsx",
+      "utf8",
+    );
+    expect(docsContent).toContain("hostSourceReviewNote(platform)");
+    expect(docsContent).toContain("canonical host-surface archive lives at");
+    expect(docsContent).toContain('to="/agents"');
+    expect(docsContent).toContain("Open host architecture archive");
+    expect(docsContent).not.toMatch(/Queued|queued|queue placeholder/i);
   });
 
   it("hostSource classifies EVERY landing platform exactly once (closed or a repo)", () => {
@@ -440,13 +917,16 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
     expect(docs).not.toContain("{platformCount}-adapter");
     expect(docs).not.toContain("{statuslineHostNames.length} / {adapterCapabilityCount}");
     expect(docs).not.toContain("{actionHostNames.length} / {adapterCapabilityCount}");
-    for (const label of ["Home", "Coverage", "Telemetry", "Docs", "Wizard", "Blog"]) {
+    for (const label of ["Home", "Coverage", "Agents", "Telemetry", "Docs", "Wizard", "Blog"]) {
       expect(nav).toContain(`label: "${label}"`);
     }
-    for (const removed of ["Efficiency", "Matrix", "Surfaces"]) {
+    for (const removed of ["Study", "Efficiency", "Matrix", "Surfaces"]) {
       expect(nav).not.toContain(`label: "${removed}"`);
     }
-    expect(nav).toContain('to === "/" ? pathname === "/" : pathname.startsWith(to)');
+    expect(nav).toContain('pathname === to || pathname.startsWith(`${to}/`)');
+    expect(nav).toContain('to: "/agents", label: "Agents"');
+    expect(nav).not.toContain('to: "/docs/guides/agent-architectures", label: "Agents"');
+    expect(nav).not.toContain('to: "/study", label: "Study"');
     expect(nav).toContain('to: "/coverage", label: "Coverage"');
     expect(nav).toContain('to: "/telemetry", label: "Telemetry"');
     expect(landing).toContain("useLocation");
@@ -501,6 +981,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
       "connect-first-host",
       "first-connector-surfaces",
       "connector-concepts",
+      "agent-architectures",
       "host-hooks",
       "hud-statusline",
       "actions-guide",

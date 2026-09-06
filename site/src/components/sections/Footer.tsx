@@ -6,6 +6,7 @@ import {
   Newspaper,
   Plug,
   Sparkles,
+  Network,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -98,6 +99,9 @@ export function Footer() {
             </FooterLink>
             <FooterLink to="/blog" icon={Newspaper}>
               Blog
+            </FooterLink>
+            <FooterLink to="/agents" icon={Network}>
+              Agent host architecture study
             </FooterLink>
           </FooterColumn>
 

@@ -1,4 +1,4 @@
-import { ArrowRight, BookText, Terminal, WandSparkles } from "lucide-react";
+import { ArrowRight, BookText, Network, Terminal, WandSparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,17 @@ export function Hero() {
               <Link to="/docs/guides/mcp-beginner">
                 <BookText className="size-4" />
                 Beginner guide
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="w-full gap-2 sm:w-auto"
+            >
+              <Link to="/agents">
+                <Network className="size-4" />
+                Study
               </Link>
             </Button>
           </div>

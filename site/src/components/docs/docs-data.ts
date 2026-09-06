@@ -76,6 +76,7 @@ export const tracks: Record<TrackId, TrackDef> = {
         title: "Agent-connector concepts",
         items: [
           { id: "connector-concepts", label: "How agent-connector fits" },
+          { id: "agent-architectures", label: "Agent architectures" },
           { id: "host-hooks", label: "Host hooks by CLI" },
           { id: "hud-statusline", label: "HUD / statusline" },
           { id: "actions-guide", label: "Actions" },

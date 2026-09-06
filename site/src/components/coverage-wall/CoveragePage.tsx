@@ -1,4 +1,5 @@
 import * as React from "react";
+import { Link } from "react-router-dom";
 
 import { Nav } from "@/components/sections/Nav";
 import { Footer } from "@/components/sections/Footer";
@@ -71,6 +72,14 @@ export function CoveragePage() {
               stars. Each card shows the surfaces agent-connector installs, and
               which host-native surfaces are still gaps.
             </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <Link
+                to="/agents"
+                className="inline-flex items-center justify-center rounded-md border border-border px-3 py-2 font-mono text-xs font-semibold text-foreground transition-colors hover:border-foreground/40 hover:bg-foreground/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground/40"
+              >
+                Architecture index
+              </Link>
+            </div>
           </div>
 
           <div className="mt-10 flex flex-col items-center gap-3">

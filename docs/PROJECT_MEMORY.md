@@ -1,6 +1,6 @@
 # Project Memory
 
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 
 ## Current Product Direction
 
@@ -48,3 +48,7 @@ Public-facing support lists should highlight:
 - all lower-star or early-stage adapters only in developer/reference contexts.
 
 This keeps the first impression focused and avoids listing immature or low-signal support targets as if they were equally important launch platforms.
+
+## External Reference Verification Rule
+
+Before changing host architecture docs, external references, coverage classifications, source links, or host-native support claims, first refresh the relevant external evidence with web search or official/source URLs. Treat the newest official docs, product repos, package metadata, and release notes as the current source of truth; local memory and older research notes are only starting points.

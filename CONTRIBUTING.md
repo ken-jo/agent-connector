@@ -194,7 +194,7 @@ Add one entry to `ADAPTER_REGISTRY` in `src/adapters/registry.ts`:
 
 The drift tests assert that the registry and the site data are in sync. Add the new host's row to:
 
-- `site/src/platform-data.ts` — `id`, `name`, `paradigm`, `surfaces`, `hostNative`, form-factor band.
+- `site/src/platform-data.ts` — `id`, `name`, `paradigm`, `surfaces`, `hostNative`, and one or more form-factor bands.
 - `site/src/components/docs/docs-data.ts` — the relevant paradigm list (`jsonStdioPlatforms`, `tsPluginPlatforms`, or `mcpOnlyPlatforms`).
 - `site/src/components/docs/hooks-matrix.ts` — the per-platform event matrix row.
 

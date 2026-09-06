@@ -80,8 +80,11 @@ export type { Platform, PlatformSurfaces, SurfaceChip, SurfaceState } from "./pl
 
 export {
   formFactorIds,
+  formFactorLabel,
+  formFactorsOf,
   formFactorOf,
   formFactorShort,
+  formFactorShortLabels,
 } from "./platform-data";
 export type { FormFactorId } from "./platform-data";
 
@@ -113,8 +116,8 @@ export interface FormFactor {
 
 export const formFactors: FormFactor[] = [
   { id: "cli", label: "CLI", short: "terminal agent CLIs" },
-  { id: "extension", label: "IDE extension", short: "runs inside an editor" },
-  { id: "app", label: "App / IDE", short: "standalone GUI app" },
+  { id: "desktop", label: "Desktop", short: "standalone GUI app or editor" },
+  { id: "extension", label: "Extension", short: "runs inside an editor" },
 ];
 
 /* ------------------------------------------------------------------ */
