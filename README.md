@@ -104,7 +104,7 @@ npm install @ken-jo/agent-connector
   "name": "@acme/acme-db-mcp",
   "mcpName": "io.github.acme/acme-db",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "@ken-jo/agent-connector": "^0.6.4" }
+  "dependencies": { "@ken-jo/agent-connector": "^0.6.5" }
 }
 ```
 
