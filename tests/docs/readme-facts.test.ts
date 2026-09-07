@@ -115,7 +115,7 @@ describe("README 'By the numbers' equals its sources", () => {
     }
     // "against the real host binary" = every level whose description starts
     // with a real host being driven: e2e + live-runtime + live-accept +
-    // live-placement. The remainder is adapter-placement + install-doctor.
+    // live-placement. The remainder is adapter-placement.
     const liveLevels = ["e2e", "live-runtime", "live-accept", "live-placement"];
     const liveCount = liveLevels.reduce((n, k) => n + (levels[k] ?? 0), 0);
     expect(hostVerificationResults.length).toBe(ADAPTER_REGISTRY.length);

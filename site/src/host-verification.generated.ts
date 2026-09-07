@@ -4,7 +4,7 @@
  * Do not edit by hand. The source ledger is docs/host-verification-results.csv.
  */
 
-export type VerificationLevelId = "e2e" | "live-runtime" | "live-accept" | "live-placement" | "adapter-placement" | "install-doctor";
+export type VerificationLevelId = "e2e" | "live-runtime" | "live-accept" | "live-placement" | "adapter-placement";
 
 export interface HostVerificationResult {
   host: string;
@@ -23,7 +23,6 @@ export const verificationLevelOrder = [
   "live-accept",
   "live-placement",
   "adapter-placement",
-  "install-doctor",
 ] as const satisfies readonly VerificationLevelId[];
 
 export const verificationLevelLabels: Record<VerificationLevelId, string> = {
@@ -32,7 +31,6 @@ export const verificationLevelLabels: Record<VerificationLevelId, string> = {
   "live-accept": "Live accept",
   "live-placement": "Live placement",
   "adapter-placement": "Adapter placement",
-  "install-doctor": "Install + doctor",
 };
 
 export const verificationLevelDescriptions: Record<VerificationLevelId, string> = {
@@ -41,7 +39,6 @@ export const verificationLevelDescriptions: Record<VerificationLevelId, string> 
   "live-accept": "The host accepted or listed the installed MCP config, but auth or model access blocked the final turn.",
   "live-placement": "A real host CLI was installed and driven far enough to verify native placement plus uninstall cleanup, but no offline accept/runtime lane exists.",
   "adapter-placement": "No local host CLI can be driven, but the supported adapter was installed into an isolated HOME/project and cleanly uninstalled.",
-  "install-doctor": "Placement, dry install, doctor, and uninstall hygiene are verified; no login-free headless runtime lane is available.",
 };
 
 export function verificationLevelForResult(result: string): VerificationLevelId {
@@ -50,7 +47,7 @@ export function verificationLevelForResult(result: string): VerificationLevelId 
   if (result === "MCP_INSTALL_VERIFIED_AUTH_BLOCKED") return "live-accept";
   if (result === "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE") return "live-placement";
   if (result === "ADAPTER_PLACEMENT_VERIFIED") return "adapter-placement";
-  return "install-doctor";
+  throw new Error(`unknown host verification result: ${result}`);
 }
 
 export const hostVerificationResults = [
