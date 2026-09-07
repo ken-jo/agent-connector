@@ -354,10 +354,10 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
       {
         title: "Runtime boundary",
         body:
-          "The adapter target remains the IDE extension surface. VS Code owns activation, UI state, workspace trust, extension storage, and the agent panel; agent-connector writes MCP and content artifacts without claiming control of Cline's full SDK or CLI assistant runtime.",
+          "The primary adapter target is the IDE extension surface. VS Code owns activation, UI state, workspace trust, extension storage, and the agent panel; agent-connector writes MCP and content artifacts without claiming control of Cline's full SDK runtime. Since 2026-09-07 the adapter also mirrors the MCP entry into the Cline CLI's own settings file when ~/.cline exists.",
         bullets: [
           "The public repository describes Cline as an autonomous coding agent available as SDK, IDE extension, or CLI assistant.",
-          "The archive intentionally keeps this row in the extension band because that is the current adapter target.",
+          "The row stays in the extension band because the extension path is the primary target; the CLI mirror is an additional write, not a separate host.",
         ],
       },
       {
@@ -366,7 +366,7 @@ export const architectureNotes: Record<string, AgentArchitectureNote> = {
           "Cline treats MCP servers as an extension mechanism for external databases, APIs, cloud infrastructure, and custom tools. agent-connector should therefore model MCP as a first-class extension host surface, not as a fallback.",
         bullets: [
           "The public README points to community servers and custom on-the-fly tool creation.",
-          "The CLI can manage servers with `cline mcp`, but this adapter row should not imply the VS Code extension and CLI share the same writable path unless verified.",
+          "Live-verified 2026-09-07 on cline CLI 3.0.61: the CLI reads its OWN copy at `<config>/data/settings/cline_mcp_settings.json` (default config dir ~/.cline) and never the extension's globalStorage file; with the entry mirrored there the CLI listed and called the connector's MCP tool.",
         ],
       },
       {
