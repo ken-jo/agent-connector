@@ -11,13 +11,13 @@ import { describe, expect, it } from "vitest";
 
 import { cliCommands } from "../../site/src/components/docs/docs-data.js";
 
-const app = readFileSync("src/cli/app.ts", "utf8");
-const README = readFileSync("README.md", "utf8");
-const LLMS_FULL = readFileSync("llms-full.txt", "utf8");
+const app = readFileSync("src/cli/app.ts", "utf8").replace(/\r\n/g, "\n");
+const README = readFileSync("README.md", "utf8").replace(/\r\n/g, "\n");
+const LLMS_FULL = readFileSync("llms-full.txt", "utf8").replace(/\r\n/g, "\n");
 
 /** Every `--flag` the doctor usage string in app.ts declares. */
 function doctorFlagsFromUsage(): string[] {
-  const m = app.match(/doctor:\n\s+"doctor ([^"]+)"/);
+  const m = app.match(/doctor:\r?\n\s+"doctor ([^"]+)"/);
   if (!m) throw new Error("doctor usage string not found in src/cli/app.ts");
   const flags = [...m[1]!.matchAll(/--[a-z-]+/g)].map((x) => x[0]);
   return [...new Set(flags)];
