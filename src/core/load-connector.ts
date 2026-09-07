@@ -32,6 +32,7 @@ import type {
 } from "./types.js";
 import { defineConnector } from "./define-connector.js";
 import { assertNoSymlinkInPath, connectorDir, connectorsDir, ensureDir } from "./paths.js";
+import { resolveOwnVersion } from "./version.js";
 import {
   readConnectorPackageMetadataNearFile,
   withConnectorPackageMetadata,
@@ -62,6 +63,13 @@ export interface RegisteredMeta {
   hookEvents: HookEventName[];
   hasServer: boolean;
   server: ServerDef | null;
+  /**
+   * The agent-connector package version that rendered this install (added in
+   * 0.6.5). doctor compares it with the running CLI and warns when an older
+   * release produced the host config; `upgrade` re-renders and re-stamps it.
+   * OPTIONAL: absent on records written by releases before 0.6.5.
+   */
+  frameworkVersion?: string;
   /**
    * Content surfaces (commands/skills/subagents). These are JSON-serializable
    * (no functions) so they persist cleanly and let uninstall locate the files
@@ -234,6 +242,7 @@ export function registerConnector(
     id: connector.id,
     displayName: connector.displayName,
     version: connector.version,
+    frameworkVersion: resolveOwnVersion(),
     ...(connector.mcp ? { mcp: connector.mcp } : {}),
     modulePath: resolve(modulePath),
     telemetry: connector.telemetry,

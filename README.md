@@ -27,7 +27,7 @@ guide: [Publish an MCP server so users install it in every agent host](https://a
 [![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
 ![package formats](https://img.shields.io/badge/package-9%20plugin%20formats%20%2B%202%20MCP%20artifacts-2563eb)
 [![agent plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-2563eb)](https://agent-plugins.org)
-![tests](https://img.shields.io/badge/tests-150%20files-22c55e)
+![tests](https://img.shields.io/badge/tests-152%20files-22c55e)
 
 **By the numbers.** Every figure is derived from the adapter registry or measured
 by a test on each run, and a drift test fails if the README and the source disagree.
@@ -40,7 +40,7 @@ by a test on each run, and a drift test fails if the README and the source disag
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
 | Hosts verified against the real host binary | **29 of 42** (22 of them end-to-end through a model tool call); the other **13** by the registry install harness in an isolated HOME |
 | Measured footprint | one 135-line `defineConnector()` → **65 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (62 at project scope) — `npm run measure:footprint` |
-| Test suite | **150** test files |
+| Test suite | **152** test files |
 
 **Who it is for.** agent-connector is the **publisher** side of MCP distribution:
 you wrote (or are writing) an MCP server and want it to install itself into your
@@ -539,8 +539,8 @@ Adding a platform = **one registry entry + one adapter**.
 | `detect` | List installed platforms, scopes, capabilities, hook paradigm. |
 | `install [<source>] [--scope …] [--targets …] [--method …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces. `<source>` may be local, GitHub/git, `npm:<package>[@version]`, or `.tgz`/`archive:`. |
 | `uninstall [--targets …] [--purge] [--method …]` | Full inverse — removes everything we wrote; `--purge` also clears framework state. |
-| `upgrade [--channel …]` | Re-render host config + heal stale pointers + refresh the home binary (alias: `update`, `sync`); never a silent self-update. |
-| `doctor [--probe] [--explain]` | Per-platform health checks with fixes; `--probe` runs a live MCP handshake, `--explain` prints the per-`(host, event)` hook honor matrix. |
+| `upgrade [--channel …]` | Re-render host config + heal stale pointers + refresh the home binary (alias: `update`, `sync`); clears every `doctor` version warning; never a silent self-update. |
+| `doctor [--probe] [--heal] [--explain] [--json] [--dry-run]` | Per-platform health checks with fixes, plus version checks: the home binary's target install and every connector's rendering framework version are compared with the running CLI (drift → warn + `upgrade`). `--probe` runs a live MCP handshake, `--heal` re-syncs every fixable finding, `--explain` prints the per-`(host, event)` hook honor matrix. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
 | `package [--format <fmt>\|all]` | Emit a host plugin bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
 | `audit [--strict]` | Pre-install package identity lint: package name/version/bin, runtime dependency, connector id/version drift, and publish `files` coverage. |

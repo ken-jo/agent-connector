@@ -6027,6 +6027,226 @@ export function Troubleshooting() {
 /* Per-section registry                                                 */
 /* ================================================================== */
 
+
+const operateDoctorOutput = `$ acme-db doctor
+agent-connector:
+  [pass] agent-connector: home-bin — execs /…/node_modules/@ken-jo/agent-connector/dist/cli.js
+  [pass] agent-connector: home-bin version — 0.6.5
+  [pass] acme-db: framework version — 0.6.5
+  [pass] acme-db: connector version — 1.0.0
+
+claude-code:
+  [pass] Claude Code: config present — /Users/me/.claude.json
+  [pass] Claude Code: settings.json present — /Users/me/.claude/settings.json
+  [pass] Claude Code: hook command registered — hook command present
+  [pass] Claude Code: statusline wired — statusLine command present
+
+doctor: all checks passed.`;
+
+const operateDoctorDrift = `$ acme-db doctor
+agent-connector:
+  [pass] agent-connector: home-bin — execs /…/node_modules/@ken-jo/agent-connector/dist/cli.js
+  [warn] agent-connector: home-bin version — launcher runs agent-connector 0.6.4, this CLI is 0.6.5
+         fix: run \`upgrade\` (or \`doctor --heal\`) to re-render and re-point the home binary
+  [warn] acme-db: framework version — rendered by agent-connector 0.6.4, running 0.6.5
+         fix: run \`upgrade\` (or \`doctor --heal\`) to re-render acme-db
+  [warn] acme-db: connector version — registered 0.9.0, source declares 1.0.0
+         fix: run \`upgrade\` (or \`doctor --heal\`) to re-render acme-db
+…
+doctor: all checks passed.     # warns never fail doctor; only [FAIL] does
+
+$ acme-db upgrade
+…
+Refreshed home binary pointer: /Users/me/.agent-connector/bin/agent-connector`;
+
+const operateHealFlow = `$ acme-db doctor --heal --dry-run
+would heal via sync (acme-db): acme-db: connector version
+
+$ acme-db doctor --heal
+healed (1):
+  [pass] acme-db: connector version
+
+doctor --heal: all fixable findings resolved.`;
+
+const operateProbeFlow = `$ acme-db doctor --probe
+…
+probe acme-db:
+  [pass] acme-db: MCP initialize — serverInfo acme-db-mcp-server@1.0.0, protocol 2025-11-25
+  [pass] acme-db: capabilities — tools
+  [pass] acme-db: ping — alive
+  [pass] acme-db: tools/list — 2 tool(s)
+
+$ acme-db doctor --explain
+acme-db — per-event hook honor:
+  [honored]  claude-code / PreToolUse — claude-code asks on PreToolUse
+  [degraded] amp / SessionStart — amp drops context on SessionStart (no stdout path)
+  [dropped]  antigravity-cli / SessionStart — antigravity-cli has no SessionStart equivalent — install skip-warns it; never fires`;
+
+const operateUninstallFlow = `$ acme-db uninstall
+✓ Removed acme-db from 1 host · 4 files cleaned.
+  Verify it's gone: agent-connector doctor
+
+$ acme-db doctor            # host groups no longer list acme-db; the framework rows
+                            # still show its registry record until --purge
+$ acme-db uninstall --purge # also drops the record and, when no connector remains, the home binary`;
+
+export function OperateConnectorGuide() {
+  return (
+    <DocSection id="operate-connector" eyebrow="Guides" title="Operate: doctor, heal, upgrade">
+      <Lead>
+        Installing is one command. Keeping an install correct across host
+        updates, package releases and edited config is the day-two job, and{" "}
+        <C>doctor</C> is its single entry point: it tells you whether the
+        install is complete <em>and</em> whether it is current, and every
+        finding names the command that clears it.
+      </Lead>
+
+      <H3 id="operate-loop">1. The day-two loop</H3>
+      <P>
+        Four verbs cover the whole lifecycle. Each one is idempotent, prints a
+        per-host diff, and works the same under a branded bin (
+        <C>acme-db doctor</C>) or the framework CLI (<C>agent-connector doctor</C>).
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Verb</Th>
+            <Th>Question it answers</Th>
+            <Th>Exit code</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td><C>install</C></Td>
+            <Td className="text-muted-foreground">Render the connector into every detected host; register it; write the home binary.</Td>
+            <Td className="text-muted-foreground">non-zero on a write failure</Td>
+          </tr>
+          <tr>
+            <Td><C>doctor</C></Td>
+            <Td className="text-muted-foreground">Is everything we wrote still there, intact, and rendered by the version now running?</Td>
+            <Td className="text-muted-foreground">non-zero only on <C>[FAIL]</C>; warns alone exit 0</Td>
+          </tr>
+          <tr>
+            <Td><C>doctor --heal</C> / <C>upgrade</C></Td>
+            <Td className="text-muted-foreground">Re-render what drifted. <C>upgrade</C> also refreshes the home binary and prints the npm update line; neither ever self-updates the package.</Td>
+            <Td className="text-muted-foreground">non-zero if a fixable finding still fails afterwards</Td>
+          </tr>
+          <tr>
+            <Td><C>uninstall</C></Td>
+            <Td className="text-muted-foreground">Remove every entry, block and file we own; leave user edits alone.</Td>
+            <Td className="text-muted-foreground">non-zero on a removal failure</Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+
+      <H3 id="operate-read-doctor">2. Read doctor output</H3>
+      <P>
+        The first group is always <C>agent-connector:</C> — the framework's own
+        checks. Host groups follow, one per detected host, each check as{" "}
+        <C>[pass]</C>, <C>[warn]</C> or <C>[FAIL]</C> with a <C>fix:</C> line when
+        there is something to run. <C>--json</C> emits the same groups as an
+        array for scripts.
+      </P>
+      <CodeBlock code={operateDoctorOutput} language="text" filename="doctor — a current install" />
+      <Callout title="What each framework line proves">
+        <C>home-bin</C>: the stable launcher every host hook and action execs
+        exists and points at a CLI file that exists. A launcher pointing at a
+        removed install is a <C>[FAIL]</C> — hooks, statusline and actions would
+        silently stop on every host. <C>home-bin version</C>: that CLI is the same
+        agent-connector release as the one running doctor. <C>framework version</C>:
+        this connector's host config was rendered by the running release.{" "}
+        <C>connector version</C>: the registered connector version equals what
+        the source file declares now.
+      </Callout>
+
+      <H3 id="operate-versions">3. Three versions doctor compares</H3>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Version</Th>
+            <Th>Recorded where</Th>
+            <Th>Drifts when</Th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <Td>Connector version</Td>
+            <Td className="text-muted-foreground"><C>connector.json</C> under the framework state dir, at install</Td>
+            <Td className="text-muted-foreground">you bump <C>version</C> in <C>defineConnector()</C> / package.json and have not re-rendered</Td>
+          </tr>
+          <tr>
+            <Td>Framework version</Td>
+            <Td className="text-muted-foreground"><C>connector.json</C> → <C>frameworkVersion</C> (stamped since 0.6.5)</Td>
+            <Td className="text-muted-foreground">a newer <C>@ken-jo/agent-connector</C> is installed but hosts still carry the older rendering</Td>
+          </tr>
+          <tr>
+            <Td>Home-bin target</Td>
+            <Td className="text-muted-foreground">the launcher script itself (it execs an absolute <C>dist/cli.js</C>)</Td>
+            <Td className="text-muted-foreground">the package moved (global reinstall, different Node, removed <C>node_modules</C>)</Td>
+          </tr>
+        </tbody>
+      </DocsTable>
+      <CodeBlock code={operateDoctorDrift} language="text" filename="doctor after a package update, then upgrade" />
+      <P>
+        Every version finding is a <C>[warn]</C> except a launcher whose target
+        file is gone, which is a <C>[FAIL]</C>. All of them are fixable: one{" "}
+        <C>upgrade</C> re-renders every host, re-registers the connector with the
+        running versions and re-points the launcher. Records written by releases
+        before 0.6.5 carry no framework version; doctor says so and the same{" "}
+        <C>upgrade</C> stamps it.
+      </P>
+
+      <H3 id="operate-heal-upgrade">4. doctor --heal versus upgrade</H3>
+      <P>
+        <C>doctor --heal</C> is a targeted sync: it re-renders only the
+        connectors that have <em>fixable</em> findings and reports each finding
+        as healed, still failing or deferred. Deferred means agent-connector
+        will not overwrite it — a memory block or config value the user edited
+        by hand stays as the user left it. <C>upgrade</C> is the broad form:
+        re-render everything, refresh the launcher, and print the exact{" "}
+        <C>npm i -g</C> line when the install looks npm-managed. Use{" "}
+        <C>--dry-run</C> on either to see the plan first.
+      </P>
+      <CodeBlock code={operateHealFlow} language="text" filename="doctor --heal" />
+
+      <H3 id="operate-probe-explain">5. Prove the live server and the hook matrix</H3>
+      <P>
+        Placement checks read files. <C>--probe</C> spawns the connector's real
+        stdio server and runs the MCP handshake the hosts will run —
+        initialize, ping, <C>tools/list</C> — so a broken build or a missing
+        runtime dependency shows up here, not in a user's first chat turn.{" "}
+        <C>--explain</C> is offline: for every declared hook event it prints
+        whether each targeted host honors the reply, degrades it, or never fires
+        it, so you know which hosts your hook logic can rely on before shipping.
+      </P>
+      <CodeBlock code={operateProbeFlow} language="text" filename="doctor --probe / --explain" />
+
+      <H3 id="operate-uninstall">6. Reverse it cleanly</H3>
+      <P>
+        <C>uninstall</C> is the exact inverse of install: every host entry, block
+        and file agent-connector wrote is removed and files it does not own are
+        left untouched. The connector's registry record stays, so a later
+        install is a no-op diff; <C>uninstall --purge</C> removes that record
+        too and, once no connector remains, the home binary. Run <C>doctor</C>{" "}
+        afterwards — host groups that no longer mention the connector are the
+        proof.
+      </P>
+      <CodeBlock code={operateUninstallFlow} language="text" filename="uninstall" />
+      <P>
+        Next:{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/ucp-mcp-server">
+          ship a UCP commerce MCP
+        </Link>{" "}
+        with the same loop, or go back to{" "}
+        <Link className="underline hover:text-foreground" to="/docs/guides/first-connector-surfaces">
+          adding connector surfaces
+        </Link>
+        .
+      </P>
+    </DocSection>
+  );
+}
+
 /**
  * Each leaf section id → the component that renders ONLY that section's
  * content. DocsPage looks the active :section param up here and renders the
@@ -6043,6 +6263,7 @@ export const sectionRegistry: Record<string, () => React.JSX.Element> = {
   "first-mcp-server": FirstMcpServerGuide,
   "connect-first-host": ConnectFirstHostGuide,
   "first-connector-surfaces": FirstConnectorSurfacesGuide,
+  "operate-connector": OperateConnectorGuide,
   "connector-concepts": ConnectorConceptsGuide,
   "agent-architectures": AgentArchitecturesGuide,
   "host-hooks": HostHooksGuide,

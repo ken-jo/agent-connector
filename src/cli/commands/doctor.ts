@@ -10,6 +10,7 @@
  * minimal id-only connector is used so path-only checks still run.
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 
 import type {
@@ -31,6 +32,7 @@ import { syncConnector } from "../../core/installer.js";
 import { marketplaceDoctorChecks } from "../../core/marketplace.js";
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
+import { cliEntryOfLauncher, resolveOwnVersion, versionOfCliEntry } from "../../core/version.js";
 import { probeStdioServer } from "../../runtime/probe.js";
 import { explainHooks } from "../../sdk/test-harness.js";
 import type { HookEventVerdict } from "../../sdk/test-harness.js";
@@ -129,6 +131,142 @@ function buildContext(
   };
 }
 
+/** A doctor output group: a host platform, or the framework's own checks. */
+type DoctorBucket = PlatformId | typeof FRAMEWORK_BUCKET;
+const FRAMEWORK_BUCKET = "agent-connector" as const;
+
+/**
+ * Version checks (added in 0.6.5) — doctor is the one command a user runs to
+ * learn whether an install is CURRENT, so it must say so explicitly:
+ *   - home-bin: the stable launcher exists, its CLI target exists, and that
+ *     target is the same agent-connector version as the CLI running doctor.
+ *     A launcher pointing at a removed/older install silently breaks hooks,
+ *     statusline and actions on every host.
+ *   - per connector: the framework version that rendered the install
+ *     (RegisteredMeta.frameworkVersion) equals the running CLI, and the
+ *     registered connector version equals the source connector's version.
+ * Every finding here is `fixable` — a plain `upgrade` (or `doctor --heal`, which
+ * syncs the same way) re-renders, re-registers and re-points the launcher.
+ */
+function frameworkChecks(entries: ConnectorEntry[]): TaggedResult[] {
+  const out: TaggedResult[] = [];
+  // Framework-level findings are healed by syncing ANY registered connector;
+  // attach them to the first entry that has a source module to sync from.
+  const healEntry = Math.max(0, entries.findIndex((e) => !!e.modulePath));
+  const push = (result: DiagnosticResult, entryIndex = healEntry) => out.push({ result, entryIndex });
+  const own = resolveOwnVersion();
+  const fix = "run `upgrade` (or `doctor --heal`) to re-render and re-point the home binary";
+
+  const bin = homeBinPath();
+  if (!existsSync(bin)) {
+    push({
+      check: "agent-connector: home-bin",
+      status: entries.some((e) => e.modulePath) ? "warn" : "pass",
+      message: entries.some((e) => e.modulePath)
+        ? `launcher missing at ${bin} — host hooks/actions cannot reach agent-connector`
+        : `no launcher yet at ${bin} (nothing installed)`,
+      ...(entries.some((e) => e.modulePath) ? { fix, fixable: true } : {}),
+    });
+  } else {
+    let text = "";
+    try {
+      text = readFileSync(bin, "utf8");
+    } catch {
+      /* unreadable → treated as foreign below */
+    }
+    const cli = cliEntryOfLauncher(text);
+    if (!cli) {
+      push({
+        check: "agent-connector: home-bin",
+        status: "warn",
+        message: `launcher at ${bin} is not in the shape agent-connector writes`,
+        fix,
+        fixable: true,
+      });
+    } else if (!existsSync(cli)) {
+      push({
+        check: "agent-connector: home-bin",
+        status: "fail",
+        message: `launcher execs a CLI that no longer exists: ${cli} (an uninstalled or moved agent-connector)`,
+        fix,
+        fixable: true,
+      });
+    } else {
+      push({ check: "agent-connector: home-bin", status: "pass", message: `execs ${cli}` });
+      const target = versionOfCliEntry(cli);
+      if (target === null) {
+        push({
+          check: "agent-connector: home-bin version",
+          status: "warn",
+          message: `cannot read the package version behind ${cli}`,
+          fix,
+          fixable: true,
+        });
+      } else if (target !== own) {
+        push({
+          check: "agent-connector: home-bin version",
+          status: "warn",
+          message: `launcher runs agent-connector ${target}, this CLI is ${own}`,
+          fix,
+          fixable: true,
+        });
+      } else {
+        push({ check: "agent-connector: home-bin version", status: "pass", message: own });
+      }
+    }
+  }
+
+  entries.forEach((entry, i) => {
+    if (!entry.modulePath) return; // placeholder — nothing registered to compare
+    const meta = readRegisteredMeta(entry.connector.id);
+    if (!meta) return; // not installed here; the platform checks report that
+    const idFix = `run \`upgrade\` (or \`doctor --heal\`) to re-render ${entry.connector.id}`;
+    if (!meta.frameworkVersion) {
+      push(
+        {
+          check: `${entry.connector.id}: framework version`,
+          status: "warn",
+          message: `rendered by an agent-connector older than 0.6.5 (no version recorded); running ${own}`,
+          fix: idFix,
+          fixable: true,
+        },
+        i,
+      );
+    } else if (meta.frameworkVersion !== own) {
+      push(
+        {
+          check: `${entry.connector.id}: framework version`,
+          status: "warn",
+          message: `rendered by agent-connector ${meta.frameworkVersion}, running ${own}`,
+          fix: idFix,
+          fixable: true,
+        },
+        i,
+      );
+    } else {
+      push({ check: `${entry.connector.id}: framework version`, status: "pass", message: own }, i);
+    }
+    if (meta.version !== entry.connector.version) {
+      push(
+        {
+          check: `${entry.connector.id}: connector version`,
+          status: "warn",
+          message: `registered ${meta.version}, source declares ${entry.connector.version}`,
+          fix: idFix,
+          fixable: true,
+        },
+        i,
+      );
+    } else {
+      push(
+        { check: `${entry.connector.id}: connector version`, status: "pass", message: meta.version },
+        i,
+      );
+    }
+  });
+  return out;
+}
+
 /** Collected diagnostics tagged with the connector entry they came from. */
 interface TaggedResult {
   result: DiagnosticResult;
@@ -146,12 +284,12 @@ async function collectDiagnostics(
   scope: InstallScope,
   projectDir: string,
 ): Promise<{
-  byPlatform: { platform: PlatformId; results: DiagnosticResult[] }[];
+  byPlatform: { platform: DoctorBucket; results: DiagnosticResult[] }[];
   tagged: TaggedResult[];
   anyFail: boolean;
 }> {
   const multi = entries.length > 1;
-  const byPlatform: { platform: PlatformId; results: DiagnosticResult[] }[] = [];
+  const byPlatform: { platform: DoctorBucket; results: DiagnosticResult[] }[] = [];
   const tagged: TaggedResult[] = [];
   let anyFail = false;
 
@@ -221,6 +359,14 @@ async function collectDiagnostics(
       if (bucket) bucket.results.push(...tagged_g);
       else byPlatform.push({ platform: group.platform, results: tagged_g });
     }
+  }
+
+  // ── Framework checks (home-bin + version drift) — printed first ───────────
+  const fw = frameworkChecks(entries);
+  if (fw.length > 0) {
+    if (fw.some((t) => t.result.status === "fail")) anyFail = true;
+    tagged.push(...fw);
+    byPlatform.unshift({ platform: FRAMEWORK_BUCKET, results: fw.map((t) => t.result) });
   }
 
   return { byPlatform, tagged, anyFail };

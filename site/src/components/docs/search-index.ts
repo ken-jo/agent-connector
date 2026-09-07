@@ -120,6 +120,14 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "connector-surfaces-choose", title: "Choose by user need" },
     { id: "connector-surfaces-verify", title: "Verify after each added surface" },
   ],
+  "operate-connector": [
+    { id: "operate-loop", title: "The day-two loop" },
+    { id: "operate-read-doctor", title: "Read doctor output" },
+    { id: "operate-versions", title: "Three versions doctor compares" },
+    { id: "operate-heal-upgrade", title: "doctor --heal versus upgrade" },
+    { id: "operate-probe-explain", title: "Prove the live server and the hook matrix" },
+    { id: "operate-uninstall", title: "Reverse it cleanly" },
+  ],
   "connector-concepts": [
     { id: "connector-boundary", title: "The boundary: MCP first, connector second" },
     { id: "connector-distribution-layer", title: "The distribution layer" },
