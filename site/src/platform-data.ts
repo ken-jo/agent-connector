@@ -369,7 +369,9 @@ export const platforms: Platform[] = [
     // Workflows), skills (.clinerules/skills/<name>/SKILL.md), memory (.clinerules
     // + Documents/Cline/Rules) — docs.cline.bot. subagents hostNative=false: the
     // VS Code ext has no verified on-disk subagent surface (only the separate
-    // Cline CLI does). N/A: hooks (no event-callback plugin API).
+    // Cline CLI does). N/A: hooks (no event-callback plugin API). The MCP entry
+    // is also mirrored into the Cline CLI's ~/.cline/data/settings copy when
+    // ~/.cline exists (live-verified 2026-09-07, cline CLI 3.0.61).
     hostNative: s(true, false, true, true, false, true, false, false),
   },
   {

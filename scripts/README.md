@@ -277,9 +277,11 @@ Per-host recipes that passed (fresh `HOME=$H`, prompt "Query the acme db for sel
 | openclaw | `openclaw.json`: `models.providers.mock {baseUrl, api:"openai-completions", apiKey, models:[…]}`, `agents.defaults.model.primary="mock/mock-model"` | `openclaw agent --local -m "<prompt>" --json` | |
 | mistral-vibe | `config.toml` (top): `active_model="mock"`, `[[providers]] name api_base api_key_env_var backend="generic"`, `[[models]] name provider alias` | `vibe -p "<prompt>" --yolo --output text` | mcp-only host |
 | goose | `config.yaml`: `GOOSE_PROVIDER: openai`, `GOOSE_MODEL: mock-model`, `OPENAI_HOST: http://127.0.0.1:8765`, `GOOSE_MODE: auto` | `goose run -q --no-session -t "<prompt>"` | `OPENAI_API_KEY=dummy` |
+| codebuddy | env `CODEBUDDY_BASE_URL=http://127.0.0.1:8765 CODEBUDDY_API_KEY CODEBUDDY_MODEL` | `codebuddy -p -y "<prompt>"` | deferred tools: `MOCK_CALLS='[{"name":"WaitForMcpServers","arguments":{}},{"name":"ToolSearch","arguments":{"queries":["acme"]}},{"name":"DeferExecuteTool","arguments":{"toolName":"mcp__acme-db__acme_query","params":{"sql":"select 1"}}}]' MOCK_TARGET=zzz` |
+| cline (CLI) | `mkdir $H/.cline` BEFORE install (the adapter mirrors the entry into `~/.cline/data/settings/cline_mcp_settings.json` only when ~/.cline exists); `cline auth openai -k dummy -m mock-model -b http://127.0.0.1:8765/v1 --config $H/.cline` | `cline -y --config $H/.cline "<prompt>"` | needs `MOCK_FINAL='{"name":"submit_and_exit","arguments":{"summary":"<10+ chars>","verified":true}}'` or the CLI loops until timeout |
 
 Hosts that did **not** reach a model turn this way stay at their previous tier with the
 reason recorded in the CSV: junie (blocks on a macOS Keychain check; honors Java
-`user.home`, not `$HOME`), cline CLI (reaches the mock but exposes no MCP tools and
-does not read the extension's `cline_mcp_settings.json`), and the proprietary-backend
-CLIs (amp, cursor, droid, amazon-q) that have no custom-endpoint setting.
+`user.home`, not `$HOME`), pi (no MCP surface to drive), openhands (its PyPI packages
+ship no CLI entrypoint), and the proprietary-backend CLIs (amp, cursor, droid,
+amazon-q) that have no custom-endpoint setting and need a real login.

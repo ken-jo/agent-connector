@@ -17,6 +17,7 @@ Turn policy (per process):
               with "echo pong".
   after that  plain text "done".
 Env: MOCK_PORT (8765), MOCK_TARGET, MOCK_CALLS, MOCK_CALL (single forced call),
+     MOCK_FINAL (one forced call after the target call, e.g. submit_and_exit),
      MOCK_DUMP (append every request body as JSON lines, to learn tool schemas).
 Every request is logged to stderr: request N wire=<api> stream=<bool> tools=[...].
 """
@@ -34,6 +35,7 @@ def log(msg):
 
 CALL = os.environ.get("MOCK_CALL")  # optional JSON {"name":..., "arguments":{...}} forced tool call
 CALLS = json.loads(os.environ.get("MOCK_CALLS", "[]"))  # optional ordered list of forced calls, each fired on the first request offering its tool
+FINAL = os.environ.get("MOCK_FINAL")  # optional JSON call fired once AFTER the target call (hosts that need e.g. submit_and_exit to end)
 N["i"] = 0
 DUMP = os.environ.get("MOCK_DUMP")  # optional path: append every request body as JSON lines
 
@@ -112,6 +114,11 @@ class H(BaseHTTPRequestHandler):
             tool, args = pick_tool(names)
             if tool and N["i"] == before:
                 N["called"] = True
+        if not tool and N["called"] and FINAL and not N.get("final_done"):
+            c = json.loads(FINAL)
+            if c["name"] in names:
+                tool, args = c["name"], c["arguments"]
+                N["final_done"] = True
         stream = bool(body.get("stream")) or ":streamGenerateContent" in self.path
         if wire == "gemini":
             self.gemini(tool, args, stream)

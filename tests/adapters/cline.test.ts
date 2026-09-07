@@ -225,6 +225,32 @@ describe("cline adapter — MCP install (globalStorage cline_mcp_settings.json)"
     expect(cfg.mcpServers[CONNECTOR_ID]!.url).toBe("https://mcp.example.com/sse");
   });
 
+  it("mirrors the entry into the Cline CLI file (~/.cline/data/settings) only when ~/.cline exists", () => {
+    const cliFile = join(home, ".cline", "data", "settings", "cline_mcp_settings.json");
+    const ctx = buildCtx(projectDir, buildConnector(), "user");
+    // No CLI on the box → one change, no CLI file.
+    expect(clineAdapter.installServer(ctx)).toHaveLength(1);
+    expect(existsSync(cliFile)).toBe(false);
+    clineAdapter.uninstallServer(ctx);
+
+    mkdirSync(join(home, ".cline"), { recursive: true });
+    const changes = clineAdapter.installServer(ctx);
+    expect(changes).toHaveLength(2);
+    expect(changes[1]?.path).toBe(cliFile);
+    expect(changes[1]?.action).toBe("create");
+    const cfg = JSON.parse(readFileSync(cliFile, "utf8")) as {
+      mcpServers: Record<string, { command: string }>;
+    };
+    expect(cfg.mcpServers[CONNECTOR_ID]!.command).toBe("acme-mcp");
+    expect(clineAdapter.detectInstalled(projectDir).installed).toBe(true);
+
+    const removed = clineAdapter.uninstallServer(ctx);
+    expect(removed).toHaveLength(2);
+    expect(removed[1]?.action).toBe("remove");
+    const after = JSON.parse(readFileSync(cliFile, "utf8")) as { mcpServers: Record<string, unknown> };
+    expect(CONNECTOR_ID in after.mcpServers).toBe(false);
+  });
+
   it("install is idempotent and uninstall reverses it", () => {
     const ctx = buildCtx(projectDir, buildConnector(), "user");
     clineAdapter.installServer(ctx);

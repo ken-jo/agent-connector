@@ -68,11 +68,11 @@ export const hostVerificationResults = [
     "host": "codebuddy",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "IDE/extension host; no local headless CLI",
-    "headlessModelMcpE2e": "NOT_RUN",
-    "result": "ADAPTER_PLACEMENT_VERIFIED",
-    "issueOrBlocker": "no local host CLI accept/runtime lane; adapter placement only",
-    "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
+    "hostCliSurface": "codebuddy @tencent-ai/codebuddy-code CLI installed in .verify-tools",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none; MCP tools are deferred behind ToolSearch and invoked through DeferExecuteTool (Claude Code-style), so the model needs WaitForMcpServers -> ToolSearch -> DeferExecuteTool before the MCP call",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): CODEBUDDY_BASE_URL/CODEBUDDY_API_KEY/CODEBUDDY_MODEL env; codebuddy mcp list shows acme-db Connected from ~/.codebuddy.json; codebuddy -p -y: DeferExecuteTool(mcp__acme-db__acme_query) -> probe logged tools/call; SessionStart, UserPromptSubmit, PreToolUse, PostToolUse (for ToolSearch, DeferExecuteTool and mcp__acme-db__acme_query), Stop fired through ~/.codebuddy/settings.json hooks"
   },
   {
     "host": "codex",
@@ -281,7 +281,7 @@ export const hostVerificationResults = [
     "hostCliSurface": "pi @earendil-works/pi-coding-agent installed in .verify-tools",
     "headlessModelMcpE2e": "NOT_RUN",
     "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "content-only host; no MCP or lifecycle-hook accept/runtime lane",
+    "issueOrBlocker": "Pi has no MCP surface at all (adapter writes no MCP config); pi -p exists but there is nothing MCP-shaped to drive; extension/actions placement only",
     "evidence": "official Pi CLI installed; content fixture prompts/skills/actions/memory placement+uninstall clean passed"
   },
   {
@@ -311,18 +311,18 @@ export const hostVerificationResults = [
     "hostCliSurface": "OpenHands adapter config; package exposes no usable local headless app here",
     "headlessModelMcpE2e": "NOT_RUN",
     "result": "ADAPTER_PLACEMENT_VERIFIED",
-    "issueOrBlocker": "no local headless host app exposed by current package; adapter placement only",
+    "issueOrBlocker": "no headless CLI lane: as of 2026-09-07 the openhands-ai and openhands PyPI packages install with no console entrypoint (uv tool install: 'No executables are provided'), so only adapter placement is verified",
     "evidence": "verify-host adapter-placement passed: isolated install wrote connector id and uninstall removed it"
   },
   {
     "host": "cline",
     "installProbe": "PASS",
     "doctorProbe": "PASS",
-    "hostCliSurface": "cline 3.0.61 installed in .verify-tools",
-    "headlessModelMcpE2e": "PARTIAL",
-    "result": "INSTALL_DOCTOR_VERIFIED_CLI_READS_NO_MCP",
-    "issueOrBlocker": "cline CLI model turn is reachable without account auth via cline auth openai -b <base url>, but the CLI tool set (read_files, run_commands, editor, submit_and_exit) exposes no MCP tools and it does not read the VS Code extension cline_mcp_settings.json the adapter writes",
-    "evidence": "extension-path doctor passed; 2026-09-07 mock-provider lane: model requests reached the mock, no MCP tool offered, probe server never started"
+    "hostCliSurface": "cline 3.0.61 CLI installed in .verify-tools (+ VS Code extension path)",
+    "headlessModelMcpE2e": "PASS",
+    "result": "VERIFIED_E2E",
+    "issueOrBlocker": "none for the CLI lane; the CLI reads only its own <config>/data/settings/cline_mcp_settings.json, so the adapter now mirrors the entry there when ~/.cline exists (the VS Code extension path stays primary and is placement-verified only); Cline is mcp-only so no hooks",
+    "evidence": "2026-09-07 local mock OpenAI-compatible provider lane (no API key, isolated HOME, agent-connector install of a probe connector whose stdio MCP server logs every tools/call and whose SDK hooks log every event): adapter wrote the globalStorage file + ~/.cline/data/settings/cline_mcp_settings.json; cline auth openai -b <mock base url>; cline -y --config ~/.cline: tool list contained acme-db__acme_query, model called it -> probe logged tools/call, then submit_and_exit ended the session cleanly"
   },
   {
     "host": "trae",
@@ -461,7 +461,7 @@ export const hostVerificationResults = [
     "hostCliSurface": "junie @jetbrains/junie CLI 26.8.31 (3013.7) installed in .verify-tools",
     "headlessModelMcpE2e": "BLOCKED",
     "result": "INSTALL_DOCTOR_VERIFIED_NO_HEADLESS_MODE",
-    "issueOrBlocker": "junie --task --provider litellm reached startup but hung on a macOS Keychain availability check (MacOSKeychainStorage) before any model call; Junie resolves its home via Java user.home so $HOME isolation does not apply",
+    "issueOrBlocker": "junie --task --provider litellm reached startup but hung on the macOS Keychain availability check (MacOSKeychainStorage; a FallbackFileStorage exists in the jar but is only used when the Keychain reports unavailable, not when it blocks); Junie resolves its home via Java user.home so $HOME isolation does not apply",
     "evidence": "junie placement+uninstall clean passed; 2026-09-07 headless attempt against a local LiteLLM-shaped mock produced no model request"
   },
   {

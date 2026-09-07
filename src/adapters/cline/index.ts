@@ -8,8 +8,13 @@
  * only runtime surface we install and every hook capability is reported false.
  * The kilo adapter (a Cline fork) mirrors this shape.
  *
- * SCOPE NOTE: this adapter targets the VS Code EXTENSION, NOT the newer Cline
- * CLI/SDK (which would live under ~/.cline and is a separate future adapter).
+ * SCOPE NOTE: the primary target is the VS Code EXTENSION path below. The Cline
+ * CLI (`cline` npm, 3.0.x) keeps its OWN copy of the same file at
+ * `<config>/data/settings/cline_mcp_settings.json` (default config dir ~/.cline;
+ * live-verified 2026-09-07: with the entry there the CLI lists the MCP tool and
+ * calls it; without it the CLI never sees the extension's file). When ~/.cline
+ * exists the adapter MIRRORS the server entry into that CLI file and removes it
+ * on uninstall; on a box without the CLI nothing extra is written.
  *
  * MCP config (cline/cline `main`, disk.ts GlobalFileNames):
  *   - USER SCOPE ONLY → <vscodeUserDir>/globalStorage/saoudrizwan.claude-dev/
@@ -184,7 +189,8 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
     // Project marker: the `.clinerules` content root (file OR directory form).
     const projectRules = join(projectDir, ".clinerules");
 
-    const userMatch = existsSync(userSettings) || existsSync(userExtDir);
+    const cliDir = this.cliConfigDir();
+    const userMatch = existsSync(userSettings) || existsSync(userExtDir) || existsSync(cliDir);
     const projectMatch = existsSync(projectRules);
     const installed = userMatch || projectMatch;
 
@@ -193,9 +199,11 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
     const configPath = scope === "user" ? userSettings : projectRules;
     const reason = installed
       ? userMatch
-        ? `found Cline globalStorage under ${userExtDir}`
+        ? existsSync(userSettings) || existsSync(userExtDir)
+          ? `found Cline globalStorage under ${userExtDir}`
+          : `found Cline CLI state under ${cliDir}`
         : `found Cline project rules at ${projectRules}`
-      : `no Cline config at ${userExtDir} or ${projectRules}`;
+      : `no Cline config at ${userExtDir}, ${cliDir} or ${projectRules}`;
 
     return {
       id: this.id,
@@ -211,6 +219,16 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
   }
 
   // ── Native paths ─────────────────────────────────────────────────────────
+
+  /** The Cline CLI state dir (`--config` default); its presence = CLI installed. */
+  private cliConfigDir(): string {
+    return join(homedir(), ".cline");
+  }
+
+  /** The Cline CLI's own copy of cline_mcp_settings.json (see header). */
+  private cliSettingsPath(): string {
+    return join(this.cliConfigDir(), "data", "settings", MCP_SETTINGS_FILE);
+  }
 
   /** Absolute path to the user-scope MCP settings file (VS Code globalStorage). */
   private userSettingsPath(): string {
@@ -346,16 +364,29 @@ export class ClineAdapter extends BaseAdapter implements Adapter {
     const serverPath = this.getServerConfigPath(ctx);
     const entry = this.renderServerEntry(ctx, server);
 
-    return [
+    const changes = [
       this.upsertServerInJson(serverPath, MCP_ROOT_KEY, connector.id, entry, ctx.dryRun),
     ];
+    // Mirror into the Cline CLI's own settings file when the CLI is present.
+    if (existsSync(this.cliConfigDir())) {
+      changes.push(
+        this.upsertServerInJson(this.cliSettingsPath(), MCP_ROOT_KEY, connector.id, entry, ctx.dryRun),
+      );
+    }
+    return changes;
   }
 
   uninstallServer(ctx: InstallContext): ChangeRecord[] {
     const serverPath = this.getServerConfigPath(ctx);
-    return [
+    const changes = [
       this.removeServerFromJson(serverPath, MCP_ROOT_KEY, ctx.connector.id, ctx.dryRun),
     ];
+    if (existsSync(this.cliSettingsPath())) {
+      changes.push(
+        this.removeServerFromJson(this.cliSettingsPath(), MCP_ROOT_KEY, ctx.connector.id, ctx.dryRun),
+      );
+    }
+    return changes;
   }
 
   /** Render a normalized ServerDef into Cline's native mcpServers entry. */
