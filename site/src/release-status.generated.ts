@@ -31,7 +31,7 @@ export interface ReleaseStatus {
 
 export const releaseStatus = {
   "packageName": "@ken-jo/agent-connector",
-  "localVersion": "0.6.4",
+  "localVersion": "0.6.5",
   "npmLatest": "0.6.4",
   "npmPublishedAt": "2026-09-05T14:00:11.849Z",
   "npmPackageUrl": "https://www.npmjs.com/package/@ken-jo/agent-connector",
@@ -39,7 +39,7 @@ export const releaseStatus = {
   "githubLatest": "v0.6.4",
   "githubReleaseUrl": "https://github.com/ken-jo/agent-connector/releases/tag/v0.6.4",
   "githubPublishedAt": "2026-09-05T14:00:15Z",
-  "githubFetchStatus": "fallback:HTTP 403",
+  "githubFetchStatus": "ok",
   "repoUrl": "https://github.com/ken-jo/agent-connector",
   "githubActionsUrl": "https://github.com/ken-jo/agent-connector/actions",
   "ciWorkflow": {

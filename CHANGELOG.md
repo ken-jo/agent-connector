@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.6.5 — 2026-09-07
+
+`doctor` now answers "is this install current", one more host CLI reads what the
+adapter writes, and 17 more hosts are verified end-to-end without any provider
+key. One adapter change (cline), one registry-record change (`frameworkVersion`).
+
+### Added
+
+- **`doctor` version checks** (#333). A new `agent-connector:` group is printed
+  first (and is the first bucket in `--json`): the home-bin launcher exists and
+  execs an existing CLI (`[FAIL]` when that CLI is gone — hooks, statusline and
+  actions would silently stop on every host); the launcher's target is the same
+  release as the CLI running doctor; each registered connector was rendered by the
+  running release (`connector.json` now records `frameworkVersion` at install);
+  and the registered connector version equals the source connector's. Every
+  finding is fixable — `upgrade` or `doctor --heal` re-renders, re-registers and
+  re-points the launcher. Records written before 0.6.5 carry no stamp and say so.
+- **`src/core/version.ts`**: `resolveOwnVersion` (moved from `cli/app`, still
+  re-exported there), `versionOfCliEntry`, `cliEntryOfLauncher`.
+- **Guide: Operate — doctor, heal, upgrade** (`/docs/guides/operate-connector`,
+  #333): the day-two loop, reading doctor output, the three versions doctor
+  compares, `--heal` versus `upgrade`, `--probe` / `--explain`, and `uninstall`
+  versus `--purge`. Sample output is captured from a real isolated
+  `examples/acme-db` install.
+- **Key-free verification lane** (#330): `scripts/verify-mock-model-provider.py`
+  (a stdlib-only local model speaking OpenAI chat / Responses, Anthropic Messages
+  and Gemini generateContent; forced meta-tool sequences for hosts that gate MCP
+  tools behind `tool_search` / `use_tool` / `ToolSearch`) plus a probe connector
+  whose stdio MCP server logs every `tools/call` and whose hooks log every event.
+  Per-host recipes live in `scripts/README.md`.
+- **Open Interpreter hooks, skills and memory** (#329): the Rust `interpreter`
+  (a Codex fork) is a json-stdio hook host — `hooks.json` next to each config
+  layer, `SessionEnd` on top of Codex's events, skills under `.agents/skills`,
+  memory in `$INTERPRETER_HOME/AGENTS.md`. Registry: json-stdio 24, mcp-only 10.
+- **Host architecture archive** (#327, #328): `/agents` index plus one page per
+  adapter with a component diagram, runtime sequence flow, and source-review
+  notes, kept in step with the registry by drift tests.
+
+### Changed
+
+- **cline** (#331): the Cline CLI (3.0.x) reads only its own
+  `<config>/data/settings/cline_mcp_settings.json` (default `~/.cline`), never the
+  VS Code extension's globalStorage file. When `~/.cline` exists the adapter now
+  mirrors the MCP entry there and removes it on uninstall; detection also counts
+  `~/.cline`. Nothing extra is written on a box without the CLI.
+- **`doctor` docs agree** (#333): the README command row, `llms-full.txt` and the
+  site CLI reference list the same flags (`--probe --heal --explain --json
+  --dry-run`) and describe the version checks; `tests/docs/doctor-docs.test.ts`
+  pins all three to the usage string in `cli/app.ts`.
+- **Coverage ladder** (#332): the empty `install-doctor` rung is gone, rungs with a
+  count of 0 are hidden on `/coverage`, and the snapshot generator rejects any
+  ledger result outside the five known values instead of binning it silently.
+
+### Verified
+
+- **22 of 42 hosts `VERIFIED_E2E`** (was 5) — a real headless host turn called
+  the connector's MCP tool through the adapter-written config and the hooks
+  fired: open-interpreter, grok-build (official 1.0.0 binary), hermes, omp,
+  kilo-cli, mimo-code, qwen-code, crush, continue, kimi, grok-cli, openclaw,
+  gemini-cli, mistral-vibe, goose, codebuddy, cline (#330, #331). README "By the
+  numbers": 29 of 42 hosts driven live, 13 by the install harness.
+- Blockers recorded with evidence for the rest: junie (macOS Keychain check),
+  pi (no MCP surface), openhands (no PyPI CLI entrypoint), amp / cursor / droid /
+  amazon-q (no custom-endpoint setting; need a real login), 13 IDE-only hosts.
+
 ## 0.6.4 — 2026-09-05
 
 What an agent's web search, npm search and doc index see when they look for a way

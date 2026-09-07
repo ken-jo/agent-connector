@@ -31,7 +31,7 @@ Example:
     "acme-db": "./bin.mjs"
   },
   "dependencies": {
-    "@ken-jo/agent-connector": "^0.6.4"
+    "@ken-jo/agent-connector": "^0.6.5"
   }
 }
 ```
