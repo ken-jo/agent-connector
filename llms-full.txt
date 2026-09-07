@@ -1132,7 +1132,8 @@ refreshes the stable home-bin pointer and prints managed-update guidance (the ex
 stable, `next` for latest). With no resolvable connector it still does step 2
 (tool-only refresh from anywhere). **Never silently auto-updates** (architecture R1).
 Same diff output and exit semantics as install for the re-render; exit 1 if the
-pointer refresh fails.
+pointer refresh fails. Re-stamps `frameworkVersion` on every connector record, so a
+`doctor` version warning is the signal to run this.
 
 ### uninstall
 `agent-connector uninstall [--connector-id <id>] [--connector <path>] [--scope …] [--targets …] [--project <dir>] [--purge] [--dry-run]`
@@ -1148,16 +1149,28 @@ connector's registered framework state (`connectors/<id>/` under the data-root) 
 when no connectors remain, the shared home-bin launcher.
 
 ### doctor
-`agent-connector doctor [--targets …] [--connector <path>] [--scope …] [--project <dir>] [--json] [--probe]`
+`agent-connector doctor [--targets …] [--connector <path>] [--scope …] [--project <dir>] [--json] [--probe] [--heal] [--explain] [--dry-run]`
 For each detected host (or `--targets`), loads its adapter, builds an `InstallContext`,
 and runs the adapter's doctor checks; prints `[pass] / [warn] / [FAIL]` with any
 suggested fix. Connector context comes from the local config, else every connector
 registered under the data-root, else a minimal id-only placeholder. Installed
 `memory` blocks are verified per ledger row — file present, block present,
-recorded hash == actual inner hash (user-edited drift → warn, never auto-fixed). With `--probe` it
+recorded hash == actual inner hash (user-edited drift → warn, never auto-fixed).
+**Version checks** (printed first, under `agent-connector:`): the home-bin launcher
+exists and execs an existing CLI (`FAIL` when it points at a removed install — hooks,
+statusline and actions would silently stop); that CLI is the same agent-connector
+version as the one running doctor (`warn` otherwise); each registered connector was
+rendered by this framework version (`connector.json` `frameworkVersion`, stamped at
+install since 0.6.5) and its registered version equals the source connector's
+version. Every version finding is fixable: `upgrade` or `--heal` clears it. With `--probe` it
 also spawns the connector's REAL stdio server and runs a live MCP handshake
-(initialize → ping → tools/list); probe FAILs fold into the exit code. **Non-zero exit
-if any check FAILs** (warns alone do not fail).
+(initialize → ping → tools/list); probe FAILs fold into the exit code. With `--heal`
+it re-syncs every connector that has fixable findings (missing memory block, absent
+configPatch key, version drift, stale home-bin) then re-diagnoses and reports
+healed / still-failing / deferred (drifted user-edited values are deferred, never
+overwritten; `--dry-run` only lists what would be healed). With `--explain` it prints
+the offline per-(host, event) hook-honor matrix (honored / degraded / dropped).
+**Non-zero exit if any check FAILs** (warns alone do not fail).
 
 ### status
 `agent-connector status [--connector <path>] [--scope user|project] [--project <dir>] [--json]`

@@ -1027,6 +1027,7 @@ describe("platform/paradigm drift guard (registry is the source of truth)", () =
       "first-mcp-server",
       "connect-first-host",
       "first-connector-surfaces",
+      "operate-connector",
       "ucp-mcp-server",
       "connector-concepts",
       "agent-architectures",

@@ -11,7 +11,6 @@
  * once tsup hoisted this code into a shared chunk).
  */
 
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 
 import { PALETTES, renderBrandBanner, resolveColorMode, shouldShowBanner } from "./banner.js";
@@ -23,6 +22,7 @@ import type {
   PlatformId,
   ResolvedConnector,
 } from "../core/types.js";
+import { resolveOwnVersion } from "../core/version.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Shared helpers (imported by the command modules)
@@ -87,26 +87,8 @@ export function maybePrintBanner(flags: { json?: boolean; quiet?: boolean }): vo
   print("");
 }
 
-/**
- * Resolve agent-connector's own package version at runtime. Works from both the
- * bundled dist layout (dist/*.js → ../package.json) and the src layout under
- * tsx/vitest (src/cli/ → ../../package.json); the name check guards against
- * accidentally reading some other package.json on the walk.
- */
-export function resolveOwnVersion(): string {
-  const req = createRequire(import.meta.url);
-  for (const rel of ["../package.json", "../../package.json", "../../../package.json"]) {
-    try {
-      const pkg = req(rel) as { name?: string; version?: string };
-      if (pkg.name === "@ken-jo/agent-connector" && typeof pkg.version === "string") {
-        return pkg.version;
-      }
-    } catch {
-      /* keep walking */
-    }
-  }
-  return "0.0.0";
-}
+/** Re-exported for the command modules and branded CLIs (moved to core/version). */
+export { resolveOwnVersion };
 
 /** Parse a --scope value the CLI accepts (user|project) into an InstallScope. */
 export function parseScope(value: string | undefined): InstallScope | null {

@@ -71,6 +71,7 @@ export const tracks: Record<TrackId, TrackDef> = {
           { id: "first-mcp-server", label: "Build your first MCP server" },
           { id: "connect-first-host", label: "Connect your first host" },
           { id: "first-connector-surfaces", label: "Add connector surfaces" },
+          { id: "operate-connector", label: "Operate: doctor, heal, upgrade" },
           { id: "ucp-mcp-server", label: "Tutorial: ship a UCP commerce MCP" },
         ],
       },
@@ -218,6 +219,7 @@ export const legacyRedirects: Record<string, string> = {
   "first-mcp-server": "/docs/guides/first-mcp-server",
   "connect-first-host": "/docs/guides/connect-first-host",
   "first-connector-surfaces": "/docs/guides/first-connector-surfaces",
+  "operate-connector": "/docs/guides/operate-connector",
   "connector-concepts": "/docs/guides/connector-concepts",
   "host-hooks": "/docs/guides/host-hooks",
   "hud-statusline": "/docs/guides/hud-statusline",
@@ -279,6 +281,8 @@ export const sectionDescription: Record<string, string> = {
     "A beginner guide for connecting one working MCP server to one host CLI: absolute command/args launch shape, Windows path handling, host verification, and boundary-based troubleshooting.",
   "first-connector-surfaces":
     "A staged guide for adding agent-connector after a plain MCP server works: server-only defineConnector first, then statusline, actions, hooks, static content surfaces, and per-surface verification.",
+  "operate-connector":
+    "The day-two loop for an installed connector: read doctor output (home-bin and version checks first, then per-host checks), clear drift with doctor --heal or upgrade, prove the live server with --probe, and reverse everything with uninstall.",
   "connector-concepts":
     "Where agent-connector starts after a plain MCP server already works: package identity, one connector declaration, host adapter rendering, telemetry wrapping, and cross-host verification.",
   "host-hooks":
@@ -1236,7 +1240,7 @@ export const cliCommands: CliCommand[] = [
     signature:
       "agent-connector doctor [--targets …] [--connector <path>] [--scope user|project] [--project <dir>] [--json] [--probe] [--heal] [--explain] [--dry-run]",
     summary:
-      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code. With --heal it self-heals — re-syncs every connector that has fixable findings (e.g. a missing memory block or absent configPatch key), then re-diagnoses and reports healed / still-failing / deferred (drifted user-edited values are deferred, never overwritten). With --explain it prints an offline per-(host, event) hook-honor matrix — honored / degraded / dropped — for every declared event, resolved from the connector's OWN targets (or --targets) BEFORE installing, NOT from detection; it exits 1 only when a declared event is degraded (the host fires it but silently won't honor the reply) on an explicitly-targeted host, while a dropped event (a host with no native equivalent) is always informational (exit 0). --dry-run pairs with --heal to preview what would be healed/deferred without writing anything (always exits 0).",
+      "For each detected host (or --targets), loads its adapter, builds an InstallContext, and runs the adapter's doctor checks; prints [pass] / [warn] / [FAIL] with any suggested fix. Non-zero exit if any check FAILs (warns alone do not fail). With --probe it also spawns the connector's REAL stdio server and runs a live MCP handshake (initialize → negotiated protocolVersion + capabilities + serverInfo → ping → tools/list); probe FAILs fold into the exit code. Version checks come first, under agent-connector: the home-bin launcher exists and execs an existing CLI (FAIL when it points at a removed install — hooks, statusline and actions would silently stop), that CLI is the same agent-connector version as the one running doctor, and each registered connector was rendered by this framework version (connector.json frameworkVersion, stamped at install) with a registered version equal to the source connector's; any drift is a fixable warn that names upgrade. With --heal it self-heals — re-syncs every connector that has fixable findings (a missing memory block, an absent configPatch key, version drift, a stale home-bin), then re-diagnoses and reports healed / still-failing / deferred (drifted user-edited values are deferred, never overwritten). With --explain it prints an offline per-(host, event) hook-honor matrix — honored / degraded / dropped — for every declared event, resolved from the connector's OWN targets (or --targets) BEFORE installing, NOT from detection; it exits 1 only when a declared event is degraded (the host fires it but silently won't honor the reply) on an explicitly-targeted host, while a dropped event (a host with no native equivalent) is always informational (exit 0). --dry-run pairs with --heal to preview what would be healed/deferred without writing anything (always exits 0).",
   },
   {
     name: "status",
