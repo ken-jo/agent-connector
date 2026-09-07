@@ -68,4 +68,4 @@ export const publicVerificationCounts: {
   count: publicVerificationRows.filter(
     (row) => verificationLevelForResult(row.result) === key,
   ).length,
-}));
+})).filter((level) => level.count > 0);
