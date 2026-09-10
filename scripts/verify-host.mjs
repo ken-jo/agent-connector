@@ -3,7 +3,7 @@
 // scripts/verify-host.mjs — LIVE host-verification driver.
 //
 // The committed COMPLEMENT to tests/integration/install-roundtrip.test.ts.
-// That harness proves, for ALL 35 adapters and WITHOUT any host binary, that
+// That harness proves, for ALL 42 adapters and WITHOUT any host binary, that
 // `installConnector` writes a native config carrying the connector id and that
 // uninstall removes it (binary-free, in-process). This script proves the next
 // rung up the ladder: for hostless IDE/GUI adapters, it can drive the built CLI
@@ -78,6 +78,15 @@ const CONNECTOR_ID = "ac-verify"; // matches .acverify/agent-connector.config.mj
 //             the SAME config dir (values are WORK-relative path segments). HOME
 //             isolation already covers hosts that resolve purely off homedir();
 //             this is only for hosts with their own config-home override.
+//   dirs      directories to create under the sandbox HOME BEFORE install
+//             (WORK-relative path segments) — for a host whose adapter mirrors
+//             config into a second location only when that dir already exists
+//             (e.g. cline's CLI settings under ~/.cline), so the sandbox
+//             exercises the same placement a real box with the CLI installed gets.
+//   acceptScopes  install scopes the accept verb can see (default: both).
+//             A CLI whose read verb only consults the USER layer (e.g. codex-
+//             derived `mcp list`) is reported as no-offline-accept-verb at the
+//             other scope instead of a misleading accept-error.
 //   accept    { argv, kind } — the OFFLINE accept verb. kind:
 //               "list-id"  pass if stdout mentions the connector id
 //               "ok"       pass if exit 0 (verb succeeded; config was read)
@@ -373,6 +382,45 @@ const HOST_LANES = {
     placementOnly: true,
     note: "placement+uninstall-clean only — Junie CLI MCP config is writable, but no offline accept/list verb has been verified yet.",
   },
+  cline: {
+    bin: "cline",
+    // npm `cline` (github.com/cline/cline) — the Cline CLI. Config dir is ~/.cline
+    // (`--config` default) → HOME isolation suffices. The adapter writes the VS
+    // Code globalStorage cline_mcp_settings.json under HOME and MIRRORS the entry
+    // into ~/.cline/data/settings/cline_mcp_settings.json only when ~/.cline
+    // exists — `dirs` pre-creates it so both placements are exercised.
+    dirs: [[".cline"]],
+    // No offline accept verb (confirmed via `cline --help` / `cline mcp --help`
+    // v3.0.61): `cline mcp` has only the install/uninstall wizards, `cline config`
+    // requires a TTY, and `cline doctor` reports hub/process health without
+    // reading the MCP settings file (identical output with a corrupt file —
+    // negative control). A turn needs a provider key (or the mock model lane in
+    // scripts/README.md), so placement + uninstall-clean is the ceiling here.
+    placementOnly: true,
+    note: "placement+uninstall-clean only — both the VS Code globalStorage file and the ~/.cline CLI mirror are written and removed; `cline mcp` has no list verb, `cline config` needs a TTY, `cline doctor` does not read the MCP file; turn needs a provider key.",
+  },
+  "open-interpreter": {
+    bin: "interpreter",
+    // Open Interpreter 0.0.41+ is a codex-derived Rust CLI: config.toml under
+    // $INTERPRETER_HOME (default ~/.openinterpreter) — the ONLY honored override
+    // (CODEX_HOME is ignored; see src/adapters/open-interpreter). Setting it into
+    // WORK unifies writer + CLI reader (the CODEX_HOME pattern).
+    env: { INTERPRETER_HOME: [".openinterpreter"] },
+    // The CLI creates PATH aliases under INTERPRETER_HOME on every run and exits
+    // 1 when that dir is missing (project-scope installs never create it) —
+    // pre-create it so the accept verb runs at both scopes.
+    dirs: [[".openinterpreter"]],
+    // `interpreter mcp list` reads config.toml OFFLINE and echoes the server
+    // name (live-verified: "ac-verify  node  x.mjs  -  -  enabled  Unsupported"
+    // against a sandbox INTERPRETER_HOME with no auth). A turn needs a model —
+    // the key-free mock lane in scripts/README.md is the runtime rung.
+    accept: { argv: ["mcp", "list"], kind: "list-id" },
+    // `mcp list` consults the user layer only — a project `.openinterpreter/
+    // config.toml` is not listed (live: "No MCP servers configured yet"), so the
+    // project scope is placement-only.
+    acceptScopes: ["user"],
+    note: "`interpreter mcp list` lists our config.toml server offline under $INTERPRETER_HOME (live-verified, user scope; project layer not read by the verb); turn needs a model (mock lane in scripts/README.md).",
+  },
   "mistral-vibe": {
     bin: "vibe",
     // Mistral Vibe CLI; adapter writes TOML config under ~/.vibe or project
@@ -448,6 +496,10 @@ const HOST_INSTALL = {
     npmInstallArgs: ["--legacy-peer-deps", "--engine-strict=false"],
   },
   junie: { kind: "npm", pkg: "@jetbrains/junie", bin: "junie", identity: "github.com/JetBrains/junie" },
+  cline: { kind: "npm", pkg: "cline", bin: "cline", identity: "github.com/cline/cline (npm cline, description: Autonomous coding agent CLI)" },
+  // open-interpreter: no npm/pinned-download identity — the `interpreter` binary
+  // ships via Open Interpreter's own installer (standalone build); the lane runs
+  // when the binary is already on PATH and skips otherwise.
   // @moonshot-ai/kimi-code is the OFFICIAL Moonshot Kimi Code CLI (bin `kimi`),
   // matching the kimi adapter's $KIMI_CODE_HOME || ~/.kimi-code layout. Pinned to
   // 0.18.0; engines node>=22.19 (this box has node 24). NOT the old "kimi-cli" stub.
@@ -557,7 +609,9 @@ const UNINSTALLABLE_HERE = {
   kiro: "GUI editor",
   zed: "GUI editor (the `zed` bin launches the GUI; no headless config verb)",
   warp: "terminal app (GUI; no headless config verb)",
-  cline: "IDE extension (no CLI)",
+  // NOTE: cline was here ("IDE extension (no CLI)") — WRONG since Cline ships a
+  // headless CLI (npm `cline`, bin `cline`, config under ~/.cline); it is now a
+  // placement-only live lane below (no offline MCP read verb).
   kilo: "IDE extension (no CLI; the `kilo` binary present is kilo-cli, a different adapter)",
   "vscode-copilot": "IDE extension (no CLI)",
   "jetbrains-copilot": "IDE extension (no CLI)",
@@ -890,6 +944,10 @@ function isolatedEnv(work, lane) {
   for (const [key, segs] of Object.entries(lane.env ?? {})) {
     env[key] = join(home, ...segs);
   }
+  // Pre-existing host dirs the adapter keys its placement on (see the `dirs` contract).
+  for (const segs of lane.dirs ?? []) {
+    mkdirSync(join(home, ...segs), { recursive: true });
+  }
   return { env, home, projectDir };
 }
 
@@ -1113,6 +1171,9 @@ async function verifyHost(hostId, { scope, keep, install }) {
       verdict.accept = "not-applicable";
     } else if (lane.placementOnly || !lane.accept) {
       verdict.accept = "no-offline-accept-verb";
+    } else if (lane.acceptScopes && !lane.acceptScopes.includes(effectiveScope)) {
+      verdict.accept = "no-offline-accept-verb";
+      verdict.notes = `accept verb \`${lane.bin} ${lane.accept.argv.join(" ")}\` reads only the ${lane.acceptScopes.join("/")} scope; placement OK at ${effectiveScope} scope. ${lane.note}`;
     } else {
     const acc = run(binPath, lane.accept.argv, env, lane.accept.timeoutMs ?? 120_000);
     const accBlob = `${acc.stdout}\n${acc.stderr}`;
