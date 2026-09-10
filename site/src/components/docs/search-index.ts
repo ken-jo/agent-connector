@@ -128,6 +128,7 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "operate-probe-explain", title: "Prove the live server and the hook matrix" },
     { id: "operate-secrets", title: "Secrets: the OS keystore" },
     { id: "operate-logins", title: "Logins: OAuth providers" },
+    { id: "operate-logins-register", title: "Register the app with each provider" },
     { id: "operate-uninstall", title: "Reverse it cleanly" },
   ],
   "connector-concepts": [

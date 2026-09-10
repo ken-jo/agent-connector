@@ -1,0 +1,19 @@
+{
+  "name": "@acme/seo-connector-example-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runnable SEO example — one MCP server that logs in to Google Search Console, Bing Webmaster Tools and PostHog through agent-connector's oauth.<key> logins.",
+  "type": "module",
+  "mcpName": "io.github.acme/seo-connector",
+  "bin": {
+    "seo-connector-example": "./bin.mjs"
+  },
+  "files": [
+    "bin.mjs",
+    "agent-connector.config.mjs",
+    "seo-mcp-server.mjs"
+  ],
+  "dependencies": {
+    "@ken-jo/agent-connector": "../.."
+  }
+}

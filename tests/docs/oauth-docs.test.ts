@@ -23,6 +23,7 @@ import {
   resolvedConnectorFields,
 } from "../../site/src/components/docs/docs-data.js";
 import { searchIndex } from "../../site/src/components/docs/search-index.js";
+import { oauthProviderRegistrations } from "../../site/src/components/docs/docs-data.js";
 import { AUTH_USAGE_LINES } from "../../src/cli/commands/auth.js";
 import { defineConnector } from "../../src/core/define-connector.js";
 import {
@@ -497,10 +498,12 @@ describe("the site, the skill and llms.txt", () => {
   it("the Operate guide has the logins section before the renumbered uninstall section and the search index lists it", () => {
     const secrets = DOCS_CONTENT.indexOf('<H3 id="operate-secrets">6. Secrets: the OS keystore</H3>');
     const logins = DOCS_CONTENT.indexOf('<H3 id="operate-logins">7. Logins: OAuth providers</H3>');
-    const uninstall = DOCS_CONTENT.indexOf('<H3 id="operate-uninstall">8. Reverse it cleanly</H3>');
+    const register = DOCS_CONTENT.indexOf('<H3 id="operate-logins-register">8. Register the app with each provider</H3>');
+    const uninstall = DOCS_CONTENT.indexOf('<H3 id="operate-uninstall">9. Reverse it cleanly</H3>');
     expect(secrets).toBeGreaterThan(-1);
     expect(logins).toBeGreaterThan(secrets);
-    expect(uninstall).toBeGreaterThan(logins);
+    expect(register).toBeGreaterThan(logins);
+    expect(uninstall).toBeGreaterThan(register);
     expect(DOCS_CONTENT).toContain("$ seo-mcp auth login google");
     expect(DOCS_CONTENT).toContain("$ seo-mcp auth status");
     const entry = searchIndex.find((e) => e.id === "operate-logins");
@@ -508,11 +511,28 @@ describe("the site, the skill and llms.txt", () => {
     expect(entry?.sectionId).toBe("operate-connector");
     expect(entry?.title).toBe("Logins: OAuth providers");
     const ids = searchIndex.filter((e) => e.sectionId === "operate-connector").map((e) => e.id);
-    expect(ids.slice(ids.indexOf("operate-secrets"), ids.indexOf("operate-secrets") + 3)).toEqual([
+    expect(ids.slice(ids.indexOf("operate-secrets"), ids.indexOf("operate-secrets") + 4)).toEqual([
       "operate-secrets",
       "operate-logins",
+      "operate-logins-register",
       "operate-uninstall",
     ]);
+  });
+
+  it("the site's registration hub covers every preset with the preset's own docs page and an https registration link", () => {
+    expect(DOCS_CONTENT).toContain("{oauthProviderRegistrations.map((r) => (");
+    expect(oauthProviderRegistrations.map((r) => r.preset)).toEqual([...OAUTH_PRESET_IDS]);
+    for (const row of oauthProviderRegistrations) {
+      expect(row.docs, `${row.preset}: docs link is not the preset's docsUrl`).toBe(getOAuthPreset(row.preset as OAuthPresetId).docsUrl);
+      expect(row.register).toMatch(/^https:\/\//);
+      for (const field of ["where", "redirect", "credentials", "notes"] as const) {
+        expect(row[field].length, `${row.preset}.${field} is empty`).toBeGreaterThan(20);
+      }
+      expect(row.redirect).toContain("127.0.0.1");
+    }
+    expect(oauthProviderRegistrations.find((r) => r.preset === "bing-webmaster")?.redirect).toContain("redirectPort");
+    expect(oauthProviderRegistrations.find((r) => r.preset === "posthog")?.where).toContain("Client ID Metadata Document");
+    expect(searchIndex.find((e) => e.id === "operate-logins-register")?.title).toBe("Register the app with each provider");
   });
 
   it("llms.txt lists auth in the branded verb list next to secrets", () => {
