@@ -207,7 +207,8 @@ describe("login — loopback", () => {
 
     // The non-secret record: 0600, names the login, carries no token.
     const recordPath = metadataPath(join(tmp, "data"), id);
-    expect(statSync(recordPath).mode & 0o777).toBe(0o600);
+    // POSIX only: Windows reports no owner-only mode bits.
+    if (process.platform !== "win32") expect(statSync(recordPath).mode & 0o777).toBe(0o600);
     const raw = readFileSync(recordPath, "utf8");
     expectNoLeak(raw);
     expect(JSON.parse(raw)).toEqual({
