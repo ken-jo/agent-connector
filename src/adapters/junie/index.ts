@@ -13,8 +13,16 @@
  * lifecycle hook / event-callback surface — only MCP server registration,
  * Agent Skills, subagents, custom slash commands, and guidelines/memory. So MCP
  * registration is the only runtime surface this adapter installs and every hook
- * capability is reported false. (Content surfaces exist natively but are not
- * wired here — see the capabilities note.)
+ * capability is reported false. Of the content surfaces, Agent Skills are wired
+ * (below); subagents and custom slash commands are not — see the capabilities note.
+ *
+ * Agent Skills (BYTE-CONFIRMED — junie.jetbrains.com/docs/agent-skills.html,
+ * verified 2026-09-10): a skill is a folder holding a required SKILL.md
+ * (YAML frontmatter `name` required, `description` optional, markdown body;
+ * optional supporting subdirectories). Locations:
+ *   - PROJECT scope → <projectDir>/.junie/skills/<skill-name>/SKILL.md
+ *   - USER scope    → ~/.junie/skills/<skill-name>/SKILL.md ("global skills for
+ *                     use across all projects"); a same-named project skill wins.
  *
  * MCP config (BYTE-CONFIRMED — junie.jetbrains.com/docs/junie-cli-mcp-configuration.html,
  * "Junie CLI uses the same MCP JSON configuration as Junie in JetBrains IDEs"):
@@ -54,6 +62,7 @@ import type {
   PlatformCapabilities,
   PlatformId,
   ServerDef,
+  SkillDef,
   Transport,
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
@@ -109,11 +118,83 @@ export class JunieAdapter extends BaseAdapter implements Adapter {
     // (HTTP/HTTPS) servers — the remote entry is distinguished by `url` (vs
     // stdio's `command`).
     transports: ["stdio", "http"],
-    // Content surfaces (Agent Skills, subagents, custom slash commands) exist
-    // natively in Junie but are NOT wired by this adapter — the initial scope is
-    // MCP-only. They stay UNSET so the base skip-warns; this is an honest
-    // CEILING, not a host gap.
+    // Content surfaces: Agent Skills are wired (<configRoot>/skills/<name>/
+    // SKILL.md — byte-confirmed layout, see the header). Subagents and custom
+    // slash commands exist natively in Junie but their on-disk layout is not
+    // byte-confirmed from a first-party reference, so they stay UNSET and the
+    // base skip-warns; this is an honest CEILING, not a host gap.
+    supportsSkills: true,
   };
+
+  // ── Content surfaces: skills ──────────────────────────────────────────────
+
+  /** Native skill dir: <projectDir>/.junie/skills/<name> or ~/.junie/skills/<name>. */
+  private skillDir(ctx: InstallContext, name: string): string {
+    const root = ctx.scope === "project" ? join(ctx.projectDir, ".junie") : join(homedir(), ".junie");
+    return join(root, "skills", name);
+  }
+
+  /** SKILL.md: frontmatter `name` (required) + `description`, body verbatim. */
+  private renderSkill(skill: SkillDef): string {
+    const frontmatter: Record<string, unknown> = {
+      name: skill.name,
+      description: skill.description,
+    };
+    if (skill.extra) Object.assign(frontmatter, skill.extra);
+    return this.renderFrontmatterMd(frontmatter, skill.body);
+  }
+
+  override installSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.platforms[HOST]?.skills === false) {
+      return [{ platform: this.id, action: "skip", detail: "skills disabled for junie" }];
+    }
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(
+        this.writeContentFile(join(dir, "SKILL.md"), this.renderSkill(skill), ctx.dryRun),
+      );
+      // Supporting files beside SKILL.md (relative path → contents); skip+warn
+      // on any key that escapes the skill dir.
+      for (const [rel, contents] of Object.entries(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            detail: `skill resource "${rel}" escapes the skill dir; skipped`,
+          });
+          continue;
+        }
+        changes.push(this.writeContentFile(target, contents, ctx.dryRun));
+      }
+    }
+    return changes;
+  }
+
+  override uninstallSkills(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.skills.length === 0) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no skills" }];
+    }
+    const changes: ChangeRecord[] = [];
+    for (const skill of connector.skills) {
+      const dir = this.skillDir(ctx, skill.name);
+      changes.push(this.removeContentFile(join(dir, "SKILL.md"), ctx.dryRun));
+      for (const rel of Object.keys(skill.resources ?? {})) {
+        const target = this.resolveWithin(dir, rel);
+        if (target === null) continue; // never delete outside the skill dir
+        changes.push(this.removeContentFile(target, ctx.dryRun));
+      }
+      // Only remove the skill dir when WE own its full contents.
+      changes.push(this.removeDirIfEmpty(dir, ctx.dryRun));
+    }
+    return changes;
+  }
 
   // ── Detection ────────────────────────────────────────────────────────────
 
