@@ -333,7 +333,11 @@ is written to `<dataRoot>/oauth/<id>.json`. The server obtains access tokens wit
 `getAccessToken` (§9.1); they are never injected into the server environment at
 launch (they expire) and never written to disk. Presets supply endpoints,
 parameters and quirks only — agent-connector ships no client ids; the author
-registers the app with each provider:
+registers the app with each provider (per-provider registration steps, redirect
+URI rules and refresh-token requirements: the Operate guide's "Register the app
+with each provider" table at
+https://agent-connector.ai/docs/guides/operate-connector#operate-logins-register;
+a runnable three-provider server: examples/seo-connector):
 
 | Preset | Flow(s) | Notes |
 |---|---|---|

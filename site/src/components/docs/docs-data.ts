@@ -2016,3 +2016,111 @@ export const surfaceLeaderboardColumns: { column: string; meaning: string }[] = 
       "runtime (live usage, aggregated from the store) vs static (a context-load footprint). The distinction is never silently conflated.",
   },
 ];
+
+/**
+ * Where a connector author registers the OAuth app for each preset, and the
+ * facts that decide the registration form: platform / app type, the redirect
+ * URI to enter, what the provider hands back, and what makes a refresh token
+ * appear. `docs` is the page every fact was checked against — the preset's
+ * `docsUrl` (tests/docs/oauth-docs.test.ts pins the pairing).
+ */
+export interface OAuthProviderRegistration {
+  preset: string;
+  provider: string;
+  /** Where to register — the console page, or the hosting note for a metadata document. */
+  register: string;
+  /** How to get there and what to pick. */
+  where: string;
+  /** The redirect URI to enter and the provider's matching rule. */
+  redirect: string;
+  /** What the provider issues and where it goes. */
+  credentials: string;
+  /** What produces a refresh token, and device-grant notes. */
+  notes: string;
+  /** The provider's OAuth documentation (= the preset's docsUrl). */
+  docs: string;
+}
+
+export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
+  {
+    preset: "google",
+    provider: "Google (Search Console, Analytics, Drive, …)",
+    register: "https://console.cloud.google.com/apis/credentials",
+    where:
+      "Google Cloud console → APIs & Services: enable the API you call (e.g. Search Console API), configure the OAuth consent screen with the scopes and, while it is in Testing, your test users, then Credentials → Create credentials → OAuth client ID → application type Desktop app.",
+    redirect: "Nothing to register: a Desktop app client accepts any http://127.0.0.1:<port> loopback redirect.",
+    credentials:
+      "Client id + client secret. Google does not treat a desktop client's secret as confidential; the connector still keeps it in the keystore (clientSecret: \"${secret:…}\").",
+    notes:
+      "The preset sends access_type=offline and prompt=consent, which is what yields a refresh token. A consent screen in Testing status expires refresh tokens after 7 days — publish the app for longer-lived logins. Google's device grant allows only sign-in, drive.file / drive.appdata and YouTube scopes, so the preset never uses it for API scopes.",
+    docs: "https://developers.google.com/identity/protocols/oauth2/native-app",
+  },
+  {
+    preset: "microsoft",
+    provider: "Microsoft Entra ID (Microsoft Graph, Azure, Microsoft 365)",
+    register: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+    where:
+      "Microsoft Entra admin center → App registrations → New registration; choose the supported account types (options.tenant selects the authority: common, organizations, consumers or a tenant id). Add the platform Mobile and desktop applications.",
+    redirect:
+      "http://127.0.0.1/callback — Entra ignores the port on loopback redirect URIs and prefers 127.0.0.1 over localhost. The admin center's redirect URI box does not take http://127.0.0.1; add it in the app manifest (replyUrlsWithType, type InstalledClient).",
+    credentials:
+      "Application (client) id. A public client needs no secret; add one only for a confidential deployment (Certificates & secrets) and reference it as ${secret:…}.",
+    notes:
+      "Request the offline_access scope or no refresh token is returned. For the device grant set Allow public client flows to Yes under Authentication.",
+    docs: "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow",
+  },
+  {
+    preset: "github",
+    provider: "GitHub (REST / GraphQL API)",
+    register: "https://github.com/settings/apps",
+    where:
+      "Settings → Developer settings → GitHub Apps → New GitHub App (a classic OAuth App works for the browser flow but never returns a refresh token). Fill in the callback URL; tick Enable Device Flow if you want auth login --device.",
+    redirect:
+      "http://127.0.0.1/callback — GitHub does not require the port of a loopback redirect_uri to match the registered callback URL.",
+    credentials:
+      "Client id + client secret (Generate a new client secret). The secret is required for the browser flow's code exchange and not for device-flow polling.",
+    notes:
+      "Turn on Expire user authorization tokens (GitHub App → General → Optional features) or request the offline_access scope; without either GitHub returns no refresh token and auth login stops with the preset's hint.",
+    docs: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps",
+  },
+  {
+    preset: "bing-webmaster",
+    provider: "Bing Webmaster Tools",
+    register: "https://www.bing.com/webmasters/",
+    where:
+      "Bing Webmaster Tools → Settings (top right) → API Access → accept the terms → OAuth Client → register with a Client Name and the Redirect URI.",
+    redirect:
+      "http://127.0.0.1:<port>/callback with the exact port the connector pins in redirectPort (Bing matches the redirect URI exactly, port included; redirectPort is required for this preset).",
+    credentials: "Client id + client secret (copy both from the created OAuth client; the secret goes to the keystore).",
+    notes:
+      "Scopes webmaster.read or webmaster.manage; a refresh token comes with every code exchange. Bing's documented response carries no state, so the login is bound by the exact redirect URI alone. An API key from the same page is the alternative when a login is not wanted (use the secrets feature for it).",
+    docs: "https://learn.microsoft.com/en-us/bingwebmaster/oauth2",
+  },
+  {
+    preset: "posthog",
+    provider: "PostHog (Cloud US / EU)",
+    register: "https://posthog.com/docs/api/oauth#client-id-metadata-document-cimd",
+    where:
+      "No registration at PostHog: host a Client ID Metadata Document (JSON with client_id = the document's own https URL, client_name, redirect_uris, optional logo_uri) and use that URL as clientId.",
+    redirect:
+      "List http://127.0.0.1/callback in redirect_uris — a loopback URI registered without a port matches any port, so the connector needs no redirectPort.",
+    credentials: "None: the metadata document is the identity (PKCE, token endpoint auth none, no client secret).",
+    notes:
+      "Scopes are <resource>:<read|write> pairs (e.g. project:read, query:read). options.region pins us or eu; omitted, the region-agnostic issuer routes by account. A refresh token comes with every code exchange.",
+    docs: "https://posthog.com/docs/api/oauth",
+  },
+  {
+    preset: "generic",
+    provider: "Any OAuth 2.0 provider",
+    register: "https://www.rfc-editor.org/rfc/rfc8252#section-7.3",
+    where:
+      "Register a native / desktop (public) client in the provider's developer console; note the issuer (for RFC 8414 / OpenID Connect discovery) or the authorization and token endpoint URLs.",
+    redirect:
+      "http://127.0.0.1/callback if the provider follows RFC 8252 (any port), else http://127.0.0.1:<port>/callback with a fixed redirectPort.",
+    credentials: "Client id; a client secret only if the provider insists (reference it as ${secret:…}; sent in the form body by default, tokenEndpointAuth: \"client_secret_basic\" switches to the Authorization header).",
+    notes:
+      "Find what yields a refresh token (often the offline_access scope or an access_type parameter) and add it to scopes or extraAuthorizationParams; the device grant is used when the provider publishes a device_authorization_endpoint.",
+    docs: "https://www.rfc-editor.org/rfc/rfc8414",
+  },
+];
+

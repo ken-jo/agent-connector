@@ -73,6 +73,7 @@ import {
   eventScopeRows,
   surfaceKindRows,
   surfaceLeaderboardColumns,
+  oauthProviderRegistrations,
   type PlatformEntry,
 } from "./docs-data";
 import { HooksGuideSection } from "./HooksGuide";
@@ -6288,7 +6289,62 @@ export function OperateConnectorGuide() {
         reports them under the connector's <C>logins</C> check.
       </P>
       <CodeBlock code={operateLoginsFlow} language="text" filename="oauth.<key> / auth login / auth status / doctor" />
-      <H3 id="operate-uninstall">8. Reverse it cleanly</H3>
+      <H3 id="operate-logins-register">8. Register the app with each provider</H3>
+      <P>
+        Every login needs an app the author registered at the provider —
+        agent-connector never ships a client id. One row per preset: where the
+        registration lives, which application type to pick, the redirect URI to
+        enter (the engine listens on <C>127.0.0.1</C>), what the provider hands
+        back, and what makes a refresh token appear. Client ids go into the
+        connector config (a literal or <C>{"${env:VAR}"}</C>); a client secret is
+        stored once with <C>secrets set</C> and referenced as{" "}
+        <C>{"${secret:NAME}"}</C>. The runnable{" "}
+        <a
+          className="underline hover:text-foreground"
+          href="https://github.com/ken-jo/agent-connector/tree/main/examples/seo-connector"
+          target="_blank"
+          rel="noreferrer"
+        >
+          examples/seo-connector
+        </a>{" "}
+        walks through three of these end to end.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Preset</Th>
+            <Th>Register</Th>
+            <Th>Redirect URI</Th>
+            <Th>Credentials</Th>
+            <Th>Refresh token / notes</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {oauthProviderRegistrations.map((r) => (
+            <tr key={r.preset}>
+              <Td>
+                <Code>{r.preset}</Code>
+                <div className="mt-1 text-xs text-muted-foreground">{r.provider}</div>
+              </Td>
+              <Td className="text-muted-foreground">
+                <a className="underline hover:text-foreground" href={r.register} target="_blank" rel="noreferrer">
+                  Open the registration page
+                </a>
+                <div className="mt-1">{r.where}</div>
+                <div className="mt-1">
+                  <a className="underline hover:text-foreground" href={r.docs} target="_blank" rel="noreferrer">
+                    Provider OAuth docs
+                  </a>
+                </div>
+              </Td>
+              <Td className="text-muted-foreground">{r.redirect}</Td>
+              <Td className="text-muted-foreground">{r.credentials}</Td>
+              <Td className="text-muted-foreground">{r.notes}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <H3 id="operate-uninstall">9. Reverse it cleanly</H3>
       <P>
         <C>uninstall</C> is the exact inverse of install: every host entry, block
         and file agent-connector wrote is removed and files it does not own are
