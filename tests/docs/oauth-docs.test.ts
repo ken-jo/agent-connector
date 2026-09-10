@@ -38,7 +38,7 @@ import {
   login,
   loginSecretNames,
 } from "../../src/core/oauth/index.js";
-import { SecretResolutionError } from "../../src/core/secrets.js";
+import { SecretResolutionError, openSecretStore } from "../../src/core/secrets.js";
 import * as sdk from "../../src/sdk/index.js";
 
 const read = (path: string) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
@@ -144,6 +144,48 @@ const unticked = (text: string) => flat(text).replace(/`/g, "");
 const stripBrand = (line: string) => line.replace(/^agent-connector /, "");
 
 const stdio = { transport: "stdio", command: "node", args: ["server.js"] } as const;
+
+/**
+ * Runs `fn` with HOME, the data root and the secrets backend (file) redirected
+ * to a throwaway directory, restoring the environment afterwards — the pins
+ * that drive `installConnector` and doctor's `loginsCheck` for real.
+ */
+async function withTempRoot(fn: (root: string) => Promise<void>): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), "ac-docs-root-"));
+  const keys = ["HOME", "USERPROFILE", "AGENT_CONNECTOR_DATA_DIR", "AGENT_CONNECTOR_SECRETS_BACKEND", "AGENT_CONNECTOR_TELEMETRY"] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    process.env.HOME = root;
+    process.env.USERPROFILE = root;
+    process.env.AGENT_CONNECTOR_DATA_DIR = root;
+    process.env.AGENT_CONNECTOR_SECRETS_BACKEND = "file";
+    delete process.env.AGENT_CONNECTOR_TELEMETRY;
+    await fn(root);
+  } finally {
+    for (const k of keys) {
+      const v = saved[k];
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** A dry-run install of `connector` into `root` for claude-code: the warn details, in order. */
+async function installWarns(connector: ReturnType<typeof defineConnector>, root: string): Promise<string[]> {
+  const result = await installConnector({
+    connector,
+    modulePath: join(root, "fake.mjs"),
+    scope: "user",
+    projectDir: root,
+    targets: ["claude-code"],
+    dryRun: true,
+  });
+  return result.changes.filter((c) => c.action === "warn").map((c) => c.detail);
+}
+
+/** The google login as a developer-provided public client (a literal client id, no secret). */
+const GOOGLE_LOGIN = { google: { provider: "google", clientId: "1234-abcd.apps.googleusercontent.com", scopes: ["openid"] } } as const;
 const googleLogin = { provider: "google", clientId: "1234-abcd.apps.googleusercontent.com", scopes: ["openid"] } as const;
 
 describe("auth docs agree with the CLI usage lines", () => {
@@ -460,11 +502,19 @@ describe("the messages the oauth docs quote are the ones the code emits", () => 
     });
   });
 
-  it("doctor emits the `<id>: logins` check the docs quote", () => {
-    const doctor = read("src/cli/commands/doctor.ts");
-    for (const literal of [": logins", "login(s) present", "not logged in: ", "for each of: "]) {
-      expect(doctor, `doctor.ts no longer contains ${JSON.stringify(literal)}`).toContain(literal);
-    }
+  it("doctor emits the `<id>: logins` check the docs quote", async () => {
+    await withTempRoot(async (root) => {
+      const connector = defineConnector({ id: "seo-mcp", server: stdio, oauth: GOOGLE_LOGIN });
+      const absent = loginsCheck("seo-mcp", connector.oauth);
+      expect(absent).toMatchObject({
+        check: "seo-mcp: logins",
+        status: "warn",
+        message: "not logged in: google — run auth login <key>",
+        fix: "run `auth login <key> --connector-id seo-mcp` for each of: google",
+      });
+      openSecretStore({ connectorId: "seo-mcp", backend: "file", dataRoot: root }).set("oauth.google.refresh-token", "mock-refresh-docs");
+      expect(loginsCheck("seo-mcp", connector.oauth)).toMatchObject({ check: "seo-mcp: logins", status: "pass", message: "1 login(s) present" });
+    });
     const auth = llmsAuthSection();
     expect(auth).toContain("`<id>: logins`");
     expect(flat(auth)).toContain("`<n> login(s) present`");
@@ -479,30 +529,35 @@ describe("the messages the oauth docs quote are the ones the code emits", () => 
     expect(AUTHORING).toContain("`<id>: logins`");
   });
 
-  it("install emits the missing-login warning the docs quote", () => {
-    const installer = read("src/core/installer.ts");
-    expect(installer).toContain("is not present — run");
-    expect(installer).toContain("before the server needs it");
+  it("install emits the missing-login warning the docs quote", async () => {
     const warning = 'login "<key>" (<provider>) is not present — run `auth login <key>` before the server needs it';
+    await withTempRoot(async (root) => {
+      const warns = await installWarns(defineConnector({ id: "seo-mcp", server: stdio, oauth: GOOGLE_LOGIN }), root);
+      expect(warns).toEqual([warning.replaceAll("<key>", "google").replaceAll("<provider>", "google")]);
+    });
     expect(unticked(llmsAuthSection())).toContain(unticked(warning));
     expect(unticked(siteAuthEntry().summary)).toContain(unticked(warning));
     expect(readmeOAuthParagraph()).toContain("`install` warns per missing login");
   });
 
+  it("defineConnector refuses an endpoint URL with userinfo or a fragment with the message the docs quote", () => {
+    const message = "oauth.google.tokenExchangeUrl: must not carry credentials or a fragment";
+    for (const tokenExchangeUrl of ["https://user:pw@seo.example.com/t", "https://seo.example.com/t#frag"]) {
+      expect(() => defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...GOOGLE_LOGIN.google, tokenExchangeUrl } } })).toThrow(message);
+    }
+    expect(() =>
+      defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...GOOGLE_LOGIN.google, tokenEndpoint: "https://u@idp.example/token" } } }),
+    ).toThrow("oauth.google.tokenEndpoint: must not carry credentials or a fragment");
+    expect(flat(LLMS_FULL)).toContain("`<where>.<field>: must not carry credentials or a fragment`");
+  });
+
   it("install and doctor name the secrets set commands the docs quote for a login whose secret is not set", async () => {
-    // Behavior, not source text: a user-registered login is dry-run installed
-    // into a throwaway root with the file backend, and doctor's logins check
-    // runs against the same root; the emitted strings are compared with the
-    // doc templates, placeholders substituted.
-    const root = mkdtempSync(join(tmpdir(), "ac-docs-secrets-"));
-    const keys = ["HOME", "USERPROFILE", "AGENT_CONNECTOR_DATA_DIR", "AGENT_CONNECTOR_SECRETS_BACKEND", "AGENT_CONNECTOR_TELEMETRY"] as const;
-    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
-    try {
-      process.env.HOME = root;
-      process.env.USERPROFILE = root;
-      process.env.AGENT_CONNECTOR_DATA_DIR = root;
-      process.env.AGENT_CONNECTOR_SECRETS_BACKEND = "file";
-      delete process.env.AGENT_CONNECTOR_TELEMETRY;
+    const installLine =
+      'login "<key>" (<provider>) references secret "<NAME>" which is not set — run `secrets set <NAME>` before `auth login <key>`';
+    const doctorMessage = "secrets not set for login(s) <key>[, <key>…]: <NAME>[, <NAME>…] — run secrets set <name>";
+    // `<name>` is literal placeholder text in the fix (as `<key>` is in the "not logged in" fix); `<NAME>` stands for a real name.
+    const doctorFix = "run `secrets set <name> --connector-id <id>` for each of: <NAME>[, <NAME>…]";
+    await withTempRoot(async (root) => {
       const connector = defineConnector({
         id: "seo-mcp",
         server: stdio,
@@ -518,43 +573,21 @@ describe("the messages the oauth docs quote are the ones the code emits", () => 
       });
       const fill = (template: string, name: string): string =>
         template.replaceAll("<key>", "bing").replaceAll("<provider>", "bing-webmaster").replaceAll("<NAME>", name).replaceAll("<id>", "seo-mcp");
-
-      const result = await installConnector({
-        connector,
-        modulePath: join(root, "fake.mjs"),
-        scope: "user",
-        projectDir: root,
-        targets: ["claude-code"],
-        dryRun: true,
-      });
-      const warns = result.changes.filter((c) => c.action === "warn").map((c) => c.detail);
-      const installLine =
-        'login "<key>" (<provider>) references secret "<NAME>" which is not set — run `secrets set <NAME>` before `auth login <key>`';
+      const warns = await installWarns(connector, root);
       expect(warns.slice(0, 2)).toEqual([fill(installLine, "bing-client-id"), fill(installLine, "bing-client-secret")]);
-      expect(unticked(llmsAuthSection())).toContain(unticked(installLine));
-      expect(unticked(siteAuthEntry().summary)).toContain(unticked(installLine));
-
       const check = loginsCheck("seo-mcp", connector.oauth);
-      const doctorMessage = "secrets not set for login(s) <key>[, <key>…]: <NAME>[, <NAME>…] — run secrets set <name>";
-      // `<name>` is literal placeholder text in the fix (as `<key>` is in the "not logged in" fix); `<NAME>` stands for a real name.
-      const doctorFix = "run `secrets set <name> --connector-id <id>` for each of: <NAME>[, <NAME>…]";
       expect(check.status).toBe("warn");
       expect(check.message).toBe(fill(doctorMessage.replace("[, <key>…]", "").replace("<NAME>[, <NAME>…]", "bing-client-id, bing-client-secret"), ""));
       expect(check.fix).toBe(fill(doctorFix.replace("<NAME>[, <NAME>…]", "bing-client-id, bing-client-secret"), ""));
-      expect(flat(llmsAuthSection())).toContain(doctorMessage);
-      expect(unticked(llmsAuthSection())).toContain(unticked(doctorFix));
-      expect(siteAuthEntry().summary).toContain(doctorMessage);
-      expect(unticked(siteAuthEntry().summary)).toContain(unticked(doctorFix));
-      expect(readmeOAuthParagraph()).toContain("name the `secrets set` commands still to run");
-      expect(DOCS_CONTENT).toContain("name the <C>secrets set</C> commands");
-    } finally {
-      for (const k of keys) {
-        const v = saved[k];
-        if (v === undefined) delete process.env[k];
-        else process.env[k] = v;
-      }
-      rmSync(root, { recursive: true, force: true });
-    }
+    });
+    expect(unticked(llmsAuthSection())).toContain(unticked(installLine));
+    expect(unticked(siteAuthEntry().summary)).toContain(unticked(installLine));
+    expect(flat(llmsAuthSection())).toContain(doctorMessage);
+    expect(unticked(llmsAuthSection())).toContain(unticked(doctorFix));
+    expect(siteAuthEntry().summary).toContain(doctorMessage);
+    expect(unticked(siteAuthEntry().summary)).toContain(unticked(doctorFix));
+    expect(readmeOAuthParagraph()).toContain("name the `secrets set` commands still to run");
+    expect(DOCS_CONTENT).toContain("name the <C>secrets set</C> commands");
   });
 
   describe("the login engine with a temp keystore (no network, no browser)", () => {

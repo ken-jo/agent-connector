@@ -322,8 +322,9 @@ without a leading "/" (`<where>.redirectPath: must start with "/"`), `generic`
 with neither `issuer` nor both endpoints (`<where>: provider "generic" needs
 issuer, or authorizationEndpoint and tokenEndpoint`), an endpoint that is not
 `https:` (`<where>.<field>: must be an https URL`; `http://127.0.0.1` /
-`http://localhost` pass, for tests; a URL carrying userinfo, a fragment or a
-control character is rejected with the same message), a `storeAs` that is not a valid secret name
+`http://localhost` pass, for tests; a URL carrying a control character is
+rejected the same way), an endpoint carrying userinfo or a fragment
+(`<where>.<field>: must not carry credentials or a fragment`), a `storeAs` that is not a valid secret name
 (`<where>.storeAs: "<x>" is not a valid secret name`), a posthog
 `options.region` outside `us | eu` (`<where>.options.region: expected us | eu`),
 an empty microsoft `options.tenant` (`<where>.options.tenant: must be a

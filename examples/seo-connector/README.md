@@ -223,7 +223,7 @@ only.
 |---|---|
 | `TOKEN_EXCHANGE_CLIENT_ID` | required — the app's client id; the only `client_id` the service accepts |
 | `TOKEN_EXCHANGE_CLIENT_SECRET` | required — the app's client secret; never written to a file |
-| `TOKEN_EXCHANGE_TOKEN_ENDPOINT` | required — the provider's token endpoint (Bing: `https://www.bing.com/webmasters/oauth/token`) |
+| `TOKEN_EXCHANGE_TOKEN_ENDPOINT` | required — the provider's token endpoint, https (http only on 127.0.0.1, localhost or [::1]), without credentials or a fragment (Bing: `https://www.bing.com/webmasters/oauth/token`) |
 | `TOKEN_EXCHANGE_CLIENT_AUTH` | how the provider wants the secret: `post` (a `client_secret` form field, default) or `basic` (HTTP Basic) |
 | `TOKEN_EXCHANGE_LISTEN` | `host:port` to listen on (default `127.0.0.1:48214`) |
 

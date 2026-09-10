@@ -233,6 +233,7 @@ describe("defineConnector — oauth validation messages", () => {
         tokenExchangeUrl,
       );
     }
+    // Control characters are refused before parsing (`new URL()` would strip a CR / LF silently).
     for (const tokenExchangeUrl of [
       "http://example.com/x",
       "ftp://x",
@@ -240,9 +241,6 @@ describe("defineConnector — oauth validation messages", () => {
       "",
       "seo.example.com/token",
       null,
-      // Userinfo, a fragment (RFC 6749 §3.2) and control characters (`new URL()` would strip a CR / LF) are refused too.
-      "https://user:pw@seo.example.com/t",
-      "https://seo.example.com/t#frag",
       "https://seo.example.com/t\r\n",
       "https://seo.example.com/t\x1b[2K",
     ]) {
@@ -251,7 +249,17 @@ describe("defineConnector — oauth validation messages", () => {
         "oauth.google.tokenExchangeUrl: must be an https URL",
       );
     }
-    expectRejected(withLogin("google", { tokenEndpoint: "https://user:pw@idp.example/token" }), "oauth.google.tokenEndpoint: must be an https URL");
+    // Userinfo and a fragment (RFC 6749 §3.2) get their own message, on every URL field.
+    for (const tokenExchangeUrl of ["https://user:pw@seo.example.com/t", "https://user@seo.example.com/t", "https://seo.example.com/t#frag"]) {
+      expectRejected(
+        withLogin("google", { clientSecret: undefined, tokenExchangeUrl }),
+        "oauth.google.tokenExchangeUrl: must not carry credentials or a fragment",
+      );
+    }
+    expectRejected(
+      withLogin("google", { tokenEndpoint: "https://user:pw@idp.example/token" }),
+      "oauth.google.tokenEndpoint: must not carry credentials or a fragment",
+    );
     // tokenEndpointAuth next to tokenExchangeUrl is accepted (the engine sends client_id only).
     const withAuth = defineConnector(
       withLogin("google", { clientSecret: undefined, tokenExchangeUrl: "https://seo.example.com/t", tokenEndpointAuth: "client_secret_basic" }),

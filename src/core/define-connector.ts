@@ -578,21 +578,24 @@ const OAUTH_URL_FIELDS = [
   "revocationEndpoint",
   "tokenExchangeUrl",
 ] as const;
-function isOAuthEndpointUrl(value: unknown): boolean {
-  if (typeof value !== "string") return false;
+/** Why `value` is not an acceptable OAuth endpoint URL, or null when it is (https, or http on 127.0.0.1 / localhost for tests). */
+function oauthEndpointUrlProblem(value: unknown): string | null {
+  const notHttps = "must be an https URL";
+  if (typeof value !== "string") return notHttps;
   // `new URL()` strips CR / LF silently: a control character is refused first.
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return false;
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return notHttps;
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return false;
+    return notHttps;
   }
+  const secure = url.protocol === "https:" || (url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost"));
+  if (!secure) return notHttps;
   // Userinfo and a fragment have no place in an OAuth endpoint (RFC 6749 §3.2).
-  if (url.username !== "" || url.password !== "" || url.hash !== "") return false;
-  if (url.protocol === "https:") return true;
-  return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost");
+  if (url.username !== "" || url.password !== "" || url.hash !== "") return "must not carry credentials or a fragment";
+  return null;
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -696,9 +699,8 @@ function normalizeOAuth(input: ConnectorConfig["oauth"]): Record<string, Resolve
       );
     }
     for (const field of OAUTH_URL_FIELDS) {
-      if (def[field] !== undefined && !isOAuthEndpointUrl(def[field])) {
-        throw new ConnectorConfigError(`${where}.${field}: must be an https URL`);
-      }
+      const problem = def[field] === undefined ? null : oauthEndpointUrlProblem(def[field]);
+      if (problem !== null) throw new ConnectorConfigError(`${where}.${field}: ${problem}`);
     }
     // The exchange service holds the client secret; a login names one or the other.
     if (def.clientSecret !== undefined && def.tokenExchangeUrl !== undefined) {
