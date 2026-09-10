@@ -667,7 +667,7 @@ export const adapterCapabilityProfiles = [
       "mcp": true,
       "hooks": false,
       "commands": false,
-      "skills": false,
+      "skills": true,
       "subagents": false,
       "memory": true,
       "statusline": false,

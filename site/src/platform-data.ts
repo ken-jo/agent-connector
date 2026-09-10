@@ -709,7 +709,7 @@ export const platforms: Platform[] = [
     id: "junie",
     name: "Junie",
     paradigm: "mcp-only",
-    surfaces: s(true, false, false, false, false, true, false, false),
+    surfaces: s(true, false, false, true, false, true, false, false),
     // Junie is JetBrains' OWN LLM-agnostic coding agent (the `junie` CLI, npm
     // @jetbrains/junie, github.com/JetBrains/junie) — DISTINCT from
     // jetbrains-copilot (GitHub Copilot in JetBrains IDEs). mcp-only: AC installs
@@ -720,9 +720,10 @@ export const platforms: Platform[] = [
     // JetBrains IDEs); stdio { command, args?, env? }, remote { url, headers? }
     // (`url`, not `serverUrl`; no type/disabled).
     // hostNative commands + skills + subagents = true: Junie documents custom
-    // slash commands, Agent Skills, and subagents, but those content surfaces
-    // are NOT wired by this adapter (initial scope = MCP-only) — an honest
-    // CEILING, not a host gap. hooks: Junie documents NO user-installable
+    // slash commands, Agent Skills, and subagents. Skills ARE wired
+    // (.junie/skills/<name>/SKILL.md, byte-confirmed from
+    // junie.jetbrains.com/docs/agent-skills.html); commands + subagents are not
+    // (on-disk layout not byte-confirmed) — an honest CEILING, not a host gap. hooks: Junie documents NO user-installable
     // lifecycle hook surface → hostNative.hooks stays false (no host hook layer).
     hostNative: s(true, false, true, true, true, true, false, false),
   },

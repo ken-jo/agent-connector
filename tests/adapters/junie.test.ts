@@ -29,6 +29,7 @@ import type { ConnectorConfig, ResolvedConnector } from "../../src/core/types.js
 import junieAdapter from "../../src/adapters/junie/index.js";
 import { buildCtx, freshHomeProject, isolateEnv } from "../support/env.js";
 import { createAdapterSuite } from "../support/adapter-suite.js";
+import { splitFrontmatter } from "../support/fs.js";
 
 const CONNECTOR_ID = "acme-junie";
 
@@ -76,10 +77,11 @@ describe("junie adapter — identity + capabilities", () => {
     expect(junieAdapter.capabilities.preToolUse).toBe(false);
     expect(junieAdapter.capabilities.canModifyArgs).toBe(false);
     expect(junieAdapter.capabilities.transports).toEqual(["stdio", "http"]);
-    // memory via the AGENTS.md base default; content surfaces unwired (mcp-only scope).
+    // memory via the AGENTS.md base default; Agent Skills wired; commands and
+    // subagents stay unwired (on-disk layout not byte-confirmed).
     expect(junieAdapter.capabilities.supportsMemory).toBe(true);
     expect(junieAdapter.capabilities.supportsCommands ?? false).toBe(false);
-    expect(junieAdapter.capabilities.supportsSkills ?? false).toBe(false);
+    expect(junieAdapter.capabilities.supportsSkills).toBe(true);
     expect(junieAdapter.capabilities.supportsSubagents ?? false).toBe(false);
   });
 });
@@ -242,5 +244,87 @@ describe("junie adapter — health checks", () => {
     expect(after[0]!.check().status).toBe("OK");
     expect(after[1]!.check().status).toBe("OK");
     expect(existsSync(userMcpPath(home))).toBe(true);
+  });
+});
+
+// ── Agent Skills — <root>/.junie/skills/<name>/SKILL.md ───────────────────────
+// Layout byte-confirmed from junie.jetbrains.com/docs/agent-skills.html
+// (verified 2026-09-10): required SKILL.md with frontmatter `name` (required)
+// + `description`, optional supporting files; project `.junie/skills/` and
+// global `~/.junie/skills/`, project wins on a name clash.
+
+describe("junie adapter — Agent Skills", () => {
+  let home: string;
+  let projectDir: string;
+
+  beforeEach(() => {
+    ({ home, projectDir } = freshHomeProject());
+  });
+
+  const SKILL = {
+    name: "acme-db-queries",
+    description: "How to query the Acme DB through the acme-db MCP tools.",
+    body: "## Guidelines\n- Prefer acme_query over raw SQL.\n",
+    resources: { "checklists/review.md": "- [ ] indexes checked\n" },
+  };
+
+  it("advertises supportsSkills (commands/subagents stay unset)", () => {
+    expect(junieAdapter.capabilities.supportsSkills).toBe(true);
+    expect(junieAdapter.capabilities.supportsCommands).toBeUndefined();
+    expect(junieAdapter.capabilities.supportsSubagents).toBeUndefined();
+  });
+
+  it("project scope writes <projectDir>/.junie/skills/<name>/SKILL.md (+ resources); uninstall removes them", () => {
+    const connector = buildConnector({ skills: [SKILL] });
+    const ctx = buildCtx(projectDir, connector, "project");
+    const changes = junieAdapter.installSkills!(ctx);
+    expect(changes.every((c) => c.action !== "warn")).toBe(true);
+
+    const dir = join(projectDir, ".junie", "skills", "acme-db-queries");
+    const skillFile = join(dir, "SKILL.md");
+    const resFile = join(dir, "checklists", "review.md");
+    expect(existsSync(skillFile)).toBe(true);
+    expect(existsSync(resFile)).toBe(true);
+    const { frontmatter, body } = splitFrontmatter(readFileSync(skillFile, "utf8"));
+    expect(frontmatter.name).toBe("acme-db-queries");
+    expect(frontmatter.description).toBe(SKILL.description);
+    expect(body).toContain("Prefer acme_query over raw SQL.");
+    // Nothing leaked into the user tree.
+    expect(existsSync(join(home, ".junie", "skills"))).toBe(false);
+
+    junieAdapter.uninstallSkills!(ctx);
+    expect(existsSync(skillFile)).toBe(false);
+    expect(existsSync(resFile)).toBe(false);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("user scope writes ~/.junie/skills/<name>/SKILL.md", () => {
+    const connector = buildConnector({ skills: [SKILL] });
+    const ctx = buildCtx(projectDir, connector, "user");
+    junieAdapter.installSkills!(ctx);
+    const skillFile = join(home, ".junie", "skills", "acme-db-queries", "SKILL.md");
+    expect(existsSync(skillFile)).toBe(true);
+    expect(existsSync(join(projectDir, ".junie", "skills"))).toBe(false);
+    junieAdapter.uninstallSkills!(ctx);
+    expect(existsSync(skillFile)).toBe(false);
+  });
+
+  it("is idempotent — a byte-identical re-install creates nothing", () => {
+    const connector = buildConnector({ skills: [SKILL] });
+    const ctx = buildCtx(projectDir, connector, "project");
+    expect(junieAdapter.installSkills!(ctx).filter((c) => c.action === "create")).toHaveLength(2);
+    const again = junieAdapter.installSkills!(ctx);
+    expect(again.filter((c) => c.action === "create")).toHaveLength(0);
+    expect(again.every((c) => c.action !== "warn")).toBe(true);
+  });
+
+  it("honors platforms['junie'].skills === false and skips with no skills declared", () => {
+    const off = buildConnector({ skills: [SKILL], platforms: { junie: { skills: false } } });
+    expect(junieAdapter.installSkills!(buildCtx(projectDir, off, "project")).every((c) => c.action === "skip")).toBe(true);
+    expect(existsSync(join(projectDir, ".junie", "skills"))).toBe(false);
+    const none = buildConnector();
+    expect(junieAdapter.installSkills!(buildCtx(projectDir, none, "project"))).toEqual([
+      { platform: "junie", action: "skip", detail: "connector declares no skills" },
+    ]);
   });
 });
