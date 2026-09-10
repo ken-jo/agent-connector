@@ -39,7 +39,7 @@ by a test on each run, and a drift test fails if the README and the source disag
 | Hook events normalized | **13**, dispatched through **3** paradigms (`json-stdio` 24 hosts · `mcp-only` 10 · `ts-plugin` 8) |
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
 | Hosts verified against the real host binary | **29 of 42** (22 of them end-to-end through a model tool call); the other **13** by the registry install harness in an isolated HOME |
-| Measured footprint | one 135-line `defineConnector()` → **65 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (62 at project scope) — `npm run measure:footprint` |
+| Measured footprint | one 135-line `defineConnector()` → **66 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (63 at project scope) — `npm run measure:footprint` |
 | Test suite | **152** test files |
 
 **Who it is for.** agent-connector is the **publisher** side of MCP distribution:
