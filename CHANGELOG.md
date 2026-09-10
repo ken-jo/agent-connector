@@ -7,6 +7,57 @@ of shipping them through host config files; `install` accepts `.zip` sources and
 installs a fetched connector's dependencies; two more content surfaces (droid
 status line, junie skills); every registered host has a verification lane.
 
+### Highlights — secrets that never touch a host config
+
+Every MCP server needs a credential, and until now every connector author solved
+the same problem alone: bake the key into a host's JSON config, ask users to
+export environment variables, or write keychain glue for each operating system.
+0.7.0 makes that the framework's job.
+
+**One line for the author.** Reference the secret where the env var would be:
+
+```js
+server: {
+  transport: "stdio",
+  command: "npx",
+  args: ["-y", "@acme/db-mcp"],
+  env: { ACME_API_KEY: "${secret:api-key}" },
+}
+```
+
+**One command for the user.** `acme-db secrets set api-key` asks for the value
+with a hidden prompt (or reads stdin) and stores it in the operating system's
+keystore: macOS Keychain, Linux Secret Service, Windows Credential Manager. An
+opt-in plaintext file store covers headless machines.
+
+**Nothing in between.** Host config files carry only the serve wrapper's
+placeholder (`--secret-env ACME_API_KEY={secret:api-key}`, a form no host
+expands). At launch the wrapper reads the keystore and injects the value into
+the server process alone; the value never appears in argv, in a host file, in
+the names index, in telemetry or in any CLI output. A missing or empty secret
+stops the launch with the exact `secrets set` command instead of starting the
+server with an empty key, and each connector id is its own keystore namespace.
+
+**Day two is covered.** `install` warns per unset name, `doctor` reports
+`<id>: secrets`, `secrets list` and `secrets check` show state without values,
+and MCPB bundles and registry `server.json` declare the secrets for hosts that
+install the package themselves.
+
+**And it is an SDK, not only a CLI.** `openSecretStore({ connectorId })` gives a
+connector's own tooling the same store — `get`, `set`, `delete`, `list`,
+`availability`, `selfTest` — with `findSecretRefs`, `resolveSecretBackendId`,
+`SECRET_BACKEND_IDS`, `SecretError` and `SecretResolutionError` exported from
+the package root:
+
+```ts
+import { openSecretStore } from "@ken-jo/agent-connector";
+
+const store = openSecretStore({ connectorId: "acme-db" });
+store.set("api-key", value); // the value is never logged or printed
+store.has("api-key");        // true
+store.list();                // [{ name, backend, present, updatedAt }]
+```
+
 ### Added
 
 - **OS-keystore secrets — `${secret:NAME}`** (#341). A stdio server writes
