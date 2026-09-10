@@ -78,4 +78,9 @@ export type {
   InstallResult,
   ChangeRecord,
   DiagnosticResult,
+  OAuthLoginDef,
+  ResolvedOAuthLoginDef,
+  OAuthPresetId,
+  OAuthFlow,
+  OAuthTokenEndpointAuth,
 } from "./core/types.js";

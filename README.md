@@ -27,7 +27,7 @@ guide: [Publish an MCP server so users install it in every agent host](https://a
 [![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
 ![package formats](https://img.shields.io/badge/package-9%20plugin%20formats%20%2B%202%20MCP%20artifacts-2563eb)
 [![agent plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-2563eb)](https://agent-plugins.org)
-![tests](https://img.shields.io/badge/tests-163%20files-22c55e)
+![tests](https://img.shields.io/badge/tests-173%20files-22c55e)
 
 **By the numbers.** Every figure is derived from the adapter registry or measured
 by a test on each run, and a drift test fails if the README and the source disagree.
@@ -39,9 +39,10 @@ by a test on each run, and a drift test fails if the README and the source disag
 | Hook events normalized | **13**, dispatched through **3** paradigms (`json-stdio` 24 hosts · `mcp-only` 10 · `ts-plugin` 8) |
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
 | Secret backends | **4** — macOS Keychain, Linux Secret Service, Windows Credential Manager, opt-in file store; a `${secret:NAME}` in a stdio server's `env` never reaches a host config |
+| OAuth provider presets | **5** — google, microsoft, github, bing-webmaster, posthog (+ generic) |
 | Hosts verified against the real host binary | **29 of 42** (22 of them end-to-end through a model tool call); the other **13** by the registry install harness in an isolated HOME |
 | Measured footprint | one 135-line `defineConnector()` → **66 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (63 at project scope) — `npm run measure:footprint` |
-| Test suite | **163** test files |
+| Test suite | **173** test files |
 
 **Who it is for.** agent-connector is the **publisher** side of MCP distribution:
 you wrote (or are writing) an MCP server and want it to install itself into your
@@ -453,6 +454,17 @@ everywhere.
 
 `secrets set` writes to the OS-native backend unless `--backend` or `AGENT_CONNECTOR_SECRETS_BACKEND` (`keychain|secret-service|credential-manager|file|auto`) says otherwise; the backend holding each name is recorded (names only, never values) in `~/.agent-connector/secrets/<connector-id>.index.json`, and reads follow it. Values come from a hidden prompt or `--stdin` (there is no `--value` flag, so nothing lands in shell history or the process list) and no command ever prints a value.
 
+**OAuth logins (`oauth.<key>`).** A server that talks to an OAuth 2.0 API declares the provider under `oauth.<key>` — `oauth: { google: { provider: "google", clientId: "1234-abcd.apps.googleusercontent.com", clientSecret: "${secret:google-client-secret}", scopes: ["https://www.googleapis.com/auth/webmasters.readonly"] } }` — and the user authorizes once with `auth login <key>`: a browser loopback flow (PKCE S256, a listener on `127.0.0.1` that accepts one request) or, when no browser can be opened, a device-code prompt where the preset supports it. The refresh token is stored in the connector's namespace of the OS keystore as `oauth.<key>.refresh-token` (the same store `secrets set` writes to), and the server mints access tokens by calling `getAccessToken({ connectorId, key })` from the SDK: it refreshes, caches the token in process memory until 60 s before expiry and stores a rotated refresh token. Lazy login: a call with no stored login runs the login itself when a browser can be opened and otherwise fails closed with the exact `auth login` command, so a connector installed as a host plugin (without `install`) still logs in on its first tool call. Access tokens live only in process memory and on `auth token <key>`'s stdout; nothing else ever prints a token, an authorization code or a client secret, and host configs, package manifests and the non-secret metadata file `~/.agent-connector/oauth/<connector-id>.json` never carry one. `install` warns per missing login and `doctor` reports a `<id>: logins` check (no network in either). Presets supply endpoints, parameters and quirks only — agent-connector ships no client ids: the author registers the app with each provider, ships `clientId` (a literal or `${env:VAR}`), and a `clientSecret` is always a `${secret:NAME}` reference, never a literal.
+
+| Preset | Provider | Flow(s) | Notes |
+|---|---|---|---|
+| `google` | [Google APIs (OAuth 2.0 / OpenID Connect)](https://developers.google.com/identity/protocols/oauth2/native-app) | loopback | Adds `access_type=offline` and `prompt=consent` so a refresh token is returned. `flow: "auto"` never falls back to the device grant (Google's limited-input grant excludes API scopes such as Search Console); an explicit `flow: "device"` still runs it. |
+| `microsoft` | [Microsoft identity platform (Entra ID and personal accounts)](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow) | loopback, device | `options.tenant` selects the tenant (default `common`); request the `offline_access` scope, or no refresh token is returned. |
+| `github` | [GitHub Apps and OAuth Apps](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps) | loopback, device | A refresh token needs expiring user tokens (app settings) or the `offline_access` scope; otherwise the login reports that none came back. |
+| `bing-webmaster` | [Bing Webmaster Tools](https://learn.microsoft.com/en-us/bingwebmaster/oauth2) | loopback | Redirect URIs are registered exactly (including the port), so set `redirectPort` to a fixed port; no PKCE, and the documented response carries no `state` (the login is bound by the fixed redirect URI alone, so `redirectPort` is required). |
+| `posthog` | [PostHog](https://posthog.com/docs/api/oauth) | loopback | `clientId` is the URL of the app's Client ID Metadata Document, which lists `http://127.0.0.1/callback` (no port) as a redirect URI; PKCE without a client secret. `options.region` pins `us` or `eu`; omitted, the region-agnostic issuer routes to the right cloud. |
+| `generic` | [any RFC 8414 / OpenID Connect provider](https://www.rfc-editor.org/rfc/rfc8414) | loopback, device | `issuer` for discovery, or explicit `authorizationEndpoint` + `tokenEndpoint`; the device flow needs a `deviceAuthorizationEndpoint` (declared or discovered). |
+
 **Native hooks escape hatch.** The normalized `hooks` API covers the 13 cross-platform events; for host-only events (Claude Code alone ships 30) declare `platforms: { "claude-code": { nativeHooks: { TaskCompleted: { handler } } } }`.
 
 <details>
@@ -555,6 +567,7 @@ Adding a platform = **one registry entry + one adapter**.
 | `doctor [--probe] [--heal] [--explain] [--json] [--dry-run]` | Per-platform health checks with fixes, plus version checks: the home binary's target install and every connector's rendering framework version are compared with the running CLI (drift → warn + `upgrade`). `--probe` runs a live MCP handshake, `--heal` re-syncs every fixable finding, `--explain` prints the per-`(host, event)` hook honor matrix. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
 | `secrets set\|delete\|list\|check [<name>] [--backend keychain\|secret-service\|credential-manager\|file] [--stdin] [--json]` | Store the secrets a connector references as `${secret:NAME}` in the OS keystore: macOS Keychain (`keychain`), Linux Secret Service (`secret-service`), Windows Credential Manager (`credential-manager`), or the opt-in plaintext `file` store. `set` reads the value from a hidden prompt or `--stdin` (no `--value` flag), `list` shows name / backend / presence, `check` runs a round-trip self-test; nothing ever prints a value. |
+| `auth login\|status\|logout\|token [<key>] [--device\|--loopback] [--port <n>] [--json]` | Log in to the OAuth 2.0 providers a connector declares under `oauth.<key>` (presets: `google`, `microsoft`, `github`, `bing-webmaster`, `posthog`, `generic`). `login` runs the browser loopback or device-code flow and stores the refresh token in the OS keystore, `status` shows key / provider / presence (a missing login never fails it), `logout` revokes at the provider when it can and forgets the token, `token` prints a fresh access token to stdout — the only command that ever prints one. |
 | `package [--format <fmt>\|all]` | Emit a host plugin bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
 | `audit [--strict]` | Pre-install package identity lint: package name/version/bin, runtime dependency, connector id/version drift, and publish `files` coverage. |
 | `action <platform> <id> [--connector <id>]` | Run a declared action from the shell. |

@@ -453,6 +453,13 @@ export const connectorConfigFields: FieldRow[] = [
     notes:
       'Distribution metadata for the official MCP standard artifacts (package --format mcp-server-json | mcpb): { registryNamespace? (reverse-DNS namespace you own, e.g. "io.github.acme"; server.json name = <namespace>/<id>), packageName? (your REAL published package, e.g. "@acme/acme-db-mcp"), registryBaseUrl? (default https://registry.npmjs.org), author? ({ name, email?, url? } — MCPB requires author.name) }. Describes your real upstream server, NOT the serve wrapper; optional — each format errors only when its required field is missing.',
   },
+  {
+    name: "oauth",
+    type: "Record<string, OAuthLoginDef>",
+    default: "{}",
+    notes:
+      'OAuth 2.0 providers the server logs in to, keyed by login key (^[a-z0-9][a-z0-9-]{0,31}$): { provider: "google" | "microsoft" | "github" | "bing-webmaster" | "posthog" | "generic", clientId (a literal or ${env:VAR}; never a secret), clientSecret? (only a ${secret:NAME} reference — a literal secret is never written into a connector config), scopes (at least one), flow? ("auto" | "loopback" | "device", default "auto"), redirectPort? (1024..65535; default ephemeral), redirectPath? (default "/callback"), issuer? / authorizationEndpoint? / tokenEndpoint? / deviceAuthorizationEndpoint? / revocationEndpoint? (https only; generic needs issuer or both endpoints), tokenEndpointAuth?, pkce?, extraAuthorizationParams?, options? (posthog region, microsoft tenant), storeAs? (default oauth.<key>.refresh-token) }. The user runs `auth login <key>` once; the server calls getAccessToken({ connectorId, key }) from the SDK. agent-connector ships no client ids — register the app with each provider yourself.',
+  },
 ];
 
 /**
@@ -557,6 +564,13 @@ export const resolvedConnectorFields: FieldRow[] = [
     type: "PublishConfig",
     notes:
       "Passed through verbatim when supplied (omitted otherwise) — distribution metadata consumed by package --format mcp-server-json | mcpb.",
+  },
+  {
+    name: "oauth",
+    type: "Record<string, ResolvedOAuthLoginDef>",
+    required: true,
+    notes:
+      'Always present ({} when none declared). Every login validated and defaulted: key, flow ("auto"), redirectPath ("/callback"), storeAs (oauth.<key>.refresh-token); nothing is resolved against the network at define time.',
   },
 ];
 
@@ -1281,6 +1295,34 @@ export const cliCommands: CliCommand[] = [
       {
         flag: "--json",
         desc: "list: a SecretListEntry[] ({ name, backend, updatedAt, present }) instead of the `name  backend  present  updated` table; check: the availability + self-test result as JSON.",
+      },
+    ],
+  },
+  {
+    name: "auth",
+    signature:
+      "agent-connector auth login <key> [--connector <path>] [--connector-id <id>] [--project <dir>] [--device|--loopback] [--port <n>] [--json]\n" +
+      "agent-connector auth status [--connector <path>] [--connector-id <id>] [--project <dir>] [--json]\n" +
+      "agent-connector auth logout <key> [--connector <path>] [--connector-id <id>] [--project <dir>]\n" +
+      "agent-connector auth token <key> [--connector <path>] [--connector-id <id>] [--project <dir>]",
+    summary:
+      "Log in to the OAuth 2.0 providers a connector declares under oauth.<key> (presets: google, microsoft, github, bing-webmaster, posthog, generic) and keep the refresh tokens in the OS keystore, keyed by connector id — the store secrets writes to, under the secret name oauth.<key>.refresh-token. login runs the browser loopback flow (PKCE S256, one request on 127.0.0.1; stderr: `Opening <label> authorization in your browser…` then the URL on its own line; with no browser available the engine prints `Authorize <label> at: <url>` instead) or the device-code flow (stderr: `Visit <verification_uri> and enter code <user_code>`), stores the refresh token and prints `logged in to \"<key>\" (<label>) for connector <id> — refresh token stored in <backend>`; a provider that returns no refresh token fails the login (`the provider returned no refresh token — <preset hint>`). status prints `key  provider  present  obtained  via` without touching the network; a missing login never fails it (only an unresolvable connector exits 1). logout revokes at the provider when it can, then forgets the token: `logged out of \"<key>\" for connector <id>` (+ ` (revoked at the provider)`, or ` (nothing was stored)`); a key with nothing stored still exits 0. token prints ONLY the access token to stdout — the one command that ever prints one; not logged in → exit 1 with `login \"<key>\" is not present for connector <id> — run auth login <key> --connector-id <id>`. Connector resolution: --connector-id, --connector <path>, a local agent-connector.config.*, the single registered connector. Exit 2 on a usage error (incl. an undeclared key: `auth <verb>: connector <id> declares no login \"<key>\" (declared: a, b)`), 1 on an engine failure (the message, then `  hint: <hint>` when present). Nothing prints a token, an authorization code, a PKCE verifier or a client secret except auth token; the engine writes human text to stderr only. install warns per missing login (`login \"<key>\" (<provider>) is not present — run auth login <key> before the server needs it`); doctor reports the framework check <id>: logins (pass `<n> login(s) present`; warn `not logged in: a, b — run auth login <key>`; no network). Access tokens live in process memory only; the metadata file ~/.agent-connector/oauth/<id>.json (mode 0600) carries no token. agent-connector ships no client ids: register the app with each provider and ship clientId; a clientSecret is a ${secret:NAME} reference.",
+    flags: [
+      {
+        flag: "<key>",
+        desc: "The login key — the property name under oauth.<key> (^[a-z0-9][a-z0-9-]{0,31}$). login, logout and token take exactly one; status lists them all.",
+      },
+      {
+        flag: "--device|--loopback",
+        desc: 'login: force the device-code or the browser loopback flow. Default: the config\'s flow, "auto" — loopback when a browser can be opened (AGENT_CONNECTOR_BROWSER=never|always overrides the detection), else device when the preset supports it.',
+      },
+      {
+        flag: "--port <n>",
+        desc: "login: bind the loopback listener to this port (for providers that require an exact redirect URI). Default: the config's redirectPort, else an ephemeral port.",
+      },
+      {
+        flag: "--json",
+        desc: "login: the LoginResult ({ key, provider, obtainedVia, backend, scope?, expiresAt? }); status: a LoginStatus[] ({ key, provider, present, backend?, obtainedAt?, obtainedVia?, scope?, revokedAt? }) instead of the `key  provider  present  obtained  via` table.",
       },
     ],
   },

@@ -125,6 +125,8 @@ const CONFIG_PATH_COMMANDS: ReadonlySet<string> = new Set([
   "audit",
   // `secrets` derives the connector ID from the config path (set/delete/list/check).
   "secrets",
+  // `auth` reads the connector's `oauth.<key>` logins from the config path (login/status/logout/token).
+  "auth",
 ]);
 
 /**

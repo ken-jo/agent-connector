@@ -192,6 +192,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
+| `oauth` | `Record<string, OAuthLoginDef>` | `{}` | OAuth 2.0 providers the server logs in to, keyed by login key (`^[a-z0-9][a-z0-9-]{0,31}$`): a preset, the app's own `clientId`, a `${secret:NAME}` `clientSecret`, scopes. The user runs `auth login <key>` once; the server calls `getAccessToken` (§9.1). Field shapes and validation in §2.2. |
 
 **Top-level validation rules** (`define-connector.ts`):
 - `config` must be an object; if supplied, `id` must match the kebab-case regex.
@@ -266,6 +267,82 @@ it), and an override without `env` keeps both. Names match
 field but `env` (`command`, `args`, `cwd`, `url`, `headers`, `auth`; judged by
 the effective transport: an override inherits the base server's). A secret-bearing
 env key must be an environment-variable name (`[A-Za-z_][A-Za-z0-9_]*`).
+
+`oauth.<key>` (a `ConnectorConfig` field, §2.1 — not a `ServerDef` field) declares
+the OAuth 2.0 providers the server logs in to; `<key>` matches
+`^[a-z0-9][a-z0-9-]{0,31}$`:
+
+```ts
+interface OAuthLoginDef {
+  provider: "google" | "microsoft" | "github" | "bing-webmaster" | "posthog" | "generic";
+  clientId: string;                   // literal or ${env:VAR}; never ${secret:…} (a client id is not a secret)
+  clientSecret?: string;              // only the reference form ${secret:NAME}
+  scopes: string[];                   // at least one
+  flow?: "auto" | "loopback" | "device";  // default "auto"
+  redirectPort?: number;              // fixed loopback port, 1024..65535 (default: ephemeral)
+  redirectPath?: string;              // default "/callback"
+  issuer?: string;                    // RFC 8414 / OIDC discovery root (generic; overrides a preset's)
+  authorizationEndpoint?: string;     // every endpoint: https only
+  tokenEndpoint?: string;
+  deviceAuthorizationEndpoint?: string;
+  revocationEndpoint?: string;
+  tokenEndpointAuth?: "client_secret_post" | "client_secret_basic" | "none";
+  pkce?: boolean;                     // PKCE S256; presets set the default
+  extraAuthorizationParams?: Record<string, string>;  // extra query params on the authorization request
+  options?: Record<string, string>;   // preset-specific: posthog { region: "eu" }, microsoft { tenant: "common" }
+  storeAs?: string;                   // secret name holding the refresh token; default oauth.<key>.refresh-token
+}
+```
+
+`defineConnector` validates every login (`ConnectorConfigError`; `<where>` is
+`oauth.<key>`): a key outside the pattern (`oauth: "<key>" is not a valid login
+key (expected ^[a-z0-9][a-z0-9-]{0,31}$)`), an unknown provider
+(`<where>.provider: "<x>" is not a known OAuth preset (google, microsoft, github,
+bing-webmaster, posthog, generic)`), a `clientId` that is empty or contains
+`${secret:` (`<where>.clientId: must be a non-empty string; a client id is not a
+secret (use ${env:VAR} for a per-machine value)`), a `clientSecret` that is not
+exactly one `${secret:NAME}` reference (`<where>.clientSecret: must be a
+${secret:NAME} reference (a literal secret is never written into a connector
+config)`), no scopes (`<where>.scopes: at least one scope string is required`),
+`flow` / `tokenEndpointAuth` outside their unions (`<where>.flow: expected auto |
+loopback | device`, `<where>.tokenEndpointAuth: expected client_secret_post |
+client_secret_basic | none`), a `redirectPort` outside 1024..65535
+(`<where>.redirectPort: expected an integer in 1024..65535`), a `redirectPath`
+without a leading "/" (`<where>.redirectPath: must start with "/"`), `generic`
+with neither `issuer` nor both endpoints (`<where>: provider "generic" needs
+issuer, or authorizationEndpoint and tokenEndpoint`), an endpoint that is not
+`https:` (`<where>.<field>: must be an https URL`; `http://127.0.0.1` /
+`http://localhost` pass, for tests), a `storeAs` that is not a valid secret name
+(`<where>.storeAs: "<x>" is not a valid secret name`), a posthog
+`options.region` outside `us | eu` (`<where>.options.region: expected us | eu`),
+an empty microsoft `options.tenant` (`<where>.options.tenant: must be a
+non-empty string`), an `extraAuthorizationParams` name the flow itself sets
+(`<where>.extraAuthorizationParams: "<name>" is set by the login flow and cannot
+be overridden` — response_type, client_id, redirect_uri, scope, state,
+code_challenge, code_challenge_method), a provider whose authorization
+response carries no `state` without a fixed port (`<where>.redirectPort:
+required for provider "bing-webmaster" (redirect URIs are matched exactly and
+the authorization response carries no state)`). Defaults are applied (`flow: "auto"`, `redirectPath:
+"/callback"`, `storeAs: "oauth.<key>.refresh-token"`), nothing is resolved against the network at define
+time, and a config without `oauth` resolves to `oauth: {}`. The user authorizes
+once with `auth login <key>` (CLI reference, `auth`): the refresh token is stored
+under `storeAs` in the connector's namespace of the OS keystore — the store
+`secrets set` writes to, so `env: { X: "${secret:oauth.<key>.refresh-token}" }`
+also delivers it to a server that refreshes on its own — and a non-secret record
+is written to `<dataRoot>/oauth/<id>.json`. The server obtains access tokens with
+`getAccessToken` (§9.1); they are never injected into the server environment at
+launch (they expire) and never written to disk. Presets supply endpoints,
+parameters and quirks only — agent-connector ships no client ids; the author
+registers the app with each provider:
+
+| Preset | Flow(s) | Notes |
+|---|---|---|
+| `google` | loopback | adds `access_type=offline` + `prompt=consent`; `flow: "auto"` never falls back to the device grant (Google's limited-input grant excludes API scopes such as Search Console), an explicit `flow: "device"` still runs it — https://developers.google.com/identity/protocols/oauth2/native-app |
+| `microsoft` | loopback, device | `options.tenant` selects the tenant (default `common`); request the `offline_access` scope for a refresh token — https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow |
+| `github` | loopback, device | a refresh token needs expiring user tokens (app settings) or the `offline_access` scope — https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps |
+| `bing-webmaster` | loopback | redirect URIs are registered exactly, including the port: set `redirectPort`; no PKCE, and the documented response carries no `state`, so the login is bound by the fixed redirect URI alone — a local process that reaches the port before the browser could hand the login its own code (a `state` that does come back is still verified; `redirectPort` is required) — https://learn.microsoft.com/en-us/bingwebmaster/oauth2 |
+| `posthog` | loopback | `clientId` is the URL of the app's Client ID Metadata Document, which lists `http://127.0.0.1/callback` (no port); PKCE, no client secret; `options.region` pins `us` or `eu` (omitted: the region-agnostic issuer) — https://posthog.com/docs/api/oauth |
+| `generic` | loopback, device | `issuer` (discovery) or `authorizationEndpoint` + `tokenEndpoint`; the device flow needs a `deviceAuthorizationEndpoint` (declared or discovered) — https://www.rfc-editor.org/rfc/rfc8414 |
 
 ### 2.3 `HooksConfig` + the hook model
 
@@ -1017,6 +1094,7 @@ interface ResolvedConnector {
   platforms: Partial<Record<PlatformId, PlatformOverride>>;
   targets: "auto" | PlatformId[];
   publish?: PublishConfig;            // registry/MCPB metadata, passed through verbatim
+  oauth: Record<string, ResolvedOAuthLoginDef>;  // {} when none; key, flow, redirectPath, storeAs defaulted (§2.2)
 }
 ```
 
@@ -1252,6 +1330,74 @@ namespace: when `install` registers an id from a different module than the recor
 on disk while secrets are stored under it, it warns (`"<id>" was registered from
 <old module>; this install registers it from <new module>, and the secret(s) stored
 under this id (<names>) will now be delivered to that module`).
+
+### auth
+`auth login <key> [--connector <path>] [--connector-id <id>] [--project <dir>] [--device|--loopback] [--port <n>] [--json]`
+`auth status [--connector <path>] [--connector-id <id>] [--project <dir>] [--json]`
+`auth logout <key> [--connector <path>] [--connector-id <id>] [--project <dir>]`
+`auth token <key> [--connector <path>] [--connector-id <id>] [--project <dir>]`
+Log in to the OAuth 2.0 providers a connector declares under `oauth.<key>` (§2.2)
+and keep the refresh tokens in the OS keystore, keyed by connector id. Connector
+resolution is the `secrets` order: `--connector-id`, then `--connector <path>`,
+then `agent-connector.config.*` in `--project`/cwd, then the single registered
+connector, else fail; a branded CLI (`createConnectorCli`) runs `auth` against
+its own package's connector. A key the connector does not declare is a usage
+error: `auth <verb>: connector <id> declares no login "<key>" (declared: a, b)`.
+`login` resolves the preset, the config and — when only an `issuer` is known —
+RFC 8414 / OIDC discovery, then runs one flow: `flow: "auto"` (the default)
+picks loopback when a browser can be opened, else device when the preset
+supports it; `--device` / `--loopback` force one. Loopback: a listener bound to
+`127.0.0.1` on `--port <n>` (else `redirectPort`, else an ephemeral port) accepts
+exactly one request; the authorization URL carries PKCE S256 (when enabled) and
+a random `state`; stderr says `Opening <label> authorization in your browser…`
+and then prints the URL on its own line (for a browser opened by hand); when no
+browser can be opened (`AGENT_CONNECTOR_BROWSER=never`, SSH, no display) the
+engine prints `Authorize <label> at: <url>` instead, and when the opener fails
+`Could not open a browser (<reason>). Authorize <label> at: <url>`; the
+callback page reads `Signed in — you can close this window.`; a `state` mismatch
+is rejected, and the code is exchanged at the token endpoint with the same
+`redirect_uri`. Device: stderr says `Visit <verification_uri> and enter code
+<user_code>` (or the `verification_uri_complete`) and the token endpoint is
+polled honoring `interval` and `slow_down`; `access_denied` / `expired_token`
+stop it. On success the refresh token is stored as secret `storeAs` (default
+`oauth.<key>.refresh-token`), the metadata record is written and stdout says
+`logged in to "<key>" (<label>) for connector <id> — refresh token stored in
+<backend>` (`--json`: `LoginResult`, §9.1). A response without a refresh token
+fails with `the provider returned no refresh token — <preset hint>` (google's
+hint names `access_type=offline` and `prompt=consent`). The whole flow times out
+after 300 s, every HTTP call after 20 s. `status` prints
+`key  provider  present  obtained  via` (present: yes / no / unknown when the
+backend is unavailable; `--json`: `LoginStatus[]`); no network, and a missing
+login never fails it (exit 0) — only a connector that cannot be resolved exits 1. `logout` revokes at the `revocationEndpoint` when one is known (best
+effort), then removes the secret and the metadata entry: `logged out of "<key>"
+for connector <id>` plus ` (revoked at the provider)` when it was, or
+` (nothing was stored)` — a key with nothing stored still exits 0. `token` prints ONLY the access token and a newline
+to stdout — refreshing when needed, never logging in: not logged in → exit 1
+with "login "<key>" is not present for connector <id> — run `auth login <key>
+--connector-id <id>`". Exit 0 on success, 2 on a usage error (unknown verb,
+missing or extra argument, a flag the verb does not take, an undeclared key; the
+verb's signature is printed on stderr), 1 on an engine failure (`err.message`,
+then `  hint: <hint>` when the error carries one). Nothing the CLI or the engine
+prints ever contains a token, an authorization code, a PKCE verifier or a client
+secret — the one exception is `auth token`'s stdout; the engine writes human
+text to stderr only (stdio MCP servers own stdout). Where values live: refresh
+tokens only in the secret store; access tokens only in process memory (no disk
+cache) and on `auth token`'s stdout; never in host configs, package manifests,
+the metadata file, telemetry, logs or errors. Metadata: `<dataRoot>/oauth/<id>.json`,
+written 0600, `{ "version": 1, "connectorId", "logins": { "<key>": { "provider",
+"scope", "obtainedAt", "obtainedVia": "loopback" | "device", "expiresAt"?,
+"revokedAt"?, "storeAs", "backend" } } }` — no token in it. Related: `install`
+warns per missing login on every host entry it writes ("login "<key>"
+(<provider>) is not present — run `auth login <key>` before the server needs
+it"); `doctor` adds the framework check `<id>: logins` (pass `<n> login(s)
+present`; warn `not logged in: a, b — run auth login <key>` with the fix "run
+`auth login <key> --connector-id <id>` for each of: a, b"; no check for a
+connector without `oauth`; no network). `AGENT_CONNECTOR_BROWSER=never` /
+`always` overrides the browser detection (`canOpenBrowser`, §9.1).
+agent-connector ships no client ids: the author registers the app with each
+provider (§2.2 presets); the `package` emitters never write an oauth field, a
+client secret or a token — a plugin-installed connector logs in lazily through
+`getAccessToken` or with `<bin> auth login <key>`.
 
 ### package
 `agent-connector package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]`
@@ -1685,6 +1831,9 @@ import {
   openSecretStore, findSecretRefs,            // OS keystore access (CLI reference, `secrets`)
   SecretError, SecretResolutionError,
   SECRET_BACKEND_IDS, resolveSecretBackendId,
+  getAccessToken, login, logout, loginStatus, // OAuth logins (CLI reference, `auth`)
+  canOpenBrowser, OAUTH_PRESET_IDS, getOAuthPreset, discoverEndpoints,
+  OAuthError, OAuthLoginRequiredError,
 } from "@ken-jo/agent-connector/sdk";
 ```
 
@@ -1732,6 +1881,67 @@ rule. Errors: `SecretError` (`code`: `invalid-name` | `invalid-value` |
 `backend-unavailable` | `backend-failed` | `unsupported-platform`, optional `hint`)
 and `SecretResolutionError` (`connectorId`, `missing[]`). Types: `SecretStore`,
 `SecretEntry`, `SecretListEntry`, `SecretBackendId`, `BackendAvailability`.
+
+**`getAccessToken`** mints the access token for a login declared under
+`oauth.<key>` (§2.2) — the runtime half of `auth login`. It needs only the
+connector id and the data root (plus `def` when the connector has no registry
+record), so it works in a server launched by the `serve` wrapper, by a host
+plugin installed from a marketplace, or as a bare `node server.js`:
+
+```ts
+import { getAccessToken } from "@ken-jo/agent-connector/sdk";
+
+const { accessToken } = await getAccessToken({ connectorId: "seo-mcp", key: "google" });
+// or, without a registry record:
+const { accessToken } = await getAccessToken({ connectorId: "seo-mcp", key: "google", def: connector.oauth.google });
+```
+
+`AccessTokenOptions`: `connectorId`, `key`, `def?` (default: the registered
+connector's `oauth[key]`; neither → `OAuthError` with code `config`),
+`interactive?: "auto" | "never" | "always"` (default `"auto"`), `env?`,
+`platform?`, `secretStore?` (`OpenSecretStoreOptions` passthrough: `dataRoot`,
+`backend`, …), `openBrowser?`, `log?` (default: stderr), `fetch?`, `timeoutMs?`
+(default 20 000 per HTTP call). Returns a `TokenSet`: `accessToken`, `tokenType`,
+`expiresAt?`, `refreshToken?`, `scope?`, `idToken?`. Per-process cache keyed by
+`<connectorId>/<key>`: a cached token is reused until 60 s before `expiresAt`
+(a response without `expires_in` is reused for one hour), otherwise it is
+refreshed with the stored refresh token, and a rotated refresh token is stored
+before the call returns; concurrent calls for one key share a single refresh or
+login. Lazy login: with `interactive: "auto"`
+a missing refresh token runs `login` when `canOpenBrowser()` is true (human text
+on stderr only, so a stdio MCP server can log in on its first tool call);
+`"always"` runs it even when a token exists; `"never"` throws
+`OAuthLoginRequiredError` (`connectorId`, `key`, `command`; message "login
+"<key>" is not present for connector <id> — run `auth login <key> --connector-id
+<id>`"). A refresh rejected with `invalid_grant` clears the stored token (the
+metadata record keeps `revokedAt`) and then follows the same interactive rule.
+Access tokens live in process memory only; nothing is cached on disk.
+`login(opts)`, `logout(opts)` and `loginStatus(opts)` are the calls behind
+`auth login` / `logout` / `status`: `login` takes `connectorId`, `key`, `def`,
+`flow?`, `secretStore?`, `openBrowser?`, `log?`, `loginTimeoutMs?` (default
+300 000 for the whole flow), `signal?` and returns a `LoginResult` (`key`,
+`provider`, `obtainedVia: "loopback" | "device"`, `backend`, `scope?`,
+`expiresAt?`); `logout` revokes when a `revocationEndpoint` is known, removes
+the secret and the metadata entry, and returns `{ removed, revoked }`;
+`loginStatus` returns `LoginStatus[]` (`key`, `provider`, `present: boolean |
+null` — null when the backend is unavailable — `backend?`, `obtainedAt?`,
+`obtainedVia?`, `scope?`, `revokedAt?`) and never touches the network.
+`canOpenBrowser(env?, platform?)`: `AGENT_CONNECTOR_BROWSER=never` → false,
+`=always` → true; darwin / win32 → true unless `SSH_CONNECTION` or `SSH_TTY` is
+set; linux → `DISPLAY` or `WAYLAND_DISPLAY` set. `OAUTH_PRESET_IDS` is
+`["google", "microsoft", "github", "bing-webmaster", "posthog", "generic"]`;
+`getOAuthPreset(id)` returns the preset (`label`, `docsUrl`, `verifiedOn`,
+`issuer?` or endpoints, `pkce`, `tokenEndpointAuth`, `deviceFlow`, …; an unknown
+id throws); `discoverEndpoints(issuer)` tries
+`<issuer>/.well-known/oauth-authorization-server` then
+`/.well-known/openid-configuration` (RFC 8414 path insertion when the issuer has
+a path) and caches per process. Errors: `OAuthError` (`code`: `config` |
+`discovery` | `authorization` | `token` | `timeout` | `login-required` |
+`browser-unavailable` | `provider`, optional `hint`; a provider error carries
+`error` + `error_description`, never the request body) and
+`OAuthLoginRequiredError`. Types: `OAuthLoginDef`, `ResolvedOAuthLoginDef`,
+`OAuthPresetId`, `OAuthPreset`, `TokenSet`, `LoginResult`, `LoginStatus`,
+`AccessTokenOptions`.
 
 ### 9.2 Introspection helpers (all async — adapters load lazily)
 

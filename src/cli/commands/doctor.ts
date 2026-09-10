@@ -18,6 +18,7 @@ import type {
   InstallScope,
   PlatformId,
   ResolvedConnector,
+  ResolvedOAuthLoginDef,
 } from "../../core/types.js";
 import type { InstallContext } from "../../adapters/spi.js";
 import { detectInstalledPlatforms } from "../../adapters/detect.js";
@@ -31,6 +32,7 @@ import {
 import { syncConnector } from "../../core/installer.js";
 import { marketplaceDoctorChecks } from "../../core/marketplace.js";
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
+import { OAuthError, loginStatus } from "../../core/oauth/index.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { SecretError, findSecretRefs, openSecretStore } from "../../core/secrets.js";
 import type { SecretListEntry, SecretStore } from "../../core/secrets.js";
@@ -113,6 +115,7 @@ async function resolveDoctorConnectors(
     actions: [],
     platforms: {},
     targets: "auto",
+    oauth: {},
   };
   return [{ connector: fallback, modulePath: "" }];
 }
@@ -274,7 +277,79 @@ function frameworkChecks(entries: ConnectorEntry[]): TaggedResult[] {
     const names = referencedSecretNames(entry.connector);
     if (names.length > 0) push(secretsCheck(entry.connector.id, names), i);
   });
+
+  // OAuth logins (`oauth.<key>`): a server's first `getAccessToken` for a
+  // login the user never ran opens a browser, or fails closed where it cannot,
+  // so doctor names the logins still absent. Never `fixable` — only the user
+  // can authorize. No network: presence is a keystore + metadata read.
+  entries.forEach((entry, i) => {
+    const logins = entry.connector.oauth ?? {};
+    if (Object.keys(logins).length > 0) push(loginsCheck(entry.connector.id, logins), i);
+  });
   return out;
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** The warn result both keystore-backed checks emit when the keystore cannot be read. */
+function keystoreUnavailable(check: string): (backend: string | null, reason: string, hint?: string) => DiagnosticResult {
+  return (backend, reason, hint) => ({
+    check,
+    status: "warn",
+    message: backend ? `backend ${backend} unavailable: ${reason}` : `backend unavailable: ${reason}`,
+    ...(hint ? { fix: hint } : {}),
+  });
+}
+
+/**
+ * `<id>: logins` — pass when every declared login has its refresh token in
+ * the keystore, warn listing the absent keys, warn when the keystore or the
+ * login metadata cannot be read (the hint, when there is one, becomes the fix).
+ */
+function loginsCheck(connectorId: string, logins: Record<string, ResolvedOAuthLoginDef>): DiagnosticResult {
+  const check = `${connectorId}: logins`;
+  const unavailable = keystoreUnavailable(check);
+
+  let statuses: ReturnType<typeof loginStatus>;
+  try {
+    const store = openSecretStore({ connectorId });
+    const availability = store.availability();
+    if (!availability.ok) {
+      return unavailable(store.backend, availability.reason ?? "unknown reason", availability.hint);
+    }
+    // list() reads the names index; a damaged index is a keystore problem
+    // with a reason worth naming, where loginStatus alone would report `null`.
+    store.list();
+    statuses = loginStatus({ connectorId, logins });
+  } catch (err) {
+    const hint = err instanceof SecretError || err instanceof OAuthError ? err.hint : undefined;
+    return unavailable(null, errText(err), hint);
+  }
+
+  const unreadable = statuses.filter((s) => s.present === null);
+  if (unreadable.length > 0) {
+    return unavailable(
+      unreadable[0]?.backend ?? null,
+      `cannot read ${unreadable.map((s) => `"${s.key}"`).join(", ")}`,
+    );
+  }
+  const missing = statuses.filter((s) => s.present === false).map((s) => s.key);
+  if (missing.length > 0) {
+    return {
+      check,
+      status: "warn",
+      message: `not logged in: ${missing.join(", ")} — run auth login <key>`,
+      fix: `run \`auth login <key> --connector-id ${connectorId}\` for each of: ${missing.join(", ")}`,
+    };
+  }
+  return {
+    check,
+    status: "pass",
+    // Literal "login(s)" — the wording the docs and the drift test quote.
+    message: `${statuses.length} login(s) present`,
+  };
 }
 
 /** Every `${secret:NAME}` a connector's server references — base and per-host overrides. */
@@ -294,13 +369,7 @@ function referencedSecretNames(connector: ResolvedConnector): string[] {
  */
 function secretsCheck(connectorId: string, names: string[]): DiagnosticResult {
   const check = `${connectorId}: secrets`;
-  const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-  const unavailable = (backend: string | null, reason: string, hint?: string): DiagnosticResult => ({
-    check,
-    status: "warn",
-    message: backend ? `backend ${backend} unavailable: ${reason}` : `backend unavailable: ${reason}`,
-    ...(hint ? { fix: hint } : {}),
-  });
+  const unavailable = keystoreUnavailable(check);
 
   let store: SecretStore;
   let indexed: Map<string, SecretListEntry>;

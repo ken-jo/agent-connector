@@ -84,6 +84,7 @@ import {
   CLAUDE_MAPPED_EVENTS,
   createEmitter,
   json,
+  oauthLoginSentence,
   renderEnv,
   resolveFrameworkDependencyRange,
   resolveWithin,
@@ -534,6 +535,8 @@ function buildReadme(
     "Agent Plugins client has an equivalent: https://agent-plugins.org/compatible-clients",
     "",
   );
+  const logins = oauthLoginSentence(connector);
+  if (logins !== "") lines.push(logins, "");
   return lines.join("\n");
 }
 

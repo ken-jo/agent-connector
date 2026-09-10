@@ -269,3 +269,20 @@ export function buildMcpEntry(
 
   return { serverName: connector.id, entry };
 }
+
+/**
+ * README sentence for a connector that declares `oauth.<key>` logins: which
+ * command authorizes them once. Empty for a connector without logins. The
+ * branded CLI name comes from the package identity: `mcp.bin`, else
+ * `npx <mcp.packageName>`, else the literal `npx <package>`.
+ */
+export function oauthLoginSentence(connector: ResolvedConnector): string {
+  const keys = Object.keys(connector.oauth ?? {});
+  if (keys.length === 0) return "";
+  const bin = connector.mcp?.bin ?? (connector.mcp?.packageName ? `npx ${connector.mcp.packageName}` : "npx <package>");
+  const list = keys.map((k) => `\`${bin} auth login ${k}\``).join(", ");
+  return (
+    `Providers declared under oauth.<key> (${keys.join(", ")}) are authorized once with ${list}; ` +
+    "a server that calls getAccessToken without a stored login opens the browser itself when it can."
+  );
+}

@@ -6106,6 +6106,25 @@ $ acme-db doctor                   # framework check "acme-db: secrets" → 1 se
 # The only trace in a host config is the serve wrapper's placeholder:
 #   --secret-env API_KEY={secret:api-key}`;
 
+const operateLoginsFlow = `// agent-connector.config.ts — the author registered the app with Google and ships its client id
+oauth: {
+  google: {
+    provider: "google",
+    clientId: "1234-abcd.apps.googleusercontent.com",
+    clientSecret: "\${secret:google-client-secret}",   // a reference, never a literal
+    scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
+  },
+},
+
+$ seo-mcp secrets set google-client-secret   # once, from a hidden prompt
+$ seo-mcp auth login google                  # Opening Google authorization in your browser…
+                                             # refresh token → OS keystore as oauth.google.refresh-token
+$ seo-mcp auth status                        # key  provider  present  obtained  via
+$ seo-mcp doctor                             # framework check "seo-mcp: logins" → 1 login(s) present
+
+# In the server: mint tokens on demand — with no stored login it opens the browser itself
+#   const { accessToken } = await getAccessToken({ connectorId: "seo-mcp", key: "google" });`;
+
 export function OperateConnectorGuide() {
   return (
     <DocSection id="operate-connector" eyebrow="Guides" title="Operate: doctor, heal, upgrade">
@@ -6251,7 +6270,25 @@ export function OperateConnectorGuide() {
         the connector's <C>secrets</C> check, so the day-two loop covers them too.
       </P>
       <CodeBlock code={operateSecretsFlow} language="text" filename="secrets set / list / check" />
-      <H3 id="operate-uninstall">7. Reverse it cleanly</H3>
+      <H3 id="operate-logins">7. Logins: OAuth providers</H3>
+      <P>
+        A server that talks to an OAuth 2.0 API declares the provider under{" "}
+        <C>{"oauth.<key>"}</C> — a preset (<C>google</C>, <C>microsoft</C>,{" "}
+        <C>github</C>, <C>bing-webmaster</C>, <C>posthog</C> or <C>generic</C>), the
+        app's own client id and the scopes — and the user authorizes once with{" "}
+        <C>{"auth login <key>"}</C>: a browser loopback flow, or a device-code prompt
+        where no browser can be opened. The refresh token goes into the same OS
+        keystore as <C>secrets set</C>; the server mints access tokens with{" "}
+        <C>getAccessToken</C> from the SDK, which refreshes and caches them in
+        process memory and, when nothing is stored yet, opens the browser itself
+        when it can — so a connector installed as a host plugin works without{" "}
+        <C>install</C>. Nothing but <C>auth token</C> ever prints a token, and
+        agent-connector ships no client ids: the author registers the app with
+        each provider. <C>install</C> warns per missing login and <C>doctor</C>{" "}
+        reports them under the connector's <C>logins</C> check.
+      </P>
+      <CodeBlock code={operateLoginsFlow} language="text" filename="oauth.<key> / auth login / auth status / doctor" />
+      <H3 id="operate-uninstall">8. Reverse it cleanly</H3>
       <P>
         <C>uninstall</C> is the exact inverse of install: every host entry, block
         and file agent-connector wrote is removed and files it does not own are
