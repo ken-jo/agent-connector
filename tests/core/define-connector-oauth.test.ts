@@ -1,9 +1,12 @@
 /**
  * core/define-connector — `oauth.<key>` logins.
  *
- * defineConnector validates every login (key, preset, client id, the
- * `${secret:NAME}`-only client secret, scopes, flow, port, path, https
- * endpoints, secret names), applies the three defaults (flow "auto",
+ * defineConnector validates every login (key, preset, the client id — a
+ * literal, `${env:VAR}` or exactly one `${secret:NAME}` reference — the client
+ * secret as a `${secret:NAME}` reference or, for a preset whose provider
+ * documents it as not confidential, a literal; scopes, flow, port, path, https
+ * endpoints including `tokenExchangeUrl`, the clientSecret / tokenExchangeUrl
+ * exclusivity, secret names), applies the three defaults (flow "auto",
  * redirectPath "/callback", storeAs `oauth.<key>.refresh-token`), and leaves a
  * config without `oauth` untouched apart from the trailing `oauth: {}` key.
  * The registry record persists the normalized logins and reads back `{}` for
@@ -143,36 +146,143 @@ describe("defineConnector — oauth validation messages", () => {
     );
   });
 
-  it("rejects an empty or secret-bearing clientId, and accepts ${env:VAR}", () => {
-    const message = "oauth.google.clientId: must be a non-empty string; a client id is not a secret (use ${env:VAR} for a per-machine value)";
-    for (const clientId of ["", "   ", 42, undefined, "${secret:google-client-id}", "id-${secret:x}"]) {
+  it("accepts a clientId literal, ${env:VAR} or exactly one ${secret:NAME} reference, verbatim, and rejects every other form", () => {
+    const message = "oauth.google.clientId: must be a non-empty string — a literal, ${env:VAR}, or exactly one ${secret:NAME} reference";
+    for (const clientId of [
+      "",
+      "   ",
+      42,
+      undefined,
+      null,
+      "id-${secret:x}",
+      "${secret:a}${secret:b}",
+      "${secret:a} ${secret:b}",
+      "${secret:bad name}",
+      "${secret:-bad}",
+      `\${secret:${"a".repeat(65)}}`,
+      "${secret:}",
+    ]) {
       expectRejected(withLogin("google", { clientId }), message);
     }
-    expect(defineConnector(withLogin("google", { clientId: "${env:GOOGLE_CLIENT_ID}" })).oauth.google!.clientId).toBe(
-      "${env:GOOGLE_CLIENT_ID}",
-    );
+    for (const clientId of ["1234567890-abc.apps.googleusercontent.com", "${env:GOOGLE_CLIENT_ID}", "${secret:google-client-id}", "${secret:g.id_1}"]) {
+      expect(defineConnector(withLogin("google", { clientId })).oauth.google!.clientId).toBe(clientId);
+    }
   });
 
-  it("accepts a clientSecret only as exactly one ${secret:NAME} reference", () => {
+  it("accepts a clientSecret only as exactly one ${secret:NAME} reference for a preset whose secret is confidential", () => {
+    // github's client secret is confidential: the reference form is the only one.
     const message =
-      "oauth.google.clientSecret: must be a ${secret:NAME} reference (a literal secret is never written into a connector config)";
+      "oauth.gh.clientSecret: must be a ${secret:NAME} reference (a literal secret is never written into a connector config)";
     for (const clientSecret of [
-      "GOCSPX-literal-value",
+      "gho-literal-value",
       "",
       42,
       "${secret:a} ${secret:b}",
-      "prefix-${secret:google-client-secret}",
-      "${secret:google-client-secret}-suffix",
+      "prefix-${secret:github-client-secret}",
+      "${secret:github-client-secret}-suffix",
       "${secret:-bad}",
       "${secret:has space}",
       `\${secret:${"a".repeat(65)}}`,
-      "${env:GOOGLE_CLIENT_SECRET}",
+      "${env:GITHUB_CLIENT_SECRET}",
     ]) {
+      expectRejected(withLogin("gh", { provider: "github", clientSecret }), message);
+    }
+    expect(defineConnector(withLogin("gh", { provider: "github", clientSecret: undefined })).oauth.gh!.clientSecret).toBeUndefined();
+    expect(defineConnector(withLogin("gh", { provider: "github", clientSecret: "${secret:g.secret_1}" })).oauth.gh!.clientSecret).toBe(
+      "${secret:g.secret_1}",
+    );
+  });
+
+  it("rejects a literal clientSecret for github, bing-webmaster and generic with the reference-only message", () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ["gh", { provider: "github" }],
+      ["bing", { provider: "bing-webmaster", redirectPort: 48213 }],
+      ["idp", { provider: "generic", issuer: "https://idp.example.com" }],
+    ];
+    for (const [key, login] of cases) {
+      expectRejected(
+        withLogin(key, { ...login, clientSecret: "literal-client-secret" }),
+        `oauth.${key}.clientSecret: must be a \${secret:NAME} reference (a literal secret is never written into a connector config)`,
+      );
+    }
+  });
+
+  it("accepts a literal clientSecret for google (documented as not confidential) and keeps it verbatim", () => {
+    const literal = "GOCSPX-replace-me";
+    const resolved = defineConnector(withLogin("google", { clientSecret: literal }));
+    expect(resolved.oauth.google!.clientSecret).toBe(literal);
+    expect(resolved.oauth.google!.tokenExchangeUrl).toBeUndefined();
+    // The reference form stays available for a user-registered Google app.
+    expect(defineConnector(withLogin("google", { clientSecret: "${secret:google-client-secret}" })).oauth.google!.clientSecret).toBe(
+      "${secret:google-client-secret}",
+    );
+    expect(defineConnector(withLogin("google", { clientSecret: undefined })).oauth.google!.clientSecret).toBeUndefined();
+  });
+
+  it("rejects an empty, whitespace or ${…}-bearing google clientSecret that is not one ${secret:NAME} reference", () => {
+    const message =
+      'oauth.google.clientSecret: must be a ${secret:NAME} reference or a non-empty literal (provider "google" documents an installed app\'s client secret as not confidential)';
+    for (const clientSecret of ["", "   ", 42, null, "${env:X}", "x-${secret:y}", "${secret:a}${secret:b}", "${secret:bad name}", "${secret:-bad}"]) {
       expectRejected(withLogin("google", { clientSecret }), message);
     }
-    expect(defineConnector(withLogin("google", { clientSecret: undefined })).oauth.google!.clientSecret).toBeUndefined();
-    expect(defineConnector(withLogin("google", { clientSecret: "${secret:g.secret_1}" })).oauth.google!.clientSecret).toBe(
-      "${secret:g.secret_1}",
+  });
+
+  it("accepts an https (or loopback http) tokenExchangeUrl and rejects every other value", () => {
+    for (const tokenExchangeUrl of ["https://seo.example.com/oauth/bing/token", "http://127.0.0.1:1/x", "http://localhost:48214/token"]) {
+      expect(defineConnector(withLogin("google", { clientSecret: undefined, tokenExchangeUrl })).oauth.google!.tokenExchangeUrl).toBe(
+        tokenExchangeUrl,
+      );
+    }
+    // Control characters are refused before parsing (`new URL()` would strip a CR / LF silently).
+    for (const tokenExchangeUrl of [
+      "http://example.com/x",
+      "ftp://x",
+      42,
+      "",
+      "seo.example.com/token",
+      null,
+      "https://seo.example.com/t\r\n",
+      "https://seo.example.com/t\x1b[2K",
+    ]) {
+      expectRejected(
+        withLogin("google", { clientSecret: undefined, tokenExchangeUrl }),
+        "oauth.google.tokenExchangeUrl: must be an https URL",
+      );
+    }
+    // Userinfo and a fragment (RFC 6749 §3.2) get their own message, on every URL field.
+    for (const tokenExchangeUrl of ["https://user:pw@seo.example.com/t", "https://user@seo.example.com/t", "https://seo.example.com/t#frag"]) {
+      expectRejected(
+        withLogin("google", { clientSecret: undefined, tokenExchangeUrl }),
+        "oauth.google.tokenExchangeUrl: must not carry credentials or a fragment",
+      );
+    }
+    expectRejected(
+      withLogin("google", { tokenEndpoint: "https://user:pw@idp.example/token" }),
+      "oauth.google.tokenEndpoint: must not carry credentials or a fragment",
+    );
+    // tokenEndpointAuth next to tokenExchangeUrl is accepted (the engine sends client_id only).
+    const withAuth = defineConnector(
+      withLogin("google", { clientSecret: undefined, tokenExchangeUrl: "https://seo.example.com/t", tokenEndpointAuth: "client_secret_basic" }),
+    );
+    expect(withAuth.oauth.google!.tokenEndpointAuth).toBe("client_secret_basic");
+  });
+
+  it("rejects clientSecret together with tokenExchangeUrl, after both are individually valid", () => {
+    const message = "oauth.google: clientSecret and tokenExchangeUrl are exclusive — the token exchange service holds the client secret";
+    expectRejected(withLogin("google", { clientSecret: "${secret:google-client-secret}", tokenExchangeUrl: "https://seo.example.com/t" }), message);
+    expectRejected(withLogin("google", { clientSecret: "GOCSPX-literal", tokenExchangeUrl: "https://seo.example.com/t" }), message);
+    expectRejected(
+      withLogin("gh", { provider: "github", clientSecret: "${secret:github-client-secret}", tokenExchangeUrl: "https://seo.example.com/t" }),
+      "oauth.gh: clientSecret and tokenExchangeUrl are exclusive — the token exchange service holds the client secret",
+    );
+    // The individual checks come first: a bad URL is reported as such.
+    expectRejected(
+      withLogin("google", { clientSecret: "${secret:google-client-secret}", tokenExchangeUrl: "http://example.com/t" }),
+      "oauth.google.tokenExchangeUrl: must be an https URL",
+    );
+    expectRejected(
+      withLogin("gh", { provider: "github", clientSecret: "literal", tokenExchangeUrl: "https://seo.example.com/t" }),
+      "oauth.gh.clientSecret: must be a ${secret:NAME} reference (a literal secret is never written into a connector config)",
     );
   });
 
@@ -305,6 +415,29 @@ describe("registry round trip", () => {
     expect(raw).toContain("${secret:google-client-secret}");
     const meta = readRegisteredMeta("seo-mcp")!;
     expect(meta.oauth).toEqual(resolved.oauth);
+    expect(connectorFromMeta(meta).oauth).toEqual(resolved.oauth);
+  });
+
+  it("persists a ${secret:} clientId, a literal google clientSecret and a tokenExchangeUrl verbatim", () => {
+    const resolved = defineConnector({
+      id: "seo-mcp",
+      server: STDIO,
+      oauth: {
+        google: { ...GOOGLE, clientSecret: "GOCSPX-replace-me" },
+        bing: { provider: "bing-webmaster", clientId: "${secret:bing-client-id}", clientSecret: "${secret:bing-client-secret}", scopes: ["webmaster.manage"], redirectPort: 48213 },
+        relay: { provider: "github", clientId: "Iv1.example", tokenExchangeUrl: "https://seo.example.com/oauth/github/token", scopes: ["read:user"] },
+      },
+    });
+    const recordPath = registerConnector(resolved, modulePath, "user");
+    const raw = readFileSync(recordPath, "utf8");
+    expect(JSON.parse(raw).oauth).toEqual(resolved.oauth);
+    expect(raw).toContain("GOCSPX-replace-me");
+    expect(raw).toContain("${secret:bing-client-id}");
+    expect(raw).toContain("https://seo.example.com/oauth/github/token");
+    const meta = readRegisteredMeta("seo-mcp")!;
+    expect(meta.oauth.bing!.clientId).toBe("${secret:bing-client-id}");
+    expect(meta.oauth.relay!.tokenExchangeUrl).toBe("https://seo.example.com/oauth/github/token");
+    expect(meta.oauth.relay!.clientSecret).toBeUndefined();
     expect(connectorFromMeta(meta).oauth).toEqual(resolved.oauth);
   });
 

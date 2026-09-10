@@ -74,6 +74,7 @@ import {
   surfaceKindRows,
   surfaceLeaderboardColumns,
   oauthProviderRegistrations,
+  oauthSupplyModes,
   type PlatformEntry,
 } from "./docs-data";
 import { HooksGuideSection } from "./HooksGuide";
@@ -6112,7 +6113,7 @@ oauth: {
   google: {
     provider: "google",
     clientId: "1234-abcd.apps.googleusercontent.com",
-    clientSecret: "\${secret:google-client-secret}",   // a reference, never a literal
+    clientSecret: "\${secret:google-client-secret}",   // a reference; google alone also accepts a literal
     scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
   },
 },
@@ -6125,6 +6126,10 @@ $ seo-mcp doctor                             # framework check "seo-mcp: logins"
 
 # In the server: mint tokens on demand — with no stored login it opens the browser itself
 #   const { accessToken } = await getAccessToken({ connectorId: "seo-mcp", key: "google" });`;
+
+const tokenExchangeWire = `grant_type=authorization_code&code=…&redirect_uri=…&code_verifier=…&client_id=…
+grant_type=refresh_token&refresh_token=…&client_id=…
+grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=…&client_id=…`;
 
 export function OperateConnectorGuide() {
   return (
@@ -6291,14 +6296,20 @@ export function OperateConnectorGuide() {
       <CodeBlock code={operateLoginsFlow} language="text" filename="oauth.<key> / auth login / auth status / doctor" />
       <H3 id="operate-logins-register">8. Register the app with each provider</H3>
       <P>
-        Every login needs an app the author registered at the provider —
-        agent-connector never ships a client id. One row per preset: where the
-        registration lives, which application type to pick, the redirect URI to
-        enter (the engine listens on <C>127.0.0.1</C>), what the provider hands
-        back, and what makes a refresh token appear. Client ids go into the
-        connector config (a literal or <C>{"${env:VAR}"}</C>); a client secret is
-        stored once with <C>secrets set</C> and referenced as{" "}
-        <C>{"${secret:NAME}"}</C>. The runnable{" "}
+        Every login needs an app registered at the provider — agent-connector
+        never ships a client id — and the connector config says who supplies
+        it. Developer-provided: a literal <C>clientId</C> with no secret (a
+        public client), a literal <C>clientSecret</C> only for <C>google</C>{" "}
+        (Google documents an installed app's client secret as not confidential),
+        or <C>tokenExchangeUrl</C> — the developer's own https token exchange
+        service that holds the secret and forwards every token request to the
+        provider. User-registered: <C>{'clientId: "${secret:NAME}"'}</C> plus{" "}
+        <C>{'clientSecret: "${secret:NAME}"'}</C>, so each user registers their
+        own app and stores both with <C>secrets set</C>; <C>install</C>,{" "}
+        <C>doctor</C> and <C>auth login</C> name the <C>secrets set</C> commands
+        still to run. A <C>{"${env:VAR}"}</C> client id is expanded from the
+        process environment at login and refresh time, which a host-spawned
+        server does not see. The runnable{" "}
         <a
           className="underline hover:text-foreground"
           href="https://github.com/ken-jo/agent-connector/tree/main/examples/seo-connector"
@@ -6307,7 +6318,35 @@ export function OperateConnectorGuide() {
         >
           examples/seo-connector
         </a>{" "}
-        walks through three of these end to end.
+        shows all three ways and ships a token exchange service sample.
+      </P>
+      <DocsTable>
+        <thead>
+          <tr>
+            <Th>Mode</Th>
+            <Th>Config</Th>
+            <Th>What the user does</Th>
+            <Th>Fits</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {oauthSupplyModes.map((m) => (
+            <tr key={m.mode}>
+              <Td>{m.mode}</Td>
+              <Td className="text-muted-foreground">
+                <Code>{m.config}</Code>
+              </Td>
+              <Td className="text-muted-foreground">{m.user}</Td>
+              <Td className="text-muted-foreground">{m.fits}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </DocsTable>
+      <P>
+        One row per preset: where the registration lives, which application
+        type to pick, the redirect URI to enter (the engine listens on{" "}
+        <C>127.0.0.1</C>), what the provider hands back and who supplies it,
+        and what makes a refresh token appear.
       </P>
       <DocsTable>
         <thead>
@@ -6338,12 +6377,38 @@ export function OperateConnectorGuide() {
                 </div>
               </Td>
               <Td className="text-muted-foreground">{r.redirect}</Td>
-              <Td className="text-muted-foreground">{r.credentials}</Td>
+              <Td className="text-muted-foreground">
+                {r.credentials}
+                <div className="mt-1 text-foreground">{r.ships}</div>
+              </Td>
               <Td className="text-muted-foreground">{r.notes}</Td>
             </tr>
           ))}
         </tbody>
       </DocsTable>
+      <P>
+        Token exchange service — the wire contract. The connector sends{" "}
+        <C>{"POST <tokenExchangeUrl>"}</C> with{" "}
+        <C>content-type: application/x-www-form-urlencoded</C> and{" "}
+        <C>accept: application/json</C> (plus the preset's token request
+        headers) and one of these bodies, never a <C>client_secret</C>. The
+        service accepts only its own <C>client_id</C> and only these three grant
+        types, refuses a repeated parameter, adds the secret the way the provider
+        wants it (<C>client_secret</C> form field or HTTP Basic), forwards only that
+        grant's own parameters to the provider's token endpoint and returns the
+        provider's status and body unchanged, logging neither. Neither side follows
+        a redirect on a token request.
+      </P>
+      <CodeBlock code={tokenExchangeWire} language="text" filename="POST <tokenExchangeUrl> — the request body, one of" />
+      <P>
+        The service sees the authorization code, the refresh token and every
+        access token in transit — it is the developer's own service and carries
+        the same trust as the connector's server code. PKCE stays on the client,
+        so a code intercepted elsewhere is useless without the verifier, and the
+        service must not be a public relay: one provider, one client id. The
+        device authorization request and revocation on <C>auth logout</C> still
+        go to the provider as a public client.
+      </P>
       <H3 id="operate-uninstall">9. Reverse it cleanly</H3>
       <P>
         <C>uninstall</C> is the exact inverse of install: every host entry, block

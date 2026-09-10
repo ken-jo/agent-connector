@@ -40,6 +40,15 @@ export interface OAuthPreset {
   pkce: boolean;
   /** How a client secret is sent to the token endpoint; a login without `clientSecret` sends `client_id` only. */
   tokenEndpointAuth: OAuthTokenEndpointAuth;
+  /**
+   * True when the provider documents an installed app's client secret as not
+   * confidential — Google: "The process results in a client ID and, in some
+   * cases, a client secret, which you embed in the source code of your
+   * application. (In this context, the client secret is obviously not treated
+   * as a secret.)" (https://developers.google.com/identity/protocols/oauth2) —
+   * so defineConnector accepts a literal `clientSecret`. Default false.
+   */
+  clientSecretPublic?: boolean;
   /** Whether `flow: "auto"` may fall back to the device grant (RFC 8628). */
   deviceFlow: boolean;
   /** Query parameters added to every authorization request. */
@@ -90,6 +99,10 @@ const DEFAULT_MICROSOFT_TENANT = "common";
 // access_type=offline, and only on the first authorization unless
 // prompt=consent forces a new grant
 // (https://developers.google.com/identity/protocols/oauth2/web-server#offline).
+// An installed app's client secret is documented as not confidential
+// (https://developers.google.com/identity/protocols/oauth2: "the client secret
+// is obviously not treated as a secret"), so a literal `clientSecret` is
+// accepted in the connector config.
 const google: OAuthPreset = {
   id: "google",
   label: "Google",
@@ -102,6 +115,7 @@ const google: OAuthPreset = {
   revocationEndpoint: "https://oauth2.googleapis.com/revoke",
   pkce: true,
   tokenEndpointAuth: "client_secret_post",
+  clientSecretPublic: true,
   deviceFlow: false,
   extraAuthorizationParams: { access_type: "offline", prompt: "consent" },
   refreshTokenHint:

@@ -2,7 +2,10 @@
  * core/oauth/engine — the generic OAuth 2.0 client behind `auth login|status|
  * logout|token` and the SDK's `getAccessToken`.
  *
- *   resolveLogin     preset → connector overrides → RFC 8414 / OIDC discovery
+ *   resolveLogin     preset → connector overrides → RFC 8414 / OIDC discovery;
+ *                    a `${secret:NAME}` client id or secret is read from the
+ *                    secret store; a `tokenExchangeUrl` reroutes every
+ *                    token-endpoint request to the connector's own service
  *   login            authorization code + PKCE over a 127.0.0.1 redirect, or the
  *                    device grant; the refresh token goes to the secret store,
  *                    a non-secret record to `<dataRoot>/oauth/<id>.json`
@@ -20,13 +23,13 @@ import { resolve as resolvePath } from "node:path";
 
 import { dataRoot as resolveDataRoot } from "../paths.js";
 import { resolveEnvRefs } from "../interpolate.js";
-import { SECRET_REF_RE, SecretResolutionError, openSecretStore } from "../secrets.js";
+import { SecretResolutionError, openSecretStore, wholeSecretRefName } from "../secrets.js";
 import type { OpenSecretStoreOptions, SecretBackendId, SecretStore } from "../secrets.js";
 import type { OAuthFlow, OAuthPresetId, OAuthTokenEndpointAuth, ResolvedOAuthLoginDef } from "../types.js";
 import { canOpenBrowser, openBrowser as defaultOpenBrowser } from "./browser.js";
 import { deviceCodePrompt, pollDeviceToken, requestDeviceAuthorization } from "./device.js";
 import type { DeviceClient } from "./device.js";
-import { OAuthError, OAuthLoginRequiredError } from "./errors.js";
+import { OAuthError, OAuthLoginRequiredError, sanitizeProviderText } from "./errors.js";
 import { applyClientAuth, assertSecureEndpoint, getJson, postForm, providerError } from "./http.js";
 import type { HttpOptions } from "./http.js";
 import { startLoopback } from "./loopback.js";
@@ -44,6 +47,8 @@ export interface OAuthEndpoints {
   tokenEndpoint: string;
   deviceAuthorizationEndpoint?: string;
   revocationEndpoint?: string;
+  /** The login's token exchange service; when set, every token-endpoint request goes here instead of `tokenEndpoint`. */
+  tokenExchangeUrl?: string;
 }
 
 export interface OAuthNetOptions {
@@ -179,11 +184,18 @@ function dataRootOf(passthrough: OpenSecretStoreOptions | undefined, env: NodeJS
   return resolveDataRoot();
 }
 
-/** The NAME of a value that is exactly one `${secret:NAME}` reference, else null. */
-function secretRefName(value: string): string | null {
-  const refs = [...value.matchAll(SECRET_REF_RE)];
-  if (refs.length !== 1 || refs[0]?.[0] !== value) return null;
-  return refs[0][1] ?? null;
+/**
+ * The `${secret:NAME}` names a login's `clientId` and `clientSecret` reference
+ * (clientId first, deduped); `[]` when both are literals. Install and doctor
+ * name these before `auth login` can run.
+ */
+export function loginSecretNames(def: ResolvedOAuthLoginDef): string[] {
+  const names: string[] = [];
+  for (const value of [def.clientId, def.clientSecret]) {
+    const name = value === undefined ? null : wholeSecretRefName(value);
+    if (name !== null && !names.includes(name)) names.push(name);
+  }
+  return names;
 }
 
 export async function resolveLogin(def: ResolvedOAuthLoginDef, opts: ResolveLoginOptions): Promise<ResolvedLogin> {
@@ -213,24 +225,49 @@ export async function resolveLogin(def: ResolvedOAuthLoginDef, opts: ResolveLogi
   if (deviceAuthorizationEndpoint) assertSecureEndpoint(deviceAuthorizationEndpoint, `${where}.deviceAuthorizationEndpoint`);
   if (revocationEndpoint) assertSecureEndpoint(revocationEndpoint, `${where}.revocationEndpoint`);
 
-  const clientId = resolveEnvRefs(def.clientId, env).trim();
-  if (clientId === "") {
-    throw new OAuthError("config", `${where}.clientId: "${def.clientId}" resolves to an empty value`);
+  const tokenExchangeUrl = def.tokenExchangeUrl;
+  if (tokenExchangeUrl !== undefined) assertSecureEndpoint(tokenExchangeUrl, `${where}.tokenExchangeUrl`);
+  if (tokenExchangeUrl !== undefined && def.clientSecret !== undefined) {
+    throw new OAuthError(
+      "config",
+      `${where}: clientSecret and tokenExchangeUrl are exclusive — the token exchange service holds the client secret`,
+    );
+  }
+
+  // Both credentials read the store the refresh token goes to, so a caller's
+  // backend choice applies to all three. SecretResolutionError when unset.
+  let opened: SecretStore | undefined;
+  const store = (): SecretStore => (opened ??= openSecretStore(storeOptions(opts.connectorId, opts.secretStore, env)));
+  let clientId: string;
+  const clientIdRef = wholeSecretRefName(def.clientId);
+  if (clientIdRef !== null) {
+    // Each user registered their own app and stored its id with `secrets set`.
+    const value = store().get(clientIdRef);
+    if (value === null) throw new SecretResolutionError(opts.connectorId, [clientIdRef], `${where}.clientId`);
+    clientId = value;
+  } else {
+    clientId = resolveEnvRefs(def.clientId, env).trim();
+    if (clientId === "") {
+      throw new OAuthError("config", `${where}.clientId: "${def.clientId}" resolves to an empty value`);
+    }
   }
   let clientSecret: string | undefined;
   if (def.clientSecret !== undefined) {
-    // Reference form only (`${secret:NAME}`, enforced by defineConnector);
-    // read through the same store the refresh token goes to, so a caller's
-    // backend choice applies to both. SecretResolutionError when unset.
-    const name = secretRefName(def.clientSecret);
+    const name = wholeSecretRefName(def.clientSecret);
     if (name === null) {
-      throw new OAuthError("config", `${where}.clientSecret: must be a \${secret:NAME} reference`);
+      // A literal: defineConnector admits one only for a preset whose provider
+      // documents the secret as not confidential; used verbatim, never expanded.
+      clientSecret = def.clientSecret;
+    } else {
+      const value = store().get(name);
+      if (value === null) throw new SecretResolutionError(opts.connectorId, [name], `${where}.clientSecret`);
+      clientSecret = value;
     }
-    const value = openSecretStore(storeOptions(opts.connectorId, opts.secretStore, env)).get(name);
-    if (value === null) throw new SecretResolutionError(opts.connectorId, [name], `${where}.clientSecret`);
-    clientSecret = value;
   }
   const pkce = def.pkce ?? preset.pkce;
+  // No client secret → `client_id` only. An exchange login never carries one
+  // (the exclusivity check above), so through a service the connector is a
+  // public client whatever `tokenEndpointAuth` says; the service adds the secret.
   const tokenEndpointAuth: OAuthTokenEndpointAuth =
     clientSecret === undefined ? "none" : (def.tokenEndpointAuth ?? preset.tokenEndpointAuth);
   const scope = def.scopes.join(preset.scopeSeparator ?? " ");
@@ -243,6 +280,7 @@ export async function resolveLogin(def: ResolvedOAuthLoginDef, opts: ResolveLogi
       tokenEndpoint,
       ...(deviceAuthorizationEndpoint ? { deviceAuthorizationEndpoint } : {}),
       ...(revocationEndpoint ? { revocationEndpoint } : {}),
+      ...(tokenExchangeUrl !== undefined ? { tokenExchangeUrl } : {}),
     },
     clientId,
     ...(clientSecret !== undefined ? { clientSecret } : {}),
@@ -319,6 +357,15 @@ function clientOf(resolved: ResolvedLogin): DeviceClient {
   };
 }
 
+/**
+ * Where every token-endpoint request goes: the login's token exchange service
+ * when it names one (the code exchange, refresh and device-code polling alike),
+ * else the provider's token endpoint.
+ */
+function tokenUrl(resolved: ResolvedLogin): string {
+  return resolved.endpoints.tokenExchangeUrl ?? resolved.endpoints.tokenEndpoint;
+}
+
 async function tokenRequest(
   resolved: ResolvedLogin,
   params: Record<string, string>,
@@ -329,7 +376,7 @@ async function tokenRequest(
   const headers: Record<string, string> = { ...(client.headers ?? {}) };
   const body: Record<string, string> = { ...params };
   applyClientAuth(client.tokenEndpointAuth, client.clientId, client.clientSecret, body, headers);
-  const res = await postForm(resolved.endpoints.tokenEndpoint, body, { ...net, headers, what });
+  const res = await postForm(tokenUrl(resolved), body, { ...net, headers, what });
   if (res.status >= 400 || typeof res.body.error === "string") throw providerError(res.body, res.status, what);
   return res.body;
 }
@@ -437,13 +484,21 @@ export async function login(opts: LoginOptions): Promise<LoginResult> {
   });
   const flow = chooseFlow(opts.flow ?? def.flow, resolved, env, platform);
   const deadline = Date.now() + (opts.loginTimeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS);
+  // The URL as configured, so the user can match it to the connector's docs.
+  if (resolved.endpoints.tokenExchangeUrl !== undefined) {
+    // The framework-owned line that says where tokens go: sanitized so a config
+    // value can never redraw it (byte-identical for a well-formed URL).
+    log(`Tokens are exchanged through ${sanitizeProviderText(resolved.endpoints.tokenExchangeUrl, 2048)} (the connector's token exchange service)`);
+  }
 
   let body: Record<string, unknown>;
   if (flow === "device") {
+    // The device authorization request goes to the provider itself, as a
+    // public client; only the polling goes through the exchange service.
     const endpoint = resolved.endpoints.deviceAuthorizationEndpoint as string;
     const auth = await requestDeviceAuthorization(endpoint, clientOf(resolved), resolved.scope, net);
     log(deviceCodePrompt(auth));
-    body = await pollDeviceToken(resolved.endpoints.tokenEndpoint, clientOf(resolved), auth, {
+    body = await pollDeviceToken(tokenUrl(resolved), clientOf(resolved), auth, {
       ...net,
       deadline: Math.min(deadline, Date.now() + auth.expiresIn * 1000),
       ...(opts.sleep ? { sleep: opts.sleep } : {}),

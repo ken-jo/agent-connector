@@ -192,7 +192,7 @@ fully-defaulted `ResolvedConnector` that adapters and the CLI consume.
 | `platforms` | `Partial<Record<PlatformId, PlatformOverride>>` | `{}` | Per-platform overrides / escape hatch (`extra`, `nativeHooks`, `configPatch`, `memory` target/mode tuning, disable a surface, force scope). |
 | `targets` | `"auto" \| PlatformId[]` | `"auto"` | `"auto"` = all detected; or an explicit allow-list. |
 | `publish` | `PublishConfig` | — | Distribution metadata for the official MCP standard artifacts (`package --format mcp-server-json` / `mcpb`): `registryNamespace` (reverse-DNS namespace the dev owns), `packageName` (the REAL published package), `registryBaseUrl?` (default https://registry.npmjs.org), `author { name, email?, url? }` (MCPB requires author.name). Describes the dev's real upstream server, NOT the telemetry serve wrapper. Optional; each format errors only when its required field is missing. |
-| `oauth` | `Record<string, OAuthLoginDef>` | `{}` | OAuth 2.0 providers the server logs in to, keyed by login key (`^[a-z0-9][a-z0-9-]{0,31}$`): a preset, the app's own `clientId`, a `${secret:NAME}` `clientSecret`, scopes. The user runs `auth login <key>` once; the server calls `getAccessToken` (§9.1). Field shapes and validation in §2.2. |
+| `oauth` | `Record<string, OAuthLoginDef>` | `{}` | OAuth 2.0 providers the server logs in to, keyed by login key (`^[a-z0-9][a-z0-9-]{0,31}$`): a preset, the app's `clientId` (a literal, `${env:VAR}` or `${secret:NAME}`), a `${secret:NAME}` `clientSecret` (a literal for `google` only) or a `tokenExchangeUrl`, scopes. The user runs `auth login <key>` once; the server calls `getAccessToken` (§9.1). Field shapes, validation and who supplies the app in §2.2. |
 
 **Top-level validation rules** (`define-connector.ts`):
 - `config` must be an object; if supplied, `id` must match the kebab-case regex.
@@ -275,8 +275,9 @@ the OAuth 2.0 providers the server logs in to; `<key>` matches
 ```ts
 interface OAuthLoginDef {
   provider: "google" | "microsoft" | "github" | "bing-webmaster" | "posthog" | "generic";
-  clientId: string;                   // literal or ${env:VAR}; never ${secret:…} (a client id is not a secret)
-  clientSecret?: string;              // only the reference form ${secret:NAME}
+  clientId: string;                   // literal, ${env:VAR} (expanded at login and refresh; a host-spawned server does not see shell exports), or exactly one ${secret:NAME} (each user registers their own app)
+  clientSecret?: string;              // exactly one ${secret:NAME} reference; a literal only for google (Google documents it as not confidential); exclusive with tokenExchangeUrl
+  tokenExchangeUrl?: string;          // https; the developer's token exchange service that holds the secret — every token request goes there with client_id, never a secret; exclusive with clientSecret
   scopes: string[];                   // at least one
   flow?: "auto" | "loopback" | "device";  // default "auto"
   redirectPort?: number;              // fixed loopback port, 1024..65535 (default: ephemeral)
@@ -298,12 +299,21 @@ interface OAuthLoginDef {
 `oauth.<key>`): a key outside the pattern (`oauth: "<key>" is not a valid login
 key (expected ^[a-z0-9][a-z0-9-]{0,31}$)`), an unknown provider
 (`<where>.provider: "<x>" is not a known OAuth preset (google, microsoft, github,
-bing-webmaster, posthog, generic)`), a `clientId` that is empty or contains
-`${secret:` (`<where>.clientId: must be a non-empty string; a client id is not a
-secret (use ${env:VAR} for a per-machine value)`), a `clientSecret` that is not
-exactly one `${secret:NAME}` reference (`<where>.clientSecret: must be a
-${secret:NAME} reference (a literal secret is never written into a connector
-config)`), no scopes (`<where>.scopes: at least one scope string is required`),
+bing-webmaster, posthog, generic)`), a `clientId` that is not a non-empty string
+or contains `${secret:` without being exactly one `${secret:NAME}` reference
+(`<where>.clientId: must be a non-empty string — a literal, ${env:VAR}, or
+exactly one ${secret:NAME} reference`), a `clientSecret` that is not exactly one
+`${secret:NAME}` reference, for every preset but `google` (`<where>.clientSecret:
+must be a ${secret:NAME} reference (a literal secret is never written into a
+connector config)`), a `google` `clientSecret` that is neither one reference nor
+a non-empty literal (`<where>.clientSecret: must be a ${secret:NAME} reference or
+a non-empty literal (provider "google" documents an installed app's client secret
+as not confidential)`), a `tokenExchangeUrl` that is not `https:`
+(`<where>.tokenExchangeUrl: must be an https URL`; loopback http passes, as for
+every endpoint), `clientSecret` and
+`tokenExchangeUrl` both set (`<where>: clientSecret and tokenExchangeUrl are
+exclusive — the token exchange service holds the client secret`), no scopes
+(`<where>.scopes: at least one scope string is required`),
 `flow` / `tokenEndpointAuth` outside their unions (`<where>.flow: expected auto |
 loopback | device`, `<where>.tokenEndpointAuth: expected client_secret_post |
 client_secret_basic | none`), a `redirectPort` outside 1024..65535
@@ -312,7 +322,9 @@ without a leading "/" (`<where>.redirectPath: must start with "/"`), `generic`
 with neither `issuer` nor both endpoints (`<where>: provider "generic" needs
 issuer, or authorizationEndpoint and tokenEndpoint`), an endpoint that is not
 `https:` (`<where>.<field>: must be an https URL`; `http://127.0.0.1` /
-`http://localhost` pass, for tests), a `storeAs` that is not a valid secret name
+`http://localhost` pass, for tests; a URL carrying a control character is
+rejected the same way), an endpoint carrying userinfo or a fragment
+(`<where>.<field>: must not carry credentials or a fragment`), a `storeAs` that is not a valid secret name
 (`<where>.storeAs: "<x>" is not a valid secret name`), a posthog
 `options.region` outside `us | eu` (`<where>.options.region: expected us | eu`),
 an empty microsoft `options.tenant` (`<where>.options.tenant: must be a
@@ -347,6 +359,64 @@ a runnable three-provider server: examples/seo-connector):
 | `bing-webmaster` | loopback | redirect URIs are registered exactly, including the port: set `redirectPort`; no PKCE, and the documented response carries no `state`, so the login is bound by the fixed redirect URI alone — a local process that reaches the port before the browser could hand the login its own code (a `state` that does come back is still verified; `redirectPort` is required) — https://learn.microsoft.com/en-us/bingwebmaster/oauth2 |
 | `posthog` | loopback | `clientId` is the URL of the app's Client ID Metadata Document, which lists `http://127.0.0.1/callback` (no port); PKCE, no client secret; `options.region` pins `us` or `eu` (omitted: the region-agnostic issuer) — https://posthog.com/docs/api/oauth |
 | `generic` | loopback, device | `issuer` (discovery) or `authorizationEndpoint` + `tokenEndpoint`; the device flow needs a `deviceAuthorizationEndpoint` (declared or discovered) — https://www.rfc-editor.org/rfc/rfc8414 |
+
+Who supplies the app — three ways, chosen per login. Developer-provided (no user
+setup): a literal `clientId` and no `clientSecret` — a public client: `microsoft`,
+`posthog` (the metadata document URL), `github`'s device flow, a public `generic`
+client; or, for `google` only, a literal `clientSecret` next to it (Google
+documents an installed app's client secret as not confidential; the literal is
+persisted with the rest of the login definition). Developer-hosted token
+exchange: a literal `clientId` and `tokenExchangeUrl` — the developer's own https
+service that holds the client secret (`github`'s browser flow, `bing-webmaster`,
+a confidential `generic` client); wire contract below. User-registered:
+`clientId: "${secret:NAME}"` and `clientSecret: "${secret:NAME}"` — each user
+registers their own app at the provider and stores both values with `secrets set
+NAME`; `install`, `doctor` and `auth login` name the exact `secrets set` commands
+still to run (CLI reference, `auth`). A `${env:VAR}` client id is expanded from
+the process environment at login and refresh time; a host-spawned server does not
+inherit shell exports, so its first refresh fails with `resolves to an empty
+value` — a shipped app uses a literal. `${env:VAR}` is never accepted in
+`clientSecret`.
+
+Token exchange service — wire contract. Request from the connector: `POST
+<tokenExchangeUrl>`, headers `content-type: application/x-www-form-urlencoded`
+and `accept: application/json` (plus the preset's token request headers, e.g.
+GitHub's `accept`), body one of
+
+```
+grant_type=authorization_code&code=…&redirect_uri=…&code_verifier=…&client_id=…
+grant_type=refresh_token&refresh_token=…&client_id=…
+grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=…&client_id=…
+```
+
+never `client_secret`. Response: the provider's HTTP status and body passed
+through unchanged (RFC 6749 §5.1 token response / §5.2 error response, JSON).
+Service duties: accept only its own `client_id` and only those three
+`grant_type` values (answer `400 {"error":"invalid_request"}` otherwise); add the
+client secret the way the provider wants it (`client_secret` form field or HTTP
+Basic); forward the form to the provider's token endpoint; return the provider's
+status and body unchanged; never log request or response bodies; refuse a
+repeated parameter (RFC 6749 §3.2) and forward only the accepted grant's own
+parameters — `code`, `redirect_uri`, `code_verifier` / `refresh_token` /
+`device_code` — plus `client_id`, never an unknown one; never follow a redirect
+from the provider; rate-limit it (every inbound request becomes one
+client-authenticated request to the provider). Trust boundary:
+the service sees the authorization code, the refresh token and every access
+token in transit — it is the developer's own service and carries the same trust
+as the connector's server code. PKCE stays on the client, so a code intercepted
+elsewhere is useless without the verifier. The service must not be a public
+relay: one provider, one client id. The engine sends every request it would
+send to the provider's token endpoint — the authorization-code exchange, the
+refresh and device-code polling — to `tokenExchangeUrl` instead, with
+`client_id` and never a client secret (`tokenEndpointAuth` is effectively
+`none`), and never follows a redirect on a token, device or revocation request
+(a 3xx answer fails the request with `network error: …` instead of re-sending
+the form elsewhere); the device authorization request and revocation on `logout` still go
+to the provider's own endpoints, as a public client — a provider that demands
+client authentication there refuses them (`--device` fails with the provider's
+error; `logout` reports `revoked: false`), the code and refresh grants are
+unaffected. A runnable service (`node:http`, the secret in its environment):
+examples/seo-connector/token-exchange-service.mjs.
 
 ### 2.3 `HooksConfig` + the hook model
 
@@ -1363,7 +1433,20 @@ is rejected, and the code is exchanged at the token endpoint with the same
 `redirect_uri`. Device: stderr says `Visit <verification_uri> and enter code
 <user_code>` (or the `verification_uri_complete`) and the token endpoint is
 polled honoring `interval` and `slow_down`; `access_denied` / `expired_token`
-stop it. On success the refresh token is stored as secret `storeAs` (default
+stop it. Before any flow starts `login` resolves the app: a `${secret:NAME}`
+`clientId` or `clientSecret` is read from the connector's keystore and a name
+that is not set fails with `SecretResolutionError` (exit 1; message "connector
+"<id>": 1 secret not set: <NAME>. Run `secrets set <name> --connector-id <id>`
+for each (oauth.<key>.clientId)." — or "(oauth.<key>.clientSecret)" when the
+secret is the unset one), a literal `clientSecret` (`google`) is used
+verbatim and `${env:VAR}` is expanded from the process environment. With
+`tokenExchangeUrl` set, stderr says `Tokens are exchanged through
+<tokenExchangeUrl> (the connector's token exchange service)` (the URL verbatim
+from the config) after resolution and before any flow starts, and the
+authorization-code exchange, every refresh and device-code polling go to that
+URL with `client_id` and never a client secret (wire contract: §2.2); the device
+authorization request and revocation on `logout` still go to the provider, as a
+public client. On success the refresh token is stored as secret `storeAs` (default
 `oauth.<key>.refresh-token`), the metadata record is written and stdout says
 `logged in to "<key>" (<label>) for connector <id> — refresh token stored in
 <backend>` (`--json`: `LoginResult`, §9.1). A response without a refresh token
@@ -1393,13 +1476,24 @@ written 0600, `{ "version": 1, "connectorId", "logins": { "<key>": { "provider",
 "revokedAt"?, "storeAs", "backend" } } }` — no token in it. Related: `install`
 warns per missing login on every host entry it writes ("login "<key>"
 (<provider>) is not present — run `auth login <key>` before the server needs
-it"); `doctor` adds the framework check `<id>: logins` (pass `<n> login(s)
-present`; warn `not logged in: a, b — run auth login <key>` with the fix "run
+it") and, before that line, once per `${secret:NAME}` the login references
+(`clientId` first, then `clientSecret`; a name referenced twice once) that is not
+in the keystore ("login "<key>" (<provider>) references secret "<NAME>" which is
+not set — run `secrets set <NAME>` before `auth login <key>`"; an unreadable
+keystore yields only the single `secrets backend unavailable; cannot verify
+login(s) …` line); `doctor` adds the framework check `<id>: logins` (pass `<n>
+login(s) present`; when any login references an unset secret, one warn `secrets
+not set for login(s) <key>[, <key>…]: <NAME>[, <NAME>…] — run secrets set <name>`
+with the fix "run `secrets set <name> --connector-id <id>` for each of: <NAME>[,
+<NAME>…]" — `<name>` is literal placeholder text, `<NAME>` a real name; keys in
+login order, names deduped in first-seen order, and absent
+logins are reported only when no referenced secret is missing; warn `not logged
+in: a, b — run auth login <key>` with the fix "run
 `auth login <key> --connector-id <id>` for each of: a, b"; no check for a
 connector without `oauth`; no network). `AGENT_CONNECTOR_BROWSER=never` /
 `always` overrides the browser detection (`canOpenBrowser`, §9.1).
 agent-connector ships no client ids: the author registers the app with each
-provider (§2.2 presets); the `package` emitters never write an oauth field, a
+provider, or each user does (§2.2, "Who supplies the app"); the `package` emitters never write an oauth field, a
 client secret or a token — a plugin-installed connector logs in lazily through
 `getAccessToken` or with `<bin> auth login <key>`.
 
@@ -1919,6 +2013,12 @@ on stderr only, so a stdio MCP server can log in on its first tool call);
 "<key>" is not present for connector <id> — run `auth login <key> --connector-id
 <id>`"). A refresh rejected with `invalid_grant` clears the stored token (the
 metadata record keeps `revokedAt`) and then follows the same interactive rule.
+A `${secret:NAME}` `clientId` or `clientSecret` that is not set throws
+`SecretResolutionError` (`connectorId`, `missing[]`); with `tokenExchangeUrl`
+the refresh is sent to the token exchange service (§2.2), with `client_id` and
+never a client secret. A `def` handed straight to `getAccessToken` or `login` is
+not validated: the engine uses a literal `clientSecret` for any provider, so the
+google-only rule for a literal is `defineConnector`'s guarantee, not the engine's.
 Access tokens live in process memory only; nothing is cached on disk.
 `login(opts)`, `logout(opts)` and `loginStatus(opts)` are the calls behind
 `auth login` / `logout` / `status`: `login` takes `connectorId`, `key`, `def`,

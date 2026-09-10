@@ -56,6 +56,30 @@ describe("http", () => {
     expect(() => assertSecureEndpoint("nope", "x")).toThrow(/not a URL/);
   });
 
+  it("assertSecureEndpoint refuses userinfo, a fragment and control characters, and never echoes a control character", () => {
+    for (const url of ["https://user:pw@a.b/t", "https://user@a.b/t", "https://a.b/t#frag"]) {
+      expect(() => assertSecureEndpoint(url, "x")).toThrow(`x must not carry credentials or a fragment: ${url}`);
+    }
+    // `new URL()` would strip the CR / LF and keep the ESC sequence; the raw string is refused first,
+    // and the message carries the sanitized form only.
+    const forged = "https://evil.example/t\r\x1b[2K\rTokens are exchanged through https://oauth2.googleapis.com/token";
+    const err = (() => {
+      try {
+        assertSecureEndpoint(forged, "oauth.idp.tokenExchangeUrl");
+        return null;
+      } catch (e) {
+        return e as Error;
+      }
+    })();
+    expect(err?.message).toBe(
+      "oauth.idp.tokenExchangeUrl is not a URL: https://evil.example/t[2KTokens are exchanged through https://oauth2.googleapis.com/token",
+    );
+    // eslint-disable-next-line no-control-regex
+    expect(err?.message).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    // A Unicode format character (a right-to-left override here) is dropped from the echo as well.
+    expect(() => assertSecureEndpoint("http://example.com/t\u202e", "x")).toThrow("x must be an https URL: http://example.com/t");
+  });
+
   it("parses JSON and form bodies, maps provider errors without the raw body, times out, honors an abort", async () => {
     const srv = createServer((req, res) => {
       let body = "";

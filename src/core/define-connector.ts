@@ -34,7 +34,7 @@ import type {
 import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
 import { CONNECTOR_ID_RE, isValidConnectorId } from "./ids.js";
-import { SECRET_NAME_RE, SECRET_REF_RE, findSecretRefs, hasSecretRef, isValidSecretName } from "./secrets.js";
+import { SECRET_NAME_RE, SECRET_REF_RE, findSecretRefs, hasSecretRef, isValidSecretName, wholeSecretRefName } from "./secrets.js";
 import { OAUTH_PRESET_IDS, POSTHOG_REGIONS, getOAuthPreset } from "./oauth/presets.js";
 import { RESERVED_AUTHORIZATION_PARAMS } from "./oauth/reserved.js";
 import {
@@ -576,20 +576,26 @@ const OAUTH_URL_FIELDS = [
   "tokenEndpoint",
   "deviceAuthorizationEndpoint",
   "revocationEndpoint",
+  "tokenExchangeUrl",
 ] as const;
-/** Exactly one `${secret:NAME}` reference and nothing else. */
-const OAUTH_CLIENT_SECRET_REF_RE = /^\$\{secret:([A-Za-z0-9][A-Za-z0-9._-]*)\}$/;
-
-function isOAuthEndpointUrl(value: unknown): boolean {
-  if (typeof value !== "string") return false;
+/** Why `value` is not an acceptable OAuth endpoint URL, or null when it is (https, or http on 127.0.0.1 / localhost for tests). */
+function oauthEndpointUrlProblem(value: unknown): string | null {
+  const notHttps = "must be an https URL";
+  if (typeof value !== "string") return notHttps;
+  // `new URL()` strips CR / LF silently: a control character is refused first.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) return notHttps;
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return false;
+    return notHttps;
   }
-  if (url.protocol === "https:") return true;
-  return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost");
+  const secure = url.protocol === "https:" || (url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost"));
+  if (!secure) return notHttps;
+  // Userinfo and a fragment have no place in an OAuth endpoint (RFC 6749 §3.2).
+  if (url.username !== "" || url.password !== "" || url.hash !== "") return "must not carry credentials or a fragment";
+  return null;
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -629,14 +635,35 @@ function normalizeOAuth(input: ConnectorConfig["oauth"]): Record<string, Resolve
         `${where}.provider: "${String(def.provider)}" is not a known OAuth preset (${OAUTH_PRESET_IDS.join(", ")})`,
       );
     }
-    if (typeof def.clientId !== "string" || def.clientId.trim() === "" || def.clientId.includes("${secret:")) {
+    // A client id is a literal, `${env:VAR}`, or — when each user registers
+    // their own app — exactly one `${secret:NAME}` reference; a reference mixed
+    // into other text has no reader (the engine resolves whole-value references only).
+    if (
+      typeof def.clientId !== "string" ||
+      def.clientId.trim() === "" ||
+      (def.clientId.includes("${secret:") && wholeSecretRefName(def.clientId) === null)
+    ) {
       throw new ConnectorConfigError(
-        `${where}.clientId: must be a non-empty string; a client id is not a secret (use \${env:VAR} for a per-machine value)`,
+        `${where}.clientId: must be a non-empty string — a literal, \${env:VAR}, or exactly one \${secret:NAME} reference`,
       );
     }
     if (def.clientSecret !== undefined) {
-      const ref = typeof def.clientSecret === "string" ? OAUTH_CLIENT_SECRET_REF_RE.exec(def.clientSecret) : null;
-      if (!ref || !isValidSecretName(ref[1]!)) {
+      const isRef = typeof def.clientSecret === "string" && wholeSecretRefName(def.clientSecret) !== null;
+      if (getOAuthPreset(def.provider).clientSecretPublic) {
+        // The provider documents the secret as not confidential: a literal is
+        // stored verbatim (no `${env:}` expansion, ever), so any other `${…}`
+        // form is a mistake, not a value.
+        if (
+          typeof def.clientSecret !== "string" ||
+          def.clientSecret.trim() === "" ||
+          (def.clientSecret.includes("${") && !isRef)
+        ) {
+          throw new ConnectorConfigError(
+            `${where}.clientSecret: must be a \${secret:NAME} reference or a non-empty literal ` +
+              `(provider "${def.provider}" documents an installed app's client secret as not confidential)`,
+          );
+        }
+      } else if (!isRef) {
         throw new ConnectorConfigError(
           `${where}.clientSecret: must be a \${secret:NAME} reference (a literal secret is never written into a connector config)`,
         );
@@ -672,9 +699,14 @@ function normalizeOAuth(input: ConnectorConfig["oauth"]): Record<string, Resolve
       );
     }
     for (const field of OAUTH_URL_FIELDS) {
-      if (def[field] !== undefined && !isOAuthEndpointUrl(def[field])) {
-        throw new ConnectorConfigError(`${where}.${field}: must be an https URL`);
-      }
+      const problem = def[field] === undefined ? null : oauthEndpointUrlProblem(def[field]);
+      if (problem !== null) throw new ConnectorConfigError(`${where}.${field}: ${problem}`);
+    }
+    // The exchange service holds the client secret; a login names one or the other.
+    if (def.clientSecret !== undefined && def.tokenExchangeUrl !== undefined) {
+      throw new ConnectorConfigError(
+        `${where}: clientSecret and tokenExchangeUrl are exclusive — the token exchange service holds the client secret`,
+      );
     }
     if (def.storeAs !== undefined && (typeof def.storeAs !== "string" || !isValidSecretName(def.storeAs))) {
       throw new ConnectorConfigError(`${where}.storeAs: "${String(def.storeAs)}" is not a valid secret name`);

@@ -442,6 +442,67 @@ describe("auth login", () => {
     expect(r.err).toContain('auth login: connector acme-db declares no login "nope" (declared: acme, beta)');
     expect(r.urls).toEqual([]);
   });
+
+  it("a ${secret:NAME} clientId the user has not stored: exit 1 with the resolution message, no browser, nothing stored", async () => {
+    const config = oauthConfig("acme-db");
+    config.oauth!.gamma = {
+      provider: "generic",
+      clientId: "${secret:acme-client-id}",
+      scopes: ["read"],
+      authorizationEndpoint: `${provider.url}/authorize`,
+      tokenEndpoint: `${provider.url}/token`,
+      tokenEndpointAuth: "none",
+      pkce: true,
+    };
+    writeFileSync(cfgPath, JSON.stringify(config), "utf8");
+
+    const r = await auth(["login", "gamma", "--loopback", ...byPath()]);
+    expect(r.code).toBe(1);
+    expect(r.out).toBe("");
+    expect(r.err).toBe(
+      'agent-connector: connector "acme-db": 1 secret not set: acme-client-id. Run `secrets set <name> --connector-id acme-db` for each (oauth.gamma.clientId).\n',
+    );
+    expect(r.urls).toEqual([]);
+    expect(r.logs).toEqual([]);
+    expect(store().has("oauth.gamma.refresh-token")).toBe(false);
+    expect(provider.requests).toEqual([]);
+
+    // `secrets set acme-client-id` with the app's id: the login runs with that id on the wire.
+    store().set("acme-client-id", "cid-from-keystore");
+    const ok = await auth(["login", "gamma", "--loopback", ...byPath()]);
+    expect(ok.code, ok.err).toBe(0);
+    expect(new URL(ok.urls[0] as string).searchParams.get("client_id")).toBe("cid-from-keystore");
+    expect(provider.requests.find((q) => q.path === "/token")?.body.client_id).toBe("cid-from-keystore");
+    expect(store().get("oauth.gamma.refresh-token")).toBe(REFRESH_TOKEN);
+    expectNoSentinel(r.out, r.err, ...r.logs, ok.out, ok.err, ...ok.logs);
+  });
+
+  it("a tokenExchangeUrl login prints the exchange line on the log seam (stderr in production) and exchanges through it", async () => {
+    const config = oauthConfig("acme-db");
+    config.oauth!.delta = {
+      provider: "generic",
+      clientId: "cid-delta",
+      scopes: ["read"],
+      authorizationEndpoint: `${provider.url}/authorize`,
+      tokenEndpoint: "https://idp.example.invalid/token",
+      tokenExchangeUrl: `${provider.url}/token`,
+      pkce: true,
+    };
+    writeFileSync(cfgPath, JSON.stringify(config), "utf8");
+
+    const r = await auth(["login", "delta", "--loopback", ...byPath()]);
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toBe(`logged in to "delta" (${LABEL}) for connector acme-db — refresh token stored in file\n`);
+    expect(r.err).toBe("");
+    expect(r.logs[0]).toBe(`Tokens are exchanged through ${provider.url}/token (the connector's token exchange service)`);
+    expect(r.logs[1]).toBe(`Opening ${LABEL} authorization in your browser…`);
+    const exchange = provider.requests.find((q) => q.path === "/token");
+    expect(exchange?.body.grant_type).toBe("authorization_code");
+    expect(exchange?.body.client_id).toBe("cid-delta");
+    expect(exchange?.body.client_secret).toBeUndefined();
+    expect(store().get("oauth.delta.refresh-token")).toBe(REFRESH_TOKEN);
+    expectNoSentinel(r.out, r.err, ...r.logs);
+  });
 });
 
 describe("auth status / token / logout", () => {

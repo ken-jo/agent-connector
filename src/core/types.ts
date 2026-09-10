@@ -1289,17 +1289,42 @@ export type OAuthTokenEndpointAuth = "client_secret_post" | "client_secret_basic
  * One OAuth 2.0 provider a connector logs in to (`oauth.<key>`). The user
  * authorizes once (`<bin> auth login <key>`); the refresh token is kept in
  * the connector's secret namespace under {@link storeAs}; the server mints
- * access tokens with `getAccessToken({ connectorId, key })`. The connector
- * author registers the app at the provider and ships `clientId`; a client
- * secret is only ever a `${secret:NAME}` reference.
+ * access tokens with `getAccessToken({ connectorId, key })`. Who supplies the
+ * app: the connector author registers it and ships `clientId` (with no secret,
+ * a literal secret for a preset whose provider documents it as not
+ * confidential, or a `tokenExchangeUrl` to the author's own service that holds
+ * the secret), or each user registers their own app and stores the id and
+ * secret in the keystore (`${secret:NAME}` in both fields).
  */
 export interface OAuthLoginDef {
   /** Preset id; `generic` needs `issuer` or both `authorizationEndpoint` and `tokenEndpoint`. */
   provider: OAuthPresetId;
-  /** The app's client id at the provider. Literal or `${env:VAR}`; never `${secret:…}` (it is not a secret). */
+  /**
+   * The app's client id at the provider: a literal (the author registered the
+   * app — the normal case), `${env:VAR}` (expanded from the process environment
+   * at login and refresh time; a host-spawned server does not see shell exports),
+   * or exactly one `${secret:NAME}` reference when each user registers their own
+   * app and stores the id with `secrets set NAME` (the keystore is the per-user
+   * value store that install and doctor check; the id is not secret).
+   */
   clientId: string;
-  /** Only the reference form `${secret:NAME}` (a literal secret in a config is rejected). */
+  /**
+   * Exactly one `${secret:NAME}` reference (the user's keystore). A literal is
+   * accepted only for a preset whose provider documents an installed app's
+   * client secret as not confidential (`google`); it is then persisted with the
+   * rest of the login definition. Exclusive with `tokenExchangeUrl`.
+   */
   clientSecret?: string;
+  /**
+   * The developer's token exchange service (https): every request the engine
+   * would send to the provider's token endpoint — the authorization-code
+   * exchange, refresh, device-code polling — goes here instead, with `client_id`
+   * and never a client secret; the service adds the secret and forwards to the
+   * provider, returning the provider's response unchanged. Exclusive with
+   * `clientSecret`. The device authorization request and revocation still go
+   * to the provider, as a public client.
+   */
+  tokenExchangeUrl?: string;
   /** Provider scope strings, at least one. */
   scopes: string[];
   /** Default "auto": loopback when a browser can be opened, else device when the preset supports it. */
@@ -1328,7 +1353,9 @@ export interface OAuthLoginDef {
 /**
  * An {@link OAuthLoginDef} after defineConnector: the login key stamped and
  * the three defaults applied. Persisted verbatim in the registry record; holds
- * client ids and `${secret:NAME}` references only — never a secret or a token.
+ * client ids, `${secret:NAME}` references, a `tokenExchangeUrl` and, for a
+ * preset whose provider documents the client secret as not confidential, that
+ * literal secret — never a keystore value or a token.
  */
 export interface ResolvedOAuthLoginDef extends OAuthLoginDef {
   key: string;

@@ -62,6 +62,18 @@ export function isValidSecretName(name: string): boolean {
   return SECRET_NAME_RE.test(name);
 }
 
+/**
+ * The NAME when `value` is exactly one `${secret:NAME}` reference with a valid
+ * secret name, else null — a literal, a `${env:VAR}`, text around a reference,
+ * two references or an invalid name are all "not a reference". The one rule
+ * behind an OAuth login's `clientId` / `clientSecret`, at define time and at
+ * resolve time.
+ */
+export function wholeSecretRefName(value: string): string | null {
+  const m = /^\$\{secret:([^}]*)\}$/.exec(value);
+  return m !== null && isValidSecretName(m[1]!) ? m[1]! : null;
+}
+
 export function hasSecretRef(input: string): boolean {
   return new RegExp(SECRET_REF_RE.source).test(input);
 }

@@ -75,6 +75,11 @@ describe.each(OAUTH_PRESET_IDS)("preset %s", (id) => {
     expect(["client_secret_post", "client_secret_basic", "none"]).toContain(preset.tokenEndpointAuth);
   });
 
+  it(id === "google" ? "documents the client secret as not confidential (clientSecretPublic)" : "leaves clientSecretPublic unset", () => {
+    if (id === "google") expect(preset.clientSecretPublic).toBe(true);
+    else expect(preset.clientSecretPublic).toBeUndefined();
+  });
+
   it("uses https for every URL it carries", () => {
     for (const field of URL_FIELDS) {
       if (preset[field] !== undefined) expect(preset[field]).toMatch(/^https:\/\/\S+$/);
@@ -117,6 +122,8 @@ describe("provider facts", () => {
     expect(google.revocationEndpoint).toBe("https://oauth2.googleapis.com/revoke");
     expect(google.pkce).toBe(true);
     expect(google.tokenEndpointAuth).toBe("client_secret_post");
+    // "the client secret is obviously not treated as a secret" — a literal clientSecret is accepted.
+    expect(google.clientSecretPublic).toBe(true);
     // The device grant covers only sign-in, Drive file and YouTube scopes.
     expect(google.deviceFlow).toBe(false);
     expect(google.extraAuthorizationParams).toEqual({ access_type: "offline", prompt: "consent" });

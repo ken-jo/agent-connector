@@ -4,6 +4,10 @@
  * A connector that declares `oauth.<key>` logins makes its server's first
  * `getAccessToken` open a browser (or fail closed) for every login the user
  * never ran, so doctor reports:
+ *   • warn  "secrets not set for login(s) a, b: NAME, NAME — run secrets set <name>"
+ *           when a login's clientId / clientSecret references an unset
+ *           `${secret:NAME}` (a user-registered app); it takes precedence over
+ *           the absence warn, since `auth login` cannot run without the values
  *   • warn  "not logged in: a, b — run auth login <key>"   (never `fixable`)
  *   • pass  "<n> login(s) present"   (literal "login(s)", as documented)
  *   • warn  "backend <id> unavailable: <reason>"
@@ -22,6 +26,7 @@ import { main } from "../../src/cli/app.js";
 import { defineConnector } from "../../src/core/define-connector.js";
 import { registerConnector } from "../../src/core/load-connector.js";
 import { openSecretStore } from "../../src/core/secrets.js";
+import { userRegisteredBing } from "../support/oauth-fixtures.js";
 import type { ResolvedConnector, ResolvedOAuthLoginDef, ServerDef } from "../../src/core/types.js";
 
 const SAVED = {
@@ -135,6 +140,12 @@ function storeRefreshToken(id: string, key: string): void {
   openSecretStore({ connectorId: id, backend: "file" }).set(`oauth.${key}.refresh-token`, `rt-${key}`);
 }
 
+/** What `secrets set NAME` leaves in the keystore. */
+function storeSecret(id: string, name: string): void {
+  openSecretStore({ connectorId: id, backend: "file" }).set(name, `value-of-${name}`);
+}
+
+/** A user-registered Bing login: the id and the secret are both `${secret:NAME}` references. */
 describe("doctor — <id>: logins", () => {
   it("warns with the absent keys, not fixable, with the exact command as the fix", async () => {
     register(withLogins("oauth-fix", [loginDef("google", "google"), loginDef("ms", "microsoft")]));
@@ -170,6 +181,51 @@ describe("doctor — <id>: logins", () => {
     expect(loginsCheck(await doctorJson(), "custom-store")?.status).toBe("warn");
     openSecretStore({ connectorId: "custom-store", backend: "file" }).set("ph-refresh", "rt");
     expect(loginsCheck(await doctorJson(), "custom-store")?.message).toBe("1 login(s) present");
+  });
+
+  it("warns with the unset ${secret:NAME} values a login references, before any absence warn, with the exact fix", async () => {
+    register(withLogins("oauth-secrets", [userRegisteredBing(loginDef("bing", "bing-webmaster")), loginDef("google", "google")]));
+    const r = loginsCheck(await doctorJson(), "oauth-secrets");
+    expect(r?.status).toBe("warn");
+    expect(r?.message).toBe("secrets not set for login(s) bing: bing-client-id, bing-client-secret — run secrets set <name>");
+    expect(r?.fix).toBe("run `secrets set <name> --connector-id oauth-secrets` for each of: bing-client-id, bing-client-secret");
+    expect(r?.fixable).toBeFalsy();
+
+    // One value stored: the other is still named; the absent logins wait.
+    storeSecret("oauth-secrets", "bing-client-id");
+    const partial = loginsCheck(await doctorJson(), "oauth-secrets");
+    expect(partial?.message).toBe("secrets not set for login(s) bing: bing-client-secret — run secrets set <name>");
+    expect(partial?.fix).toBe("run `secrets set <name> --connector-id oauth-secrets` for each of: bing-client-secret");
+
+    // Every referenced value stored: the absence warn, unchanged.
+    storeSecret("oauth-secrets", "bing-client-secret");
+    const absent = loginsCheck(await doctorJson(), "oauth-secrets");
+    expect(absent?.status).toBe("warn");
+    expect(absent?.message).toBe("not logged in: bing, google — run auth login <key>");
+    expect(absent?.fix).toBe("run `auth login <key> --connector-id oauth-secrets` for each of: bing, google");
+
+    storeRefreshToken("oauth-secrets", "bing");
+    storeRefreshToken("oauth-secrets", "google");
+    const done = loginsCheck(await doctorJson(), "oauth-secrets");
+    expect(done?.status).toBe("pass");
+    expect(done?.message).toBe("2 login(s) present");
+    expect(JSON.stringify(done)).not.toContain("value-of-");
+  });
+
+  it("lists the keys in login order and the names deduped in first-seen order", async () => {
+    const ms: ResolvedOAuthLoginDef = { ...loginDef("ms", "microsoft"), clientId: "${secret:shared-app-id}" };
+    register(withLogins("oauth-dedupe", [userRegisteredBing(loginDef("bing", "bing-webmaster"), "shared-app-id", "bing-client-secret"), loginDef("google", "google"), ms]));
+    const r = loginsCheck(await doctorJson(), "oauth-dedupe");
+    expect(r?.status).toBe("warn");
+    expect(r?.message).toBe("secrets not set for login(s) bing, ms: shared-app-id, bing-client-secret — run secrets set <name>");
+    expect(r?.fix).toBe("run `secrets set <name> --connector-id oauth-dedupe` for each of: shared-app-id, bing-client-secret");
+  });
+
+  it("a literal clientId, ${env:VAR} clientId or literal clientSecret names no secret", async () => {
+    const google: ResolvedOAuthLoginDef = { ...loginDef("google", "google"), clientSecret: "GOCSPX-replace-me" };
+    const ms: ResolvedOAuthLoginDef = { ...loginDef("ms", "microsoft"), clientId: "${env:MS_CLIENT_ID}" };
+    register(withLogins("oauth-literal", [google, ms]));
+    expect(loginsCheck(await doctorJson(), "oauth-literal")?.message).toBe("not logged in: google, ms — run auth login <key>");
   });
 
   it("a connector without oauth gets no logins check", async () => {

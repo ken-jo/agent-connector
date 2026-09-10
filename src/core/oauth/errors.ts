@@ -57,7 +57,9 @@ export class OAuthLoginRequiredError extends OAuthError {
  */
 export function sanitizeProviderText(value: unknown, max = 200): string {
   if (typeof value !== "string") return "";
+  // C0 / C1 controls and Unicode format characters (bidi overrides, zero-width
+  // joiners) — the ones that can redraw or reorder a terminal line.
   // eslint-disable-next-line no-control-regex
-  const clean = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim();
+  const clean = value.replace(/[\u0000-\u001f\u007f-\u009f\p{Cf}]/gu, "").trim();
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }

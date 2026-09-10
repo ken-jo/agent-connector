@@ -32,7 +32,7 @@ import {
 import { syncConnector } from "../../core/installer.js";
 import { marketplaceDoctorChecks } from "../../core/marketplace.js";
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
-import { OAuthError, loginStatus } from "../../core/oauth/index.js";
+import { OAuthError, loginSecretNames, loginStatus } from "../../core/oauth/index.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
 import { SecretError, findSecretRefs, openSecretStore } from "../../core/secrets.js";
 import type { SecretListEntry, SecretStore } from "../../core/secrets.js";
@@ -280,8 +280,9 @@ function frameworkChecks(entries: ConnectorEntry[]): TaggedResult[] {
 
   // OAuth logins (`oauth.<key>`): a server's first `getAccessToken` for a
   // login the user never ran opens a browser, or fails closed where it cannot,
-  // so doctor names the logins still absent. Never `fixable` — only the user
-  // can authorize. No network: presence is a keystore + metadata read.
+  // so doctor names the `${secret:NAME}` client ids / secrets still to store
+  // and the logins still absent. Never `fixable` — only the user can supply a
+  // value or authorize. No network: presence is a keystore + metadata read.
   entries.forEach((entry, i) => {
     const logins = entry.connector.oauth ?? {};
     if (Object.keys(logins).length > 0) push(loginsCheck(entry.connector.id, logins), i);
@@ -304,15 +305,21 @@ function keystoreUnavailable(check: string): (backend: string | null, reason: st
 }
 
 /**
- * `<id>: logins` — pass when every declared login has its refresh token in
- * the keystore, warn listing the absent keys, warn when the keystore or the
- * login metadata cannot be read (the hint, when there is one, becomes the fix).
+ * `<id>: logins` (exported for the docs drift test) — pass when every declared login has its refresh token in
+ * the keystore, warn naming the `${secret:NAME}` values a login's clientId or
+ * clientSecret references that are not set (a user-registered app; `auth
+ * login` cannot run without them, so absent logins are reported only once
+ * every referenced secret is set), warn listing the absent keys, warn when the
+ * keystore or the login metadata cannot be read (the hint, when there is one,
+ * becomes the fix).
  */
-function loginsCheck(connectorId: string, logins: Record<string, ResolvedOAuthLoginDef>): DiagnosticResult {
+export function loginsCheck(connectorId: string, logins: Record<string, ResolvedOAuthLoginDef>): DiagnosticResult {
   const check = `${connectorId}: logins`;
   const unavailable = keystoreUnavailable(check);
 
   let statuses: ReturnType<typeof loginStatus>;
+  // Per login with an unset referenced secret, in login order: [key, names].
+  const unsetSecrets: [string, string[]][] = [];
   try {
     const store = openSecretStore({ connectorId });
     const availability = store.availability();
@@ -323,6 +330,10 @@ function loginsCheck(connectorId: string, logins: Record<string, ResolvedOAuthLo
     // with a reason worth naming, where loginStatus alone would report `null`.
     store.list();
     statuses = loginStatus({ connectorId, logins });
+    for (const [key, def] of Object.entries(logins)) {
+      const names = loginSecretNames(def).filter((name) => !store.has(name));
+      if (names.length > 0) unsetSecrets.push([key, names]);
+    }
   } catch (err) {
     const hint = err instanceof SecretError || err instanceof OAuthError ? err.hint : undefined;
     return unavailable(null, errText(err), hint);
@@ -334,6 +345,15 @@ function loginsCheck(connectorId: string, logins: Record<string, ResolvedOAuthLo
       unreadable[0]?.backend ?? null,
       `cannot read ${unreadable.map((s) => `"${s.key}"`).join(", ")}`,
     );
+  }
+  if (unsetSecrets.length > 0) {
+    const names = [...new Set(unsetSecrets.flatMap(([, n]) => n))];
+    return {
+      check,
+      status: "warn",
+      message: `secrets not set for login(s) ${unsetSecrets.map(([key]) => key).join(", ")}: ${names.join(", ")} — run secrets set <name>`,
+      fix: `run \`secrets set <name> --connector-id ${connectorId}\` for each of: ${names.join(", ")}`,
+    };
   }
   const missing = statuses.filter((s) => s.present === false).map((s) => s.key);
   if (missing.length > 0) {

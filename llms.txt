@@ -43,6 +43,14 @@ developer-owned connector using the serve telemetry proxy.
   types. Full field tables are in `llms-full.txt` sections 2 and 9.
 - Offline checks: `@ken-jo/agent-connector/sdk/test` exposes `explain`,
   `explainHooks`, and `simulate` for adapter behavior before writing host files.
+- OAuth logins: `oauth.<key>` declares a provider preset and the app the server
+  logs in with, supplied one of three ways — developer-provided (a literal
+  `clientId`; a literal `clientSecret` for `google` only; or a `tokenExchangeUrl`
+  naming the developer's own token exchange service, which keeps the
+  `clientSecret` on the developer's side) or user-registered (`clientId` and
+  `clientSecret` as keystore references stored with `secrets set`); the field
+  table, validation messages and the token exchange wire contract are in
+  `llms-full.txt` section 2.2.
 
 ## CLI Map
 
