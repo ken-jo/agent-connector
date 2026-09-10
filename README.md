@@ -553,6 +553,11 @@ Adding a platform = **one registry entry + one adapter**.
 > `hook` and `serve` also exist — internal entrypoints the written host configs
 > point at; you never run them by hand. Full flag-level reference: the
 > [docs site `/docs/dev/cli`](https://agent-connector.ai/docs/dev/cli) · `llms-full.txt` §3 (canonical, drift-guarded by tests).
+>
+> Something off? The [docs site `/docs/dev/troubleshooting`](https://agent-connector.ai/docs/dev/troubleshooting)
+> page walks through reading `doctor` output and its exit codes, the common
+> `ConnectorConfigError` messages, "hooks unavailable here" on MCP-only hosts,
+> and why `telemetry report` can show nothing.
 
 ## Token telemetry & usage
 
