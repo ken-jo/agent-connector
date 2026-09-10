@@ -210,7 +210,8 @@ interface ServerDef {
   // stdio transport:
   command?: string;                 // required for stdio
   args?: string[];
-  env?: Record<string, string>;     // values support ${env:VAR} / ${env:VAR:-default}
+  env?: Record<string, string>;     // values support ${env:VAR} / ${env:VAR:-default} / ${secret:NAME}
+  secretEnv?: Record<string, string>; // set by defineConnector: the env entries that reference ${secret:NAME}
   cwd?: string;
   // remote (http | sse | ws) transport:
   url?: string;                     // required for remote
@@ -242,6 +243,29 @@ requested transport downgrades-or-skips and **reports** it — it never throws.
 
 `${env:VAR}` / `${env:VAR:-default}` interpolation is universal; where a host
 supports native interpolation the reference is translated rather than baked in.
+
+`${secret:NAME}` references a secret the user stored with `secrets set NAME` (CLI
+reference, `secrets`). It is allowed only in `server.env` values of a stdio server
+(base and `platforms[<id>].server` overrides); anywhere else `defineConnector` throws
+`ConnectorConfigError` ("secret refs (${secret:NAME}) are supported only in
+server.env of a stdio server"). `defineConnector` moves every such entry from `env`
+into `secretEnv`, so adapters never see a reference or a value and no host config
+carries one: the `serve` wrapper receives `--secret-env NAME={secret:NAME}` (a
+placeholder no host expands), reads the OS keystore at launch and injects the value
+into the child process environment only. A name that is not set aborts the launch
+with `SecretResolutionError` (message ends "Run `secrets set <name> --connector-id
+<id>` for each"); the server is never started with an empty value (an empty item
+read back from a keystore counts as unset). `${env:VAR}` / `${env:VAR:-default}`
+in the text around a reference (`"pg://${env:DB_USER}:${secret:db-pass}@h/db"`)
+is expanded by the wrapper at launch from its own environment; a secret value is
+never expanded. A `platforms[<id>].server.env` override replaces the base `env`
+together with its secrets (write the reference again in the override to keep
+it), and an override without `env` keeps both. Names match
+`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; values are non-empty, ≤ 8192 chars; there is no
+`:-default` form. Out of scope: remote (http/sse/ws) servers and every server
+field but `env` (`command`, `args`, `cwd`, `url`, `headers`, `auth`; judged by
+the effective transport: an override inherits the base server's). A secret-bearing
+env key must be an environment-variable name (`[A-Za-z_][A-Za-z0-9_]*`).
 
 ### 2.3 `HooksConfig` + the hook model
 
@@ -1179,6 +1203,56 @@ connectors are present (server ✓ / hooks ✓) via a read-only config-presence 
 **Always exits 0** — it describes, never gates (that contrast with doctor is why it
 exists).
 
+### secrets
+`secrets set <name> [--connector <path>] [--connector-id <id>] [--backend keychain|secret-service|credential-manager|file] [--stdin]`
+`secrets delete <name> [--connector <path>] [--connector-id <id>]`
+`secrets list [--connector <path>] [--connector-id <id>] [--json]`
+`secrets check [--connector <path>] [--connector-id <id>] [--backend <backend>] [--json]`
+Store the secrets a connector references as `${secret:NAME}` (§2.2) in the OS
+keystore, keyed by connector id. The keystore CLIs run from their system locations
+(`/usr/bin/security`, `/usr/bin/secret-tool` when present, PowerShell under
+`%SystemRoot%`), never from a PATH lookup that a writable directory could shadow.
+Backends: `keychain` (macOS: `/usr/bin/security`,
+service `agent-connector/<id>`, account `<name>`; a locked keychain needs a GUI
+session, the CLI never runs `unlock-keychain`), `secret-service` (Linux:
+`secret-tool` over D-Bus; a missing tool or daemon reports unavailable with a
+`--backend file` hint), `credential-manager` (Windows: PowerShell + CredWriteW,
+target `agent-connector/<id>/<name>`, values ≤ 2560 bytes), `file` (any OS, opt-in
+only: `<dataRoot>/secrets/file-store.json`, dir 0700 / file 0600, plaintext, NOT
+encrypted). `set` writes to `--backend`, else `$AGENT_CONNECTOR_SECRETS_BACKEND`
+(`keychain|secret-service|credential-manager|file|auto`), else the OS-native
+backend; the backend holding each name is recorded in
+`<dataRoot>/secrets/<id>.index.json` (names only, never values) and reads follow it.
+Value input: `--stdin` or a non-TTY stdin (one trailing newline stripped); on a TTY
+the hidden prompt `Enter value for <name> (input hidden):`. There is no `--value`
+flag. Connector resolution: `--connector-id`, then `--connector <path>`, then
+`agent-connector.config.*` in `--project`/cwd, then the single registered connector,
+else fail — except `check`, which then runs against the id `agent-connector` and
+prints `(no connector resolved — keystore check only)`. `list` prints
+`name  backend  present  updated` (`--json`: `SecretListEntry[]`, §9.1); `check`
+prints the backend's availability plus a write → read → delete self-test. No output
+ever includes a value. Exit 0 on success, 2 on a usage error (unknown verb, missing
+or extra argument, a flag the verb does not take), 1 on any other failure (invalid
+name, unresolved connector, keystore error, aborted prompt, failed check). Related:
+`install` warns per unset name
+(`secret "<name>" is not set`, pointing at `secrets set <name>`) and per unset,
+defaultless `${env:VAR}` inside a secret-bearing value (the wrapper would expand it
+to an empty fragment at launch); `doctor` adds the
+framework check `<id>: secrets` (pass `<n> secret(s) present in <backend>`; warn
+`not set: a, b`; warn `backend <id> unavailable: <reason>`; not healed by `--heal`).
+doctor's MCP probe launches the server with the real values in its environment and
+its stderr on the terminal, so a server that logs its environment at startup prints
+them there.
+`package --format mcpb` turns each referenced name into a sensitive, required
+`user_config` field substituted into the env template (`pg://u:${user_config.db_pass}@h`);
+`--format mcp-server-json` declares the env var itself as a secret, required
+`environmentVariables` entry (no templating there).
+`uninstall --purge` does not delete secrets. A connector id is also the secrets
+namespace: when `install` registers an id from a different module than the record
+on disk while secrets are stored under it, it warns (`"<id>" was registered from
+<old module>; this install registers it from <new module>, and the secret(s) stored
+under this id (<names>) will now be delivered to that module`).
+
 ### package
 `agent-connector package [--connector <path>] [--format <fmt>|all] [--out <dir>] [--project <dir>] [--dry-run]`
 `package` is framework tooling, not a branded MCP lifecycle command: use
@@ -1608,6 +1682,9 @@ import {
   capabilitiesOf, hostsSupporting, surfaceSupport,
   SURFACE_PREDICATES,
   ConnectorConfigError,
+  openSecretStore, findSecretRefs,            // OS keystore access (CLI reference, `secrets`)
+  SecretError, SecretResolutionError,
+  SECRET_BACKEND_IDS, resolveSecretBackendId,
 } from "@ken-jo/agent-connector/sdk";
 ```
 
@@ -1630,6 +1707,31 @@ const onPre = defineHook("PreToolUse", {
 
 The leading event string is used only for type inference; `defineHook` returns the
 def unchanged.
+
+**`openSecretStore`** is the OS-keystore access the `secrets` command uses, for
+server code that wants to read a stored secret directly. The default path needs no
+SDK call: a `${secret:NAME}` in `server.env` arrives as a plain env var, injected by
+the `serve` wrapper (§2.2). Every method is synchronous (the backends are
+subprocess calls); no method logs or returns a value except `get`.
+
+```ts
+import { openSecretStore } from "@ken-jo/agent-connector/sdk";
+
+const store = openSecretStore({ connectorId: "acme-db" }); // backend: $AGENT_CONNECTOR_SECRETS_BACKEND, else the OS keystore
+const apiKey = store.get("api-key");                        // string | null
+```
+
+`SecretStore`: `connectorId`, `backend`, `get(name): string | null`, `has(name)`,
+`set(name, value, { backend? }): SecretEntry`, `delete(name): boolean`,
+`list(): SecretListEntry[]` (`{ name, backend, updatedAt, present: boolean | null }`,
+never values), `availability(backend?)`, `selfTest(backend?)`. `findSecretRefs(value)`
+lists the names a string references; `SECRET_BACKEND_IDS` is
+`["keychain", "secret-service", "credential-manager", "file"]`;
+`resolveSecretBackendId(explicit?, env?, platform?)` applies the `set` selection
+rule. Errors: `SecretError` (`code`: `invalid-name` | `invalid-value` |
+`backend-unavailable` | `backend-failed` | `unsupported-platform`, optional `hint`)
+and `SecretResolutionError` (`connectorId`, `missing[]`). Types: `SecretStore`,
+`SecretEntry`, `SecretListEntry`, `SecretBackendId`, `BackendAvailability`.
 
 ### 9.2 Introspection helpers (all async — adapters load lazily)
 

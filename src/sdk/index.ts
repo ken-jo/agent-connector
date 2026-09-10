@@ -38,6 +38,26 @@ export type { SurfaceName } from "./introspect.js";
 
 export { toolName, style } from "./helpers.js";
 
+// Secrets — `${secret:NAME}` values live in the OS keystore. Server code
+// normally just reads the env var the serve wrapper injected; a connector
+// can also read/write its own store directly.
+export {
+  openSecretStore,
+  findSecretRefs,
+  resolveSecretBackendId,
+  SECRET_BACKEND_IDS,
+  SecretError,
+  SecretResolutionError,
+} from "../core/secrets.js";
+
+export type {
+  SecretStore,
+  SecretEntry,
+  SecretListEntry,
+  SecretBackendId,
+  BackendAvailability,
+} from "../core/secrets.js";
+
 export type {
   ConnectorConfig,
   ResolvedConnector,

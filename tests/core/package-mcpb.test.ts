@@ -117,3 +117,58 @@ describe("mcpb — opt-in (excluded from --format all)", () => {
     for (const f of res.files) expect(existsSync(f)).toBe(false);
   });
 });
+
+describe("mcpb — ${secret:NAME} env vars", () => {
+  it("routes every keystore-backed env var through user_config (sensitive, required)", () => {
+    const connector = defineConnector({
+      id: "acme-db",
+      version: "1.0.0",
+      server: {
+        transport: "stdio",
+        command: "node",
+        args: ["server.js"],
+        env: { ACME_DB_URL: "https://db.acme.example", ACME_API_KEY: "${secret:api-key}", DSN: "pg://u:${secret:db-pass}@h" },
+      },
+      publish: { author: { name: "Acme Inc" } },
+    });
+    packageConnector(connector, { outDir: out, format: "mcpb" });
+    const m = readPackagedJson<Record<string, any>>(join(out, "manifest.json"))!;
+    // Each referenced NAME is its own field, substituted into the template: the
+    // user is asked for the password, never for the whole DSN.
+    expect(m.server.mcp_config.env).toEqual({
+      ACME_DB_URL: "https://db.acme.example",
+      ACME_API_KEY: "${user_config.api_key}",
+      DSN: "pg://u:${user_config.db_pass}@h",
+    });
+    expect(m.user_config.api_key).toMatchObject({ sensitive: true, required: true, title: expect.any(String) });
+    expect(m.user_config.db_pass).toMatchObject({ sensitive: true, required: true });
+    expect(m.user_config.dsn).toBeUndefined();
+  });
+
+  it("gives two labels that fold to the same key separate fields (bearer DB_PASS vs ${secret:db-pass})", () => {
+    const connector = defineConnector({
+      id: "acme-db",
+      version: "1.0.0",
+      server: {
+        transport: "stdio",
+        command: "node",
+        args: ["server.js"],
+        auth: { type: "bearerEnv", bearerEnvVar: "DB_PASS" },
+        env: { PASS_URL: "pg://u:${secret:db-pass}@h", OTHER: "${secret:db.pass}" },
+      },
+      publish: { author: { name: "Acme Inc" } },
+    });
+    packageConnector(connector, { outDir: out, format: "mcpb" });
+    const m = readPackagedJson<Record<string, any>>(join(out, "manifest.json"))!;
+    const env = m.server.mcp_config.env as Record<string, string>;
+    const keys = Object.values(env).map((v) => /\$\{user_config\.([a-z0-9_]+)\}/.exec(v)?.[1]);
+    expect(new Set(keys).size).toBe(3);
+    expect(keys.sort()).toEqual(["db_pass", "db_pass_2", "db_pass_3"]);
+    for (const k of keys) expect(m.user_config[k!]).toMatchObject({ sensitive: true, required: true });
+    expect(env.PASS_URL).toMatch(/^pg:\/\/u:\$\{user_config\.db_pass(_\d)?\}@h$/);
+    // The bundle never carries the reference form or the wrapper placeholder.
+    const text = JSON.stringify(m);
+    expect(text).not.toContain("${secret:");
+    expect(text).not.toContain("{secret:");
+  });
+});

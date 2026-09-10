@@ -41,10 +41,13 @@ import { createAdapterSuite } from "../support/adapter-suite.js";
 
 // ── node:child_process mock (hoisted above imports) ───────────────────────
 let execFileSyncImpl: (...args: any[]) => string = () => "";
-const execFileSyncMock = vi.fn((...args: any[]) => execFileSyncImpl(...args));
+const execFileSyncMock = vi.hoisted(() =>
+  vi.fn((...args: any[]) => execFileSyncImpl(...args)),
+);
 vi.mock("node:child_process", () => ({
   execFileSync: execFileSyncMock,
   execSync: execFileSyncMock,
+  spawnSync: execFileSyncMock,
 }));
 
 // Pin POSIX so the generated bridge takes its execFileSync(HOME_BIN, [argv]) path.

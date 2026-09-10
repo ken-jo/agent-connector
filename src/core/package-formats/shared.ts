@@ -28,7 +28,7 @@ import { ensureDir, firstSymlinkInPath } from "../paths.js";
 import {
   buildHomeBinHookCommand,
   buildServeWrapperCommand,
-  shouldWrapForTelemetry,
+  needsServeWrapper,
 } from "../spawn.js";
 
 /** Inputs every format emitter receives. */
@@ -247,7 +247,7 @@ export function buildMcpEntry(
   const realArgs = [...(server.args ?? [])];
 
   let entry: PluginMcpEntry;
-  if (shouldWrapForTelemetry(server, connector.telemetry)) {
+  if (needsServeWrapper(server, connector.telemetry)) {
     const wrapped = buildServeWrapperCommand(
       homeBin,
       connector.id,
@@ -255,6 +255,8 @@ export function buildMcpEntry(
       realArgs,
       undefined,
       platformId,
+      undefined,
+      server.secretEnv,
     );
     entry = { command: wrapped.command, args: wrapped.args };
   } else {

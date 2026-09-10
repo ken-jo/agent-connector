@@ -123,6 +123,8 @@ const CONFIG_PATH_COMMANDS: ReadonlySet<string> = new Set([
   "status",
   "package",
   "audit",
+  // `secrets` derives the connector ID from the config path (set/delete/list/check).
+  "secrets",
 ]);
 
 /**

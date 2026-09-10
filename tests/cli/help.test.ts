@@ -38,6 +38,7 @@ const EVERY_COMMAND = [
   "audit",
   "doctor",
   "status",
+  "secrets",
   "telemetry",
   "usage",
   "leaderboard",

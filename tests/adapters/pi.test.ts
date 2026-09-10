@@ -53,11 +53,14 @@ import { splitFrontmatter } from "../support/fs.js";
 // ─────────────────────────────────────────────────────────────────────────
 
 let execFileSyncImpl: (...args: any[]) => string = () => "";
-const execFileSyncMock = vi.fn((...args: any[]) => execFileSyncImpl(...args));
+const execFileSyncMock = vi.hoisted(() =>
+  vi.fn((...args: any[]) => execFileSyncImpl(...args)),
+);
 
 vi.mock("node:child_process", () => ({
   execFileSync: execFileSyncMock,
   execSync: execFileSyncMock,
+  spawnSync: execFileSyncMock,
 }));
 
 const CONNECTOR_ID = "acme-pi";

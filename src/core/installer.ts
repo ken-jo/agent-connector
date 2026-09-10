@@ -22,7 +22,7 @@
  */
 
 import { existsSync, readdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -35,13 +35,16 @@ import type {
 } from "./types.js";
 import type { Adapter, InstallContext } from "../adapters/spi.js";
 import { findUnsetEnvRefs } from "./interpolate.js";
+import { SecretError, findSecretRefs, openSecretStore } from "./secrets.js";
 import { REGISTERED_PLATFORM_IDS, loadAdapter } from "../adapters/registry.js";
 import { detectInstalledPlatforms } from "../adapters/detect.js";
 import {
   deregisterConnector,
   loadRegisteredConnector,
+  readRegisteredMeta,
   registerConnector,
 } from "./load-connector.js";
+import type { RegisteredMeta } from "./load-connector.js";
 import {
   connectorDir,
   connectorsDir,
@@ -123,6 +126,7 @@ export async function installConnector(
   opts: OrchestrationOptions,
 ): Promise<InstallResult> {
   const { connector, modulePath, scope, projectDir, dryRun, force } = opts;
+  const prior = readRegisteredMeta(connector.id);
 
   // 1. Stable home binary + connector registry record. These are framework-state
   //    mutations (never platform-native config) and are safe to skip on dry-run.
@@ -144,12 +148,24 @@ export async function installConnector(
   const targets = await resolveTargets(opts.targets, connector.targets, projectDir);
   const result = newResult(connector.id, dryRun);
 
+  // A connector id is also a secrets namespace. When this module differs from
+  // the one the id was registered from and secrets are stored under the id,
+  // say so: the serve wrapper will hand those values to this module.
+  const handover = secretHandoverWarning(connector, modulePath, prior);
+  if (handover) {
+    result.changes.push({ platform: connector.id as PlatformId, action: "warn", detail: handover });
+    result.warnings.push(handover);
+  }
+
   if (targets.length === 0) {
     result.warnings.push(
       "no target platforms resolved (none installed / detected, or all filtered out)",
     );
     return result;
   }
+
+  // `${secret:NAME}` presence is probed once per connector, not once per host.
+  const secretWarnCache = new Map<string, string[]>();
 
   for (const id of targets) {
     // Double-install guard (inverse direction): a connector present BOTH
@@ -214,6 +230,36 @@ export async function installConnector(
                 `(export it before install, or give the ref a \${env:${name}:-default})`,
             });
           }
+        }
+      }
+
+      // `${secret:NAME}` guard (core/secrets). The serve wrapper injects the
+      // referenced secrets at launch and refuses to start the server while any
+      // is unset, so the moment the host entry is written is the moment to say
+      // which names still need `secrets set`. Same gate as the unset-env guard
+      // (an entry actually created/updated). Never throws: a keystore problem
+      // is ONE warn, never an install failure.
+      {
+        const wroteEntry = serverChanges.some(
+          (c) => c.action === "create" || c.action === "update",
+        );
+        const server = effectiveServerFor(connector, id);
+        const names = wroteEntry && server ? findSecretRefs(server.secretEnv ?? {}) : [];
+        for (const detail of names.length > 0
+          ? missingSecretWarnings(connector.id, names, secretWarnCache)
+          : []) {
+          result.changes.push({ platform: id, action: "warn", detail });
+          result.warnings.push(detail);
+        }
+        // `${env:VAR}` inside a secret-bearing value is expanded by the serve
+        // wrapper at launch on every host; unset without a default, it becomes
+        // an empty fragment next to the secret.
+        for (const name of wroteEntry && server ? findUnsetEnvRefs(server.secretEnv ?? {}) : []) {
+          const detail =
+            `${name} is unset — the serve wrapper expands it to an empty value inside a secret-bearing env entry at launch ` +
+            `(export it in the host's environment, or give the ref a \${env:${name}:-default})`;
+          result.changes.push({ platform: id, action: "warn", detail });
+          result.warnings.push(detail);
         }
       }
 
@@ -715,6 +761,87 @@ function effectiveServerFor(
   const base = connector.server;
   if (!base) return undefined;
   return override && typeof override === "object" ? { ...base, ...override } : base;
+}
+
+/**
+ * Install-time `${secret:NAME}` warnings for one connector: one line per
+ * referenced name the keystore does not hold, or a single line when the
+ * keystore itself cannot be reached. Memoized per (connector, names) so a
+ * multi-host install probes the keystore once.
+ */
+function missingSecretWarnings(
+  connectorId: string,
+  names: string[],
+  cache: Map<string, string[]>,
+): string[] {
+  const key = `${connectorId} ${names.join(" ")}`;
+  const cached = cache.get(key);
+  if (cached) return cached;
+  const out: string[] = [];
+  try {
+    const store = openSecretStore({ connectorId });
+    const availability = store.availability();
+    if (!availability.ok) {
+      out.push(
+        `secrets backend ${store.backend} unavailable: ${availability.reason ?? "unknown reason"}` +
+          (availability.hint ? ` — ${availability.hint}` : "") +
+          `; cannot verify ${names.join(", ")}`,
+      );
+    } else {
+      for (const name of names) {
+        if (!store.has(name)) {
+          out.push(
+            `secret "${name}" is not set — run \`secrets set ${name}\` before the host launches the server`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    const hint = err instanceof SecretError && err.hint ? ` — ${err.hint}` : "";
+    out.push(`secrets backend unavailable: ${errMessage(err)}${hint}; cannot verify ${names.join(", ")}`);
+  }
+  cache.set(key, out);
+  return out;
+}
+
+/** Every secret name the connector references, across the base server and its per-host overrides. */
+function connectorSecretNames(connector: ResolvedConnector): string[] {
+  const names = new Set<string>(findSecretRefs(connector.server?.secretEnv ?? {}));
+  for (const override of Object.values(connector.platforms)) {
+    const server = override && typeof override === "object" ? override.server : undefined;
+    if (server && typeof server === "object") {
+      for (const name of findSecretRefs(server.secretEnv ?? {})) names.add(name);
+    }
+  }
+  return [...names];
+}
+
+/**
+ * The warning for an install that re-registers a connector id from a different
+ * module while secrets are stored under that id, or null when nothing changes
+ * hands. Never throws: an unreadable keystore just yields no warning.
+ */
+function secretHandoverWarning(
+  connector: ResolvedConnector,
+  modulePath: string,
+  prior: RegisteredMeta | null,
+): string | null {
+  const next = resolve(modulePath);
+  if (!prior || prior.modulePath === next) return null;
+  if (connectorSecretNames(connector).length === 0) return null;
+  let stored: string[];
+  try {
+    stored = openSecretStore({ connectorId: connector.id })
+      .list()
+      .map((e) => e.name);
+  } catch {
+    return null;
+  }
+  if (stored.length === 0) return null;
+  return (
+    `"${connector.id}" was registered from ${prior.modulePath}; this install registers it from ${next}, ` +
+    `and the secret(s) stored under this id (${stored.join(", ")}) will now be delivered to that module`
+  );
 }
 
 /**

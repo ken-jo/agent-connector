@@ -480,6 +480,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   audit: () => import("./commands/audit.js"),
   doctor: () => import("./commands/doctor.js"),
   status: () => import("./commands/status.js"),
+  secrets: () => import("./commands/secrets.js"),
   telemetry: () => import("./commands/telemetry.js"),
   usage: () => import("./commands/usage.js"),
   leaderboard: () => import("./commands/leaderboard.js"),
@@ -529,6 +530,11 @@ const COMMAND_USAGE: Record<string, string> = {
     "doctor [--targets a,b] [--connector <path>] [--scope user|project] [--project <dir>] [--probe] [--explain] [--json] [--heal] [--dry-run] [--quiet]\n" +
     "  --explain   per-(host,event) hook honor matrix (honored/degraded/dropped). Exit non-zero ONLY when an explicitly-targeted host DEGRADES a declared event (fires it but silently won't honor the reply); dropped/mcp-only hosts and fleet-wide (targets:auto) gaps are informational (exit 0).",
   status: "status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
+  secrets:
+    "secrets set <name> [--connector <path>] [--connector-id <id>] [--backend keychain|secret-service|credential-manager|file] [--stdin]\n" +
+    "  secrets delete <name> [--connector <path>] [--connector-id <id>]\n" +
+    "  secrets list [--connector <path>] [--connector-id <id>] [--json]\n" +
+    "  secrets check [--connector <path>] [--connector-id <id>] [--backend <backend>] [--json]",
   telemetry:
     "telemetry report|export|leaderboard [--by <dim>] [--since <dur>] [--connector <id>] [--scope <slice>] [--format csv|json] [--out <file>] [--json]",
   usage:
@@ -562,6 +568,7 @@ commands:
   audit        Check branded package identity before install/publish.
   doctor       Health-check every detected platform; non-zero exit on any failure.
   status       Light install-state summary: which connectors are present on which hosts (always exits 0).
+  secrets      Store the secrets a connector references (\${secret:NAME}) in the OS keystore (set | delete | list | check).
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
   usage        Inspect host-native token usage from agent host logs (report | export | leaderboard).
   leaderboard  Three leaderboards: 🔌 MCP/plugin (mcp-self) + 🖥️ host/user (host-scan-logs) + 🛰️ host-native turns (host-native-live) — never summed.

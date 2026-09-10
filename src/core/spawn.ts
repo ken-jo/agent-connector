@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { isNonDefaultDataRoot } from "./paths.js";
 import type { InstallScope, PlatformId, ServerDef } from "./types.js";
+import { toWrapperTemplate } from "./secrets.js";
 import type { InstallContext } from "../adapters/spi.js";
 import type {
   LaunchMethod,
@@ -304,11 +305,13 @@ export function buildServeWrapperCommand(
   scope?: InstallScope,
   platformId?: PlatformId,
   dataDir?: string,
+  secretEnv?: Record<string, string>,
 ): { command: string; args: string[] } {
   const flags = ["serve", "--connector", connectorId];
   if (scope !== undefined) flags.push("--scope", narrowInstallScope(scope));
   if (platformId !== undefined) flags.push("--host", platformId);
   if (dataDir !== undefined && dataDir !== "") flags.push("--data-dir", dataDir);
+  flags.push(...secretEnvFlags(secretEnv));
   return {
     command: homeBinPath,
     args: [...flags, "--", realCommand, ...realArgs],
@@ -316,9 +319,47 @@ export function buildServeWrapperCommand(
 }
 
 /**
- * Telemetry serve-wrap for a stdio command: when the connector opts in, route
- * `command`/`args` through `<homeBin> serve --connector <id> -- …`; otherwise
- * return them unchanged. Consolidates the per-host wrap snippet — the caller
+ * The `--secret-env NAME=<template>` flag tokens for a server's `secretEnv`,
+ * sorted by NAME so rendered config is deterministic. The template is the
+ * env value with every `${secret:X}` rewritten to the `{secret:X}` placeholder
+ * — no `$`, so no host expands it — which the `serve` wrapper resolves from
+ * the OS keystore at launch. The VALUE never appears here.
+ */
+export function secretEnvFlags(secretEnv: Record<string, string> | undefined): string[] {
+  if (!secretEnv) return [];
+  const out: string[] = [];
+  for (const name of Object.keys(secretEnv).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+    out.push("--secret-env", `${name}=${toWrapperTemplate(secretEnv[name] ?? "")}`);
+  }
+  return out;
+}
+
+/**
+ * Single source of truth for "must this stdio server launch through the
+ * `serve` wrapper?": for telemetry ({@link shouldWrapForTelemetry}) OR because
+ * it references stored secrets (`secretEnv`) that only the wrapper can inject
+ * — a server with secrets is wrapped even when telemetry is off or
+ * `wrapForTelemetry: false` (measurement is then disabled by the runtime).
+ */
+export function needsServeWrapper(
+  server: ServerDef,
+  telemetry: { enabled: boolean },
+): boolean {
+  if (shouldWrapForTelemetry(server, telemetry)) return true;
+  return (
+    server.transport === "stdio" &&
+    typeof server.command === "string" &&
+    server.command !== "" &&
+    server.secretEnv !== undefined &&
+    Object.keys(server.secretEnv).length > 0
+  );
+}
+
+/**
+ * Serve-wrap for a stdio command: when the connector opts into telemetry OR
+ * the server references stored secrets (see {@link needsServeWrapper}), route
+ * `command`/`args` through `<homeBin> serve --connector <id> [--secret-env …] -- …`;
+ * otherwise return them unchanged. Consolidates the per-host wrap snippet — the caller
  * keeps its own command/args seeding + downstream env-resolution + entry shaping.
  *
  * When the install's framework data-root is NON-DEFAULT (overridden via
@@ -334,7 +375,7 @@ export function buildWrappedStdio(
   command: string,
   args: string[],
 ): { command: string; args: string[] } {
-  if (!shouldWrapForTelemetry(server, ctx.connector.telemetry)) {
+  if (!needsServeWrapper(server, ctx.connector.telemetry)) {
     return { command, args };
   }
   const dataDir = isNonDefaultDataRoot(ctx.dataRoot) ? ctx.dataRoot : undefined;
@@ -346,6 +387,7 @@ export function buildWrappedStdio(
     ctx.scope,
     platformId,
     dataDir,
+    server.secretEnv,
   );
 }
 

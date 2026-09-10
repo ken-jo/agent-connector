@@ -64,6 +64,20 @@ export default defineConnector({
 });
 ```
 
+**Secrets.** `${env:VAR}` reads a variable the host process already has. For a
+value that must not appear in any host config (an API key, a DSN with a password)
+write `"${secret:NAME}"` instead, in a stdio server's `env` only, and tell the user
+to run `<bin> secrets set NAME` once: agent-connector keeps the value in the OS
+keystore (macOS Keychain, Linux Secret Service, Windows Credential Manager, or an
+opt-in plaintext `file` store), the host config carries only a `{secret:NAME}`
+placeholder, and the serve wrapper injects the value into the server's environment
+at launch. `install` warns and `doctor` reports `<id>: secrets` while the value is
+missing. `defineConnector` rejects `${secret:…}` in `args`, `headers`, `url` and
+remote servers (a per-host override is judged by the transport it inherits). A
+value may mix both forms — `"pg://${env:DB_USER}:${secret:db-pass}@h/db"` — the
+wrapper expands the `${env:…}` part at launch and never expands the secret. A
+per-host `env` override replaces the base `env` and its secrets alike.
+
 ## Server Shape Is Product-Specific
 
 Do not assume every MCP is a Node package launched with `npx` or a database

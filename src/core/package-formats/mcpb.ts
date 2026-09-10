@@ -24,6 +24,7 @@ import {
   isConcreteSemver,
   isPlaceholderVersion,
 } from "../mcp-standard.js";
+import { SECRET_REF_RE } from "../secrets.js";
 import type { EmitContext, FormatEmitter, PackageResult } from "./shared.js";
 import { createEmitter, json } from "./shared.js";
 
@@ -44,6 +45,11 @@ function secretEnvNames(server: ServerDef): Set<string> {
     names.add(server.auth.bearerEnvVar);
   }
   return names;
+}
+
+/** A `${secret:NAME}` name as a user_config key (`db-pass` → `db_pass`). */
+function userConfigKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
 }
 
 function recipeReadme(connector: ResolvedConnector): string {
@@ -114,34 +120,46 @@ export const emitMcpbBundle: FormatEmitter = (
   const secrets = secretEnvNames(server);
   const env: Record<string, string> = {};
   const userConfig: Record<string, Record<string, unknown>> = {};
-  for (const [k, v] of Object.entries(server.env ?? {})) {
-    if (secrets.has(k)) {
-      const key = k.toLowerCase();
+  // One sensitive field per distinct label; two labels that fold to the same
+  // key (`db-pass` / `DB_PASS`) get separate fields, never one shared value.
+  const labels = new Map<string, string>();
+  const fieldFor = (label: string): string => {
+    const base = userConfigKey(label);
+    let key = base;
+    for (let n = 2; labels.has(key) && labels.get(key) !== label; n++) key = `${base}_${n}`;
+    if (!labels.has(key)) {
+      labels.set(key, label);
       userConfig[key] = {
         type: "string",
-        title: titleize(k),
-        description: `Value for ${k}`,
+        title: titleize(label),
+        description: `Value for ${label}`,
         sensitive: true,
         required: true,
       };
-      env[k] = `\${user_config.${key}}`;
+    }
+    return key;
+  };
+  for (const [k, v] of Object.entries(server.env ?? {})) {
+    if (secrets.has(k)) {
+      env[k] = `\${user_config.${fieldFor(k)}}`;
     } else {
       env[k] = v;
     }
   }
-  // A bearer-token env not already present in server.env still needs a field.
+  // Env vars the connector fills from the OS keystore (`${secret:NAME}` →
+  // server.secretEnv). A bundle is installed by the host, not by our serve
+  // wrapper, so the host asks the user: each referenced NAME is its own
+  // sensitive field, substituted into the template (`pg://u:${user_config.db_pass}@h`)
+  // so the user enters the secret, never the whole value.
+  for (const [k, template] of Object.entries(server.secretEnv ?? {})) {
+    env[k] = template.replace(
+      new RegExp(SECRET_REF_RE.source, "g"),
+      (_m, name: string) => `\${user_config.${fieldFor(name)}}`,
+    );
+  }
+  // A bearer-token env var in neither map still needs a field.
   for (const name of secrets) {
-    if (!(name in env)) {
-      const key = name.toLowerCase();
-      userConfig[key] = {
-        type: "string",
-        title: titleize(name),
-        description: `Value for ${name}`,
-        sensitive: true,
-        required: true,
-      };
-      env[name] = `\${user_config.${key}}`;
-    }
+    if (!(name in env)) env[name] = `\${user_config.${fieldFor(name)}}`;
   }
 
   const author: Record<string, string> = { name: publish.author.name };

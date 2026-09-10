@@ -19,8 +19,10 @@ import type {
   MemoryDef,
   NativeHookDef,
   PlatformId,
+  PlatformOverride,
   PublishConfig,
   ResolvedConnector,
+  ServerDef,
   SkillDef,
   StatuslineDef,
   StatuslineOptions,
@@ -29,6 +31,7 @@ import type {
 import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
 import { CONNECTOR_ID_RE, isValidConnectorId } from "./ids.js";
+import { SECRET_NAME_RE, SECRET_REF_RE, findSecretRefs, hasSecretRef, isValidSecretName } from "./secrets.js";
 import {
   currentConnectorPackageMetadata,
   resolveMcpPackageIdentity,
@@ -166,6 +169,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
         );
       }
     }
+    validateSecretRefPlacement(s, "server");
   }
 
   // Validate hook handlers are functions, plus any per-host override map.
@@ -200,13 +204,14 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
   const actions = normalizeActions(config.actions);
 
   const t = config.telemetry ?? {};
+  const server = normalizeServer(config.server);
 
   const resolved: ResolvedConnector = {
     id: connectorId,
     ...(Object.keys(mcpIdentity).length > 0 ? { mcp: mcpIdentity } : {}),
     displayName: config.displayName ?? connectorId,
     version: config.version ?? packageMetadata?.version ?? "0.0.0",
-    ...(config.server ? { server: normalizeServer(config.server) } : {}),
+    ...(server ? { server } : {}),
     hooks: config.hooks ?? {},
     hookEvents: declaredEvents(config.hooks),
     telemetry: {
@@ -227,7 +232,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     memory,
     ...(statusline ? { statusline } : {}),
     actions,
-    platforms: config.platforms ?? {},
+    platforms: normalizePlatformServers(config.platforms, server),
     targets: config.targets ?? "auto",
     ...(config.publish ? { publish: normalizePublish(config.publish) } : {}),
   };
@@ -915,10 +920,139 @@ function normalizeSubagents(input: SubagentDef[] | undefined): SubagentDef[] {
 function normalizeServer(server: ConnectorConfig["server"]): ResolvedConnector["server"] {
   if (!server) return undefined;
   const wrapDefault = server.transport === "stdio";
+  const split = splitSecretEnv(server.env, "server.env");
+  // Only when secrets were split out does `env` change shape (dropped when
+  // every entry was a secret); a ref-free server is spread verbatim so its
+  // rendered output stays byte-identical.
+  const base = split.secretEnv ? withoutEnv(server) : server;
   return {
-    ...server,
+    ...base,
+    ...split,
     enabled: server.enabled ?? true,
     tools: server.tools ?? { include: ["*"] },
     wrapForTelemetry: server.wrapForTelemetry ?? wrapDefault,
   };
+}
+
+function withoutEnv<T extends { env?: unknown }>(server: T): Omit<T, "env"> {
+  const { env: _dropped, ...rest } = server;
+  void _dropped;
+  return rest;
+}
+
+const SECRET_REF_PLACEMENT_ERROR =
+  "secret refs (${secret:NAME}) are supported only in server.env of a stdio server";
+
+/**
+ * `${secret:NAME}` may appear ONLY in the env values of a stdio server: the
+ * serve wrapper injects those into the real server's environment. Anywhere
+ * else (command/args/url/headers, or a remote server's env) there is no
+ * delivery path that keeps the value out of the host config file.
+ */
+function validateSecretRefPlacement(
+  server: Partial<ServerDef>,
+  where: string,
+  transport: ServerDef["transport"] | undefined = server.transport,
+): void {
+  // Every field but `env` reaches a host config or the spawn line verbatim.
+  const elsewhere = findSecretRefs(
+    Object.fromEntries(Object.entries(server).filter(([key]) => key !== "env" && key !== "secretEnv")),
+  );
+  if (elsewhere.length > 0) {
+    throw new ConnectorConfigError(`${where}: ${SECRET_REF_PLACEMENT_ERROR} (found ${elsewhere.join(", ")})`);
+  }
+  if (transport !== undefined && transport !== "stdio") {
+    const inEnv = findSecretRefs(server.env);
+    if (inEnv.length > 0) {
+      throw new ConnectorConfigError(
+        `${where}: ${SECRET_REF_PLACEMENT_ERROR} (transport "${transport}" — found ${inEnv.join(", ")})`,
+      );
+    }
+  }
+}
+
+/**
+ * Split `env` into the entries adapters may write into host config (`env`)
+ * and the secret-bearing ones the serve wrapper delivers (`secretEnv`,
+ * values kept verbatim). An input without any secret ref is returned
+ * untouched so existing rendered output is byte-identical.
+ */
+function splitSecretEnv(
+  env: Record<string, string> | undefined,
+  where: string,
+): { env?: Record<string, string>; secretEnv?: Record<string, string> } {
+  if (!env) return {};
+  const plain: Record<string, string> = {};
+  const secret: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string" && hasSecretRef(value)) {
+      // The wrapper carries `{secret:NAME}` placeholders in host config; a
+      // literal "{secret:" in the same value would be indistinguishable.
+      if (/\{secret:/.test(value.replace(new RegExp(SECRET_REF_RE.source, "g"), ""))) {
+        throw new ConnectorConfigError(
+          `${where}.${key}: a value that references \${secret:NAME} must not also contain the literal text "{secret:"`,
+        );
+      }
+      // The entry travels as `--secret-env KEY=template`: the key must be an
+      // environment-variable name, and every referenced name must be one the
+      // store accepts (a longer name could never be set).
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        throw new ConnectorConfigError(
+          `${where}.${key}: an env entry that references \${secret:NAME} must have an environment-variable name ([A-Za-z_][A-Za-z0-9_]*)`,
+        );
+      }
+      for (const name of findSecretRefs(value)) {
+        if (!isValidSecretName(name)) {
+          throw new ConnectorConfigError(
+            `${where}.${key}: "${name}" is not a valid secret name (expected ${SECRET_NAME_RE.source})`,
+          );
+        }
+      }
+      secret[key] = value;
+    } else {
+      plain[key] = value;
+    }
+  }
+  if (Object.keys(secret).length === 0) return { env };
+  return {
+    ...(Object.keys(plain).length > 0 ? { env: plain } : {}),
+    secretEnv: secret,
+  };
+}
+
+/**
+ * Per-platform `server` overrides get the SAME secret handling as the base
+ * server (placement validation + env/secretEnv split), so an override can
+ * never leak a `${secret:NAME}` into a host config file. Placement is judged
+ * by the effective transport (the override's, else the base server's), and an
+ * override `env` replaces the base `env` together with its secrets — the
+ * same shallow `{ ...base, ...override }` merge every adapter applies.
+ * Everything else in `platforms` is kept verbatim (live nativeHooks handlers
+ * must survive).
+ */
+function normalizePlatformServers(
+  platforms: ConnectorConfig["platforms"],
+  base: ResolvedConnector["server"],
+): ResolvedConnector["platforms"] {
+  if (platforms == null) return {};
+  const out: ResolvedConnector["platforms"] = {};
+  for (const [platformId, override] of Object.entries(platforms) as [PlatformId, PlatformOverride][]) {
+    if (!override || typeof override !== "object" || !override.server) {
+      out[platformId] = override;
+      continue;
+    }
+    const where = `platforms.${String(platformId)}.server`;
+    validateSecretRefPlacement(override.server, where, override.server.transport ?? base?.transport);
+    const split = splitSecretEnv(override.server.env, `${where}.env`);
+    if (!split.secretEnv) {
+      const baseHasSecrets = base?.secretEnv !== undefined && Object.keys(base.secretEnv).length > 0;
+      out[platformId] =
+        override.server.env !== undefined && baseHasSecrets
+          ? { ...override, server: { ...override.server, secretEnv: {} } }
+          : override;
+      continue;
+    }
+    out[platformId] = { ...override, server: { ...withoutEnv(override.server), ...split } };
+  }
+  return out;
 }
