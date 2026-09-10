@@ -522,9 +522,31 @@ async function archiveFetch(remote: RemoteSource, dest: string): Promise<void> {
   extractArchiveBuffer(readFileSync(archivePath), dest);
 }
 
+/**
+ * Spawn npm. On Windows the entrypoint is `npm.cmd`, which Node refuses to
+ * spawn without a shell — so the args (all ours, or an npm spec validated by
+ * parseNpmSource) are quoted individually and run through the shell there.
+ */
+function npmExec(
+  args: string[],
+  opts: { cwd?: string; stdio?: "ignore" | "pipe"; encoding?: "utf8" },
+): string {
+  if (process.platform !== "win32") {
+    return execFileSync("npm", args, opts) as unknown as string;
+  }
+  for (const a of args) {
+    if (/["\r\n]/.test(a)) throw new Error(`refusing to pass an unsafe argument to npm: ${a}`);
+  }
+  return execFileSync(
+    "npm.cmd",
+    args.map((a) => `"${a}"`),
+    { ...opts, shell: true },
+  ) as unknown as string;
+}
+
 function npmAvailable(): boolean {
   try {
-    execFileSync("npm", ["--version"], { stdio: "ignore" });
+    npmExec(["--version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
@@ -545,11 +567,7 @@ async function npmFetch(remote: RemoteSource, dest: string): Promise<void> {
   mkdirSync(work, { recursive: true });
   let stdout: string;
   try {
-    stdout = execFileSync(
-      "npm",
-      ["pack", spec, "--pack-destination", work, "--silent"],
-      { encoding: "utf8" },
-    );
+    stdout = npmExec(["pack", spec, "--pack-destination", work, "--silent"], { encoding: "utf8" });
   } catch (err) {
     rmSync(work, { recursive: true, force: true });
     throw new Error(
@@ -652,11 +670,10 @@ export const npmDependencyInstaller: DependencyInstaller = (dir) => {
   if (!npmAvailable()) {
     throw new Error("npm was not found on PATH. Install npm, or pass a local --connector <path> whose dependencies are already installed.");
   }
-  execFileSync(
-    "npm",
-    ["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", "--silent"],
-    { cwd: dir, stdio: "ignore" },
-  );
+  npmExec(["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", "--silent"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
 };
 
 /**
