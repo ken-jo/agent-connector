@@ -25,7 +25,17 @@ export interface ConnectorPackageMetadata {
   version?: string;
 }
 
-const PACKAGE_METADATA_CONTEXT = new AsyncLocalStorage<ConnectorPackageMetadata>();
+/**
+ * The context store lives on globalThis under a well-known key so that EVERY
+ * copy of the framework in one process shares it. A remotely fetched connector
+ * (install <source>) imports its OWN node_modules copy of agent-connector, and
+ * its defineConnector must still see the package metadata the installing copy
+ * put in scope — otherwise the id cannot be derived and the config fails to load.
+ */
+export const PACKAGE_METADATA_CONTEXT_KEY = Symbol.for("@ken-jo/agent-connector:package-metadata-context");
+const PACKAGE_METADATA_CONTEXT: AsyncLocalStorage<ConnectorPackageMetadata> = ((
+  globalThis as Record<symbol, unknown>
+)[PACKAGE_METADATA_CONTEXT_KEY] ??= new AsyncLocalStorage<ConnectorPackageMetadata>()) as AsyncLocalStorage<ConnectorPackageMetadata>;
 
 function kebab(raw: string): string {
   return raw

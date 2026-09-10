@@ -277,6 +277,19 @@ describe("parseNpmSource / parseArchiveSource — registry and tarball specs", (
     });
   });
 
+  it("parses a direct .zip path/URL as an archive (never a git clone URL)", () => {
+    expect(parseArchiveSource("https://example.com/dl/acme.zip?token=1")).toMatchObject({
+      sourceKind: "archive",
+      archiveUrl: "https://example.com/dl/acme.zip?token=1",
+      repo: "acme",
+    });
+    expect(parseArchiveSource("./acme.zip")).toMatchObject({ sourceKind: "archive", repo: "acme" });
+    const spec = classifySource("https://example.com/dl/acme.zip");
+    expect(spec?.kind).toBe("remote");
+    expect(spec?.kind === "remote" && spec.remote.sourceKind).toBe("archive");
+    expect(parseGitUrl("https://example.com/dl/acme.zip")).not.toBeNull(); // would misroute without the archive branch
+  });
+
   it("keeps a non-tarball file:// URL as a raw git clone URL", () => {
     expect(parseArchiveSource("file:///tmp/repo")).toBeNull();
     expect(classifySource("file:///tmp/repo")?.kind).toBe("remote");
@@ -505,6 +518,223 @@ describe("resolveRemoteSource — local file:// git clone (no network)", () => {
       "file:///tmp/r",
     );
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4. Integration — extract a LOCAL zip archive with the default fetcher
+//    (real unzip / bsdtar, no network). The zip is built in-process (stored
+//    entries + CRC-32) so the fixture needs no zip CLI on the test box.
+// ═══════════════════════════════════════════════════════════════════════════
+describe("resolveRemoteSource — local .zip archive (no network)", () => {
+  const CRC_TABLE = new Uint32Array(256).map((_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  function crc32(buf: Buffer): number {
+    let c = 0xffffffff;
+    for (const b of buf) c = CRC_TABLE[(c ^ b) & 0xff]! ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+  /** Minimal stored (method 0) zip writer: local headers + central directory + EOCD. */
+  function buildZip(files: Record<string, string>): Buffer {
+    const locals: Buffer[] = [];
+    const centrals: Buffer[] = [];
+    let offset = 0;
+    for (const [name, text] of Object.entries(files)) {
+      const nameBuf = Buffer.from(name, "utf8");
+      const data = Buffer.from(text, "utf8");
+      const crc = crc32(data);
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4); // version needed
+      local.writeUInt16LE(0, 6); // flags
+      local.writeUInt16LE(0, 8); // method: stored
+      local.writeUInt16LE(0, 10); // mtime
+      local.writeUInt16LE(0x21, 12); // mdate (1980-01-01)
+      local.writeUInt32LE(crc, 14);
+      local.writeUInt32LE(data.length, 18);
+      local.writeUInt32LE(data.length, 22);
+      local.writeUInt16LE(nameBuf.length, 26);
+      local.writeUInt16LE(0, 28);
+      const central = Buffer.alloc(46);
+      central.writeUInt32LE(0x02014b50, 0);
+      central.writeUInt16LE(20, 4); // version made by
+      central.writeUInt16LE(20, 6); // version needed
+      central.writeUInt16LE(0, 8);
+      central.writeUInt16LE(0, 10);
+      central.writeUInt16LE(0, 12);
+      central.writeUInt16LE(0x21, 14);
+      central.writeUInt32LE(crc, 16);
+      central.writeUInt32LE(data.length, 20);
+      central.writeUInt32LE(data.length, 24);
+      central.writeUInt16LE(nameBuf.length, 28);
+      central.writeUInt16LE(0, 30); // extra
+      central.writeUInt16LE(0, 32); // comment
+      central.writeUInt16LE(0, 34); // disk
+      central.writeUInt16LE(0, 36); // internal attrs
+      central.writeUInt32LE(0, 38); // external attrs
+      central.writeUInt32LE(offset, 42);
+      locals.push(local, nameBuf, data);
+      centrals.push(central, nameBuf);
+      offset += local.length + nameBuf.length + data.length;
+    }
+    const cdSize = centrals.reduce((n, b) => n + b.length, 0);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(0, 4);
+    eocd.writeUInt16LE(0, 6);
+    eocd.writeUInt16LE(centrals.length / 2, 8);
+    eocd.writeUInt16LE(centrals.length / 2, 10);
+    eocd.writeUInt32LE(cdSize, 12);
+    eocd.writeUInt32LE(offset, 16);
+    eocd.writeUInt16LE(0, 20);
+    return Buffer.concat([...locals, ...centrals, eocd]);
+  }
+  const config = (id: string) =>
+    JSON.stringify({
+      id,
+      version: "1.0.0",
+      server: { transport: "stdio", command: "node", args: ["server.mjs"] },
+    });
+
+  it("extracts a zip nested under one top dir and loads the connector", async () => {
+    const dir = tempDir("ac-fetch-zip-");
+    cleanup.push(dir);
+    const zipPath = join(dir, "zip-connector.zip");
+    writeFileSync(
+      zipPath,
+      buildZip({
+        "zip-connector-1.0.0/agent-connector.config.json": config("zip-connector"),
+        "zip-connector-1.0.0/README.md": "# zip\n",
+      }),
+    );
+    const remote = parseArchiveSource(zipPath)!;
+    expect(remote.sourceKind).toBe("archive");
+    const resolved = await resolveRemoteSource(remote);
+    expect(resolved.connector.id).toBe("zip-connector");
+    // Flattened: the config sits at the cache root, not under the top dir.
+    expect(existsSync(join(sourceCacheDir(remote), "agent-connector.config.json"))).toBe(true);
+  });
+
+  it("extracts a flat zip (config at the archive root) via the archive: prefix", async () => {
+    const dir = tempDir("ac-fetch-zip-flat-");
+    cleanup.push(dir);
+    const zipPath = join(dir, "flat.zip");
+    writeFileSync(
+      zipPath,
+      buildZip({ "agent-connector.config.json": config("flat-zip"), "server.mjs": "// stub\n" }),
+    );
+    const resolved = await resolveRemoteSource(parseArchiveSource(`archive:${zipPath}`)!);
+    expect(resolved.connector.id).toBe("flat-zip");
+  });
+
+  it("a zip that is not a connector fails the shared package gate", async () => {
+    const dir = tempDir("ac-fetch-zip-bad-");
+    cleanup.push(dir);
+    const zipPath = join(dir, "not-a-connector.zip");
+    writeFileSync(zipPath, buildZip({ "not-a-connector/README.md": "# nope\n" }));
+    await expect(resolveRemoteSource(parseArchiveSource(zipPath)!)).rejects.toThrow(
+      /is not an agent-connector connector/,
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. Dependencies — a fetched package never ships node_modules, so a config
+//    that imports its own dependencies must have them installed BEFORE the
+//    package gate loads it (issue #250 known limitation).
+// ═══════════════════════════════════════════════════════════════════════════
+describe("resolveRemoteSource — installs the fetched package's dependencies", () => {
+  const jsonConfig = (id: string) =>
+    JSON.stringify({ id, version: "1.0.0", server: { transport: "stdio", command: "node", args: ["s.mjs"] } });
+  const fetcherWith = (files: Record<string, string>): Fetcher => (_remote, dest) => {
+    mkdirSync(dest, { recursive: true });
+    for (const [name, body] of Object.entries(files)) {
+      mkdirSync(join(dest, name, ".."), { recursive: true });
+      writeFileSync(join(dest, name), body, "utf8");
+    }
+  };
+  const remote: RemoteSource = { owner: "acme", repo: "dep-connector" };
+
+  it("runs the installer in the connector dir when package.json declares dependencies", async () => {
+    const calls: string[] = [];
+    const fetcher = fetcherWith({
+      "package.json": JSON.stringify({ name: "x", dependencies: { "acme-dep": "^1.0.0" } }),
+      "agent-connector.config.json": jsonConfig("dep-connector"),
+    });
+    const resolved = await resolveRemoteSource(remote, { fetcher, dependencyInstaller: (d) => void calls.push(d) });
+    expect(calls).toEqual([resolved.connectorDir]);
+  });
+
+  it("skips the installer when there are no dependencies or node_modules already has them", async () => {
+    const calls: string[] = [];
+    const installer = (d: string) => void calls.push(d);
+    await resolveRemoteSource(remote, {
+      fetcher: fetcherWith({ "package.json": JSON.stringify({ name: "x" }), "agent-connector.config.json": jsonConfig("a") }),
+      dependencyInstaller: installer,
+    });
+    await resolveRemoteSource(remote, {
+      fetcher: fetcherWith({
+        "package.json": JSON.stringify({ name: "x", dependencies: { "@acme/dep": "1.0.0" } }),
+        "node_modules/@acme/dep/package.json": JSON.stringify({ name: "@acme/dep", version: "1.0.0" }),
+        "agent-connector.config.json": jsonConfig("a"),
+      }),
+      dependencyInstaller: installer,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("uses the SUBPATH package's manifest, not the repo root's", async () => {
+    const calls: string[] = [];
+    const fetcher = fetcherWith({
+      "package.json": JSON.stringify({ name: "root", dependencies: { "root-only": "1.0.0" } }),
+      "examples/db/package.json": JSON.stringify({ name: "db", dependencies: { "acme-dep": "1.0.0" } }),
+      "examples/db/agent-connector.config.json": jsonConfig("db"),
+    });
+    const sub: RemoteSource = { ...remote, subpath: "examples/db" };
+    const resolved = await resolveRemoteSource(sub, { fetcher, dependencyInstaller: (d) => void calls.push(d) });
+    expect(calls).toEqual([resolved.connectorDir]);
+    expect(resolved.connectorDir.endsWith(join("examples", "db"))).toBe(true);
+  });
+
+  it("wraps an installer failure in a labeled, actionable error", async () => {
+    const fetcher = fetcherWith({
+      "package.json": JSON.stringify({ name: "x", dependencies: { "acme-dep": "^1.0.0" } }),
+      "agent-connector.config.json": jsonConfig("dep-connector"),
+    });
+    await expect(
+      resolveRemoteSource(remote, {
+        fetcher,
+        dependencyInstaller: () => {
+          throw new Error("registry unreachable");
+        },
+      }),
+    ).rejects.toThrow(/acme\/dep-connector: the connector declares dependencies \(acme-dep\).*registry unreachable.*npm install/);
+  });
+
+  it("REAL npm: a config importing a file: dependency loads after the default installer runs", async () => {
+    // A local dummy package stands in for the framework dependency — no network.
+    const depDir = tempDir("ac-fetch-dep-pkg-");
+    cleanup.push(depDir);
+    writeFileSync(join(depDir, "package.json"), JSON.stringify({ name: "acme-dep", version: "1.0.0", type: "module", main: "index.js" }));
+    writeFileSync(join(depDir, "index.js"), 'export const id = "dep-loaded";\n');
+    const fetcher = fetcherWith({
+      "package.json": JSON.stringify({ name: "dep-connector", type: "module", dependencies: { "acme-dep": `file:${depDir}` } }),
+      "agent-connector.config.mjs":
+        'import { id } from "acme-dep";\n' +
+        'export default { id, version: "1.0.0", server: { transport: "stdio", command: "node", args: ["s.mjs"] } };\n',
+    });
+    // Without dependencies the config cannot even load — the pre-fix failure.
+    // (Separate cache dir: Node's ESM loader remembers a failed import of the
+    // same file URL for the life of the process.)
+    await expect(
+      resolveRemoteSource({ ...remote, ref: "no-deps" }, { fetcher, dependencyInstaller: () => {} }),
+    ).rejects.toThrow(/failed to load as an agent-connector connector/);
+    const resolved = await resolveRemoteSource(remote, { fetcher });
+    expect(resolved.connector.id).toBe("dep-loaded");
+    expect(existsSync(join(resolved.connectorDir, "node_modules", "acme-dep", "package.json"))).toBe(true);
+  }, 120_000);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

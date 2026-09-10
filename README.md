@@ -257,7 +257,7 @@ review. This is the Quick start path above.
 
 Framework fallback can also install a connector source directly when you are
 testing distribution intake: `github:owner/repo`, `npm:@scope/package@version`,
-or an `archive:` / direct `.tgz` source. Every fetched source is cached under
+or an `archive:` / direct `.tgz` / `.zip` source. Every fetched source is cached under
 `~/.agent-connector/sources/` and must contain `agent-connector.config.*`.
 
 **Marketplace plugin** — the framework `package` command turns the connector
@@ -537,7 +537,7 @@ Adding a platform = **one registry entry + one adapter**.
 | Command | Purpose |
 |---|---|
 | `detect` | List installed platforms, scopes, capabilities, hook paradigm. |
-| `install [<source>] [--scope …] [--targets …] [--method …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces. `<source>` may be local, GitHub/git, `npm:<package>[@version]`, or `.tgz`/`archive:`. |
+| `install [<source>] [--scope …] [--targets …] [--method …] [--dry-run] [--force]` | Render + write MCP + hooks + content surfaces. `<source>` may be local, GitHub/git, `npm:<package>[@version]`, or `.tgz`/`.zip`/`archive:`. |
 | `uninstall [--targets …] [--purge] [--method …]` | Full inverse — removes everything we wrote; `--purge` also clears framework state. |
 | `upgrade [--channel …]` | Re-render host config + heal stale pointers + refresh the home binary (alias: `update`, `sync`); clears every `doctor` version warning; never a silent self-update. |
 | `doctor [--probe] [--heal] [--explain] [--json] [--dry-run]` | Per-platform health checks with fixes, plus version checks: the home binary's target install and every connector's rendering framework version are compared with the running CLI (drift → warn + `upgrade`). `--probe` runs a live MCP handshake, `--heal` re-syncs every fixable finding, `--explain` prints the per-`(host, event)` hook honor matrix. |
