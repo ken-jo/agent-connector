@@ -38,6 +38,7 @@ by a test on each run, and a drift test fails if the README and the source disag
 | Surfaces rendered per host | **8** — MCP server (41 hosts), memory (41), skills (36), hooks (32), commands (19), subagents (16), actions (9), status line (4) |
 | Hook events normalized | **13**, dispatched through **3** paradigms (`json-stdio` 24 hosts · `mcp-only` 10 · `ts-plugin` 8) |
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
+| Secret backends | **4** — macOS Keychain, Linux Secret Service, Windows Credential Manager, opt-in file store; a `${secret:NAME}` in a stdio server's `env` never reaches a host config |
 | Hosts verified against the real host binary | **29 of 42** (22 of them end-to-end through a model tool call); the other **13** by the registry install harness in an isolated HOME |
 | Measured footprint | one 135-line `defineConnector()` → **66 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (63 at project scope) — `npm run measure:footprint` |
 | Test suite | **163** test files |
@@ -104,7 +105,7 @@ npm install @ken-jo/agent-connector
   "name": "@acme/acme-db-mcp",
   "mcpName": "io.github.acme/acme-db",
   "bin": { "acme-db": "./bin.mjs" },
-  "dependencies": { "@ken-jo/agent-connector": "^0.6.5" }
+  "dependencies": { "@ken-jo/agent-connector": "^0.7.0" }
 }
 ```
 

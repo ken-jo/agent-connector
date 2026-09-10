@@ -1,5 +1,147 @@
 # Changelog
 
+## 0.7.0 — 2026-09-10
+
+A connector can now reference secrets the user keeps in the OS keystore instead
+of shipping them through host config files; `install` accepts `.zip` sources and
+installs a fetched connector's dependencies; two more content surfaces (droid
+status line, junie skills); every registered host has a verification lane.
+
+### Highlights — secrets that never touch a host config
+
+Every MCP server needs a credential, and until now every connector author solved
+the same problem alone: bake the key into a host's JSON config, ask users to
+export environment variables, or write keychain glue for each operating system.
+0.7.0 makes that the framework's job.
+
+**One line for the author.** Reference the secret where the env var would be:
+
+```js
+server: {
+  transport: "stdio",
+  command: "npx",
+  args: ["-y", "@acme/db-mcp"],
+  env: { ACME_API_KEY: "${secret:api-key}" },
+}
+```
+
+**One command for the user.** `acme-db secrets set api-key` asks for the value
+with a hidden prompt (or reads stdin) and stores it in the operating system's
+keystore: macOS Keychain, Linux Secret Service, Windows Credential Manager. An
+opt-in plaintext file store covers headless machines.
+
+**Nothing in between.** Host config files carry only the serve wrapper's
+placeholder (`--secret-env ACME_API_KEY={secret:api-key}`, a form no host
+expands). At launch the wrapper reads the keystore and injects the value into
+the server process alone; the value never appears in argv, in a host file, in
+the names index, in telemetry or in any CLI output. A missing or empty secret
+stops the launch with the exact `secrets set` command instead of starting the
+server with an empty key, and each connector id is its own keystore namespace.
+
+**Day two is covered.** `install` warns per unset name, `doctor` reports
+`<id>: secrets`, `secrets list` and `secrets check` show state without values,
+and MCPB bundles and registry `server.json` declare the secrets for hosts that
+install the package themselves.
+
+**And it is an SDK, not only a CLI.** `openSecretStore({ connectorId })` gives a
+connector's own tooling the same store — `get`, `set`, `delete`, `list`,
+`availability`, `selfTest` — with `findSecretRefs`, `resolveSecretBackendId`,
+`SECRET_BACKEND_IDS`, `SecretError` and `SecretResolutionError` exported from
+the package root:
+
+```ts
+import { openSecretStore } from "@ken-jo/agent-connector";
+
+const store = openSecretStore({ connectorId: "acme-db" });
+store.set("api-key", value); // the value is never logged or printed
+store.has("api-key");        // true
+store.list();                // [{ name, backend, present, updatedAt }]
+```
+
+### Added
+
+- **OS-keystore secrets — `${secret:NAME}`** (#341). A stdio server writes
+  `"${secret:NAME}"` as a value in its `env` (base `server.env` or a
+  `platforms[<id>].server.env` override) and the user stores the value once with
+  `secrets set NAME`. `defineConnector` moves such entries into the new
+  `ServerDef.secretEnv`, rejects the reference in every other server field
+  (`command`, `args`, `cwd`, `url`, `headers`, `auth`) and on remote servers
+  (an override is judged by the transport it inherits), and leaves a
+  reference-free server byte-identical. Hosts see only the `serve` wrapper's
+  `--secret-env NAME={secret:NAME}` placeholder; at launch the wrapper reads the
+  keystore, expands any `${env:VAR}` around a reference, injects the value into
+  the real server's environment only, and refuses to start when a name is unset
+  or empty (`SecretResolutionError` with the `secrets set` hint). A server with
+  secrets is wrapped even when telemetry is off (measurement disabled, judged by
+  the host's effective server); `doctor --probe` resolves the same way. Backends:
+  `keychain` (macOS, `/usr/bin/security`, value as hex on stdin), `secret-service`
+  (Linux, `secret-tool` over D-Bus, value on stdin, 8192-byte cap),
+  `credential-manager` (Windows, PowerShell under `%SystemRoot%` calling
+  `CredRead/Write/DeleteW`, value in the child environment, 2560-byte cap) and
+  the opt-in plaintext `file` store (`<dataRoot>/secrets/file-store.json`,
+  0700/0600). Selection: `--backend`, else `AGENT_CONNECTOR_SECRETS_BACKEND`,
+  else the OS-native backend; a names-only index records which backend holds
+  each name, and each connector id is its own keystore service.
+- **`secrets set | delete | list | check`** (#341): the value comes from a hidden
+  TTY prompt or stdin (no `--value` flag) and is never printed; `list` shows
+  `name  backend  present  updated`; `check` reports availability and runs a
+  write → read → delete self-test; usage errors exit 2, keystore failures 1.
+  Branded CLIs (`createConnectorCli`) auto-scope it to their connector.
+  `install` warns per unset name (and per unset, defaultless `${env:VAR}`
+  inside a secret-bearing value), and when a connector id is re-registered from
+  another module while secrets are stored under it; `doctor` adds the framework
+  check `<id>: secrets`. MCPB `user_config` gets one sensitive, required field
+  per referenced name substituted into the env template; registry `server.json`
+  declares the env var as a secret, required `environmentVariables` entry.
+- **SDK** (#341): `openSecretStore`, `findSecretRefs`, `resolveSecretBackendId`,
+  `SECRET_BACKEND_IDS`, `SecretError`, `SecretResolutionError` and the store
+  types are exported from the package root. Docs: README, `llms-full.txt`
+  (§2.2, `### secrets`, §9.1), the site CLI reference and Operate guide §6, the
+  authoring skill reference.
+- **`.zip` connector sources** (#337): `install <path-or-URL>.zip` extracts with
+  `unzip` or a zip-capable bsdtar (macOS / Windows), ignores `__MACOSX`, and
+  flattens a single top-level directory; a direct `.zip` URL no longer falls
+  into the git-clone path. Closes #264.
+- **Dependencies of a fetched connector** (#337): when a fetched connector's
+  `package.json` declares dependencies its `node_modules` does not satisfy,
+  `install` runs `npm install --ignore-scripts --omit=dev` there (via `npm.cmd`
+  on Windows) before the package gate loads the config. Refs #250.
+- **droid status line** (#338): `statusLine = { command, maxRows? }` in
+  `~/.factory/settings.json` (user) or `<projectDir>/.factory/settings.json`
+  (project), through the config-patch ownership ledger (set-if-absent, drift is
+  warned, first writer wins, removed only when last owner and unchanged). The
+  runtime parser maps no host fields — it returns `{ host, capabilities, raw }`
+  only. Status line hosts: 3 → 4. Closes #266.
+- **junie Agent Skills** (#340): `<projectDir>/.junie/skills/<name>/SKILL.md`
+  and `~/.junie/skills/<name>/` with frontmatter `name` / `description` and
+  supporting resources. Skills hosts: 35 → 36. Closes #267.
+
+### Changed
+
+- **Package-metadata context across framework copies** (#337): the
+  `AsyncLocalStorage` behind `withConnectorPackageMetadata` lives on
+  `globalThis` under `Symbol.for("@ken-jo/agent-connector:package-metadata-context")`,
+  so a fetched connector importing its own `node_modules/@ken-jo/agent-connector`
+  copy still sees the installing copy's metadata. Takes effect once both copies
+  carry this release.
+- **Shared owned-JSON-leaf helpers** (#338): `BaseAdapter.installOwnedJsonLeaf`
+  / `uninstallOwnedJsonLeaf` and `src/core/json-leaf.ts`; qwen-code and
+  antigravity-cli delegate to them, behavior unchanged.
+- **README** links the Troubleshooting page from the CLI table (#336). Closes #263.
+
+### Verified
+
+- **42 of 42 registered hosts have a `verify-host` lane** (#339): cline
+  (placement-only — the CLI has no offline accept verb; `dirs` pre-creates
+  `~/.cline` so the CLI settings mirror is exercised) and open-interpreter
+  (live-accept at user scope; `acceptScopes` marks the project scope, which the
+  CLI does not read, as placement-only). Closes #268.
+- **Keystore backends** (#341): the macOS keychain round trip (`security -i`
+  write, `-g` read, update, delete, unicode and multi-line values) runs against a
+  throwaway keychain in `tests/core/secrets.test.ts`; the Linux and Windows
+  backends are pinned by exec-contract tests (argv never carries a value), and
+  CI's windows-smoke job runs them.
+
 ## 0.6.5 — 2026-09-07
 
 `doctor` now answers "is this install current", one more host CLI reads what the

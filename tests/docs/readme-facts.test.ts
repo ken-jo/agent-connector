@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { ADAPTER_REGISTRY } from "../../src/adapters/registry.js";
 import { ALL_EVENTS } from "../../src/core/define-connector.js";
 import { ALL_FORMATS, FEASIBLE_FORMATS } from "../../src/core/package.js";
+import { SECRET_BACKEND_IDS } from "../../src/core/secrets.js";
 import {
   adapterCapabilityProfiles,
   generatedSurfaceKeys,
@@ -101,6 +102,11 @@ describe("README 'By the numbers' equals its sources", () => {
     expect(plugin).toBe(FEASIBLE_FORMATS.length);
     expect(standard).toBe(ALL_FORMATS.length - FEASIBLE_FORMATS.length);
     expect(README).toContain(`package-${plugin}%20plugin%20formats%20%2B%20${standard}%20MCP%20artifacts`);
+  });
+
+  it("secret backends = SECRET_BACKEND_IDS", () => {
+    const [count] = num(/\| Secret backends \| \*\*(\d+)\*\* — /, "secret backends");
+    expect(count).toBe(SECRET_BACKEND_IDS.length);
   });
 
   it("verification split = the generated host verification matrix", () => {
