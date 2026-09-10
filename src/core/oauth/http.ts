@@ -41,18 +41,32 @@ export async function readBody(res: Response, max = MAX_RESPONSE_BYTES): Promise
   return Buffer.concat(chunks).toString("utf8");
 }
 
-/** Reject a token endpoint that would carry credentials in the clear (loopback is exempt: tests, local IdPs). */
+/**
+ * Reject an endpoint that would carry credentials in the clear (loopback is
+ * exempt: tests, local IdPs), one that embeds userinfo or a fragment (RFC 6749
+ * §3.2), or one that carries a control character — `new URL()` strips CR / LF
+ * silently, so the string is checked before it is parsed, and the value echoed
+ * in a message is sanitized (byte-identical for a well-formed URL).
+ */
 export function assertSecureEndpoint(url: string, what: string): URL {
+  const shown = sanitizeProviderText(url, 2048);
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(url)) {
+    throw new OAuthError("config", `${what} is not a URL: ${shown}`);
+  }
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new OAuthError("config", `${what} is not a URL: ${url}`);
+    throw new OAuthError("config", `${what} is not a URL: ${shown}`);
   }
   const loopback =
     parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "[::1]";
   if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && loopback)) {
-    throw new OAuthError("config", `${what} must be an https URL: ${url}`);
+    throw new OAuthError("config", `${what} must be an https URL: ${shown}`);
+  }
+  if (parsed.username !== "" || parsed.password !== "" || parsed.hash !== "") {
+    throw new OAuthError("config", `${what} must not carry credentials or a fragment: ${shown}`);
   }
   return parsed;
 }
@@ -79,7 +93,9 @@ function abortReason(err: unknown, signal: AbortSignal): OAuthError {
   if (signal.reason instanceof OAuthError) return signal.reason;
   if (err instanceof OAuthError) return err;
   const name = err instanceof Error && err.name === "AbortError" ? "aborted" : "network error";
-  return new OAuthError("provider", `${name}: ${err instanceof Error ? err.message : String(err)}`);
+  // undici wraps the reason in `cause` ("fetch failed" alone says nothing about a redirect or a DNS miss).
+  const cause = err instanceof Error && err.cause instanceof Error && err.cause.message !== "" ? ` (${sanitizeProviderText(err.cause.message)})` : "";
+  return new OAuthError("provider", `${name}: ${err instanceof Error ? err.message : String(err)}${cause}`);
 }
 
 /** `application/x-www-form-urlencoded` params → JSON (or form-encoded) response body. */
@@ -99,6 +115,10 @@ export async function postForm(
         ...(opts.headers ?? {}),
       },
       body: new URLSearchParams(params).toString(),
+      // A token, device or revocation endpoint never redirects; following one
+      // would re-send the form — a code and its verifier, a refresh token — to
+      // whatever origin the Location names (307/308), so a redirect is an error.
+      redirect: "error",
       signal: t.signal,
     });
     const body = await parseBody(res);

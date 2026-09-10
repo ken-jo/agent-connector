@@ -4,6 +4,10 @@
  * A server whose connector declares logins the user never ran opens a browser
  * (or fails closed) on its first `getAccessToken`, so the installer warns at
  * the moment the host entry is written:
+ *   • one warn per `${secret:NAME}` a login's clientId / clientSecret references
+ *     that the keystore does not hold (a user-registered app), before that
+ *     login's absence line:
+ *       login "<key>" (<provider>) references secret "<NAME>" which is not set — run `secrets set <NAME>` before `auth login <key>`
  *   • one warn per absent login:
  *       login "<key>" (<provider>) is not present — run `auth login <key>` before the server needs it
  *   • ONE warn when the keystore itself cannot be read
@@ -22,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineConnector } from "../../src/core/define-connector.js";
 import { installConnector } from "../../src/core/installer.js";
 import { openSecretStore } from "../../src/core/secrets.js";
+import { userRegisteredBing } from "../support/oauth-fixtures.js";
 import type {
   PlatformId,
   ResolvedConnector,
@@ -103,6 +108,13 @@ async function install(c: ResolvedConnector, targets: PlatformId[]) {
 
 const NOT_PRESENT = (key: string, provider: string): string =>
   `login "${key}" (${provider}) is not present — run \`auth login ${key}\` before the server needs it`;
+const SECRET_NOT_SET = (key: string, provider: string, name: string): string =>
+  `login "${key}" (${provider}) references secret "${name}" which is not set — run \`secrets set ${name}\` before \`auth login ${key}\``;
+
+/** A user-registered Bing login: the id and the secret are both `${secret:NAME}` references. */
+function secrets() {
+  return openSecretStore({ connectorId: "acme-db", backend: "file", dataRoot: tmpData });
+}
 
 function loginWarns(result: { changes: { action: string; platform: string; detail: string }[] }) {
   return result.changes.filter((c) => c.action === "warn" && /login\(s\)|^login "/.test(c.detail));
@@ -170,6 +182,78 @@ describe("installer — oauth.<key> install-time warning", () => {
       ["claude-code"],
     );
     expect(JSON.stringify(result)).not.toContain("rt-secret-value");
+  });
+
+  it("names each unset ${secret:NAME} a login references, clientId first, before that login's absence line", async () => {
+    const result = await install(connector([userRegisteredBing(loginDef("bing", "bing-webmaster")), loginDef("google", "google")]), ["claude-code"]);
+    expect(loginWarns(result).map((w) => w.detail)).toEqual([
+      SECRET_NOT_SET("bing", "bing-webmaster", "bing-client-id"),
+      SECRET_NOT_SET("bing", "bing-webmaster", "bing-client-secret"),
+      NOT_PRESENT("bing", "bing-webmaster"),
+      NOT_PRESENT("google", "google"),
+    ]);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        SECRET_NOT_SET("bing", "bing-webmaster", "bing-client-id"),
+        SECRET_NOT_SET("bing", "bing-webmaster", "bing-client-secret"),
+      ]),
+    );
+    // `install` keeps its exit-1-on-warn convention: the lines are warnings, not failures.
+    expect(result.changes.some((c) => c.detail?.includes("installServer failed"))).toBe(false);
+  });
+
+  it("reports a name referenced by both clientId and clientSecret once", async () => {
+    const result = await install(connector([userRegisteredBing(loginDef("bing", "bing-webmaster"), "bing-app", "bing-app")]), ["claude-code"]);
+    expect(loginWarns(result).map((w) => w.detail)).toEqual([
+      SECRET_NOT_SET("bing", "bing-webmaster", "bing-app"),
+      NOT_PRESENT("bing", "bing-webmaster"),
+    ]);
+  });
+
+  it("drops each secret line once `secrets set` stored the value, and the absence line once the login ran", async () => {
+    const c = connector([userRegisteredBing(loginDef("bing", "bing-webmaster"))]);
+    secrets().set("bing-client-id", "bing-app-id");
+    expect(loginWarns(await install(c, ["claude-code"])).map((w) => w.detail)).toEqual([
+      SECRET_NOT_SET("bing", "bing-webmaster", "bing-client-secret"),
+      NOT_PRESENT("bing", "bing-webmaster"),
+    ]);
+    secrets().set("bing-client-secret", "bing-app-secret");
+    expect(loginWarns(await install(c, ["claude-code"])).map((w) => w.detail)).toEqual([NOT_PRESENT("bing", "bing-webmaster")]);
+    secrets().set("oauth.bing.refresh-token", "rt");
+    const done = await install(c, ["claude-code"]);
+    expect(loginWarns(done)).toEqual([]);
+    expect(JSON.stringify(done)).not.toContain("bing-app-secret");
+  });
+
+  it("no secret line for a literal clientId, ${env:VAR} clientId or literal clientSecret", async () => {
+    const google: ResolvedOAuthLoginDef = { ...loginDef("google", "google"), clientSecret: "GOCSPX-replace-me" };
+    const ms: ResolvedOAuthLoginDef = { ...loginDef("ms", "microsoft"), clientId: "${env:MS_CLIENT_ID}" };
+    const result = await install(connector([google, ms]), ["claude-code"]);
+    expect(loginWarns(result).map((w) => w.detail)).toEqual([NOT_PRESENT("google", "google"), NOT_PRESENT("ms", "microsoft")]);
+  });
+
+  it("repeats the same secret and absence lines, in order, for every host that wrote an entry (probed once per connector)", async () => {
+    const result = await install(connector([userRegisteredBing(loginDef("bing", "bing-webmaster")), loginDef("google", "google")]), ["claude-code", "codex"]);
+    const expected = [
+      SECRET_NOT_SET("bing", "bing-webmaster", "bing-client-id"),
+      SECRET_NOT_SET("bing", "bing-webmaster", "bing-client-secret"),
+      NOT_PRESENT("bing", "bing-webmaster"),
+      NOT_PRESENT("google", "google"),
+    ];
+    for (const platform of ["claude-code", "codex"]) {
+      expect(loginWarns(result).filter((w) => w.platform === platform).map((w) => w.detail)).toEqual(expected);
+    }
+    expect(result.warnings.filter((w) => expected.includes(w))).toHaveLength(expected.length * 2);
+  });
+
+  it("ONE warn (never a failure) when the keystore backend is unavailable, with no secret line", async () => {
+    const foreign = process.platform === "win32" ? "keychain" : "credential-manager";
+    process.env.AGENT_CONNECTOR_SECRETS_BACKEND = foreign;
+    const result = await install(connector([userRegisteredBing(loginDef("bing", "bing-webmaster")), loginDef("google", "google")]), ["claude-code"]);
+    const warns = loginWarns(result);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]?.detail).toMatch(/cannot verify login\(s\) bing, google/);
+    expect(JSON.stringify(result)).not.toContain("references secret");
   });
 
   it("ONE warn (never a failure) when the keystore backend is unavailable on this OS", async () => {

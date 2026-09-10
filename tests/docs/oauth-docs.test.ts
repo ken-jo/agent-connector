@@ -4,7 +4,8 @@
  * command-table row; llms.txt: the branded verb list; llms-full.txt: the §2.1
  * row, the §2.2 paragraph + presets table, the `### auth` reference and the
  * §9.1 SDK section; the site CLI reference + connector field rows in
- * docs-data.ts; the Operate guide + search index; the authoring skill
+ * docs-data.ts; the Operate guide + search index, incl. the "who supplies the
+ * app" table and the token exchange wire contract; the authoring skill
  * reference) must agree with the code. Sources of truth: AUTH_USAGE_LINES in
  * src/cli/commands/auth.ts (mirrored by COMMAND_USAGE in src/cli/app.ts), the
  * presets in src/core/oauth/, the defineConnector messages, and the engine /
@@ -23,15 +24,21 @@ import {
   resolvedConnectorFields,
 } from "../../site/src/components/docs/docs-data.js";
 import { searchIndex } from "../../site/src/components/docs/search-index.js";
-import { oauthProviderRegistrations } from "../../site/src/components/docs/docs-data.js";
+import { oauthProviderRegistrations, oauthSupplyModes } from "../../site/src/components/docs/docs-data.js";
 import { AUTH_USAGE_LINES } from "../../src/cli/commands/auth.js";
 import { defineConnector } from "../../src/core/define-connector.js";
+import { installConnector } from "../../src/core/installer.js";
+import { loginsCheck } from "../../src/cli/commands/doctor.js";
+import type { OAuthPresetId } from "../../src/core/types.js";
 import {
   OAUTH_PRESET_IDS,
   OAuthLoginRequiredError,
   getAccessToken,
   getOAuthPreset,
+  login,
+  loginSecretNames,
 } from "../../src/core/oauth/index.js";
+import { SecretResolutionError } from "../../src/core/secrets.js";
 import * as sdk from "../../src/sdk/index.js";
 
 const read = (path: string) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
@@ -233,26 +240,119 @@ describe("the docs name every preset", () => {
 });
 
 describe("the messages the oauth docs quote are the ones the code emits", () => {
-  it("defineConnector rejects a literal clientSecret with the documented message", () => {
-    expect(() =>
-      defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...googleLogin, clientSecret: "literal-secret" } } }),
-    ).toThrow("oauth.google.clientSecret: must be a ${secret:NAME} reference (a literal secret is never written into a connector config)");
+  it("defineConnector rejects a literal clientSecret for a preset whose provider keeps it confidential, with the documented message", () => {
+    const github = { provider: "github", clientId: "Iv1.0123456789abcdef", scopes: ["repo"] } as const;
+    for (const [key, def] of [
+      ["gh", github],
+      ["bing", { provider: "bing-webmaster", clientId: "bing-app", scopes: ["webmaster.read"], redirectPort: 48213 }],
+      ["idp", { provider: "generic", clientId: "cid", scopes: ["read"], issuer: "https://auth.invalid" }],
+    ] as const) {
+      expect(() =>
+        defineConnector({ id: "seo-mcp", server: stdio, oauth: { [key]: { ...def, clientSecret: "literal-secret" } } }),
+      ).toThrow(`oauth.${key}.clientSecret: must be a \${secret:NAME} reference (a literal secret is never written into a connector config)`);
+    }
+    expect(getOAuthPreset("github").clientSecretPublic).toBeUndefined();
     expect(flat(LLMS_FULL)).toContain(
       "<where>.clientSecret: must be a ${secret:NAME} reference (a literal secret is never written into a connector config)",
     );
     expect(connectorConfigFields.find((f) => f.name === "oauth")?.notes).toContain(
       "a literal secret is never written into a connector config",
     );
-    expect(AUTHORING).toContain("a `clientSecret` must be a\n`${secret:NAME}` reference, never a literal");
+    expect(AUTHORING).toContain("`${secret:NAME}` reference");
   });
 
-  it("defineConnector rejects a secret-ref clientId with the documented message", () => {
-    expect(() =>
-      defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...googleLogin, clientId: "${secret:cid}" } } }),
-    ).toThrow("oauth.google.clientId: must be a non-empty string; a client id is not a secret (use ${env:VAR} for a per-machine value)");
+  it("defineConnector accepts a literal clientSecret for google only and rejects a malformed one with the documented message", () => {
+    expect(getOAuthPreset("google").clientSecretPublic).toBe(true);
+    for (const id of OAUTH_PRESET_IDS.filter((p) => p !== "google")) {
+      expect(getOAuthPreset(id).clientSecretPublic, `${id} must not accept a literal client secret`).toBeUndefined();
+    }
+    const literal = defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...googleLogin, clientSecret: "GOCSPX-literal" } } });
+    expect(literal.oauth.google?.clientSecret).toBe("GOCSPX-literal");
+    const message =
+      'oauth.google.clientSecret: must be a ${secret:NAME} reference or a non-empty literal (provider "google" documents an installed app\'s client secret as not confidential)';
+    for (const bad of ["", "   ", "${env:GOOGLE_SECRET}", "x-${secret:y}"]) {
+      expect(
+        () => defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...googleLogin, clientSecret: bad } } }),
+        JSON.stringify(bad),
+      ).toThrow(message);
+    }
     expect(flat(LLMS_FULL)).toContain(
-      "<where>.clientId: must be a non-empty string; a client id is not a secret (use ${env:VAR} for a per-machine value)",
+      '<where>.clientSecret: must be a ${secret:NAME} reference or a non-empty literal (provider "google" documents an installed app\'s client secret as not confidential)',
     );
+    for (const [name, text] of [
+      ["README", readmeOAuthParagraph()],
+      ["llms-full §2.2", llmsServerDefSection()],
+      ["site oauth row", connectorConfigFields.find((f) => f.name === "oauth")?.notes ?? ""],
+      ["site auth entry", siteAuthEntry().summary],
+      ["Operate guide", DOCS_CONTENT],
+    ] as const) {
+      expect(text, `${name} does not say google's literal client secret is accepted`).toContain("not confidential");
+    }
+    expect(presetTable(readmeOAuthParagraph()).get("google")?.[3]).toContain("A literal `clientSecret` is accepted");
+  });
+
+  it("defineConnector accepts exactly one ${secret:NAME} clientId and rejects every other secret-bearing form with the documented message", () => {
+    const ref = defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...googleLogin, clientId: "${secret:google-client-id}" } } });
+    expect(ref.oauth.google?.clientId).toBe("${secret:google-client-id}");
+    const message = "oauth.google.clientId: must be a non-empty string — a literal, ${env:VAR}, or exactly one ${secret:NAME} reference";
+    for (const bad of ["", "   ", "id-${secret:x}", "${secret:a}${secret:b}", "${secret:bad name}"]) {
+      expect(
+        () => defineConnector({ id: "seo-mcp", server: stdio, oauth: { google: { ...googleLogin, clientId: bad } } }),
+        JSON.stringify(bad),
+      ).toThrow(message);
+    }
+    expect(flat(LLMS_FULL)).toContain(
+      "<where>.clientId: must be a non-empty string — a literal, ${env:VAR}, or exactly one ${secret:NAME} reference",
+    );
+    expect(llmsServerDefSection()).toMatch(/^  clientId: string; +\/\/ .*exactly one \$\{secret:NAME\}/m);
+    expect(connectorConfigFields.find((f) => f.name === "oauth")?.notes).toContain("exactly one ${secret:NAME} reference");
+    for (const [name, text] of [
+      ["README", readmeOAuthParagraph()],
+      ["llms-full §2.2", llmsServerDefSection()],
+      ["Operate guide", DOCS_CONTENT],
+    ] as const) {
+      expect(text, `${name} does not show the user-registered clientId form`).toContain('clientId: "${secret:NAME}"');
+      expect(text, `${name} does not show the user-registered clientSecret form`).toContain('clientSecret: "${secret:NAME}"');
+    }
+    expect(oauthSupplyModes.find((m) => m.mode === "User-registered")?.config).toBe('clientId: "${secret:NAME}"; clientSecret: "${secret:NAME}"');
+  });
+
+  it("defineConnector validates tokenExchangeUrl and its exclusivity with clientSecret, with the documented messages", () => {
+    const withUrl = (tokenExchangeUrl: string, clientSecret?: string) =>
+      defineConnector({
+        id: "seo-mcp",
+        server: stdio,
+        oauth: { google: { ...googleLogin, tokenExchangeUrl, ...(clientSecret === undefined ? {} : { clientSecret }) } },
+      });
+    expect(withUrl("https://seo.example.com/oauth/google/token").oauth.google?.tokenExchangeUrl).toBe("https://seo.example.com/oauth/google/token");
+    expect(withUrl("http://127.0.0.1:1/x").oauth.google?.tokenExchangeUrl).toBe("http://127.0.0.1:1/x");
+    for (const bad of ["http://example.com/x", "ftp://x"]) {
+      expect(() => withUrl(bad), bad).toThrow("oauth.google.tokenExchangeUrl: must be an https URL");
+    }
+    const exclusive = "oauth.google: clientSecret and tokenExchangeUrl are exclusive — the token exchange service holds the client secret";
+    expect(() => withUrl("https://seo.example.com/t", "GOCSPX-literal")).toThrow(exclusive);
+    expect(() => withUrl("https://seo.example.com/t", "${secret:google-client-secret}")).toThrow(exclusive);
+    expect(flat(LLMS_FULL)).toContain("<where>.tokenExchangeUrl: must be an https URL");
+    expect(flat(LLMS_FULL)).toContain(
+      "<where>: clientSecret and tokenExchangeUrl are exclusive — the token exchange service holds the client secret",
+    );
+    expect(llmsServerDefSection()).toMatch(/^  tokenExchangeUrl\?: string;/m);
+    expect(TYPES).toMatch(/^  tokenExchangeUrl\?: string;/m);
+    for (const [name, text] of [
+      ["README", readmeOAuthParagraph()],
+      ["llms.txt", LLMS],
+      ["llms-full §2.2", llmsServerDefSection()],
+      ["llms-full auth section", llmsAuthSection()],
+      ["llms-full §9.1", llmsSdkSection()],
+      ["site oauth row", connectorConfigFields.find((f) => f.name === "oauth")?.notes ?? ""],
+      ["site auth entry", siteAuthEntry().summary],
+      ["Operate guide", DOCS_CONTENT],
+    ] as const) {
+      expect(text, `${name} does not document tokenExchangeUrl`).toContain("tokenExchangeUrl");
+    }
+    for (const id of ["github", "bing-webmaster", "generic"]) {
+      expect(presetTable(readmeOAuthParagraph()).get(id)?.[3], `README notes for ${id}`).toContain("`tokenExchangeUrl`");
+    }
   });
 
   it("defineConnector rejects empty scopes and a bad key with the documented messages", () => {
@@ -387,6 +487,135 @@ describe("the messages the oauth docs quote are the ones the code emits", () => 
     expect(unticked(llmsAuthSection())).toContain(unticked(warning));
     expect(unticked(siteAuthEntry().summary)).toContain(unticked(warning));
     expect(readmeOAuthParagraph()).toContain("`install` warns per missing login");
+  });
+
+  it("install and doctor name the secrets set commands the docs quote for a login whose secret is not set", async () => {
+    // Behavior, not source text: a user-registered login is dry-run installed
+    // into a throwaway root with the file backend, and doctor's logins check
+    // runs against the same root; the emitted strings are compared with the
+    // doc templates, placeholders substituted.
+    const root = mkdtempSync(join(tmpdir(), "ac-docs-secrets-"));
+    const keys = ["HOME", "USERPROFILE", "AGENT_CONNECTOR_DATA_DIR", "AGENT_CONNECTOR_SECRETS_BACKEND", "AGENT_CONNECTOR_TELEMETRY"] as const;
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    try {
+      process.env.HOME = root;
+      process.env.USERPROFILE = root;
+      process.env.AGENT_CONNECTOR_DATA_DIR = root;
+      process.env.AGENT_CONNECTOR_SECRETS_BACKEND = "file";
+      delete process.env.AGENT_CONNECTOR_TELEMETRY;
+      const connector = defineConnector({
+        id: "seo-mcp",
+        server: stdio,
+        oauth: {
+          bing: {
+            provider: "bing-webmaster",
+            clientId: "${secret:bing-client-id}",
+            clientSecret: "${secret:bing-client-secret}",
+            scopes: ["webmaster.read"],
+            redirectPort: 48213,
+          },
+        },
+      });
+      const fill = (template: string, name: string): string =>
+        template.replaceAll("<key>", "bing").replaceAll("<provider>", "bing-webmaster").replaceAll("<NAME>", name).replaceAll("<id>", "seo-mcp");
+
+      const result = await installConnector({
+        connector,
+        modulePath: join(root, "fake.mjs"),
+        scope: "user",
+        projectDir: root,
+        targets: ["claude-code"],
+        dryRun: true,
+      });
+      const warns = result.changes.filter((c) => c.action === "warn").map((c) => c.detail);
+      const installLine =
+        'login "<key>" (<provider>) references secret "<NAME>" which is not set — run `secrets set <NAME>` before `auth login <key>`';
+      expect(warns.slice(0, 2)).toEqual([fill(installLine, "bing-client-id"), fill(installLine, "bing-client-secret")]);
+      expect(unticked(llmsAuthSection())).toContain(unticked(installLine));
+      expect(unticked(siteAuthEntry().summary)).toContain(unticked(installLine));
+
+      const check = loginsCheck("seo-mcp", connector.oauth);
+      const doctorMessage = "secrets not set for login(s) <key>[, <key>…]: <NAME>[, <NAME>…] — run secrets set <name>";
+      // `<name>` is literal placeholder text in the fix (as `<key>` is in the "not logged in" fix); `<NAME>` stands for a real name.
+      const doctorFix = "run `secrets set <name> --connector-id <id>` for each of: <NAME>[, <NAME>…]";
+      expect(check.status).toBe("warn");
+      expect(check.message).toBe(fill(doctorMessage.replace("[, <key>…]", "").replace("<NAME>[, <NAME>…]", "bing-client-id, bing-client-secret"), ""));
+      expect(check.fix).toBe(fill(doctorFix.replace("<NAME>[, <NAME>…]", "bing-client-id, bing-client-secret"), ""));
+      expect(flat(llmsAuthSection())).toContain(doctorMessage);
+      expect(unticked(llmsAuthSection())).toContain(unticked(doctorFix));
+      expect(siteAuthEntry().summary).toContain(doctorMessage);
+      expect(unticked(siteAuthEntry().summary)).toContain(unticked(doctorFix));
+      expect(readmeOAuthParagraph()).toContain("name the `secrets set` commands still to run");
+      expect(DOCS_CONTENT).toContain("name the <C>secrets set</C> commands");
+    } finally {
+      for (const k of keys) {
+        const v = saved[k];
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  describe("the login engine with a temp keystore (no network, no browser)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "oauth-docs-supply-"));
+    afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: tmp,
+      AGENT_CONNECTOR_DATA_DIR: tmp,
+      AGENT_CONNECTOR_SECRETS_BACKEND: "file",
+      AGENT_CONNECTOR_BROWSER: "never",
+    };
+    const secretStore = { connectorId: "seo-mcp", dataRoot: tmp, backend: "file" as const, env };
+    const noNetwork = async () => {
+      throw new Error("no network in docs tests");
+    };
+    const generic = {
+      provider: "generic",
+      scopes: ["read"],
+      authorizationEndpoint: "https://auth.invalid/authorize",
+      tokenEndpoint: "https://auth.invalid/token",
+      deviceAuthorizationEndpoint: "https://auth.invalid/device",
+    } as const;
+
+    it("auth login prints the token exchange progress line the docs quote, after resolution and before any flow starts", async () => {
+      const def = defineConnector({
+        id: "seo-mcp",
+        server: stdio,
+        oauth: { idp: { ...generic, clientId: "cid", tokenExchangeUrl: "https://seo.example.com/oauth/idp/token" } },
+      }).oauth.idp!;
+      const lines: string[] = [];
+      await expect(
+        login({ connectorId: "seo-mcp", key: "idp", def, flow: "device", env, secretStore, log: (l) => lines.push(l), fetch: noNetwork }),
+      ).rejects.toThrow();
+      expect(lines[0]).toBe("Tokens are exchanged through https://seo.example.com/oauth/idp/token (the connector's token exchange service)");
+      const template = "Tokens are exchanged through <tokenExchangeUrl> (the connector's token exchange service)";
+      expect(flat(llmsAuthSection())).toContain(template);
+      expect(siteAuthEntry().summary).toContain(template);
+      expect(loginSecretNames(def)).toEqual([]);
+    });
+
+    it("auth login with an unset ${secret:NAME} clientId fails with the SecretResolutionError the docs quote", async () => {
+      const both = defineConnector({
+        id: "seo-mcp",
+        server: stdio,
+        oauth: { idp: { ...generic, clientId: "${secret:acme-client-id}", clientSecret: "${secret:acme-client-secret}" } },
+      }).oauth.idp!;
+      expect(loginSecretNames(both)).toEqual(["acme-client-id", "acme-client-secret"]);
+      const def = defineConnector({ id: "seo-mcp", server: stdio, oauth: { idp: { ...generic, clientId: "${secret:acme-client-id}" } } }).oauth.idp!;
+      expect(loginSecretNames(def)).toEqual(["acme-client-id"]);
+      const attempt = login({ connectorId: "seo-mcp", key: "idp", def, flow: "device", env, secretStore, log: () => undefined, fetch: noNetwork });
+      await expect(attempt).rejects.toBeInstanceOf(SecretResolutionError);
+      const err = (await attempt.catch((e: unknown) => e)) as SecretResolutionError;
+      expect(err.message).toBe(
+        'connector "seo-mcp": 1 secret not set: acme-client-id. Run `secrets set <name> --connector-id seo-mcp` for each (oauth.idp.clientId).',
+      );
+      expect(err.missing).toEqual(["acme-client-id"]);
+      const template = 'connector "<id>": 1 secret not set: <NAME>. Run `secrets set <name> --connector-id <id>` for each (oauth.<key>.clientId).';
+      expect(unticked(llmsAuthSection())).toContain(unticked(template));
+      expect(flat(llmsSdkSection())).toContain("`clientId` or `clientSecret` that is not set throws `SecretResolutionError`");
+    });
   });
 
   it("the engine literals the docs quote exist in src/core/oauth", () => {
@@ -535,8 +764,62 @@ describe("the site, the skill and llms.txt", () => {
     expect(searchIndex.find((e) => e.id === "operate-logins-register")?.title).toBe("Register the app with each provider");
   });
 
-  it("llms.txt lists auth in the branded verb list next to secrets", () => {
+  it("the site's supply-mode table has the three ways and every registration row says who supplies the app", () => {
+    expect(oauthSupplyModes.map((m) => m.mode)).toEqual(["Developer-provided", "Developer-hosted token exchange", "User-registered"]);
+    for (const m of oauthSupplyModes) {
+      for (const field of ["config", "user", "fits"] as const) {
+        expect(m[field].length, `${m.mode}.${field} is empty`).toBeGreaterThan(20);
+      }
+    }
+    expect(oauthSupplyModes[0]?.config).toContain("google");
+    expect(oauthSupplyModes[1]?.config).toContain("tokenExchangeUrl");
+    expect(DOCS_CONTENT).toContain("{oauthSupplyModes.map((m) => (");
+    expect(DOCS_CONTENT).toContain("{r.ships}");
+    for (const row of oauthProviderRegistrations) {
+      expect(row.ships.length, `${row.preset}.ships is empty`).toBeGreaterThan(20);
+    }
+    const ships = Object.fromEntries(oauthProviderRegistrations.map((r) => [r.preset, r.ships]));
+    expect(ships.google).toContain("literal clientSecret");
+    expect(ships.microsoft).toContain("no secret");
+    expect(ships.github).toContain("tokenExchangeUrl");
+    expect(ships["bing-webmaster"]).toContain("tokenExchangeUrl");
+    expect(ships.posthog).toContain("no secret");
+    expect(ships.generic).toContain("tokenExchangeUrl");
+    for (const preset of ["github", "bing-webmaster", "generic"]) {
+      expect(ships[preset], `${preset} offers the user-registered way`).toMatch(/user-registered/i);
+    }
+  });
+
+  it("the token exchange wire contract's request bodies appear in llms-full and the Operate guide", () => {
+    const bodies = [
+      "grant_type=authorization_code&code=…&redirect_uri=…&code_verifier=…&client_id=…",
+      "grant_type=refresh_token&refresh_token=…&client_id=…",
+      "grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=…&client_id=…",
+    ];
+    for (const body of bodies) {
+      expect(llmsServerDefSection(), `llms-full §2.2 lacks ${body}`).toContain(`\n${body}\n`);
+      expect(DOCS_CONTENT, `Operate guide lacks ${body}`).toContain(body);
+    }
+    const section = flat(llmsServerDefSection());
+    for (const duty of [
+      "never `client_secret`",
+      "accept only its own `client_id` and only those three `grant_type` values",
+      'answer `400 {"error":"invalid_request"}` otherwise',
+      "return the provider's status and body unchanged; never log request or response bodies",
+      "The service must not be a public relay: one provider, one client id.",
+      "PKCE stays on the client, so a code intercepted elsewhere is useless without the verifier.",
+    ]) {
+      expect(section, `llms-full §2.2 lacks the duty ${JSON.stringify(duty)}`).toContain(duty);
+    }
+    expect(DOCS_CONTENT).toContain("one provider, one client id");
+    expect(DOCS_CONTENT).toContain("useless without the verifier");
+    expect(flat(llmsAuthSection())).toContain("the device authorization request and revocation on `logout` still go to the provider, as a public client");
+  });
+
+  it("llms.txt lists auth in the branded verb list next to secrets and names the three ways to supply the app", () => {
     expect(LLMS).toContain("`secrets`, `auth`");
+    expect(flat(LLMS)).toContain("supplied one of three ways");
+    expect(LLMS).toContain("`tokenExchangeUrl`");
   });
 
   it("the authoring reference tells connector authors to declare oauth.<key> and point users at `auth login`", () => {

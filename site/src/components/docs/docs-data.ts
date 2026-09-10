@@ -458,7 +458,7 @@ export const connectorConfigFields: FieldRow[] = [
     type: "Record<string, OAuthLoginDef>",
     default: "{}",
     notes:
-      'OAuth 2.0 providers the server logs in to, keyed by login key (^[a-z0-9][a-z0-9-]{0,31}$): { provider: "google" | "microsoft" | "github" | "bing-webmaster" | "posthog" | "generic", clientId (a literal or ${env:VAR}; never a secret), clientSecret? (only a ${secret:NAME} reference — a literal secret is never written into a connector config), scopes (at least one), flow? ("auto" | "loopback" | "device", default "auto"), redirectPort? (1024..65535; default ephemeral), redirectPath? (default "/callback"), issuer? / authorizationEndpoint? / tokenEndpoint? / deviceAuthorizationEndpoint? / revocationEndpoint? (https only; generic needs issuer or both endpoints), tokenEndpointAuth?, pkce?, extraAuthorizationParams?, options? (posthog region, microsoft tenant), storeAs? (default oauth.<key>.refresh-token) }. The user runs `auth login <key>` once; the server calls getAccessToken({ connectorId, key }) from the SDK. agent-connector ships no client ids — register the app with each provider yourself.',
+      'OAuth 2.0 providers the server logs in to, keyed by login key (^[a-z0-9][a-z0-9-]{0,31}$): { provider: "google" | "microsoft" | "github" | "bing-webmaster" | "posthog" | "generic", clientId (a literal, ${env:VAR} — expanded at login and refresh time, which a host-spawned server does not see — or exactly one ${secret:NAME} reference when each user registers their own app), clientSecret? (exactly one ${secret:NAME} reference: a literal secret is never written into a connector config, except for google, whose provider documents an installed app\'s client secret as not confidential; exclusive with tokenExchangeUrl), tokenExchangeUrl? (https; the developer\'s own token exchange service that holds the client secret — the authorization-code exchange, every refresh and device-code polling go there with client_id and never a secret; exclusive with clientSecret), scopes (at least one), flow? ("auto" | "loopback" | "device", default "auto"), redirectPort? (1024..65535; default ephemeral), redirectPath? (default "/callback"), issuer? / authorizationEndpoint? / tokenEndpoint? / deviceAuthorizationEndpoint? / revocationEndpoint? (https only; generic needs issuer or both endpoints), tokenEndpointAuth?, pkce?, extraAuthorizationParams?, options? (posthog region, microsoft tenant), storeAs? (default oauth.<key>.refresh-token) }. The user runs `auth login <key>` once; the server calls getAccessToken({ connectorId, key }) from the SDK. agent-connector ships no client ids — the developer registers the app and ships it (developer-provided, or through a token exchange service), or each user registers their own (${secret:NAME} id and secret, stored with secrets set).',
   },
 ];
 
@@ -1306,7 +1306,7 @@ export const cliCommands: CliCommand[] = [
       "agent-connector auth logout <key> [--connector <path>] [--connector-id <id>] [--project <dir>]\n" +
       "agent-connector auth token <key> [--connector <path>] [--connector-id <id>] [--project <dir>]",
     summary:
-      "Log in to the OAuth 2.0 providers a connector declares under oauth.<key> (presets: google, microsoft, github, bing-webmaster, posthog, generic) and keep the refresh tokens in the OS keystore, keyed by connector id — the store secrets writes to, under the secret name oauth.<key>.refresh-token. login runs the browser loopback flow (PKCE S256, one request on 127.0.0.1; stderr: `Opening <label> authorization in your browser…` then the URL on its own line; with no browser available the engine prints `Authorize <label> at: <url>` instead) or the device-code flow (stderr: `Visit <verification_uri> and enter code <user_code>`), stores the refresh token and prints `logged in to \"<key>\" (<label>) for connector <id> — refresh token stored in <backend>`; a provider that returns no refresh token fails the login (`the provider returned no refresh token — <preset hint>`). status prints `key  provider  present  obtained  via` without touching the network; a missing login never fails it (only an unresolvable connector exits 1). logout revokes at the provider when it can, then forgets the token: `logged out of \"<key>\" for connector <id>` (+ ` (revoked at the provider)`, or ` (nothing was stored)`); a key with nothing stored still exits 0. token prints ONLY the access token to stdout — the one command that ever prints one; not logged in → exit 1 with `login \"<key>\" is not present for connector <id> — run auth login <key> --connector-id <id>`. Connector resolution: --connector-id, --connector <path>, a local agent-connector.config.*, the single registered connector. Exit 2 on a usage error (incl. an undeclared key: `auth <verb>: connector <id> declares no login \"<key>\" (declared: a, b)`), 1 on an engine failure (the message, then `  hint: <hint>` when present). Nothing prints a token, an authorization code, a PKCE verifier or a client secret except auth token; the engine writes human text to stderr only. install warns per missing login (`login \"<key>\" (<provider>) is not present — run auth login <key> before the server needs it`); doctor reports the framework check <id>: logins (pass `<n> login(s) present`; warn `not logged in: a, b — run auth login <key>`; no network). Access tokens live in process memory only; the metadata file ~/.agent-connector/oauth/<id>.json (mode 0600) carries no token. agent-connector ships no client ids: register the app with each provider and ship clientId; a clientSecret is a ${secret:NAME} reference.",
+      "Log in to the OAuth 2.0 providers a connector declares under oauth.<key> (presets: google, microsoft, github, bing-webmaster, posthog, generic) and keep the refresh tokens in the OS keystore, keyed by connector id — the store secrets writes to, under the secret name oauth.<key>.refresh-token. login runs the browser loopback flow (PKCE S256, one request on 127.0.0.1; stderr: `Opening <label> authorization in your browser…` then the URL on its own line; with no browser available the engine prints `Authorize <label> at: <url>` instead) or the device-code flow (stderr: `Visit <verification_uri> and enter code <user_code>`), stores the refresh token and prints `logged in to \"<key>\" (<label>) for connector <id> — refresh token stored in <backend>`; a provider that returns no refresh token fails the login (`the provider returned no refresh token — <preset hint>`). status prints `key  provider  present  obtained  via` without touching the network; a missing login never fails it (only an unresolvable connector exits 1). logout revokes at the provider when it can, then forgets the token: `logged out of \"<key>\" for connector <id>` (+ ` (revoked at the provider)`, or ` (nothing was stored)`); a key with nothing stored still exits 0. token prints ONLY the access token to stdout — the one command that ever prints one; not logged in → exit 1 with `login \"<key>\" is not present for connector <id> — run auth login <key> --connector-id <id>`. Connector resolution: --connector-id, --connector <path>, a local agent-connector.config.*, the single registered connector. Exit 2 on a usage error (incl. an undeclared key: `auth <verb>: connector <id> declares no login \"<key>\" (declared: a, b)`), 1 on an engine failure (the message, then `  hint: <hint>` when present). Nothing prints a token, an authorization code, a PKCE verifier or a client secret except auth token; the engine writes human text to stderr only. install warns per missing login (`login \"<key>\" (<provider>) is not present — run auth login <key> before the server needs it`) and, before that line, per referenced secret that is not set (`login \"<key>\" (<provider>) references secret \"<NAME>\" which is not set — run secrets set <NAME> before auth login <key>`); doctor reports the framework check <id>: logins (pass `<n> login(s) present`; warn `secrets not set for login(s) <key>[, <key>…]: <NAME>[, <NAME>…] — run secrets set <name>` with the fix `run secrets set <name> --connector-id <id> for each of: <NAME>[, <NAME>…]` (<name> is literal placeholder text, <NAME> a real name) when a login references an unset secret, else warn `not logged in: a, b — run auth login <key>`; no network). With tokenExchangeUrl set, login first says `Tokens are exchanged through <tokenExchangeUrl> (the connector's token exchange service)` on stderr, and the code exchange, every refresh and device-code polling go to that URL with client_id and never a secret. Access tokens live in process memory only; the metadata file ~/.agent-connector/oauth/<id>.json (mode 0600) carries no token. agent-connector ships no client ids: the developer registers the app and ships clientId (with no secret, a literal clientSecret for google only — Google documents it as not confidential — or a tokenExchangeUrl), or each user registers their own and stores clientId and clientSecret as ${secret:NAME} references with secrets set.",
     flags: [
       {
         flag: "<key>",
@@ -2035,6 +2035,8 @@ export interface OAuthProviderRegistration {
   redirect: string;
   /** What the provider issues and where it goes. */
   credentials: string;
+  /** Who supplies the app for this preset: what the developer ships, or what each user registers. */
+  ships: string;
   /** What produces a refresh token, and device-grant notes. */
   notes: string;
   /** The provider's OAuth documentation (= the preset's docsUrl). */
@@ -2050,7 +2052,8 @@ export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
       "Google Cloud console → APIs & Services: enable the API you call (e.g. Search Console API), configure the OAuth consent screen with the scopes and, while it is in Testing, your test users, then Credentials → Create credentials → OAuth client ID → application type Desktop app.",
     redirect: "Nothing to register: a Desktop app client accepts any http://127.0.0.1:<port> loopback redirect.",
     credentials:
-      "Client id + client secret. Google does not treat a desktop client's secret as confidential; the connector still keeps it in the keystore (clientSecret: \"${secret:…}\").",
+      "Client id + client secret. Google documents a desktop client's secret as not confidential, so the connector accepts it as a literal clientSecret (a ${secret:…} reference works too).",
+    ships: "Developer-provided: literal clientId and literal clientSecret (Google documents the secret as not confidential)",
     notes:
       "The preset sends access_type=offline and prompt=consent, which is what yields a refresh token. A consent screen in Testing status expires refresh tokens after 7 days — publish the app for longer-lived logins. Google's device grant allows only sign-in, drive.file / drive.appdata and YouTube scopes, so the preset never uses it for API scopes.",
     docs: "https://developers.google.com/identity/protocols/oauth2/native-app",
@@ -2065,6 +2068,7 @@ export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
       "http://127.0.0.1/callback — Entra ignores the port on loopback redirect URIs and prefers 127.0.0.1 over localhost. The admin center's redirect URI box does not take http://127.0.0.1; add it in the app manifest (replyUrlsWithType, type InstalledClient).",
     credentials:
       "Application (client) id. A public client needs no secret; add one only for a confidential deployment (Certificates & secrets) and reference it as ${secret:…}.",
+    ships: "Developer-provided: literal clientId, no secret (public client)",
     notes:
       "Request the offline_access scope or no refresh token is returned. For the device grant set Allow public client flows to Yes under Authentication.",
     docs: "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow",
@@ -2079,6 +2083,7 @@ export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
       "http://127.0.0.1/callback — GitHub does not require the port of a loopback redirect_uri to match the registered callback URL.",
     credentials:
       "Client id + client secret (Generate a new client secret). The secret is required for the browser flow's code exchange and not for device-flow polling.",
+    ships: "Browser flow: user-registered ${secret:…} or tokenExchangeUrl; device flow: literal clientId only",
     notes:
       "Turn on Expire user authorization tokens (GitHub App → General → Optional features) or request the offline_access scope; without either GitHub returns no refresh token and auth login stops with the preset's hint.",
     docs: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps",
@@ -2091,7 +2096,9 @@ export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
       "Bing Webmaster Tools → Settings (top right) → API Access → accept the terms → OAuth Client → register with a Client Name and the Redirect URI.",
     redirect:
       "http://127.0.0.1:<port>/callback with the exact port the connector pins in redirectPort (Bing matches the redirect URI exactly, port included; redirectPort is required for this preset).",
-    credentials: "Client id + client secret (copy both from the created OAuth client; the secret goes to the keystore).",
+    credentials:
+      "Client id + client secret (copy both from the created OAuth client; each user stores them with secrets set, or the developer's token exchange service holds the secret).",
+    ships: "User-registered (${secret:…} id and secret) or tokenExchangeUrl",
     notes:
       "Scopes webmaster.read or webmaster.manage; a refresh token comes with every code exchange. Bing's documented response carries no state, so the login is bound by the exact redirect URI alone. An API key from the same page is the alternative when a login is not wanted (use the secrets feature for it).",
     docs: "https://learn.microsoft.com/en-us/bingwebmaster/oauth2",
@@ -2105,6 +2112,7 @@ export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
     redirect:
       "List http://127.0.0.1/callback in redirect_uris — a loopback URI registered without a port matches any port, so the connector needs no redirectPort.",
     credentials: "None: the metadata document is the identity (PKCE, token endpoint auth none, no client secret).",
+    ships: "Developer-provided: the metadata document URL, no secret",
     notes:
       "Scopes are <resource>:<read|write> pairs (e.g. project:read, query:read). options.region pins us or eu; omitted, the region-agnostic issuer routes by account. A refresh token comes with every code exchange.",
     docs: "https://posthog.com/docs/api/oauth",
@@ -2117,10 +2125,45 @@ export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
       "Register a native / desktop (public) client in the provider's developer console; note the issuer (for RFC 8414 / OpenID Connect discovery) or the authorization and token endpoint URLs.",
     redirect:
       "http://127.0.0.1/callback if the provider follows RFC 8252 (any port), else http://127.0.0.1:<port>/callback with a fixed redirectPort.",
-    credentials: "Client id; a client secret only if the provider insists (reference it as ${secret:…}; sent in the form body by default, tokenEndpointAuth: \"client_secret_basic\" switches to the Authorization header).",
+    credentials:
+      "Client id; a client secret only if the provider insists (reference it as ${secret:…}, or point tokenExchangeUrl at a service that holds it; a reference is sent in the form body by default, tokenEndpointAuth: \"client_secret_basic\" switches to the Authorization header).",
+    ships: "As the provider demands: public client, user-registered, or tokenExchangeUrl",
     notes:
       "Find what yields a refresh token (often the offline_access scope or an access_type parameter) and add it to scopes or extraAuthorizationParams; the device grant is used when the provider publishes a device_authorization_endpoint.",
     docs: "https://www.rfc-editor.org/rfc/rfc8414",
+  },
+];
+
+/**
+ * The three ways a login's app is supplied: who registers it and what the
+ * `oauth.<key>` entry carries. `config` is the shape of the entry, `user` what
+ * each end user does before `auth login <key>`, `fits` the presets it suits.
+ */
+export interface OAuthSupplyMode {
+  mode: string;
+  config: string;
+  user: string;
+  fits: string;
+}
+
+export const oauthSupplyModes: OAuthSupplyMode[] = [
+  {
+    mode: "Developer-provided",
+    config: 'clientId: "<literal>"; no clientSecret — or, for google only, clientSecret: "<literal>"',
+    user: "Nothing to register or store: auth login <key>.",
+    fits: "A public client: microsoft, posthog (the metadata document URL), github's device flow, a public generic client; google with its literal secret.",
+  },
+  {
+    mode: "Developer-hosted token exchange",
+    config: 'clientId: "<literal>"; tokenExchangeUrl: "https://…" (no clientSecret in the config)',
+    user: "Nothing to register or store: auth login <key>; every token request goes through the developer's service, which holds the secret.",
+    fits: "A provider that demands a client secret, without per-user registration: github's browser flow, bing-webmaster, a confidential generic client.",
+  },
+  {
+    mode: "User-registered",
+    config: 'clientId: "${secret:NAME}"; clientSecret: "${secret:NAME}"',
+    user: "Registers their own app at the provider, stores both values with secrets set <NAME>, then auth login <key>; install and doctor name the secrets set commands still to run.",
+    fits: "Any provider; needed where a client secret is demanded and the developer runs no service: bing-webmaster, github's browser flow, a confidential generic client.",
   },
 ];
 

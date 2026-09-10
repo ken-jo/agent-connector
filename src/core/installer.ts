@@ -31,12 +31,14 @@ import type {
   InstallScope,
   PlatformId,
   ResolvedConnector,
+  ResolvedOAuthLoginDef,
   ServerDef,
 } from "./types.js";
 import type { Adapter, InstallContext } from "../adapters/spi.js";
 import { findUnsetEnvRefs } from "./interpolate.js";
-import { OAuthError, loginStatus } from "./oauth/index.js";
+import { OAuthError, loginSecretNames, loginStatus } from "./oauth/index.js";
 import { SecretError, findSecretRefs, openSecretStore } from "./secrets.js";
+import type { SecretStore } from "./secrets.js";
 import { REGISTERED_PLATFORM_IDS, loadAdapter } from "../adapters/registry.js";
 import { detectInstalledPlatforms } from "../adapters/detect.js";
 import {
@@ -824,10 +826,13 @@ function missingSecretWarnings(
 }
 
 /**
- * Install-time `oauth.<key>` warnings for one connector: one line per declared
- * login whose refresh token is not in the keystore, or a single line when the
- * keystore or the login metadata cannot be read. Memoized per connector so a
- * multi-host install probes once. No network.
+ * Install-time `oauth.<key>` warnings for one connector, per declared login in
+ * declaration order: one line per `${secret:NAME}` the login's clientId or
+ * clientSecret references that the keystore does not hold (a user-registered
+ * app the user has not stored yet), then one line when the login's refresh
+ * token is not in the keystore; or a single line when the keystore or the
+ * login metadata cannot be read. Memoized per connector so a multi-host
+ * install probes once. No network.
  */
 function missingLoginWarnings(connector: ResolvedConnector, cache: Map<string, string[]>): string[] {
   const logins = connector.oauth ?? {};
@@ -838,13 +843,26 @@ function missingLoginWarnings(connector: ResolvedConnector, cache: Map<string, s
   const out: string[] = [];
   try {
     const unreadable: string[] = [];
-    for (const status of loginStatus({ connectorId: connector.id, logins })) {
+    const statuses = loginStatus({ connectorId: connector.id, logins });
+    // The same store loginStatus read the refresh tokens from; a login whose
+    // token it could read has a readable store for its referenced names too.
+    const store = statuses.some((s) => s.present !== null) ? openSecretStore({ connectorId: connector.id }) : null;
+    for (const status of statuses) {
+      const def = logins[status.key];
+      const unset = status.present === null || !store || !def ? null : unsetLoginSecrets(store, def);
+      if (unset === null) {
+        unreadable.push(status.key);
+        continue;
+      }
+      for (const name of unset) {
+        out.push(
+          `login "${status.key}" (${status.provider}) references secret "${name}" which is not set — run \`secrets set ${name}\` before \`auth login ${status.key}\``,
+        );
+      }
       if (status.present === false) {
         out.push(
           `login "${status.key}" (${status.provider}) is not present — run \`auth login ${status.key}\` before the server needs it`,
         );
-      } else if (status.present === null) {
-        unreadable.push(status.key);
       }
     }
     if (unreadable.length > 0) {
@@ -856,6 +874,15 @@ function missingLoginWarnings(connector: ResolvedConnector, cache: Map<string, s
   }
   cache.set(connector.id, out);
   return out;
+}
+
+/** The `${secret:NAME}` names a login references that `store` does not hold; null when the store cannot answer. */
+function unsetLoginSecrets(store: SecretStore, def: ResolvedOAuthLoginDef): string[] | null {
+  try {
+    return loginSecretNames(def).filter((name) => !store.has(name));
+  } catch {
+    return null;
+  }
 }
 
 /** Every secret name the connector references, across the base server and its per-host overrides. */

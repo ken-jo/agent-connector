@@ -92,10 +92,13 @@ itself when it can and otherwise fails with the exact `auth login` command, so a
 plugin install works without `install`). Never pass an access token through
 `env` — they expire; a server that refreshes on its own may read the refresh
 token via `env: { X: "${secret:oauth.<key>.refresh-token}" }`. Register the app
-with the provider yourself and ship `clientId` (a literal or `${env:VAR}`) —
-agent-connector has no client ids of its own; a `clientSecret` must be a
-`${secret:NAME}` reference, never a literal. `install` warns and `doctor` reports
-`<id>: logins` while a login is missing.
+with the provider yourself, or have each user register their own, and ship
+`clientId` (a literal, `${env:VAR}`, or `${secret:NAME}` when each user registers
+their own app) — agent-connector has no client ids of its own; a `clientSecret`
+is a `${secret:NAME}` reference (a literal only for `google`, whose provider
+documents it as not confidential), or `tokenExchangeUrl` names the developer's
+own token exchange service that holds it. `install` warns and `doctor` reports
+`<id>: logins` while a login is missing or a referenced secret is unset.
 
 ## Server Shape Is Product-Specific
 

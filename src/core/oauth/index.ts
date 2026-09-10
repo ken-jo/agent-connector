@@ -19,6 +19,7 @@ export {
   discoveryUrls,
   getAccessToken,
   login,
+  loginSecretNames,
   loginStatus,
   logout,
   registeredLoginDef,

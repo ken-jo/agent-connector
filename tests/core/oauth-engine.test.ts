@@ -5,12 +5,17 @@
  * logins, refresh with rotation, the per-process access-token cache and its
  * 60 s skew, the interactive rules, `invalid_grant` clearing a dead token,
  * discovery order, provider error mapping, logout with revocation, status,
- * and the browser helpers through their seams. Every test runs on a
+ * the browser helpers through their seams, a `${secret:NAME}` client id and a
+ * literal client secret at resolution, and a `tokenExchangeUrl` routing the
+ * code exchange, the refresh and the device polling through a token exchange
+ * service (an inline relay that adds the client secret). Every test runs on a
  * throwaway data root with the file secret backend; no provider is contacted.
  */
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,11 +24,13 @@ import {
   OAuthError,
   OAuthLoginRequiredError,
   canOpenBrowser,
+  clearAccessTokenCache,
   createPkcePair,
   discoverEndpoints,
   getAccessToken,
   getOAuthPreset,
   login,
+  loginSecretNames,
   loginStatus,
   logout,
   metadataPath,
@@ -34,6 +41,7 @@ import type { ResolvedOAuthLoginDef } from "../../src/core/oauth/index.js";
 import { SecretResolutionError, openSecretStore } from "../../src/core/secrets.js";
 import type { OpenSecretStoreOptions } from "../../src/core/secrets.js";
 import { startMockOAuthServer } from "../support/mock-oauth-server.js";
+import { expectNoLeak, tokenRequests } from "../support/oauth-fixtures.js";
 import type { MockOAuthServer, MockOAuthServerOptions } from "../support/mock-oauth-server.js";
 
 const SAVED = {
@@ -60,8 +68,9 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await Promise.all(servers.map((s) => s.close()));
+  await Promise.all([...servers.map((s) => s.close()), ...relays.map((r) => r.close())]);
   servers = [];
+  relays = [];
   process.env.HOME = SAVED.HOME;
   process.env.USERPROFILE = SAVED.USERPROFILE;
   for (const [key, value] of [
@@ -139,14 +148,101 @@ function fakeBrowser(tamper?: (target: URL) => void): { open: (url: string) => P
   };
 }
 
-function tokenRequests(server: MockOAuthServer) {
-  return server.requests.filter((r) => r.method === "POST" && r.path === "/token");
+interface RelayRequest {
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: Record<string, string>;
 }
 
-const LEAK_MARKERS = ["mock-access-", "mock-refresh-", "mock-code-", "mock-device-", "mock-client-secret"];
-function expectNoLeak(text: string): void {
-  for (const marker of LEAK_MARKERS) expect(text).not.toContain(marker);
+interface Relay {
+  /** The `tokenExchangeUrl` a login points at. */
+  url: string;
+  /** Every inbound request, in order. */
+  requests: RelayRequest[];
+  close(): Promise<void>;
 }
+
+const RELAY_GRANTS = new Set(["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"]);
+
+/**
+ * A token exchange service for `server`: accepts only the mock's client id and
+ * the three grants, refuses any inbound `client_secret`, adds the mock's secret
+ * as `client_secret_post`, forwards the form to the mock's token endpoint and
+ * answers with the mock's status and body unchanged.
+ */
+async function startRelay(server: MockOAuthServer): Promise<Relay> {
+  const requests: RelayRequest[] = [];
+  const relay = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const form = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers)) headers[k] = Array.isArray(v) ? v.join(", ") : (v ?? "");
+    requests.push({ method: req.method ?? "GET", path: new URL(req.url ?? "/", "http://127.0.0.1").pathname, headers, body: Object.fromEntries(form) });
+    if (
+      req.method !== "POST" ||
+      form.has("client_secret") ||
+      form.get("client_id") !== server.clientId ||
+      !RELAY_GRANTS.has(form.get("grant_type") ?? "")
+    ) {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_request" }));
+      return;
+    }
+    form.set("client_secret", server.clientSecret);
+    const upstream = await fetch(server.tokenEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+      body: form.toString(),
+    });
+    const text = await upstream.text();
+    res.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "application/json" });
+    res.end(text);
+  });
+  await new Promise<void>((resolve) => relay.listen(0, "127.0.0.1", resolve));
+  return {
+    url: `http://127.0.0.1:${(relay.address() as AddressInfo).port}/oauth/token`,
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        relay.closeAllConnections();
+        relay.close((err) => (err ? reject(err) : resolve()));
+      }),
+  };
+}
+
+/** A server that answers every request with a 307 to `target` and counts the hits; closed after the test. */
+async function redirectorTo(target: string): Promise<{ url: string; hits: () => number; close: () => Promise<void> }> {
+  let hits = 0;
+  const srv = createServer((req, res) => {
+    hits += 1;
+    req.resume();
+    res.writeHead(307, { location: target });
+    res.end();
+  });
+  await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
+  return {
+    url: `http://127.0.0.1:${(srv.address() as AddressInfo).port}/oauth/token`,
+    hits: () => hits,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        srv.closeAllConnections();
+        srv.close((err) => (err ? reject(err) : resolve()));
+      }),
+  };
+}
+
+let relays: Relay[] = [];
+
+/** A relay for `server`, closed after the test. */
+async function relayFor(server: MockOAuthServer): Promise<Relay> {
+  const relay = await startRelay(server);
+  relays.push(relay);
+  return relay;
+}
+
+const PROGRESS_LINE = (url: string): string => `Tokens are exchanged through ${url} (the connector's token exchange service)`;
 
 describe("createPkcePair / metadataPath", () => {
   it("makes an RFC 7636 verifier and its S256 challenge, fresh every time", () => {
@@ -629,6 +725,234 @@ describe("discovery and resolution", () => {
     const missing = await resolveLogin(def, { connectorId: idMissing, env: { ...ENV, IDP_CLIENT_ID: "env-client" }, secretStore: storeOpts(idMissing) }).catch((e: unknown) => e);
     expect(missing).toBeInstanceOf(SecretResolutionError);
     expect((missing as SecretResolutionError).missing).toEqual([CLIENT_SECRET_NAME]);
+    expect((missing as SecretResolutionError).message).toBe(
+      `connector "${idMissing}": 1 secret not set: ${CLIENT_SECRET_NAME}. Run \`secrets set <name> --connector-id ${idMissing}\` for each (oauth.idp.clientSecret).`,
+    );
+  });
+
+  it("reads a ${secret:NAME} clientId from the store: SecretResolutionError while unset, the stored value on the wire once set", async () => {
+    const server = await mock({ pkce: true, clientAuth: "none" });
+    const id = connectorId();
+    const def = loginDef(server, id, false, { clientId: "${secret:acme-client-id}" });
+
+    const unset = await resolveLogin(def, { connectorId: id, env: ENV, secretStore: storeOpts(id) }).catch((e: unknown) => e);
+    expect(unset).toBeInstanceOf(SecretResolutionError);
+    expect((unset as SecretResolutionError).missing).toEqual(["acme-client-id"]);
+    expect((unset as SecretResolutionError).message).toBe(
+      `connector "${id}": 1 secret not set: acme-client-id. Run \`secrets set <name> --connector-id ${id}\` for each (oauth.idp.clientId).`,
+    );
+    const loginErr = await login({ connectorId: id, key: "idp", def, env: ENV, secretStore: storeOpts(id), openBrowser: fakeBrowser().open, log: () => {} }).catch((e: unknown) => e);
+    expect(loginErr).toBeInstanceOf(SecretResolutionError);
+    expect((loginErr as SecretResolutionError).message.endsWith("(oauth.idp.clientId).")).toBe(true);
+    expect(server.requests).toHaveLength(0);
+
+    // `secrets set acme-client-id` with the app's id: the reference resolves to it, verbatim.
+    openSecretStore(storeOpts(id)).set("acme-client-id", server.clientId);
+    const resolved = await resolveLogin(def, { connectorId: id, env: ENV, secretStore: storeOpts(id) });
+    expect(resolved.clientId).toBe(server.clientId);
+    expect(resolved.clientSecret).toBeUndefined();
+    expect(resolved.tokenEndpointAuth).toBe("none");
+    const result = await login({ connectorId: id, key: "idp", def, env: ENV, secretStore: storeOpts(id), openBrowser: fakeBrowser().open, log: () => {} });
+    expect(result.obtainedVia).toBe("loopback");
+    const authorize = server.requests.find((r) => r.path === "/authorize")!;
+    expect(authorize.query.client_id).toBe(server.clientId);
+    expect(tokenRequests(server)[0]!.body.client_id).toBe(server.clientId);
+    expect(openSecretStore(storeOpts(id)).get("oauth.idp.refresh-token")).toBe(server.tokensIssued[0]!.refreshToken);
+  });
+
+  it("uses a literal clientSecret verbatim (defineConnector gates which presets admit one)", async () => {
+    const server = await mock({ pkce: true, clientAuth: "post" });
+    const id = connectorId();
+    const def = loginDef(server, id, false, { clientSecret: server.clientSecret });
+    const resolved = await resolveLogin(def, { connectorId: id, env: ENV, secretStore: storeOpts(id) });
+    expect(resolved.clientSecret).toBe(server.clientSecret);
+    expect(resolved.tokenEndpointAuth).toBe("client_secret_post");
+    // Nothing was written to the store for it (the file backend's index stays empty).
+    expect(openSecretStore(storeOpts(id)).list()).toEqual([]);
+
+    await login({ connectorId: id, key: "idp", def, env: ENV, secretStore: storeOpts(id), openBrowser: fakeBrowser().open, log: () => {} });
+    const [exchange] = tokenRequests(server);
+    expect(exchange!.body).toMatchObject({ grant_type: "authorization_code", client_id: server.clientId, client_secret: server.clientSecret });
+    expect(server.tokensIssued).toHaveLength(1);
+    expect(openSecretStore(storeOpts(id)).list().map((e) => e.name)).toEqual(["oauth.idp.refresh-token"]);
+  });
+
+  it("loginSecretNames: the ${secret:NAME} names of clientId and clientSecret, clientId first, deduped", async () => {
+    const server = await mock();
+    const base = loginDef(server, connectorId(), false);
+    expect(loginSecretNames(base)).toEqual([]);
+    expect(loginSecretNames({ ...base, clientId: "${env:CLIENT_ID}" })).toEqual([]);
+    expect(loginSecretNames({ ...base, clientSecret: "GOCSPX-literal" })).toEqual([]);
+    expect(loginSecretNames({ ...base, clientId: "${secret:acme-client-id}" })).toEqual(["acme-client-id"]);
+    expect(loginSecretNames({ ...base, clientSecret: "${secret:acme-client-secret}" })).toEqual(["acme-client-secret"]);
+    expect(loginSecretNames({ ...base, clientId: "${secret:acme-client-id}", clientSecret: "${secret:acme-client-secret}" })).toEqual([
+      "acme-client-id",
+      "acme-client-secret",
+    ]);
+    expect(loginSecretNames({ ...base, clientId: "${secret:acme-app}", clientSecret: "${secret:acme-app}" })).toEqual(["acme-app"]);
+    // A reference mixed into other text is not a whole-value reference (defineConnector rejects it).
+    expect(loginSecretNames({ ...base, clientId: "id-${secret:x}", clientSecret: "${secret:y}" })).toEqual(["y"]);
+  });
+});
+
+describe("token exchange service (tokenExchangeUrl)", () => {
+  it("never follows a redirect: a 307 from the service fails the login closed and the provider's token endpoint sees nothing", async () => {
+    const server = await mock({ pkce: true, clientAuth: "post" });
+    const redirector = await redirectorTo(server.tokenEndpoint);
+    try {
+      const id = connectorId();
+      const def = loginDef(server, id, false, { tokenExchangeUrl: redirector.url });
+      const err = await login({ connectorId: id, key: "idp", def, env: ENV, secretStore: storeOpts(id), openBrowser: fakeBrowser().open, log: () => {} }).catch(
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(OAuthError);
+      expect((err as OAuthError).code).toBe("provider");
+      // The fetch failure keeps its cause, so the message says why.
+      expect((err as OAuthError).message).toMatch(/^network error: fetch failed \(.*redirect.*\)$/i);
+      // One POST reached the redirector; the form (code + verifier) was not re-sent to the Location.
+      expect(redirector.hits()).toBe(1);
+      expect(server.requests.filter((r) => r.method === "POST" && r.path === "/token")).toHaveLength(0);
+      expect(openSecretStore(storeOpts(id)).get(def.storeAs)).toBeNull();
+    } finally {
+      await redirector.close();
+    }
+  });
+
+  it("loopback: the code exchange goes to the service with client_id and no secret; the service adds it; the progress line is logged", async () => {
+    const server = await mock({ pkce: true, clientAuth: "post" });
+    const relay = await relayFor(server);
+    const id = connectorId();
+    const def = loginDef(server, id, false, { tokenExchangeUrl: relay.url });
+    const log: string[] = [];
+
+    const resolved = await resolveLogin(def, { connectorId: id, env: ENV, secretStore: storeOpts(id) });
+    expect(resolved.endpoints.tokenExchangeUrl).toBe(relay.url);
+    expect(resolved.endpoints.tokenEndpoint).toBe(server.tokenEndpoint);
+    expect(resolved.clientSecret).toBeUndefined();
+    expect(resolved.tokenEndpointAuth).toBe("none");
+
+    const result = await login({ connectorId: id, key: "idp", def, env: ENV, secretStore: storeOpts(id), openBrowser: fakeBrowser().open, log: (l) => log.push(l) });
+    expect(result.obtainedVia).toBe("loopback");
+    expect(log).toEqual([PROGRESS_LINE(relay.url)]);
+    expectNoLeak(log[0]!);
+
+    // The service saw a public client's request, exactly as the provider would.
+    expect(relay.requests).toHaveLength(1);
+    const inbound = relay.requests[0]!;
+    expect(inbound.method).toBe("POST");
+    expect(inbound.path).toBe("/oauth/token");
+    expect(inbound.headers["content-type"]).toBe("application/x-www-form-urlencoded");
+    expect(inbound.headers.accept).toBe("application/json");
+    expect(inbound.headers.authorization).toBeUndefined();
+    expect(inbound.body.client_secret).toBeUndefined();
+    expect(Object.keys(inbound.body).sort()).toEqual(["client_id", "code", "code_verifier", "grant_type", "redirect_uri"]);
+    expect(inbound.body.client_id).toBe(server.clientId);
+    expect(inbound.body.grant_type).toBe("authorization_code");
+
+    // The provider saw the same form plus the secret the service holds; only the service contacted it.
+    const [exchange] = tokenRequests(server);
+    expect(exchange!.body).toEqual({ ...inbound.body, client_secret: server.clientSecret });
+    expect(tokenRequests(server)).toHaveLength(1);
+    expect(server.tokensIssued).toHaveLength(1);
+    expect(openSecretStore(storeOpts(id)).get("oauth.idp.refresh-token")).toBe(server.tokensIssued[0]!.refreshToken);
+    expectNoLeak(readFileSync(metadataPath(join(tmp, "data"), id), "utf8"));
+
+    // The documented limit: revocation goes to the provider itself as a public
+    // client (client_id only); a provider that demands the secret there refuses
+    // it and logout reports revoked: false — the token is still forgotten.
+    expect(await logout({ connectorId: id, key: "idp", def, env: ENV, secretStore: storeOpts(id) })).toEqual({ removed: true, revoked: false });
+    const revoke = server.requests.find((r) => r.path === "/revoke")!;
+    expect(revoke.body.client_id).toBe(server.clientId);
+    expect(revoke.body.client_secret).toBeUndefined();
+    expect(relay.requests).toHaveLength(1);
+    expect(openSecretStore(storeOpts(id)).has("oauth.idp.refresh-token")).toBe(false);
+  });
+
+  it("refresh after a login goes through the service too", async () => {
+    const server = await mock({ pkce: true, clientAuth: "post", rotateRefreshTokens: true });
+    const relay = await relayFor(server);
+    const id = connectorId();
+    const def = loginDef(server, id, false, { tokenExchangeUrl: relay.url });
+    await login({ connectorId: id, key: "idp", def, env: ENV, secretStore: storeOpts(id), openBrowser: fakeBrowser().open, log: () => {} });
+    const stored = openSecretStore(storeOpts(id)).get("oauth.idp.refresh-token")!;
+
+    // A new process: nothing cached, so the refresh grant runs.
+    clearAccessTokenCache();
+    const set = await getAccessToken({ connectorId: id, key: "idp", def, interactive: "never", env: ENV, secretStore: storeOpts(id) });
+    expect(set.accessToken).toBe(server.tokensIssued[1]!.accessToken);
+    expect(relay.requests).toHaveLength(2);
+    const refresh = relay.requests[1]!;
+    expect(refresh.body).toEqual({ grant_type: "refresh_token", refresh_token: stored, client_id: server.clientId });
+    expect(tokenRequests(server)[1]!.body).toEqual({ ...refresh.body, client_secret: server.clientSecret });
+    const rotated = server.tokensIssued[1]!.refreshToken!;
+    expect(rotated).not.toBe(stored);
+    expect(openSecretStore(storeOpts(id)).get("oauth.idp.refresh-token")).toBe(rotated);
+  });
+
+  it("device: the authorization request goes to the provider as a public client, the polling through the service", async () => {
+    const server = await mock({ clientAuth: "post", deviceSequence: ["authorization_pending", "ok"] });
+    const relay = await relayFor(server);
+    const id = connectorId();
+    const log: string[] = [];
+    const result = await login({
+      connectorId: id,
+      key: "idp",
+      def: loginDef(server, id, false, { tokenExchangeUrl: relay.url, flow: "device" }),
+      env: ENV,
+      secretStore: storeOpts(id),
+      log: (l) => log.push(l),
+      sleep: async () => {},
+    });
+    expect(result.obtainedVia).toBe("device");
+    expect(log[0]).toBe(PROGRESS_LINE(relay.url));
+    expect(log[1]).toMatch(/^Visit http:\/\/127\.0\.0\.1:\d+\/device and enter code /);
+    expect(log).toHaveLength(2);
+
+    const auth = server.requests.find((r) => r.path === "/device_authorization")!;
+    expect(auth.body).toEqual({ scope: "read write", client_id: server.clientId });
+    expect(relay.requests).toHaveLength(2);
+    for (const poll of relay.requests) {
+      expect(poll.body).toEqual({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: expect.stringMatching(/^mock-device-/), client_id: server.clientId });
+    }
+    const polls = tokenRequests(server);
+    expect(polls).toHaveLength(2);
+    for (const poll of polls) expect(poll.body.client_secret).toBe(server.clientSecret);
+    expect(openSecretStore(storeOpts(id)).get("oauth.idp.refresh-token")).toBe(server.tokensIssued[0]!.refreshToken);
+  });
+
+  it("the service's error answer is the provider error the engine reports, with nothing stored", async () => {
+    const server = await mock({ clientAuth: "post", clientId: "registered-client" });
+    const relay = await relayFor(server);
+    const id = connectorId();
+    // The service accepts only its own client id: another id is refused before the provider is contacted.
+    const def = loginDef(server, id, false, { clientId: "other-client", tokenExchangeUrl: relay.url });
+    openSecretStore(storeOpts(id)).set("oauth.idp.refresh-token", server.seedRefreshToken("read write"));
+    const refused = await getAccessToken({ connectorId: id, key: "idp", def, interactive: "never", env: ENV, secretStore: storeOpts(id) }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(OAuthError);
+    expect((refused as OAuthError).code).toBe("provider");
+    expect((refused as OAuthError).message).toBe("token refresh failed: invalid_request");
+    expect(relay.requests).toHaveLength(1);
+    expect(tokenRequests(server)).toHaveLength(0);
+  });
+
+  it("refuses a tokenExchangeUrl that is not https (loopback http excepted) and clientSecret next to it, contacting nobody", async () => {
+    const server = await mock();
+    const id = connectorId();
+    const insecure = loginDef(server, id, false, { tokenExchangeUrl: "http://example.com/t" });
+    const err = await login({ connectorId: id, key: "idp", def: insecure, env: ENV, secretStore: storeOpts(id), openBrowser: fakeBrowser().open, log: () => {} }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OAuthError);
+    expect((err as OAuthError).code).toBe("config");
+    expect((err as OAuthError).message).toBe("oauth.idp.tokenExchangeUrl must be an https URL: http://example.com/t");
+
+    const both = loginDef(server, id, true, { tokenExchangeUrl: "https://seo.example.com/oauth/token" });
+    const exclusive = await resolveLogin(both, { connectorId: id, env: ENV, secretStore: storeOpts(id) }).catch((e: unknown) => e);
+    expect(exclusive).toBeInstanceOf(OAuthError);
+    expect((exclusive as OAuthError).code).toBe("config");
+    expect((exclusive as OAuthError).message).toBe(
+      "oauth.idp: clientSecret and tokenExchangeUrl are exclusive — the token exchange service holds the client secret",
+    );
+    expect(server.requests).toHaveLength(0);
+    expect(openSecretStore(storeOpts(id)).has("oauth.idp.refresh-token")).toBe(false);
   });
 });
 
