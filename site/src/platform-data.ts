@@ -329,10 +329,13 @@ export const platforms: Platform[] = [
     id: "droid",
     name: "Droid (Factory)",
     paradigm: "json-stdio",
-    surfaces: s(true, true, true, true, true, true, false, true),
+    surfaces: s(true, true, true, true, true, true, true, true),
     // All six wired: commands (.factory/commands), skills (.factory/skills),
     // subagents (.factory/droids/<name>.md — markdown). docs.factory.ai/cli.
-    hostNative: s(true, true, true, true, true, true, false, true),
+    // statusline: Factory's `statusLine = { command, padding?, maxRows? }` in
+    // settings.json (docs.factory.ai/cli/configuration/settings) — config-write
+    // wired; stdin payload schema unpublished (parseStatusInput maps raw only).
+    hostNative: s(true, true, true, true, true, true, true, true),
   },
   {
     id: "openhands",

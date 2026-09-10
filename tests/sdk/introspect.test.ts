@@ -45,10 +45,11 @@ describe("capabilitiesOf", () => {
 });
 
 describe("hostsSupporting", () => {
-  it("statusline hosts are claude-code + qwen-code + antigravity-cli (sorted)", async () => {
+  it("statusline hosts are antigravity-cli + claude-code + droid + qwen-code (sorted)", async () => {
     expect(await hostsSupporting("statusline")).toEqual([
       "antigravity-cli",
       "claude-code",
+      "droid",
       "qwen-code",
     ]);
   });

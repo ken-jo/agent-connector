@@ -81,6 +81,7 @@ import {
   removeLedgerOwner,
   saveConfigPatchLedger,
 } from "../../core/config-patch-ledger.js";
+import { deleteJsonLeaf, readJsonLeaf, writeJsonLeaf } from "../../core/json-leaf.js";
 import { readRegisteredMeta } from "../../core/load-connector.js";
 import {
   linesOutsideFences,
@@ -1986,69 +1987,6 @@ export function claudeSensitiveKeyViolation(key: string): string | null {
   return null;
 }
 
-/** Result of looking up a dotted leaf path in a parsed JSON object. */
-type JsonLeafLookup =
-  | { kind: "absent" }
-  | { kind: "present"; value: JsonValue }
-  | { kind: "blocked"; atPath: string };
-
-/**
- * Walk `segments` (a validated dotted leaf path) through `root`. "blocked"
- * reports the first intermediate that exists but is not a plain object —
- * the skip-warn case (we never replace a non-object intermediate).
- */
-function readJsonLeaf(root: Record<string, unknown>, segments: string[]): JsonLeafLookup {
-  let node: Record<string, unknown> = root;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const next = node[segments[i]!];
-    if (next === undefined) return { kind: "absent" };
-    if (next === null || typeof next !== "object" || Array.isArray(next)) {
-      return { kind: "blocked", atPath: segments.slice(0, i + 1).join(".") };
-    }
-    node = next as Record<string, unknown>;
-  }
-  const leaf = node[segments[segments.length - 1]!];
-  if (leaf === undefined) return { kind: "absent" };
-  return { kind: "present", value: leaf as JsonValue };
-}
-
-/**
- * Write `value` at the leaf, creating ONLY absent intermediate objects along
- * the way (callers must have verified the path is not blocked).
- */
-function writeJsonLeaf(
-  root: Record<string, unknown>,
-  segments: string[],
-  value: JsonValue,
-): void {
-  let node: Record<string, unknown> = root;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i]!;
-    const next = node[seg];
-    if (next === undefined) {
-      const created: Record<string, unknown> = {};
-      node[seg] = created;
-      node = created;
-    } else {
-      node = next as Record<string, unknown>;
-    }
-  }
-  node[segments[segments.length - 1]!] = value;
-}
-
-/**
- * Delete the leaf key only. Intermediate objects — even ones we created — are
- * deliberately left in place (harmless; pruning risks collateral).
- */
-function deleteJsonLeaf(root: Record<string, unknown>, segments: string[]): void {
-  let node: Record<string, unknown> = root;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const next = node[segments[i]!];
-    if (next === null || typeof next !== "object" || Array.isArray(next)) return;
-    node = next as Record<string, unknown>;
-  }
-  delete node[segments[segments.length - 1]!];
-}
 
 /** Claude Code native interpolation token: `${env:VAR}` → `${VAR}`. */
 function claudeEnvToken(name: string): string {
