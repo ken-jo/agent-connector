@@ -152,6 +152,22 @@ describe("installer — ${secret:NAME} install-time warning", () => {
     expect(secretWarns(result)).toEqual([]);
   });
 
+  it("warns when ${env:VAR} inside a secret-bearing value is unset (the wrapper would expand it to empty)", async () => {
+    openSecretStore({ connectorId: "acme-db" }).set("db-pass", "p");
+    const c = connector({ DB_URL: "pg://${env:AC_TEST_DB_USER}:${secret:db-pass}@h/db" });
+    delete process.env.AC_TEST_DB_USER;
+    try {
+      const unset = (await install(c, ["claude-code"])).warnings.filter((w) => /AC_TEST_DB_USER is unset/.test(w));
+      expect(unset).toHaveLength(1);
+      expect(unset[0]).toContain("expands it to an empty value inside a secret-bearing env entry at launch");
+      expect(unset[0]).toContain("${env:AC_TEST_DB_USER:-default}");
+      process.env.AC_TEST_DB_USER = "ken";
+      expect((await install(c, ["claude-code"])).warnings.some((w) => /AC_TEST_DB_USER/.test(w))).toBe(false);
+    } finally {
+      delete process.env.AC_TEST_DB_USER;
+    }
+  });
+
   it("no warn for a server without secretEnv", async () => {
     const result = await install(connector(), ["claude-code"]);
     expect(secretWarns(result)).toEqual([]);

@@ -336,8 +336,8 @@ function keychainBackend(opts: SecretBackendOptions): SecretBackend {
   const platform = opts.platform ?? process.platform;
   // The path is spliced into a `security -i` command line, which tokenizes on
   // whitespace and quotes.
-  if (opts.keychainPath !== undefined && /[\s"']/.test(opts.keychainPath)) {
-    throw new SecretError("invalid-value", "keychainPath must not contain whitespace or quotes");
+  if (opts.keychainPath !== undefined && /[\s"'\\]/.test(opts.keychainPath)) {
+    throw new SecretError("invalid-value", "keychainPath must not contain whitespace, quotes or backslashes");
   }
   const extra = opts.keychainPath ? [opts.keychainPath] : [];
   const lockedHint =

@@ -1235,7 +1235,9 @@ ever includes a value. Exit 0 on success, 2 on a usage error (unknown verb, miss
 or extra argument, a flag the verb does not take), 1 on any other failure (invalid
 name, unresolved connector, keystore error, aborted prompt, failed check). Related:
 `install` warns per unset name
-(`secret "<name>" is not set`, pointing at `secrets set <name>`); `doctor` adds the
+(`secret "<name>" is not set`, pointing at `secrets set <name>`) and per unset,
+defaultless `${env:VAR}` inside a secret-bearing value (the wrapper would expand it
+to an empty fragment at launch); `doctor` adds the
 framework check `<id>: secrets` (pass `<n> secret(s) present in <backend>`; warn
 `not set: a, b`; warn `backend <id> unavailable: <reason>`; not healed by `--heal`).
 doctor's MCP probe launches the server with the real values in its environment and

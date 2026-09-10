@@ -274,9 +274,11 @@ function fakeExec(reply: (call: Call) => Partial<ExecResult>): { exec: ExecFn; c
 describe("keychain backend (macOS `security`) — exec contract", () => {
   it("refuses a keychainPath the `security -i` line could not carry", () => {
     const { exec } = fakeExec(() => ({}));
-    expect(() => createSecretBackend("keychain", { exec, platform: "darwin", keychainPath: "/tmp/my keychain.db" })).toThrow(
-      /whitespace or quotes/,
-    );
+    for (const keychainPath of ["/tmp/my keychain.db", "/tmp/a\\b.db", "/tmp/\"q\".db"]) {
+      expect(() => createSecretBackend("keychain", { exec, platform: "darwin", keychainPath })).toThrow(
+        /whitespace, quotes or backslashes/,
+      );
+    }
   });
 
   it("writes via `security -i` with the value hex-encoded on stdin, never in argv", () => {

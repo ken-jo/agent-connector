@@ -101,12 +101,14 @@ function resolveSessionId(env: NodeJS.ProcessEnv = process.env): string {
 /**
  * The server `host` actually runs: the base server with `platforms[host].server`
  * merged in (`false` disables it) — the installer's `effectiveServer` rule.
+ * Without a host (no `--host` baked into the wrapper) the base server counts;
+ * a runtime-detected host must never apply another host's override.
  */
 function effectiveServer(
   connector: RegisteredMeta,
-  host: PlatformId,
+  host: PlatformId | undefined,
 ): RegisteredMeta["server"] | undefined {
-  const override = connector.platforms?.[host]?.server;
+  const override = host === undefined ? undefined : connector.platforms?.[host]?.server;
   if (override === false) return undefined;
   const base = connector.server ?? undefined;
   if (!base) return undefined;
@@ -154,10 +156,13 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
   // Prefer the install TARGET platform baked into the wrapper (--host), but only
   // when it is a KNOWN registered platform id — a bad/unknown value falls back to
   // runtime env detection so a config typo can never poison hostPlatform.
-  const hostPlatform: PlatformId =
-    hostPlatformOverride !== undefined &&
-    REGISTERED_PLATFORM_IDS.has(hostPlatformOverride)
+  const installTarget: PlatformId | undefined =
+    hostPlatformOverride !== undefined && REGISTERED_PLATFORM_IDS.has(hostPlatformOverride)
       ? hostPlatformOverride
+      : undefined;
+  const hostPlatform: PlatformId =
+    installTarget !== undefined
+      ? installTarget
       : detectRuntimeHost().platform;
   const sessionId = resolveSessionId();
 
@@ -187,6 +192,6 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
     // server this host runs opted out of telemetry wrapping) must not measure.
     // Judged by the same per-host effective server the installer wrapped.
     measurementEnabled:
-      connector.telemetry.enabled === true && effectiveServer(connector, hostPlatform)?.wrapForTelemetry !== false,
+      connector.telemetry.enabled === true && effectiveServer(connector, installTarget)?.wrapForTelemetry !== false,
   });
 }

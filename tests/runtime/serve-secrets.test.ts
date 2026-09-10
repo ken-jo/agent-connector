@@ -195,6 +195,16 @@ describe("runServe + secretEnv", () => {
     expect(lastProxyOpts().measurementEnabled).toBe(false);
     await serve("claude-code");
     expect(lastProxyOpts().measurementEnabled).toBe(true);
+    // No --host baked in: the base server decides; a runtime-detected host
+    // never applies another host's override.
+    await runServe({
+      connectorId: "secrets-hostwrap",
+      serverCommand: "node",
+      serverArgs: ["server.js"],
+      dataDir: dataRoot,
+      secretEnv: { API_KEY: "{secret:API_KEY}" },
+    });
+    expect(lastProxyOpts().measurementEnabled).toBe(true);
   });
 
   it("without secretEnv the child env is the wrapper's env and measurement stays on", async () => {

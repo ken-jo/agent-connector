@@ -251,6 +251,16 @@ export async function installConnector(
           result.changes.push({ platform: id, action: "warn", detail });
           result.warnings.push(detail);
         }
+        // `${env:VAR}` inside a secret-bearing value is expanded by the serve
+        // wrapper at launch on every host; unset without a default, it becomes
+        // an empty fragment next to the secret.
+        for (const name of wroteEntry && server ? findUnsetEnvRefs(server.secretEnv ?? {}) : []) {
+          const detail =
+            `${name} is unset — the serve wrapper expands it to an empty value inside a secret-bearing env entry at launch ` +
+            `(export it in the host's environment, or give the ref a \${env:${name}:-default})`;
+          result.changes.push({ platform: id, action: "warn", detail });
+          result.warnings.push(detail);
+        }
       }
 
       // Remote-transport telemetry visibility note. Per-tool telemetry capture
