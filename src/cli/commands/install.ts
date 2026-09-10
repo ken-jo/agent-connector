@@ -94,7 +94,7 @@ export async function run(argv: string[]): Promise<number> {
   if (source != null && spec == null) {
     return fail(
       `"${source}" is not a local path or a recognizable connector source ` +
-        "(owner/repo[/subpath][#ref], github URL, git URL, npm:<package>[@version], archive:<path-or-url>, or .tgz/.tar.gz).",
+        "(owner/repo[/subpath][#ref], github URL, git URL, npm:<package>[@version], archive:<path-or-url>, or .tgz/.tar.gz/.zip).",
     );
   }
   if (spec != null && spec.kind === "remote") {
@@ -108,7 +108,7 @@ export async function run(argv: string[]): Promise<number> {
     const configPath = source ?? findConnectorConfig(projectDir);
     if (!configPath) {
       return fail(
-        "no connector config found. Pass a <source> (local path, owner/repo, npm:<package>, or archive tarball) or " +
+        "no connector config found. Pass a <source> (local path, owner/repo, npm:<package>, or archive tarball/zip) or " +
           "--connector <path>, or add an agent-connector.config.{mjs,js,json} to your project.",
       );
     }

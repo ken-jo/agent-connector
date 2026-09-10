@@ -76,3 +76,21 @@ describe("MCP package metadata identity derivation", () => {
     ).toBe("acme-db");
   });
 });
+
+describe("package metadata context — shared across framework copies", () => {
+  it("keeps the AsyncLocalStorage on globalThis under a well-known key", async () => {
+    const { PACKAGE_METADATA_CONTEXT_KEY, withConnectorPackageMetadata, currentConnectorPackageMetadata } =
+      await import("../../src/core/package-metadata.js");
+    expect(PACKAGE_METADATA_CONTEXT_KEY).toBe(Symbol.for("@ken-jo/agent-connector:package-metadata-context"));
+    const store = (globalThis as Record<symbol, unknown>)[PACKAGE_METADATA_CONTEXT_KEY] as {
+      getStore(): unknown;
+    };
+    expect(typeof store.getStore).toBe("function");
+    // A second copy of the framework would read the same store: what this copy
+    // puts in scope is visible through the global handle.
+    await withConnectorPackageMetadata({ version: "9.9.9" }, async () => {
+      expect(store.getStore()).toEqual({ version: "9.9.9" });
+      expect(currentConnectorPackageMetadata()).toEqual({ version: "9.9.9" });
+    });
+  });
+});

@@ -11,7 +11,7 @@
  *        owner/repo · owner/repo#ref · owner/repo/sub · owner/repo/sub#ref
  *        github:owner/repo · https://github.com/owner/repo[/tree/ref/sub]
  *        git@github.com:owner/repo.git · the .git suffix on any of the above.
- *        npm:<package>[@version] · archive:<path-or-url> · *.tgz / *.tar.gz
+ *        npm:<package>[@version] · archive:<path-or-url> · *.tgz / *.tar.gz / *.zip
  *   3. FETCH + PERSIST the repo to a STABLE cache dir under the data-root
  *      (`sources/<owner>__<repo>[__<ref>]/`), NOT a temp dir, so a connector
  *      with a local stdio server keeps resolving after install. Re-fetch updates
@@ -36,7 +36,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findConnectorConfig, loadConnectorFromPath } from "./load-connector.js";
@@ -302,21 +302,24 @@ function archivePathname(value: string): string {
   }
 }
 
-function isTarballLike(value: string): boolean {
+function isArchiveLike(value: string): boolean {
   const p = stripQueryAndHash(archivePathname(value)).toLowerCase();
-  return p.endsWith(".tgz") || p.endsWith(".tar.gz");
+  return p.endsWith(".tgz") || p.endsWith(".tar.gz") || p.endsWith(".zip");
 }
 
-/** Parse a tarball archive source: archive:<path-or-url> or direct *.tgz/*.tar.gz. */
+/** Parse an archive source: archive:<path-or-url> or a direct *.tgz / *.tar.gz / *.zip. */
 export function parseArchiveSource(value: string): RemoteSource | null {
   const raw = value.trim();
   const explicit = raw.startsWith("archive:");
   const source = explicit ? raw.slice("archive:".length).trim() : raw;
   if (source === "") return null;
-  if (!explicit && !isTarballLike(source)) return null;
+  if (!explicit && !isArchiveLike(source)) return null;
 
   const pathish = stripQueryAndHash(archivePathname(source));
-  const base = basename(pathish).replace(/\.tar\.gz$/i, "").replace(/\.tgz$/i, "");
+  const base = basename(pathish)
+    .replace(/\.tar\.gz$/i, "")
+    .replace(/\.tgz$/i, "")
+    .replace(/\.zip$/i, "");
   const repo = base || "source";
   return {
     sourceKind: "archive",
@@ -444,30 +447,59 @@ async function tarballFetch(remote: RemoteSource, dest: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`failed to download ${url}: HTTP ${res.status} ${res.statusText}`);
   }
-  await extractTarballBuffer(Buffer.from(await res.arrayBuffer()), dest);
+  await extractArchiveBuffer(Buffer.from(await res.arrayBuffer()), dest);
 }
 
-function extractTarballBuffer(buf: Buffer, dest: string): void {
+/** A zip file starts with the local-file-header signature `PK\x03\x04` (or the
+ *  empty-archive end-of-central-directory `PK\x05\x06`). Detected by content,
+ *  not by URL suffix, so a `.zip` served from a redirect still extracts. */
+function isZipBuffer(buf: Buffer): boolean {
+  return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && (buf[2] === 0x03 || buf[2] === 0x05);
+}
+
+/**
+ * Extract a downloaded archive (gzip tarball or zip) into `dest`, flattening a
+ * single top-level directory (codeload / `npm pack` / most zips nest one).
+ * Tarballs use the system `tar` (Linux, macOS, Windows 10+). Zips try `unzip`
+ * first and fall back to `tar -xf` (bsdtar on macOS/Windows reads zip natively).
+ */
+function extractArchiveBuffer(buf: Buffer, dest: string): void {
   const work = join(tmpdir(), `ac-src-${process.pid}-${Date.now()}`);
   mkdirSync(work, { recursive: true });
-  const tarPath = join(work, "source.tar.gz");
-  writeFileSync(tarPath, buf);
+  const zip = isZipBuffer(buf);
+  const archiveName = zip ? "source.zip" : "source.tar.gz";
+  const archivePath = join(work, archiveName);
+  writeFileSync(archivePath, buf);
   try {
-    execFileSync("tar", ["-xzf", tarPath, "-C", work], { stdio: "ignore" });
+    if (zip) extractZip(archivePath, work);
+    else execFileSync("tar", ["-xzf", archivePath, "-C", work], { stdio: "ignore" });
   } catch (err) {
     rmSync(work, { recursive: true, force: true });
+    const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
-      "neither git nor a usable `tar` is available to fetch a remote connector " +
-        `source (${err instanceof Error ? err.message : String(err)}). Install git ` +
-        "or tar, or pass a local --connector <path>.",
+      zip
+        ? `neither \`unzip\` nor a zip-capable \`tar\` is available to extract the connector archive (${detail}). ` +
+          "Install unzip, or pass a .tgz / local --connector <path>."
+        : "neither git nor a usable `tar` is available to fetch a remote connector " +
+          `source (${detail}). Install git or tar, or pass a local --connector <path>.`,
     );
   }
-  // codeload nests under a single `<repo>-<ref>/` directory — flatten it.
-  const entries = readdirSync(work).filter((e) => e !== "source.tar.gz");
+  // Archives usually nest under a single `<name>/` directory — flatten it.
+  const entries = readdirSync(work).filter((e) => e !== archiveName && e !== "__MACOSX");
   const top = entries.length === 1 ? join(work, entries[0]!) : work;
   rmSync(dest, { recursive: true, force: true });
   renameSync(top, dest);
   rmSync(work, { recursive: true, force: true });
+}
+
+function extractZip(archivePath: string, work: string): void {
+  try {
+    execFileSync("unzip", ["-q", "-o", archivePath, "-d", work], { stdio: "ignore" });
+    return;
+  } catch {
+    /* fall through to bsdtar */
+  }
+  execFileSync("tar", ["-xf", archivePath, "-C", work], { stdio: "ignore" });
 }
 
 async function archiveFetch(remote: RemoteSource, dest: string): Promise<void> {
@@ -479,7 +511,7 @@ async function archiveFetch(remote: RemoteSource, dest: string): Promise<void> {
     if (!res.ok) {
       throw new Error(`failed to download ${source}: HTTP ${res.status} ${res.statusText}`);
     }
-    await extractTarballBuffer(Buffer.from(await res.arrayBuffer()), dest);
+    await extractArchiveBuffer(Buffer.from(await res.arrayBuffer()), dest);
     return;
   }
 
@@ -487,7 +519,7 @@ async function archiveFetch(remote: RemoteSource, dest: string): Promise<void> {
   if (!existsSync(archivePath)) {
     throw new Error(`archive source not found: ${source}`);
   }
-  extractTarballBuffer(readFileSync(archivePath), dest);
+  extractArchiveBuffer(readFileSync(archivePath), dest);
 }
 
 function npmAvailable(): boolean {
@@ -531,7 +563,7 @@ async function npmFetch(remote: RemoteSource, dest: string): Promise<void> {
   }
   const tarPath = isAbsolute(packed) ? packed : join(work, packed);
   try {
-    extractTarballBuffer(readFileSync(tarPath), dest);
+    extractArchiveBuffer(readFileSync(tarPath), dest);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -582,6 +614,69 @@ export interface ResolvedSource {
 export interface ResolveOptions {
   /** Override the fetch (tests). Defaults to {@link gitFetcher}. */
   fetcher?: Fetcher;
+  /** Override the dependency install (tests). Defaults to {@link npmDependencyInstaller}. */
+  dependencyInstaller?: DependencyInstaller;
+}
+
+/** Installs the runtime dependencies of the fetched connector package in `dir`. */
+export type DependencyInstaller = (dir: string) => void | Promise<void>;
+
+/**
+ * The runtime dependencies a fetched connector package declares, or null when
+ * there is no package.json / no `dependencies`. Only the package.json in `dir`
+ * itself counts — a parent's manifest is not this connector's.
+ */
+function declaredDependencies(dir: string): string[] | null {
+  const manifest = join(dir, "package.json");
+  if (!existsSync(manifest)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(manifest, "utf8")) as { dependencies?: Record<string, string> };
+    const deps = Object.keys(pkg.dependencies ?? {});
+    return deps.length ? deps : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when every declared dependency already resolves under `<dir>/node_modules`. */
+function dependenciesPresent(dir: string, deps: string[]): boolean {
+  return deps.every((name) => existsSync(join(dir, "node_modules", ...name.split("/"), "package.json")));
+}
+
+/**
+ * Default dependency installer: `npm install --ignore-scripts --omit=dev` in the
+ * connector dir. Scripts are ignored on purpose — a fetched package must not run
+ * arbitrary code before the package gate has even loaded its config.
+ */
+export const npmDependencyInstaller: DependencyInstaller = (dir) => {
+  if (!npmAvailable()) {
+    throw new Error("npm was not found on PATH. Install npm, or pass a local --connector <path> whose dependencies are already installed.");
+  }
+  execFileSync(
+    "npm",
+    ["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", "--silent"],
+    { cwd: dir, stdio: "ignore" },
+  );
+};
+
+/**
+ * A fetched connector whose config imports its own dependencies (typically
+ * `@ken-jo/agent-connector` itself) cannot load until they are installed —
+ * `git clone` / a tarball / `npm pack` never ship node_modules. Installs them
+ * once (skipped when node_modules already satisfies the manifest) and wraps a
+ * failure in a clear, labeled error.
+ */
+async function ensureDependencies(dir: string, label: string, install: DependencyInstaller): Promise<void> {
+  const deps = declaredDependencies(dir);
+  if (!deps || dependenciesPresent(dir, deps)) return;
+  try {
+    await install(dir);
+  } catch (err) {
+    throw new Error(
+      `${label}: the connector declares dependencies (${deps.join(", ")}) but installing them failed ` +
+        `(${err instanceof Error ? err.message : String(err)}). Run \`npm install\` in ${dir} and retry.`,
+    );
+  }
 }
 
 /**
@@ -636,6 +731,10 @@ export async function resolveRemoteSource(
         ". The target must be a package built with agent-connector (defineConnector).",
     );
   }
+
+  // The config may import the connector package's own dependencies; a fetched
+  // source never carries node_modules, so install them before loading.
+  await ensureDependencies(dirname(configPath), label, opts.dependencyInstaller ?? npmDependencyInstaller);
 
   let connector: ResolvedConnector;
   let modulePath: string;
