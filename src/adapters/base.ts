@@ -29,10 +29,26 @@ import type {
   HookParadigm,
   ActionConfirm,
   ActionPlacement,
+  JsonValue,
   PlatformCapabilities,
   PlatformId,
   PlatformMemoryOverride,
 } from "../core/types.js";
+import {
+  type ConfigPatchLedgerEntry,
+  addLedgerOwner,
+  createLedgerEntry,
+  describeJsonValue,
+  dropLedgerEntry,
+  findLedgerEntry,
+  hashJsonValue,
+  jsonDeepEquals,
+  ledgerEntriesOwnedBy,
+  loadConfigPatchLedger,
+  removeLedgerOwner,
+  saveConfigPatchLedger,
+} from "../core/config-patch-ledger.js";
+import { deleteJsonLeaf, readJsonLeaf, writeJsonLeaf } from "../core/json-leaf.js";
 import { backupsDir, ensureDir, firstSymlinkInPath } from "../core/paths.js";
 import { parseJsonc } from "../core/jsonc.js";
 import {
@@ -1387,5 +1403,295 @@ export abstract class BaseAdapter implements Adapter {
     // no noise. Shared by every adapter (the overrides call super.doctor()).
     results.push(...this.memoryDiagnostics(ctx));
     return results;
+  }
+
+  // ── Owned JSON leaf (shared by the settings.json statusline hosts) ─────────
+  // One key in one JSON settings file, written through the SAME refcounted
+  // ownership ledger as configPatch (the ledger is surface-agnostic). Semantics:
+  // SET-IF-ABSENT (never overwrite a value agent-connector did not create →
+  // skip-warn), DRIFT-SAFE (a user edit after install is warned about, never
+  // reverted), FIRST-WRITER-WINS across connectors (a different owned value →
+  // skip-warn), IDEMPOTENT (same value → skip / co-owner refcount++), and
+  // reversible via uninstallOwnedJsonLeaf (last-owner-verified delete).
+  // Nested keys are dotted ("ui.statusLine"); intermediates are created.
+
+  /** Write `desired` at `key` in `filePath` under the ownership ledger. */
+  protected installOwnedJsonLeaf(
+    ctx: InstallContext,
+    opts: { host: PlatformId; filePath: string; key: string; desired: JsonValue; label: string },
+  ): ChangeRecord[] {
+    const { connector } = ctx;
+    const { host, filePath, key, desired, label } = opts;
+    const symlink = this.symlinkPathWarning(filePath);
+    if (symlink) return [symlink];
+
+    // OVERWRITE GUARD (upsertServerInJson precedent): never round-trip a
+    // present-but-unparseable settings file into `{}`.
+    if (this.isPresentButUnparseable(filePath)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail: `existing ${filePath} is not parseable; ${label} left unapplied (back it up / fix it, then re-run)`,
+        },
+      ];
+    }
+    const settings = this.readJson<Record<string, unknown>>(filePath) ?? {};
+    if (typeof settings !== "object" || Array.isArray(settings)) {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail: `existing ${filePath} is not a JSON object; ${label} left unapplied`,
+        },
+      ];
+    }
+
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    const segments = key.split(".");
+    const leaf = readJsonLeaf(settings, segments);
+    const entry = findLedgerEntry(ledger, host, filePath, key);
+
+    if (leaf.kind === "blocked") {
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `${label} ${key} skipped: "${leaf.atPath}" exists but is not an ` +
+            `object — set ${key} manually if wanted`,
+        },
+      ];
+    }
+
+    if (leaf.kind === "absent") {
+      // SET-IF-ABSENT: the one write path. Intermediates created as needed.
+      writeJsonLeaf(settings, segments, desired);
+      this.writeJson(filePath, settings, ctx.dryRun);
+      if (entry) {
+        // Stale ledger row (key deleted out from under us): re-assert the value,
+        // keep existing owners (they still rely on the key), record what we wrote.
+        entry.writtenValue = desired;
+        entry.writtenValueHash = hashJsonValue(desired);
+        addLedgerOwner(entry, connector.id, connector.version);
+      } else {
+        createLedgerEntry(ledger, {
+          platform: host,
+          file: filePath,
+          key,
+          value: desired,
+          connectorId: connector.id,
+          connectorVersion: connector.version,
+        });
+      }
+      if (!ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+      return [
+        {
+          platform: this.id,
+          action: "create",
+          path: filePath,
+          detail: `${label} ${key}: <absent> → ${describeJsonValue(desired)}`,
+        },
+      ];
+    }
+
+    // Key PRESENT — never overwrite; the only question is ownership/refcount.
+    if (!entry) {
+      // User- (or other-tool-) owned. No ownership is taken even when the values
+      // happen to match — uninstall must never delete a key we did not create.
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `${label} ${key} skipped: already set to ${describeJsonValue(leaf.value)} ` +
+            `(not created by agent-connector) — left untouched`,
+        },
+      ];
+    }
+
+    if (!jsonDeepEquals(leaf.value, entry.writtenValue)) {
+      // DRIFT: the user edited the value after we wrote it. Never revert.
+      return [
+        {
+          platform: this.id,
+          action: "warn",
+          path: filePath,
+          detail:
+            `${label} ${key}: value changed since install ` +
+            `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
+            `leaving in place`,
+        },
+      ];
+    }
+
+    if (jsonDeepEquals(desired, leaf.value)) {
+      // Same value we own: register as co-owner (refcount++) or idempotent skip.
+      const owners = entry.owners.map((o) => o.connectorId);
+      if (addLedgerOwner(entry, connector.id, connector.version)) {
+        if (!ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+        return [
+          {
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `${label} ${key} already installed; registered as co-owner (co-owned with ${owners.join(", ")})`,
+          },
+        ];
+      }
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          path: filePath,
+          detail: `${label} ${key} already installed`,
+        },
+      ];
+    }
+
+    // FIRST-WRITER-WINS: another connector owns the key with a different value.
+    return [
+      {
+        platform: this.id,
+        action: "warn",
+        path: filePath,
+        detail:
+          `${label} ${key} skipped: already owned by ${entry.owners
+            .map((o) => o.connectorId)
+            .join(", ")} with a different value — left untouched`,
+      },
+    ];
+  }
+
+  /**
+   * Release the ledger rows for `key` this connector owns (keyed off the ledger,
+   * not the declaration, so an id-only synthetic uninstall still reclaims them)
+   * and delete the key ONLY when last-owner ∧ value-unchanged ∧ prior-absent.
+   */
+  protected uninstallOwnedJsonLeaf(
+    ctx: InstallContext,
+    opts: { host: PlatformId; key: string; label: string },
+  ): ChangeRecord[] {
+    const { host, key, label } = opts;
+    const ledger = loadConfigPatchLedger(ctx.dataRoot);
+    const owned = ledgerEntriesOwnedBy(ledger, host, ctx.connector.id).filter((e) => e.key === key);
+    if (owned.length === 0) {
+      return [
+        {
+          platform: this.id,
+          action: "skip",
+          detail: `${label}: no ownership recorded; left untouched`,
+        },
+      ];
+    }
+
+    const changes: ChangeRecord[] = [];
+    let ledgerMutated = false;
+
+    // All rows usually share one file (the scope-resolved settings file), but
+    // group by file anyway so a scope drift between install and uninstall stays correct.
+    const byFile = new Map<string, ConfigPatchLedgerEntry[]>();
+    for (const entry of owned) {
+      const bucket = byFile.get(entry.file) ?? [];
+      bucket.push(entry);
+      byFile.set(entry.file, bucket);
+    }
+
+    for (const [filePath, entries] of byFile) {
+      const symlink = this.symlinkPathWarning(filePath);
+      if (symlink) {
+        changes.push(symlink);
+        continue;
+      }
+
+      const unparseable = this.isPresentButUnparseable(filePath);
+      const settings = unparseable ? null : this.readJson<Record<string, unknown>>(filePath);
+      let fileMutated = false;
+
+      for (const entry of entries) {
+        const { lastOwner } = removeLedgerOwner(entry, ctx.connector.id);
+        ledgerMutated = true;
+
+        if (!lastOwner) {
+          // Shared-flag case: A uninstalls, B still relies on the key.
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `${label} ${entry.key} retained: still owned by ${entry.owners
+              .map((o) => o.connectorId)
+              .join(", ")}`,
+          });
+          continue;
+        }
+
+        // Last owner out → the ledger row is dropped on every branch below; the
+        // KEY is removed only on the fully-verified branch.
+        dropLedgerEntry(ledger, entry);
+
+        if (unparseable) {
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: filePath,
+            detail: `${label} ${entry.key}: ${filePath} is not parseable; key left in place (ownership released)`,
+          });
+          continue;
+        }
+        if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `${label} ${entry.key} already absent (no settings file); ownership record dropped`,
+          });
+          continue;
+        }
+        const leaf = readJsonLeaf(settings, entry.key.split("."));
+        if (leaf.kind !== "present") {
+          changes.push({
+            platform: this.id,
+            action: "skip",
+            path: filePath,
+            detail: `${label} ${entry.key} already absent; ownership record dropped`,
+          });
+          continue;
+        }
+        if (entry.prior?.present !== false || !jsonDeepEquals(leaf.value, entry.writtenValue)) {
+          // User edited the value after install (or the row predates the
+          // set-if-absent guarantee): deleting would clobber them. Leave it.
+          changes.push({
+            platform: this.id,
+            action: "warn",
+            path: filePath,
+            detail:
+              `${label} ${entry.key}: value changed since install ` +
+              `(current ${describeJsonValue(leaf.value)}, wrote ${describeJsonValue(entry.writtenValue)}); ` +
+              `left in place`,
+          });
+          continue;
+        }
+
+        // VERIFIED: last owner + current === writtenValue + prior absent. Delete
+        // the leaf key (any intermediate we may have created is left in place).
+        deleteJsonLeaf(settings, entry.key.split("."));
+        fileMutated = true;
+        changes.push({
+          platform: this.id,
+          action: "remove",
+          path: filePath,
+          detail: `${label} ${entry.key} removed (was ${describeJsonValue(entry.writtenValue)})`,
+        });
+      }
+
+      if (fileMutated && settings) this.writeJson(filePath, settings, ctx.dryRun);
+    }
+
+    if (ledgerMutated && !ctx.dryRun) saveConfigPatchLedger(ctx.dataRoot, ledger);
+    return changes;
   }
 }

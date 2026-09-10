@@ -39,8 +39,11 @@ import type {
   ActionDef,
   ConnectorConfig,
   ResolvedConnector,
+  StatuslineDef,
   SubagentStopEvent,
 } from "../../src/core/types.js";
+import { loadConfigPatchLedger } from "../../src/core/config-patch-ledger.js";
+import { buildHomeBinStatuslineCommand } from "../../src/core/spawn.js";
 
 import droidAdapter from "../../src/adapters/droid/index.js";
 import { buildCtx, freshProject, isolateEnv, HOME_BIN } from "../support/env.js";
@@ -944,5 +947,176 @@ describe("droid — lifecycle-event parse + replies", () => {
       ).toEqual({ exitCode: 0 });
       expect(droidAdapter.formatReply!(event, {})).toEqual({ exitCode: 0 });
     }
+  });
+});
+
+// ── Statusline (HUD) surface — settings.json `statusLine` via the ownership ledger ──
+// Config-write side only: Factory documents `statusLine = { command, padding?,
+// maxRows? }` in settings.json but NO stdin payload schema, so parseStatusInput
+// maps nothing from the payload (raw only) — see the adapter header.
+
+describe("droid adapter — statusline", () => {
+  let projectDir: string;
+  let dataRoot: string;
+
+  beforeEach(() => {
+    projectDir = freshProject("ac-droid-sl-");
+    dataRoot = join(projectDir, ".agent-connector-sl");
+  });
+
+  function statuslineConnector(id: string, def: StatuslineDef): ResolvedConnector {
+    return defineConnector({ id, statusline: def });
+  }
+
+  function slCtx(connector: ResolvedConnector, opts: { dryRun?: boolean } = {}): InstallContext {
+    return buildCtx(projectDir, connector, { scope: "project", dataRoot, dryRun: opts.dryRun });
+  }
+
+  /** Project-scope Droid settings.json: <projectDir>/.factory/settings.json. */
+  function settingsPath(): string {
+    return join(projectDir, ".factory", "settings.json");
+  }
+
+  function readSettings(): Record<string, any> {
+    return readJson(settingsPath());
+  }
+
+  function writeSettings(data: unknown): void {
+    mkdirSync(join(projectDir, ".factory"), { recursive: true });
+    writeFileSync(settingsPath(), `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  }
+
+  it("advertises supportsStatusline === true (command-stdin) and the runtime pair", () => {
+    expect(droidAdapter.capabilities.supportsStatusline).toBe(true);
+    expect(droidAdapter.capabilities.statuslineMode).toBe("command-stdin");
+    expect(typeof droidAdapter.parseStatusInput).toBe("function");
+    expect(typeof droidAdapter.formatStatusOutput).toBe("function");
+  });
+
+  it("installs statusLine = { command } into .factory/settings.json with a ledger row (prior absent)", () => {
+    const connector = statuslineConnector("sl-install", { render: () => "x" });
+    const changes = droidAdapter.installStatusline!(slCtx(connector));
+    expect(changes.map((c) => c.action)).toEqual(["create"]);
+    expect(changes[0]!.path).toBe(settingsPath());
+
+    // Factory's documented shape: { command, padding?, maxRows? } — no `type` key.
+    expect(readSettings()).toEqual({
+      statusLine: { command: buildHomeBinStatuslineCommand(HOME_BIN, "droid", "sl-install") },
+    });
+
+    const entry = loadConfigPatchLedger(dataRoot).entries.find(
+      (e) => e.platform === "droid" && e.key === "statusLine",
+    );
+    expect(entry).toBeTruthy();
+    expect(entry!.file).toBe(settingsPath());
+    expect(entry!.prior).toEqual({ present: false });
+    expect(entry!.owners.map((o) => o.connectorId)).toEqual(["sl-install"]);
+  });
+
+  it("maps options.maxLines → maxRows and never writes padding or unsupported options", () => {
+    const connector = statuslineConnector("sl-opts", {
+      render: () => "x",
+      options: { maxLines: 2, refreshInterval: 5, respectUserColors: true, hideContextIndicator: true },
+    });
+    droidAdapter.installStatusline!(slCtx(connector));
+    expect(readSettings().statusLine).toEqual({
+      command: buildHomeBinStatuslineCommand(HOME_BIN, "droid", "sl-opts"),
+      maxRows: 2,
+    });
+  });
+
+  it("user scope writes ~/.factory/settings.json", () => {
+    const connector = statuslineConnector("sl-user", { render: () => "x" });
+    const ctx = buildCtx(projectDir, connector, { scope: "user", dataRoot });
+    droidAdapter.installStatusline!(ctx);
+    expect(droidAdapter.getStatuslineConfigPath(ctx)).toBe(join(process.env.HOME!, ".factory", "settings.json"));
+    expect(readJson(join(process.env.HOME!, ".factory", "settings.json")).statusLine.command).toContain(
+      "statusline droid --connector sl-user",
+    );
+  });
+
+  it("is idempotent — a byte-identical re-install skips and keeps one owner", () => {
+    const connector = statuslineConnector("sl-idem", { render: () => "x" });
+    droidAdapter.installStatusline!(slCtx(connector));
+    const before = readFileSync(settingsPath(), "utf8");
+    const again = droidAdapter.installStatusline!(slCtx(connector));
+    expect(again.map((c) => c.action)).toEqual(["skip"]);
+    expect(readFileSync(settingsPath(), "utf8")).toBe(before);
+    const entry = loadConfigPatchLedger(dataRoot).entries.find((e) => e.key === "statusLine")!;
+    expect(entry.owners).toHaveLength(1);
+  });
+
+  it("preserves sibling settings keys and never clobbers a user-owned statusLine", () => {
+    writeSettings({ model: "x", statusLine: { command: "my-own-status.sh" } });
+    const connector = statuslineConnector("sl-owned", { render: () => "x" });
+    const changes = droidAdapter.installStatusline!(slCtx(connector));
+    expect(changes.map((c) => c.action)).toEqual(["warn"]);
+    expect(changes[0]!.detail).toContain("not created by agent-connector");
+    expect(readSettings()).toEqual({ model: "x", statusLine: { command: "my-own-status.sh" } });
+    // No ownership taken: uninstall must not delete what we did not write.
+    const un = droidAdapter.uninstallStatusline!(slCtx(connector));
+    expect(un.map((c) => c.action)).toEqual(["skip"]);
+    expect(readSettings().statusLine).toEqual({ command: "my-own-status.sh" });
+  });
+
+  it("drift: a user edit after install is warned about, never reverted, and survives uninstall", () => {
+    const connector = statuslineConnector("sl-drift", { render: () => "x" });
+    droidAdapter.installStatusline!(slCtx(connector));
+    const edited = { command: "custom.sh", padding: 1 };
+    writeSettings({ statusLine: edited });
+
+    const re = droidAdapter.installStatusline!(slCtx(connector));
+    expect(re.map((c) => c.action)).toEqual(["warn"]);
+    expect(re[0]!.detail).toContain("value changed since install");
+    expect(readSettings().statusLine).toEqual(edited);
+
+    const un = droidAdapter.uninstallStatusline!(slCtx(connector));
+    expect(un.map((c) => c.action)).toEqual(["warn"]);
+    expect(readSettings().statusLine).toEqual(edited);
+    // Ownership released even though the key was left in place.
+    expect(loadConfigPatchLedger(dataRoot).entries.filter((e) => e.key === "statusLine")).toHaveLength(0);
+  });
+
+  it("uninstall removes only the key it wrote, leaves siblings, and drops the ledger row", () => {
+    writeSettings({ model: "x" });
+    const connector = statuslineConnector("sl-remove", { render: () => "x" });
+    droidAdapter.installStatusline!(slCtx(connector));
+    expect(readSettings().statusLine).toBeTruthy();
+
+    const changes = droidAdapter.uninstallStatusline!(slCtx(connector));
+    expect(changes.map((c) => c.action)).toEqual(["remove"]);
+    expect(readSettings()).toEqual({ model: "x" });
+    expect(loadConfigPatchLedger(dataRoot).entries.filter((e) => e.key === "statusLine")).toHaveLength(0);
+  });
+
+  it("honors platforms['droid'].statusline === false", () => {
+    const connector = defineConnector({
+      id: "sl-off",
+      statusline: { render: () => "x" },
+      platforms: { droid: { statusline: false } },
+    });
+    const changes = droidAdapter.installStatusline!(slCtx(connector));
+    expect(changes.map((c) => c.action)).toEqual(["skip"]);
+    expect(changes[0]!.detail).toContain("disabled for droid");
+    expect(existsSync(settingsPath())).toBe(false);
+  });
+
+  it("dry-run reports the create but writes neither settings.json nor the ledger", () => {
+    const connector = statuslineConnector("sl-dry", { render: () => "x" });
+    const changes = droidAdapter.installStatusline!(slCtx(connector, { dryRun: true }));
+    expect(changes.map((c) => c.action)).toEqual(["create"]);
+    expect(existsSync(settingsPath())).toBe(false);
+    expect(loadConfigPatchLedger(dataRoot).entries).toHaveLength(0);
+  });
+
+  it("parseStatusInput maps NO host fields (raw only) and formatStatusOutput is stdout + exit 0", () => {
+    // Factory publishes no stdin schema: a Claude-shaped payload must NOT be
+    // mapped by guesswork. Only host / capabilities / raw come through.
+    const raw = { model: { id: "m", display_name: "M" }, cwd: "/w", context_window: { used_percentage: 40 } };
+    const ctx = droidAdapter.parseStatusInput!(raw);
+    expect(ctx).toEqual({ host: "droid", capabilities: droidAdapter.capabilities, raw });
+    expect(ctx.model).toBeUndefined();
+    expect(ctx.cwd).toBeUndefined();
+    expect(droidAdapter.formatStatusOutput!("line 1\nline 2")).toEqual({ exitCode: 0, stdout: "line 1\nline 2" });
   });
 });

@@ -821,6 +821,12 @@ const statuslineCrossValidationRows = [
     evidence: "Live-verified agy adapter fixture + tests/adapters/antigravity-cli.test.ts",
     url: "https://github.com/google-gemini/gemini-cli",
   },
+  {
+    host: "Droid (Factory)",
+    adapter: "supportsStatusline + .factory/settings.json statusLine { command, maxRows? } (config-write; stdin payload unpublished, raw only)",
+    evidence: "Factory settings docs + tests/adapters/droid.test.ts",
+    url: "https://docs.factory.ai/cli/configuration/settings",
+  },
 ];
 
 const actionCrossValidationRows = [

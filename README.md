@@ -35,7 +35,7 @@ by a test on each run, and a drift test fails if the README and the source disag
 | | |
 |---|---|
 | Agent hosts with an adapter | **42** — terminal CLIs, IDE extensions and desktop apps ([coverage wall](https://agent-connector.ai/coverage)) |
-| Surfaces rendered per host | **8** — MCP server (41 hosts), memory (41), skills (35), hooks (32), commands (19), subagents (16), actions (9), status line (3) |
+| Surfaces rendered per host | **8** — MCP server (41 hosts), memory (41), skills (35), hooks (32), commands (19), subagents (16), actions (9), status line (4) |
 | Hook events normalized | **13**, dispatched through **3** paradigms (`json-stdio` 24 hosts · `mcp-only` 10 · `ts-plugin` 8) |
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
 | Hosts verified against the real host binary | **29 of 42** (22 of them end-to-end through a model tool call); the other **13** by the registry install harness in an isolated HOME |

@@ -235,7 +235,7 @@ export const adapterCapabilityProfiles = [
       "skills": true,
       "subagents": true,
       "memory": true,
-      "statusline": false,
+      "statusline": true,
       "actions": true
     }
   },

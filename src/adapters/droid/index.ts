@@ -25,6 +25,14 @@
  * PostToolUseFailure / SubagentStart, so those degrade to a warn/skip at
  * install time.
  *
+ * Status line — `settings.json` `statusLine = { command, padding?, maxRows? }`
+ * under the same `.factory` dir (a THIRD file; docs.factory.ai/cli/configuration/
+ * settings): stdout of `command` is rendered above the input. The config-write
+ * side is wired here through the shared ownership ledger. Factory publishes NO
+ * stdin payload schema for the command, so parseStatusInput maps NOTHING from the
+ * payload (it only carries `raw` through) until a live capture confirms the
+ * fields — no invented mapping.
+ *
  * Reply protocol is Claude-shaped JSON on stdout (exit 0 + `hookSpecificOutput`
  * with permissionDecision allow|deny|ask, plus additionalContext). Droid cannot
  * rewrite already-emitted tool output, so canModifyOutput is false; it CAN
@@ -50,6 +58,7 @@ import type {
   HookEventName,
   HookParadigm,
   HookResponse,
+  JsonValue,
   NotificationEvent,
   PlatformCapabilities,
   PlatformId,
@@ -60,6 +69,7 @@ import type {
   SessionEndEvent,
   SessionStartEvent,
   SkillDef,
+  StatuslineContext,
   StopEvent,
   SubagentDef,
   SubagentStopEvent,
@@ -68,13 +78,22 @@ import type {
 } from "../../core/types.js";
 import { resolveEnvRefsDeep } from "../../core/interpolate.js";
 import {
+  buildHomeBinStatuslineCommand,
   buildWrappedStdio,
   isHomeBinHookCommand,
 } from "../../core/spawn.js";
+import { statuslineOptionsForHost } from "../../core/statusline-options.js";
 import { normalizeSessionSource } from "../claude-code/wire.js";
 
 const HOST: PlatformId = "droid";
 const MCP_ROOT_KEY = "mcpServers";
+/**
+ * settings.json key the statusline surface owns on Droid: `statusLine =
+ * { command, padding?, maxRows? }` (docs.factory.ai/cli/configuration/settings).
+ * Top-level, like claude-code / antigravity-cli (NOT nested like qwen's
+ * `ui.statusLine`). Written through the shared ownership ledger.
+ */
+const STATUSLINE_KEY = "statusLine";
 
 /**
  * Canonical events Droid actually fires. Droid's hook event names are
@@ -196,16 +215,16 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     canInjectSessionContext: true,
     // Droid registers stdio and Streamable HTTP MCP servers.
     transports: ["stdio", "http"],
-    // Droid HAS a confirmed command-driven status line: `statusLine.command`
-    // (object {command, padding?, maxRows?}) in ~/.factory/settings.json, stdout
-    // rendered above the input (docs.factory.ai/cli/configuration/settings). BUT
-    // Factory publishes NO statusline stdin payload schema (the model/cost/
-    // context_window fields circulating online are Claude Code's, not
-    // Factory-captured), so the payload→StatuslineContext mapping can't be
-    // authored without a live stdin capture (blocked: needs an authenticated
-    // droid session). NOT a permanent gap — supportsStatusline stays unset until
-    // the payload is captured (set statusLine.command to a stdin-dumping script
-    // on a real droid box to confirm).
+    // Statusline surface: Droid has a confirmed command-driven status line —
+    // `statusLine = { command, padding?, maxRows? }` in <configDir>/settings.json,
+    // stdout rendered above the input (docs.factory.ai/cli/configuration/settings).
+    // The config-write side is wired (installStatusline / uninstallStatusline via
+    // the shared ownership ledger). Factory publishes NO stdin payload schema, so
+    // parseStatusInput maps no host fields yet (raw only) — a live droid capture
+    // is the remaining follow-up; the option flags below advertise only what the
+    // documented settings shape carries (maxRows ← options.maxLines).
+    supportsStatusline: true,
+    statuslineMode: "command-stdin",
     // Content surfaces: Droid implements all three (live-confirmed Factory dirs).
     //   command  → <configDir>/commands/<name>.md   (md+frontmatter: description, argument-hint)
     //   skill    → <configDir>/skills/<name>/SKILL.md (+ resources)
@@ -224,6 +243,65 @@ export class DroidAdapter extends BaseAdapter implements Adapter {
     actionInvocationMode: "exec-file",
     actionAffordanceKind: "slash-command",
   };
+
+  // ── Statusline surface (a HUD/status line) ────────────────────────────────
+
+  /** Droid's settings file — a THIRD file beside mcp.json / hooks.json. */
+  getStatuslineConfigPath(ctx: InstallContext): string {
+    return join(this.getConfigDir(ctx), "settings.json");
+  }
+
+  /**
+   * The `statusLine` value agent-connector writes: Factory's documented shape is
+   * `{ command, padding?, maxRows? }` (no `type` key). `maxRows` is taken from
+   * the connector's statusline `maxLines` option; `padding` has no connector
+   * option and is never written.
+   */
+  private statuslineValue(ctx: InstallContext): JsonValue {
+    const command = buildHomeBinStatuslineCommand(ctx.homeBinPath, HOST, ctx.connector.id);
+    const options = statuslineOptionsForHost(ctx.connector.statusline, HOST);
+    const value: Record<string, JsonValue> = { command };
+    if (Number.isInteger(options.maxLines) && (options.maxLines as number) >= 1) {
+      value.maxRows = options.maxLines as number;
+    }
+    return value;
+  }
+
+  override installStatusline(ctx: InstallContext): ChangeRecord[] {
+    const { connector } = ctx;
+    if (connector.statusline == null) {
+      return [{ platform: this.id, action: "skip", detail: "connector declares no statusline" }];
+    }
+    if (connector.platforms[HOST]?.statusline === false) {
+      return [{ platform: this.id, action: "skip", detail: `statusline disabled for ${HOST}` }];
+    }
+    return this.installOwnedJsonLeaf(ctx, {
+      host: HOST,
+      filePath: this.getStatuslineConfigPath(ctx),
+      key: STATUSLINE_KEY,
+      desired: this.statuslineValue(ctx),
+      label: "statusline",
+    });
+  }
+
+  override uninstallStatusline(ctx: InstallContext): ChangeRecord[] {
+    return this.uninstallOwnedJsonLeaf(ctx, { host: HOST, key: STATUSLINE_KEY, label: "statusline" });
+  }
+
+  /**
+   * Factory documents no stdin payload for the status-line command, so nothing
+   * is mapped from it: the context carries the host, the capabilities and the
+   * verbatim payload only. The entrypoint stamps connectorId / scope / telemetry
+   * itself, so a connector's render() still gets its own usage data.
+   */
+  parseStatusInput(raw: unknown): StatuslineContext {
+    return { host: HOST, capabilities: this.capabilities, raw };
+  }
+
+  /** Stdout is rendered above the input; exit 0. */
+  formatStatusOutput(rendered: string): HookReply {
+    return { exitCode: 0, stdout: rendered };
+  }
 
   // ── Detection ────────────────────────────────────────────────────────────
 
