@@ -26,6 +26,7 @@ import type {
   PlatformId,
   PlatformOverride,
   ResolvedConnector,
+  ResolvedOAuthLoginDef,
   ServerDef,
   SkillDef,
   SubagentDef,
@@ -98,6 +99,15 @@ export interface RegisteredMeta {
    * record is keyed by connector id only and holds no per-host scope map).
    */
   scope?: InstallScope;
+  /**
+   * OAuth logins the connector declares (`oauth.<key>`), normalized by
+   * defineConnector and persisted verbatim so `auth`, doctor and
+   * getAccessToken can resolve a login from the record alone. Holds client
+   * ids and `${secret:NAME}` references only — never a secret or a token.
+   * OPTIONAL in the file: absent on records written before this field
+   * existed; {@link readRegisteredMeta} always returns a map (`{}` when absent).
+   */
+  oauth?: Record<string, ResolvedOAuthLoginDef>;
 }
 
 /**
@@ -255,6 +265,7 @@ export function registerConnector(
     memory: connector.memory,
     targets: connector.targets,
     platforms: serializablePlatforms(connector.platforms),
+    oauth: connector.oauth ?? {},
     // Persist the install scope when the caller supplied one (the installer
     // passes its install scope). Omitted from the record when undefined so an
     // ad-hoc register stays minimal and round-trips as "no scope known".
@@ -296,7 +307,10 @@ export function readRegisteredMeta(id: string): RegisteredMeta | null {
   const recordPath = join(connectorDir(id), "connector.json");
   if (!existsSync(recordPath)) return null;
   try {
-    return JSON.parse(readFileSync(recordPath, "utf8")) as RegisteredMeta;
+    const meta = JSON.parse(readFileSync(recordPath, "utf8")) as RegisteredMeta | null;
+    if (!meta || typeof meta !== "object") return null;
+    // Records written before `oauth` existed carry no key; readers always get a map.
+    return { ...meta, oauth: meta.oauth ?? {} };
   } catch {
     return null;
   }
@@ -352,6 +366,7 @@ export function connectorFromMeta(meta: RegisteredMeta): ResolvedConnector {
     actions: [],
     platforms: meta.platforms ?? {},
     targets: meta.targets,
+    oauth: meta.oauth ?? {},
   };
 }
 

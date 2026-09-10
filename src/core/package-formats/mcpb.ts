@@ -26,7 +26,7 @@ import {
 } from "../mcp-standard.js";
 import { SECRET_REF_RE } from "../secrets.js";
 import type { EmitContext, FormatEmitter, PackageResult } from "./shared.js";
-import { createEmitter, json } from "./shared.js";
+import { createEmitter, json, oauthLoginSentence } from "./shared.js";
 
 /** "ACME_DB_TOKEN" → "Acme Db Token" for a user_config field title. */
 function titleize(s: string): string {
@@ -53,6 +53,7 @@ function userConfigKey(name: string): string {
 }
 
 function recipeReadme(connector: ResolvedConnector): string {
+  const logins = oauthLoginSentence(connector);
   return `# ${connector.displayName} — MCPB bundle
 
 \`agent-connector package --format mcpb\` emitted the conformant **manifest.json**
@@ -80,7 +81,7 @@ bundle stays self-contained and signable.
 The resulting \`.mcpb\` installs one-click into Claude Desktop and any MCPB host.
 Secrets are declared under \`user_config\` and collected by the host keychain at
 install time — never inline them in the manifest.
-`;
+${logins === "" ? "" : `\n${logins}\n`}`;
 }
 
 /** Emit a conformant MCPB manifest.json + packaging recipe for `connector`. */

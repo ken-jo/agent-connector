@@ -481,6 +481,7 @@ const COMMANDS: Record<string, () => Promise<CommandModule>> = {
   doctor: () => import("./commands/doctor.js"),
   status: () => import("./commands/status.js"),
   secrets: () => import("./commands/secrets.js"),
+  auth: () => import("./commands/auth.js"),
   telemetry: () => import("./commands/telemetry.js"),
   usage: () => import("./commands/usage.js"),
   leaderboard: () => import("./commands/leaderboard.js"),
@@ -535,6 +536,11 @@ const COMMAND_USAGE: Record<string, string> = {
     "  secrets delete <name> [--connector <path>] [--connector-id <id>]\n" +
     "  secrets list [--connector <path>] [--connector-id <id>] [--json]\n" +
     "  secrets check [--connector <path>] [--connector-id <id>] [--backend <backend>] [--json]",
+  auth:
+    "auth login <key> [--connector <path>] [--connector-id <id>] [--project <dir>] [--device|--loopback] [--port <n>] [--json]\n" +
+    "  auth status [--connector <path>] [--connector-id <id>] [--project <dir>] [--json]\n" +
+    "  auth logout <key> [--connector <path>] [--connector-id <id>] [--project <dir>]\n" +
+    "  auth token <key> [--connector <path>] [--connector-id <id>] [--project <dir>]",
   telemetry:
     "telemetry report|export|leaderboard [--by <dim>] [--since <dur>] [--connector <id>] [--scope <slice>] [--format csv|json] [--out <file>] [--json]",
   usage:
@@ -569,6 +575,7 @@ commands:
   doctor       Health-check every detected platform; non-zero exit on any failure.
   status       Light install-state summary: which connectors are present on which hosts (always exits 0).
   secrets      Store the secrets a connector references (\${secret:NAME}) in the OS keystore (set | delete | list | check).
+  auth         Log in to the OAuth providers a connector declares (oauth.<key>) and keep the refresh tokens in the OS keystore (login | status | logout | token).
   telemetry    Inspect local per-tool token telemetry (report | export | leaderboard).
   usage        Inspect host-native token usage from agent host logs (report | export | leaderboard).
   leaderboard  Three leaderboards: 🔌 MCP/plugin (mcp-self) + 🖥️ host/user (host-scan-logs) + 🛰️ host-native turns (host-native-live) — never summed.

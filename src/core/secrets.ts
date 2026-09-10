@@ -624,7 +624,8 @@ interface FileStoreShape {
   items: Record<string, Record<string, string>>;
 }
 
-function readJsonFile<T>(path: string): T | null {
+/** Parse a JSON file; null when absent; SecretError when unreadable or not JSON. */
+export function readJsonFile<T>(path: string): T | null {
   if (!existsSync(path)) return null;
   try {
     return JSON.parse(readFileSync(path, "utf8")) as T;
@@ -633,8 +634,8 @@ function readJsonFile<T>(path: string): T | null {
   }
 }
 
-/** Write `data` as JSON with owner-only permissions, atomically (tmp + rename). */
-function writePrivateJson(path: string, data: unknown): void {
+/** Write `data` as JSON atomically (tmp + rename) with a 0700 directory and a 0600 file. */
+export function writePrivateJson(path: string, data: unknown): void {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = `${path}.${process.pid}.tmp`;

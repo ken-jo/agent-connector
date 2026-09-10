@@ -35,6 +35,7 @@ import type {
 } from "./types.js";
 import type { Adapter, InstallContext } from "../adapters/spi.js";
 import { findUnsetEnvRefs } from "./interpolate.js";
+import { OAuthError, loginStatus } from "./oauth/index.js";
 import { SecretError, findSecretRefs, openSecretStore } from "./secrets.js";
 import { REGISTERED_PLATFORM_IDS, loadAdapter } from "../adapters/registry.js";
 import { detectInstalledPlatforms } from "../adapters/detect.js";
@@ -166,6 +167,8 @@ export async function installConnector(
 
   // `${secret:NAME}` presence is probed once per connector, not once per host.
   const secretWarnCache = new Map<string, string[]>();
+  // `oauth.<key>` presence likewise: one keystore + metadata read per install run.
+  const loginWarnCache = new Map<string, string[]>();
 
   for (const id of targets) {
     // Double-install guard (inverse direction): a connector present BOTH
@@ -258,6 +261,22 @@ export async function installConnector(
           const detail =
             `${name} is unset — the serve wrapper expands it to an empty value inside a secret-bearing env entry at launch ` +
             `(export it in the host's environment, or give the ref a \${env:${name}:-default})`;
+          result.changes.push({ platform: id, action: "warn", detail });
+          result.warnings.push(detail);
+        }
+      }
+
+      // `oauth.<key>` guard (core/oauth). A login the user has not run makes
+      // the server's first `getAccessToken` open a browser, or fail closed
+      // where it cannot, so the moment the host entry is written is the moment
+      // to say which logins are still absent. Same gate as the secrets guard
+      // (an entry actually created/updated). Never throws: a keystore or
+      // metadata problem is ONE warn, never an install failure.
+      {
+        const wroteEntry = serverChanges.some(
+          (c) => c.action === "create" || c.action === "update",
+        );
+        for (const detail of wroteEntry ? missingLoginWarnings(connector, loginWarnCache) : []) {
           result.changes.push({ platform: id, action: "warn", detail });
           result.warnings.push(detail);
         }
@@ -804,6 +823,41 @@ function missingSecretWarnings(
   return out;
 }
 
+/**
+ * Install-time `oauth.<key>` warnings for one connector: one line per declared
+ * login whose refresh token is not in the keystore, or a single line when the
+ * keystore or the login metadata cannot be read. Memoized per connector so a
+ * multi-host install probes once. No network.
+ */
+function missingLoginWarnings(connector: ResolvedConnector, cache: Map<string, string[]>): string[] {
+  const logins = connector.oauth ?? {};
+  const keys = Object.keys(logins);
+  if (keys.length === 0) return [];
+  const cached = cache.get(connector.id);
+  if (cached) return cached;
+  const out: string[] = [];
+  try {
+    const unreadable: string[] = [];
+    for (const status of loginStatus({ connectorId: connector.id, logins })) {
+      if (status.present === false) {
+        out.push(
+          `login "${status.key}" (${status.provider}) is not present — run \`auth login ${status.key}\` before the server needs it`,
+        );
+      } else if (status.present === null) {
+        unreadable.push(status.key);
+      }
+    }
+    if (unreadable.length > 0) {
+      out.push(`secrets backend unavailable; cannot verify login(s) ${unreadable.join(", ")}`);
+    }
+  } catch (err) {
+    const hint = (err instanceof SecretError || err instanceof OAuthError) && err.hint ? ` — ${err.hint}` : "";
+    out.push(`cannot verify login(s) ${keys.join(", ")}: ${errMessage(err)}${hint}`);
+  }
+  cache.set(connector.id, out);
+  return out;
+}
+
 /** Every secret name the connector references, across the base server and its per-host overrides. */
 function connectorSecretNames(connector: ResolvedConnector): string[] {
   const names = new Set<string>(findSecretRefs(connector.server?.secretEnv ?? {}));
@@ -963,6 +1017,7 @@ function syntheticConnector(id: string): ResolvedConnector {
     actions: [],
     platforms: {},
     targets: "auto",
+    oauth: {},
   };
 }
 

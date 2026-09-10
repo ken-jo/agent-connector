@@ -58,6 +58,37 @@ export type {
   BackendAvailability,
 } from "../core/secrets.js";
 
+// OAuth logins — `oauth.<key>` providers the user authorizes once (`auth login`).
+// A server calls `getAccessToken` for a fresh access token; with no stored
+// login it opens the browser itself when it can, else fails closed with the
+// exact `auth login` command.
+export {
+  getAccessToken,
+  login,
+  logout,
+  loginStatus,
+  canOpenBrowser,
+  OAUTH_PRESET_IDS,
+  getOAuthPreset,
+  discoverEndpoints,
+  OAuthError,
+  OAuthLoginRequiredError,
+} from "../core/oauth/index.js";
+
+export type {
+  OAuthPreset,
+  TokenSet,
+  LoginResult,
+  LoginStatus,
+  AccessTokenOptions,
+} from "../core/oauth/index.js";
+
+export type {
+  OAuthLoginDef,
+  ResolvedOAuthLoginDef,
+  OAuthPresetId,
+} from "../core/types.js";
+
 export type {
   ConnectorConfig,
   ResolvedConnector,

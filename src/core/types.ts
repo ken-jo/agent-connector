@@ -1262,6 +1262,84 @@ export interface ResolvedMcpPackageIdentity extends McpPackageIdentity {
   hostAlias?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// OAuth logins (`oauth.<key>`)
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Provider preset ids (core/oauth/presets.ts). A preset supplies endpoints,
+ * PKCE / device-flow support, the token-endpoint auth method and provider
+ * quirks; `generic` takes an `issuer` (RFC 8414 / OIDC discovery) or explicit
+ * `authorizationEndpoint` + `tokenEndpoint`.
+ */
+export type OAuthPresetId = "google" | "microsoft" | "github" | "bing-webmaster" | "posthog" | "generic";
+
+/**
+ * How `auth login` obtains the authorization: `loopback` (RFC 8252 §7.3 — a
+ * one-request server on 127.0.0.1 receives the redirect), `device` (RFC 8628
+ * device authorization grant), or `auto` — loopback when a browser can be
+ * opened, else device when the preset supports it.
+ */
+export type OAuthFlow = "auto" | "loopback" | "device";
+
+/** Client authentication at the token endpoint (RFC 6749 §2.3.1); `none` = public client (client_id only). */
+export type OAuthTokenEndpointAuth = "client_secret_post" | "client_secret_basic" | "none";
+
+/**
+ * One OAuth 2.0 provider a connector logs in to (`oauth.<key>`). The user
+ * authorizes once (`<bin> auth login <key>`); the refresh token is kept in
+ * the connector's secret namespace under {@link storeAs}; the server mints
+ * access tokens with `getAccessToken({ connectorId, key })`. The connector
+ * author registers the app at the provider and ships `clientId`; a client
+ * secret is only ever a `${secret:NAME}` reference.
+ */
+export interface OAuthLoginDef {
+  /** Preset id; `generic` needs `issuer` or both `authorizationEndpoint` and `tokenEndpoint`. */
+  provider: OAuthPresetId;
+  /** The app's client id at the provider. Literal or `${env:VAR}`; never `${secret:…}` (it is not a secret). */
+  clientId: string;
+  /** Only the reference form `${secret:NAME}` (a literal secret in a config is rejected). */
+  clientSecret?: string;
+  /** Provider scope strings, at least one. */
+  scopes: string[];
+  /** Default "auto": loopback when a browser can be opened, else device when the preset supports it. */
+  flow?: OAuthFlow;
+  /** Fixed loopback port for providers that need an exact redirect URI match (default: ephemeral). */
+  redirectPort?: number;
+  /** Default "/callback". */
+  redirectPath?: string;
+  /** generic: RFC 8414 / OIDC discovery root. Presets may set it; a value here overrides. */
+  issuer?: string;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
+  deviceAuthorizationEndpoint?: string;
+  revocationEndpoint?: string;
+  tokenEndpointAuth?: OAuthTokenEndpointAuth;
+  /** PKCE S256; presets set the default. */
+  pkce?: boolean;
+  /** Extra query params on the authorization request (presets add e.g. Google's access_type=offline). */
+  extraAuthorizationParams?: Record<string, string>;
+  /** Preset-specific options, e.g. posthog `{ region: "eu" }`, microsoft `{ tenant: "common" }`. */
+  options?: Record<string, string>;
+  /** Secret name holding the refresh token. Default `oauth.<key>.refresh-token`. */
+  storeAs?: string;
+}
+
+/**
+ * An {@link OAuthLoginDef} after defineConnector: the login key stamped and
+ * the three defaults applied. Persisted verbatim in the registry record; holds
+ * client ids and `${secret:NAME}` references only — never a secret or a token.
+ */
+export interface ResolvedOAuthLoginDef extends OAuthLoginDef {
+  key: string;
+  /** Default applied ("auto"). */
+  flow: OAuthFlow;
+  /** Default applied ("/callback"). */
+  redirectPath: string;
+  /** Default applied (`oauth.<key>.refresh-token`). */
+  storeAs: string;
+}
+
 /** What a developer passes to defineConnector(). */
 export interface ConnectorConfig {
   /**
@@ -1315,6 +1393,13 @@ export interface ConnectorConfig {
   targets?: "auto" | PlatformId[];
   /** Distribution metadata for the registry server.json + MCPB bundle formats. */
   publish?: PublishConfig;
+  /**
+   * OAuth 2.0 providers the connector logs in to, keyed by login key
+   * (`^[a-z0-9][a-z0-9-]{0,31}$`). The user runs `auth login <key>` once; the
+   * refresh token lives in the OS keystore and the server calls
+   * `getAccessToken`. Omit when the connector needs no login.
+   */
+  oauth?: Record<string, OAuthLoginDef>;
 }
 
 /**
@@ -1359,6 +1444,8 @@ export interface ResolvedConnector {
   targets: "auto" | PlatformId[];
   /** Distribution metadata (registry server.json + MCPB bundle); passed through verbatim. */
   publish?: PublishConfig;
+  /** Normalized logins (key stamped, defaults applied); {} when the connector declares none. */
+  oauth: Record<string, ResolvedOAuthLoginDef>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

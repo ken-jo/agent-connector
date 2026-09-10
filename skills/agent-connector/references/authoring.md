@@ -78,6 +78,25 @@ value may mix both forms — `"pg://${env:DB_USER}:${secret:db-pass}@h/db"` — 
 wrapper expands the `${env:…}` part at launch and never expands the secret. A
 per-host `env` override replaces the base `env` and its secrets alike.
 
+**Logins.** For an API behind OAuth 2.0 declare the provider under `oauth.<key>`
+with a preset (`google`, `microsoft`, `github`, `bing-webmaster`, `posthog`, or
+`generic` for any RFC 8414 / OIDC provider), the app's own client id and the
+scopes — `oauth: { google: { provider: "google", clientId: "…", clientSecret:
+"${secret:google-client-secret}", scopes: ["…"] } }` — and tell the user to run
+`<bin> auth login <key>` once: agent-connector runs the browser loopback or
+device-code flow and keeps the refresh token in the OS keystore as
+`oauth.<key>.refresh-token`. The server mints access tokens by calling
+`getAccessToken({ connectorId, key })` from `@ken-jo/agent-connector/sdk` (it
+refreshes and caches in process memory; with no stored login it opens the browser
+itself when it can and otherwise fails with the exact `auth login` command, so a
+plugin install works without `install`). Never pass an access token through
+`env` — they expire; a server that refreshes on its own may read the refresh
+token via `env: { X: "${secret:oauth.<key>.refresh-token}" }`. Register the app
+with the provider yourself and ship `clientId` (a literal or `${env:VAR}`) —
+agent-connector has no client ids of its own; a `clientSecret` must be a
+`${secret:NAME}` reference, never a literal. `install` warns and `doctor` reports
+`<id>: logins` while a login is missing.
+
 ## Server Shape Is Product-Specific
 
 Do not assume every MCP is a Node package launched with `npx` or a database

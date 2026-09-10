@@ -31,12 +31,8 @@ import {
   resolveSecretBackendId,
 } from "../../core/secrets.js";
 import type { SecretBackendId, SecretListEntry } from "../../core/secrets.js";
-import {
-  findConnectorConfig,
-  listRegisteredConnectors,
-  loadConnectorFromPath,
-} from "../../core/load-connector.js";
 import { fail, getActiveProgramName, print } from "../app.js";
+import { resolveConnectorId } from "./connector-target.js";
 
 /**
  * The four usage lines — the same text app.ts prints for `secrets --help`
@@ -105,64 +101,6 @@ function failWithHint(message: string, hint?: string): number {
   const code = fail(message, 1);
   if (hint) process.stderr.write(`  hint: ${hint}\n`);
   return code;
-}
-
-// ── Connector resolution ──────────────────────────────────────────────────
-
-type ConnectorChoice =
-  | { id: string }
-  | {
-      error: string;
-      /** True when the user named a connector that failed to load (never fall back). */
-      explicit: boolean;
-    };
-
-async function resolveConnectorId(
-  connectorId: string | undefined,
-  connectorPath: string | undefined,
-  projectDir: string,
-): Promise<ConnectorChoice> {
-  if (connectorId !== undefined) return { id: connectorId };
-
-  if (connectorPath !== undefined) {
-    try {
-      const { connector } = await loadConnectorFromPath(connectorPath);
-      return { id: connector.id };
-    } catch (err) {
-      return {
-        error: `cannot load connector "${connectorPath}": ${err instanceof Error ? err.message : String(err)}`,
-        explicit: true,
-      };
-    }
-  }
-
-  const configPath = findConnectorConfig(projectDir);
-  if (configPath) {
-    try {
-      const { connector } = await loadConnectorFromPath(configPath);
-      return { id: connector.id };
-    } catch {
-      /* implicit discovery is a convenience — fall through to the registry */
-    }
-  }
-
-  const registered = listRegisteredConnectors();
-  const only = registered[0];
-  if (registered.length === 1 && only) return { id: only.id };
-  if (registered.length > 1) {
-    return {
-      error:
-        `${registered.length} connectors are registered (${registered.map((c) => c.id).join(", ")}) — ` +
-        "pass --connector-id <id> (or --connector <path>)",
-      explicit: false,
-    };
-  }
-  return {
-    error:
-      "no connector found — pass --connector-id <id> or --connector <path>, " +
-      "or run inside a project with an agent-connector.config.* file",
-    explicit: false,
-  };
 }
 
 // ── Value input ───────────────────────────────────────────────────────────

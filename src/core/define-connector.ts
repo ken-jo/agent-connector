@@ -18,10 +18,13 @@ import type {
   HooksConfig,
   MemoryDef,
   NativeHookDef,
+  OAuthFlow,
+  OAuthTokenEndpointAuth,
   PlatformId,
   PlatformOverride,
   PublishConfig,
   ResolvedConnector,
+  ResolvedOAuthLoginDef,
   ServerDef,
   SkillDef,
   StatuslineDef,
@@ -32,6 +35,8 @@ import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { REGISTRY_NAMESPACE_RE } from "./mcp-standard.js";
 import { CONNECTOR_ID_RE, isValidConnectorId } from "./ids.js";
 import { SECRET_NAME_RE, SECRET_REF_RE, findSecretRefs, hasSecretRef, isValidSecretName } from "./secrets.js";
+import { OAUTH_PRESET_IDS, POSTHOG_REGIONS, getOAuthPreset } from "./oauth/presets.js";
+import { RESERVED_AUTHORIZATION_PARAMS } from "./oauth/reserved.js";
 import {
   currentConnectorPackageMetadata,
   resolveMcpPackageIdentity,
@@ -235,6 +240,7 @@ export function defineConnector(config: ConnectorConfig): ResolvedConnector {
     platforms: normalizePlatformServers(config.platforms, server),
     targets: config.targets ?? "auto",
     ...(config.publish ? { publish: normalizePublish(config.publish) } : {}),
+    oauth: normalizeOAuth(config.oauth),
   };
 
   return resolved;
@@ -553,6 +559,166 @@ function normalizePublish(publish: PublishConfig): PublishConfig {
     }
   }
   return { ...publish };
+}
+
+/** Login keys (`oauth.<key>`): kebab-case, 1..32 chars. */
+const OAUTH_KEY_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const OAUTH_FLOWS: readonly OAuthFlow[] = ["auto", "loopback", "device"];
+const OAUTH_TOKEN_ENDPOINT_AUTHS: readonly OAuthTokenEndpointAuth[] = [
+  "client_secret_post",
+  "client_secret_basic",
+  "none",
+];
+/** Login fields that hold a URL; https only, except http on 127.0.0.1 / localhost (a loopback provider in tests). */
+const OAUTH_URL_FIELDS = [
+  "issuer",
+  "authorizationEndpoint",
+  "tokenEndpoint",
+  "deviceAuthorizationEndpoint",
+  "revocationEndpoint",
+] as const;
+/** Exactly one `${secret:NAME}` reference and nothing else. */
+const OAUTH_CLIENT_SECRET_REF_RE = /^\$\{secret:([A-Za-z0-9][A-Za-z0-9._-]*)\}$/;
+
+function isOAuthEndpointUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost");
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((v) => typeof v === "string")
+  );
+}
+
+/**
+ * Validate the `oauth.<key>` logins and apply the three defaults (flow
+ * "auto", redirectPath "/callback", storeAs `oauth.<key>.refresh-token`).
+ * Nothing is resolved against a preset or the network here — presets are
+ * applied by the login engine — so a config stays valid offline. Returns {}
+ * for a config without `oauth`.
+ */
+function normalizeOAuth(input: ConnectorConfig["oauth"]): Record<string, ResolvedOAuthLoginDef> {
+  if (input === undefined) return {};
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    throw new ConnectorConfigError("oauth must be an object keyed by login key");
+  }
+  const out: Record<string, ResolvedOAuthLoginDef> = {};
+  for (const [key, def] of Object.entries(input)) {
+    if (!OAUTH_KEY_RE.test(key)) {
+      throw new ConnectorConfigError(
+        `oauth: "${key}" is not a valid login key (expected ${OAUTH_KEY_RE.source})`,
+      );
+    }
+    const where = `oauth.${key}`;
+    if (def === null || typeof def !== "object" || Array.isArray(def)) {
+      throw new ConnectorConfigError(`${where} must be an object`);
+    }
+    if (!(OAUTH_PRESET_IDS as readonly string[]).includes(def.provider)) {
+      throw new ConnectorConfigError(
+        `${where}.provider: "${String(def.provider)}" is not a known OAuth preset (${OAUTH_PRESET_IDS.join(", ")})`,
+      );
+    }
+    if (typeof def.clientId !== "string" || def.clientId.trim() === "" || def.clientId.includes("${secret:")) {
+      throw new ConnectorConfigError(
+        `${where}.clientId: must be a non-empty string; a client id is not a secret (use \${env:VAR} for a per-machine value)`,
+      );
+    }
+    if (def.clientSecret !== undefined) {
+      const ref = typeof def.clientSecret === "string" ? OAUTH_CLIENT_SECRET_REF_RE.exec(def.clientSecret) : null;
+      if (!ref || !isValidSecretName(ref[1]!)) {
+        throw new ConnectorConfigError(
+          `${where}.clientSecret: must be a \${secret:NAME} reference (a literal secret is never written into a connector config)`,
+        );
+      }
+    }
+    if (
+      !Array.isArray(def.scopes) ||
+      def.scopes.length === 0 ||
+      def.scopes.some((scope) => typeof scope !== "string" || scope.trim() === "")
+    ) {
+      throw new ConnectorConfigError(`${where}.scopes: at least one scope string is required`);
+    }
+    if (def.flow !== undefined && !OAUTH_FLOWS.includes(def.flow)) {
+      throw new ConnectorConfigError(`${where}.flow: expected ${OAUTH_FLOWS.join(" | ")}`);
+    }
+    if (def.tokenEndpointAuth !== undefined && !OAUTH_TOKEN_ENDPOINT_AUTHS.includes(def.tokenEndpointAuth)) {
+      throw new ConnectorConfigError(
+        `${where}.tokenEndpointAuth: expected ${OAUTH_TOKEN_ENDPOINT_AUTHS.join(" | ")}`,
+      );
+    }
+    if (
+      def.redirectPort !== undefined &&
+      (!Number.isInteger(def.redirectPort) || def.redirectPort < 1024 || def.redirectPort > 65535)
+    ) {
+      throw new ConnectorConfigError(`${where}.redirectPort: expected an integer in 1024..65535`);
+    }
+    if (def.redirectPath !== undefined && (typeof def.redirectPath !== "string" || !def.redirectPath.startsWith("/"))) {
+      throw new ConnectorConfigError(`${where}.redirectPath: must start with "/"`);
+    }
+    if (def.provider === "generic" && !def.issuer && !(def.authorizationEndpoint && def.tokenEndpoint)) {
+      throw new ConnectorConfigError(
+        `${where}: provider "generic" needs issuer, or authorizationEndpoint and tokenEndpoint`,
+      );
+    }
+    for (const field of OAUTH_URL_FIELDS) {
+      if (def[field] !== undefined && !isOAuthEndpointUrl(def[field])) {
+        throw new ConnectorConfigError(`${where}.${field}: must be an https URL`);
+      }
+    }
+    if (def.storeAs !== undefined && (typeof def.storeAs !== "string" || !isValidSecretName(def.storeAs))) {
+      throw new ConnectorConfigError(`${where}.storeAs: "${String(def.storeAs)}" is not a valid secret name`);
+    }
+    if (def.pkce !== undefined && typeof def.pkce !== "boolean") {
+      throw new ConnectorConfigError(`${where}.pkce: must be a boolean`);
+    }
+    if (def.extraAuthorizationParams !== undefined && !isStringRecord(def.extraAuthorizationParams)) {
+      throw new ConnectorConfigError(`${where}.extraAuthorizationParams: must be an object of string values`);
+    }
+    if (getOAuthPreset(def.provider).echoesState === false && def.redirectPort === undefined) {
+      throw new ConnectorConfigError(
+        `${where}.redirectPort: required for provider "${def.provider}" (redirect URIs are matched exactly and the authorization response carries no state)`,
+      );
+    }
+    for (const name of Object.keys(def.extraAuthorizationParams ?? {})) {
+      if (RESERVED_AUTHORIZATION_PARAMS.has(name)) {
+        throw new ConnectorConfigError(
+          `${where}.extraAuthorizationParams: "${name}" is set by the login flow and cannot be overridden`,
+        );
+      }
+    }
+    if (def.options !== undefined && !isStringRecord(def.options)) {
+      throw new ConnectorConfigError(`${where}.options: must be an object of string values`);
+    }
+    if (
+      def.provider === "posthog" &&
+      def.options?.region !== undefined &&
+      !(POSTHOG_REGIONS as readonly string[]).includes(def.options.region)
+    ) {
+      throw new ConnectorConfigError(`${where}.options.region: expected ${POSTHOG_REGIONS.join(" | ")}`);
+    }
+    if (def.provider === "microsoft" && def.options?.tenant !== undefined && def.options.tenant.trim() === "") {
+      throw new ConnectorConfigError(`${where}.options.tenant: must be a non-empty string`);
+    }
+    out[key] = {
+      ...def,
+      key,
+      flow: def.flow ?? "auto",
+      redirectPath: def.redirectPath ?? "/callback",
+      storeAs: def.storeAs ?? `oauth.${key}.refresh-token`,
+    };
+  }
+  return out;
 }
 
 /** Validate a surface name (kebab-case) or throw a ConnectorConfigError. */

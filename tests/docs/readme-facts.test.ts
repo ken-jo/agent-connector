@@ -17,6 +17,7 @@ import { ADAPTER_REGISTRY } from "../../src/adapters/registry.js";
 import { ALL_EVENTS } from "../../src/core/define-connector.js";
 import { ALL_FORMATS, FEASIBLE_FORMATS } from "../../src/core/package.js";
 import { SECRET_BACKEND_IDS } from "../../src/core/secrets.js";
+import { OAUTH_PRESET_IDS } from "../../src/core/oauth/index.js";
 import {
   adapterCapabilityProfiles,
   generatedSurfaceKeys,
@@ -107,6 +108,17 @@ describe("README 'By the numbers' equals its sources", () => {
   it("secret backends = SECRET_BACKEND_IDS", () => {
     const [count] = num(/\| Secret backends \| \*\*(\d+)\*\* — /, "secret backends");
     expect(count).toBe(SECRET_BACKEND_IDS.length);
+  });
+
+  it("OAuth provider presets = OAUTH_PRESET_IDS without generic", () => {
+    const m = README.match(/\| OAuth provider presets \| \*\*(\d+)\*\* — ([a-z0-9-]+(?:, [a-z0-9-]+)*) \(\+ ([a-z]+)\) \|/);
+    expect(m, "README row not found: OAuth provider presets — keep the literal shape in sync with this test").toBeTruthy();
+    const [, count, list, extra] = m!;
+    const presets = OAUTH_PRESET_IDS.filter((id) => id !== "generic");
+    expect(Number(count)).toBe(presets.length);
+    expect(list!.split(", ")).toEqual(presets);
+    expect(extra).toBe("generic");
+    expect(OAUTH_PRESET_IDS).toContain("generic");
   });
 
   it("verification split = the generated host verification matrix", () => {
