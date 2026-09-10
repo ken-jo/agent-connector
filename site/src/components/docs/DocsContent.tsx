@@ -5545,7 +5545,7 @@ export function CliSection() {
               </code>
             </div>
             <div className="mt-3 flex items-stretch gap-2">
-              <code className="block flex-1 overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[0.78rem] text-foreground/90">
+              <code className="block flex-1 overflow-x-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[0.78rem] text-foreground/90">
                 {cmd.signature}
               </code>
               <CopyButton
@@ -6096,6 +6096,16 @@ $ acme-db doctor            # host groups no longer list acme-db; the framework 
                             # still show its registry record until --purge
 $ acme-db uninstall --purge # also drops the record and, when no connector remains, the home binary`;
 
+const operateSecretsFlow = `$ acme-db secrets set api-key      # the value comes from a hidden prompt or --stdin, never a flag
+Enter value for api-key (input hidden):
+
+$ acme-db secrets list             # name  backend  present  updated — values are never printed
+$ acme-db secrets check            # backend availability + a write → read → delete self-test
+$ acme-db doctor                   # framework check "acme-db: secrets" → 1 secret(s) present in keychain
+
+# The only trace in a host config is the serve wrapper's placeholder:
+#   --secret-env API_KEY={secret:api-key}`;
+
 export function OperateConnectorGuide() {
   return (
     <DocSection id="operate-connector" eyebrow="Guides" title="Operate: doctor, heal, upgrade">
@@ -6227,7 +6237,21 @@ export function OperateConnectorGuide() {
       </P>
       <CodeBlock code={operateProbeFlow} language="text" filename="doctor --probe / --explain" />
 
-      <H3 id="operate-uninstall">6. Reverse it cleanly</H3>
+      <H3 id="operate-secrets">6. Secrets: the OS keystore</H3>
+      <P>
+        A stdio server that needs an API key declares it as{" "}
+        <C>{'env: { API_KEY: "${secret:api-key}" }'}</C> and the user stores the value
+        once with <C>secrets set api-key</C>: macOS Keychain, Linux Secret Service or
+        Windows Credential Manager, plus an opt-in plaintext <C>file</C> backend for
+        headless machines. Host configs only ever carry the serve wrapper's{" "}
+        <C>{"--secret-env API_KEY={secret:api-key}"}</C> placeholder; the wrapper
+        reads the keystore at launch, injects the value into the server process,
+        and refuses to start the server while the secret is missing.{" "}
+        <C>install</C> warns per unset name and <C>doctor</C> reports them under
+        the connector's <C>secrets</C> check, so the day-two loop covers them too.
+      </P>
+      <CodeBlock code={operateSecretsFlow} language="text" filename="secrets set / list / check" />
+      <H3 id="operate-uninstall">7. Reverse it cleanly</H3>
       <P>
         <C>uninstall</C> is the exact inverse of install: every host entry, block
         and file agent-connector wrote is removed and files it does not own are
@@ -6238,6 +6262,7 @@ export function OperateConnectorGuide() {
         proof.
       </P>
       <CodeBlock code={operateUninstallFlow} language="text" filename="uninstall" />
+
       <P>
         Next:{" "}
         <Link className="underline hover:text-foreground" to="/docs/guides/ucp-mcp-server">

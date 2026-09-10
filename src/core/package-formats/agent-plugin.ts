@@ -78,7 +78,7 @@ import {
   renderSkillMd,
   renderSubagentMd,
 } from "../../adapters/claude-code/render.js";
-import { buildHomeBinHookCommand, shouldWrapForTelemetry } from "../spawn.js";
+import { buildHomeBinHookCommand, needsServeWrapper, secretEnvFlags } from "../spawn.js";
 import {
   AGENT_CONNECTOR_PACKAGE_NAME,
   CLAUDE_MAPPED_EVENTS,
@@ -282,9 +282,12 @@ function buildServerEntry(
 
     let entry: StdioServerEntry;
     let wrapped = false;
-    if (shouldWrapForTelemetry(server, connector.telemetry)) {
+    if (needsServeWrapper(server, connector.telemetry)) {
       const flags = ["serve", "--connector", connector.id];
       if (hostHint !== undefined) flags.push("--host", hostHint);
+      // Stored-secret placeholders (`{secret:NAME}`), never values — resolved
+      // by the wrapper from the OS keystore at launch.
+      flags.push(...secretEnvFlags(server.secretEnv));
       entry = {
         type: "stdio",
         command: "node",

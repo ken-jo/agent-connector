@@ -126,6 +126,7 @@ const sectionHeadings: Record<string, { id: string; title: string }[]> = {
     { id: "operate-versions", title: "Three versions doctor compares" },
     { id: "operate-heal-upgrade", title: "doctor --heal versus upgrade" },
     { id: "operate-probe-explain", title: "Prove the live server and the hook matrix" },
+    { id: "operate-secrets", title: "Secrets: the OS keystore" },
     { id: "operate-uninstall", title: "Reverse it cleanly" },
   ],
   "connector-concepts": [

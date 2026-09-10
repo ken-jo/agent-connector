@@ -32,6 +32,8 @@ import { syncConnector } from "../../core/installer.js";
 import { marketplaceDoctorChecks } from "../../core/marketplace.js";
 import { readMarketplaceInstalls } from "../../core/marketplace-state.js";
 import { dataRoot, homeBinPath } from "../../core/paths.js";
+import { SecretError, findSecretRefs, openSecretStore } from "../../core/secrets.js";
+import type { SecretListEntry, SecretStore } from "../../core/secrets.js";
 import { cliEntryOfLauncher, resolveOwnVersion, versionOfCliEntry } from "../../core/version.js";
 import { probeStdioServer } from "../../runtime/probe.js";
 import { explainHooks } from "../../sdk/test-harness.js";
@@ -264,7 +266,84 @@ function frameworkChecks(entries: ConnectorEntry[]): TaggedResult[] {
       );
     }
   });
+
+  // Secrets (`${secret:NAME}` in server.env): the serve wrapper refuses to
+  // launch the server while any referenced secret is unset, so doctor names
+  // the ones still missing. Never `fixable` — only the user has the value.
+  entries.forEach((entry, i) => {
+    const names = referencedSecretNames(entry.connector);
+    if (names.length > 0) push(secretsCheck(entry.connector.id, names), i);
+  });
   return out;
+}
+
+/** Every `${secret:NAME}` a connector's server references — base and per-host overrides. */
+function referencedSecretNames(connector: ResolvedConnector): string[] {
+  const sources: unknown[] = [connector.server?.secretEnv];
+  for (const override of Object.values(connector.platforms)) {
+    const server = override?.server;
+    if (server && typeof server === "object") sources.push(server.secretEnv);
+  }
+  return findSecretRefs(sources);
+}
+
+/**
+ * `<id>: secrets` — pass when every referenced name is present in the
+ * keystore, warn listing the unset names, warn when the keystore itself
+ * cannot be reached (the hint, when the backend has one, becomes the fix).
+ */
+function secretsCheck(connectorId: string, names: string[]): DiagnosticResult {
+  const check = `${connectorId}: secrets`;
+  const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+  const unavailable = (backend: string | null, reason: string, hint?: string): DiagnosticResult => ({
+    check,
+    status: "warn",
+    message: backend ? `backend ${backend} unavailable: ${reason}` : `backend unavailable: ${reason}`,
+    ...(hint ? { fix: hint } : {}),
+  });
+
+  let store: SecretStore;
+  let indexed: Map<string, SecretListEntry>;
+  try {
+    store = openSecretStore({ connectorId });
+    const availability = store.availability();
+    if (!availability.ok) {
+      return unavailable(store.backend, availability.reason ?? "unknown reason", availability.hint);
+    }
+    // list() reads the names index; a damaged index is a keystore problem, not a crash.
+    indexed = new Map(store.list().map((e) => [e.name, e]));
+  } catch (err) {
+    return unavailable(null, errText(err), err instanceof SecretError ? err.hint : undefined);
+  }
+
+  const missing: string[] = [];
+  const backends = new Set<string>();
+  for (const name of names) {
+    const entry = indexed.get(name);
+    let present: boolean | null;
+    try {
+      present = entry ? entry.present : store.has(name);
+    } catch (err) {
+      return unavailable(store.backend, errText(err), err instanceof SecretError ? err.hint : undefined);
+    }
+    if (present === null) return unavailable(entry?.backend ?? store.backend, `cannot read "${name}"`);
+    if (present) backends.add(entry?.backend ?? store.backend);
+    else missing.push(name);
+  }
+  if (missing.length > 0) {
+    return {
+      check,
+      status: "warn",
+      message: `not set: ${missing.join(", ")} — run secrets set <name>`,
+      fix: `run \`secrets set <name> --connector-id ${connectorId}\` for each of: ${missing.join(", ")}`,
+    };
+  }
+  return {
+    check,
+    status: "pass",
+    // Literal "secret(s)" — the wording the docs and the drift test quote.
+    message: `${names.length} secret(s) present in ${[...backends].join(", ")}`,
+  };
 }
 
 /** Collected diagnostics tagged with the connector entry they came from. */
@@ -726,7 +805,11 @@ export async function run(argv: string[]): Promise<number> {
       }
       const results = await probeStdioServer(s.command, s.args ?? [], {
         label: connector.id,
+        connectorId: connector.id,
         ...(s.env ? { env: s.env } : {}),
+        // Stored secrets are resolved exactly as the serve wrapper does; a
+        // missing one is reported as the probe's fail (never an empty value).
+        ...(s.secretEnv ? { secretEnv: s.secretEnv } : {}),
       });
       probes.push({ connector: connector.id, results });
     }

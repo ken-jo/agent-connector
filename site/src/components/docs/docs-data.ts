@@ -577,7 +577,14 @@ export const serverDefFields: FieldRow[] = [
   {
     name: "env",
     type: "Record<string, string>",
-    notes: "Values support ${env:VAR} / ${env:VAR:-default} interpolation.",
+    notes:
+      "Values support ${env:VAR} / ${env:VAR:-default} interpolation. A stdio server may also write ${secret:NAME} to reference a secret the user stored with `secrets set NAME` in the OS keystore (rejected anywhere else, judged by the effective transport; no :-default form). ${env:VAR} around a reference is expanded by the serve wrapper at launch; a secret value never is. A platforms[<id>].server.env override replaces the base env together with its secrets.",
+  },
+  {
+    name: "secretEnv",
+    type: "Record<string, string>",
+    notes:
+      "Set by defineConnector, not by you: every env entry whose value references ${secret:NAME} is moved here. Adapters never see it and no host config carries a value — the serve wrapper gets a --secret-env NAME={secret:NAME} placeholder, resolves it from the OS keystore at launch and injects the value into the server's environment; a missing (or empty) secret aborts the launch.",
   },
   { name: "cwd", type: "string", notes: "Working directory (stdio)." },
   {
@@ -1248,6 +1255,34 @@ export const cliCommands: CliCommand[] = [
       "agent-connector status [--connector <path>] [--scope user|project] [--project <dir>] [--json]",
     summary:
       "A light, glanceable install-state summary: one line per detected host showing which connectors are present (server / hooks). There is no MCP standard for local install state, so this is agent-connector infra — it reuses detect + a read-only config-present check, adds no adapter methods, and ALWAYS exits 0 (descriptive, never a gate — that contrast with doctor is why it exists).",
+  },
+  {
+    name: "secrets",
+    signature:
+      "agent-connector secrets set <name> [--connector <path>] [--connector-id <id>] [--backend keychain|secret-service|credential-manager|file] [--stdin]\n" +
+      "agent-connector secrets delete <name> [--connector <path>] [--connector-id <id>]\n" +
+      "agent-connector secrets list [--connector <path>] [--connector-id <id>] [--json]\n" +
+      "agent-connector secrets check [--connector <path>] [--connector-id <id>] [--backend <backend>] [--json]",
+    summary:
+      "Store the secrets a connector references as ${secret:NAME} in the OS keystore, keyed by connector id: macOS Keychain (keychain, via /usr/bin/security), Linux Secret Service (secret-service, via secret-tool over D-Bus), Windows Credential Manager (credential-manager, via PowerShell; values ≤ 2560 bytes), or the opt-in file backend (~/.agent-connector/secrets/file-store.json, mode 0600, plaintext — NOT encrypted). The value never reaches a host config: hosts see the serve wrapper's --secret-env NAME={secret:NAME} placeholder and the wrapper injects the real value into the server's environment at launch, refusing to start the server when a name is not set. set writes to --backend, else $AGENT_CONNECTOR_SECRETS_BACKEND, else the OS-native backend; the backend holding each name is recorded (names only) in ~/.agent-connector/secrets/<id>.index.json and reads follow it. Connector resolution: --connector-id, --connector <path>, a local agent-connector.config.*, the single registered connector; check alone falls back to the id agent-connector and says so (no connector resolved — keystore check only). No output ever includes a value. Exit 2 on a usage error, 1 on any other failure. install warns per unset name; doctor reports the framework check <id>: secrets.",
+    flags: [
+      {
+        flag: "<name>",
+        desc: "Secret name: [A-Za-z0-9][A-Za-z0-9._-]{0,63} — the NAME in ${secret:NAME}. Values are non-empty strings of at most 8192 characters.",
+      },
+      {
+        flag: "--stdin",
+        desc: "set: read the value from stdin (one trailing newline stripped); a non-TTY stdin is read the same way. On a TTY the value comes from the hidden prompt `Enter value for <name> (input hidden):`. There is no --value flag.",
+      },
+      {
+        flag: "--backend keychain|secret-service|credential-manager|file",
+        desc: "set: which store to write to (check: which store to test). Default: $AGENT_CONNECTOR_SECRETS_BACKEND (keychain|secret-service|credential-manager|file|auto), else the OS-native backend. file is plaintext and opt-in only.",
+      },
+      {
+        flag: "--json",
+        desc: "list: a SecretListEntry[] ({ name, backend, updatedAt, present }) instead of the `name  backend  present  updated` table; check: the availability + self-test result as JSON.",
+      },
+    ],
   },
   {
     name: "package",

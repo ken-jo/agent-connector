@@ -35,6 +35,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { resolveEnvRefs } from "./interpolate.js";
+import { isValidConnectorId } from "./ids.js";
 
 import { dataRoot as resolveDataRoot } from "./paths.js";
 
@@ -106,23 +108,37 @@ export function toWrapperTemplate(value: string): string {
 /**
  * Render a template by replacing each reference (`form: "ref"` = `${secret:X}`,
  * `form: "placeholder"` = `{secret:X}`) with `lookup(name)`. A name whose lookup
- * returns null/undefined is left in place and reported through `onMissing`.
+ * returns null/undefined/"" is left in place and reported through `onMissing`.
+ * `transformLiteral` runs over the text BETWEEN references only, never over a
+ * substituted value.
  */
 export function renderSecretTemplate(
   template: string,
   lookup: (name: string) => string | null | undefined,
   form: "ref" | "placeholder",
   onMissing?: (name: string) => void,
+  transformLiteral?: (text: string) => string,
 ): string {
   const re = new RegExp(form === "ref" ? SECRET_REF_RE.source : SECRET_PLACEHOLDER_RE.source, "g");
-  return template.replace(re, (whole, name: string) => {
+  const literal = (text: string): string => (transformLiteral ? transformLiteral(text) : text);
+  let out = "";
+  let last = 0;
+  for (let m = re.exec(template); m !== null; m = re.exec(template)) {
+    out += literal(template.slice(last, m.index));
+    const name = m[1] as string;
     const v = lookup(name);
-    if (v == null) {
+    // An empty value counts as unset: the store never writes one, and a
+    // server must not start with an empty credential. Substituted text is
+    // never rescanned, so a value may contain anything.
+    if (v == null || v === "") {
       onMissing?.(name);
-      return whole;
+      out += m[0];
+    } else {
+      out += v;
     }
-    return v;
-  });
+    last = m.index + m[0].length;
+  }
+  return out + literal(template.slice(last));
 }
 
 /** Parse one `--secret-env NAME=template` flag value. */
@@ -240,6 +256,28 @@ export interface SecretBackendOptions {
 
 const EXEC_TIMEOUT_MS = 20_000;
 
+// The keystore CLIs run from their system locations when those exist, so a
+// writable directory earlier on PATH cannot substitute a binary that would
+// receive the value.
+const SECURITY_BIN = "/usr/bin/security";
+const SECRET_TOOL_BIN = "/usr/bin/secret-tool";
+/** `secret-tool store` reads its stdin into a fixed 8192-byte buffer. */
+const SECRET_TOOL_MAX_BYTES = 8192;
+
+function secretToolBin(): string {
+  return existsSync(SECRET_TOOL_BIN) ? SECRET_TOOL_BIN : "secret-tool";
+}
+
+/** Windows PowerShell under %SystemRoot%; PATH lookup only when that host is absent. */
+function powershellBin(env: NodeJS.ProcessEnv): string {
+  const root = env.SystemRoot ?? env.windir;
+  if (root) {
+    const candidate = join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    if (existsSync(candidate)) return candidate;
+  }
+  return "powershell.exe";
+}
+
 const defaultExec: ExecFn = (file, args, opts) => {
   const r = spawnSync(file, args, {
     input: opts.input ?? "",
@@ -296,6 +334,11 @@ export function parseKeychainPasswordLine(stderr: string): string | null {
 function keychainBackend(opts: SecretBackendOptions): SecretBackend {
   const exec = opts.exec ?? defaultExec;
   const platform = opts.platform ?? process.platform;
+  // The path is spliced into a `security -i` command line, which tokenizes on
+  // whitespace and quotes.
+  if (opts.keychainPath !== undefined && /[\s"']/.test(opts.keychainPath)) {
+    throw new SecretError("invalid-value", "keychainPath must not contain whitespace or quotes");
+  }
   const extra = opts.keychainPath ? [opts.keychainPath] : [];
   const lockedHint =
     "the login keychain is locked or this is not a GUI session — open Keychain Access (or log in on the desktop) and retry, or " +
@@ -306,11 +349,11 @@ function keychainBackend(opts: SecretBackendOptions): SecretBackend {
     label: "macOS Keychain (security)",
     availability() {
       if (platform !== "darwin") return { ok: false, reason: "macOS only" };
-      if (!existsSync("/usr/bin/security")) return { ok: false, reason: "/usr/bin/security not found" };
+      if (!existsSync(SECURITY_BIN)) return { ok: false, reason: `${SECURITY_BIN} not found` };
       return { ok: true };
     },
     get(service, account) {
-      const r = exec("security", ["find-generic-password", "-a", account, "-s", service, "-g", ...extra], {
+      const r = exec(SECURITY_BIN, ["find-generic-password", "-a", account, "-s", service, "-g", ...extra], {
         timeoutMs: EXEC_TIMEOUT_MS,
       });
       if (r.status === 0) return parseKeychainPasswordLine(r.stderr);
@@ -335,14 +378,14 @@ function keychainBackend(opts: SecretBackendOptions): SecretBackend {
         "-U",
         ...extra,
       ].join(" ");
-      const r = exec("security", ["-i"], { input: `${line}\n`, timeoutMs: EXEC_TIMEOUT_MS });
+      const r = exec(SECURITY_BIN, ["-i"], { input: `${line}\n`, timeoutMs: EXEC_TIMEOUT_MS });
       if (r.status === 0 && !/returned -?\d+/.test(r.stderr)) return;
       const err = failure("keychain", "write", r);
       if (LOCKED.test(r.stderr)) throw new SecretError("backend-failed", err.message, lockedHint);
       throw err;
     },
     delete(service, account) {
-      const r = exec("security", ["delete-generic-password", "-a", account, "-s", service, ...extra], {
+      const r = exec(SECURITY_BIN, ["delete-generic-password", "-a", account, "-s", service, ...extra], {
         timeoutMs: EXEC_TIMEOUT_MS,
       });
       if (r.status === 0) return true;
@@ -356,6 +399,7 @@ function keychainBackend(opts: SecretBackendOptions): SecretBackend {
 
 function secretServiceBackend(opts: SecretBackendOptions): SecretBackend {
   const exec = opts.exec ?? defaultExec;
+  const bin = secretToolBin();
   const platform = opts.platform ?? process.platform;
   const DBUS = /dbus|D-Bus|Cannot autolaunch|org\.freedesktop\.secrets|No such interface/i;
   const unavailable = (detail: string) =>
@@ -369,14 +413,14 @@ function secretServiceBackend(opts: SecretBackendOptions): SecretBackend {
     label: "Secret Service (secret-tool)",
     availability() {
       if (platform !== "linux") return { ok: false, reason: "Linux only" };
-      const r = exec("secret-tool", ["--help"], { timeoutMs: EXEC_TIMEOUT_MS });
+      const r = exec(bin, ["--help"], { timeoutMs: EXEC_TIMEOUT_MS });
       if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
         return { ok: false, reason: "secret-tool is not installed (libsecret-tools)", hint: FILE_BACKEND_HINT };
       }
       return { ok: true };
     },
     get(service, account) {
-      const r = exec("secret-tool", ["lookup", "service", service, "account", account], {
+      const r = exec(bin, ["lookup", "service", service, "account", account], {
         timeoutMs: EXEC_TIMEOUT_MS,
       });
       if (r.status === 0) return r.stdout;
@@ -387,8 +431,16 @@ function secretServiceBackend(opts: SecretBackendOptions): SecretBackend {
       throw failure("secret-service", "read", r);
     },
     set(service, account, value) {
+      // secret-tool reads stdin to EOF but keeps at most 8192 bytes.
+      const bytes = Buffer.byteLength(value, "utf8");
+      if (bytes > SECRET_TOOL_MAX_BYTES) {
+        throw new SecretError(
+          "invalid-value",
+          `secret-tool stores at most ${SECRET_TOOL_MAX_BYTES} bytes; this value is ${bytes} bytes`,
+        );
+      }
       const r = exec(
-        "secret-tool",
+        bin,
         ["store", `--label=${service}/${account}`, "service", service, "account", account],
         { input: value, timeoutMs: EXEC_TIMEOUT_MS },
       );
@@ -400,7 +452,7 @@ function secretServiceBackend(opts: SecretBackendOptions): SecretBackend {
       // `clear` exits 0 whether or not anything matched, so probe first.
       const before = this.get(service, account);
       if (before === null) return false;
-      const r = exec("secret-tool", ["clear", "service", service, "account", account], {
+      const r = exec(bin, ["clear", "service", service, "account", account], {
         timeoutMs: EXEC_TIMEOUT_MS,
       });
       if (r.status === 0) return true;
@@ -509,9 +561,10 @@ function credentialManagerBackend(opts: SecretBackendOptions): SecretBackend {
   const platform = opts.platform ?? process.platform;
   const baseEnv = opts.env ?? process.env;
   const encoded = Buffer.from(CREDENTIAL_MANAGER_SCRIPT, "utf16le").toString("base64");
+  const bin = powershellBin(baseEnv);
   const run = (op: "get" | "set" | "delete" | "probe", target: string, user = "", value = "") =>
     exec(
-      "powershell.exe",
+      bin,
       ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
       {
         env: {
@@ -773,8 +826,13 @@ function assertName(name: string): void {
   }
 }
 
+/** `set` never stores an empty value, so an empty item read back counts as unset. */
+function nonEmpty(value: string | null): string | null {
+  return value === "" ? null : value;
+}
+
 function assertConnectorId(id: string): void {
-  if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(id)) {
+  if (!isValidConnectorId(id)) {
     throw new SecretError("invalid-name", `"${String(id)}" is not a valid connector id`);
   }
 }
@@ -814,7 +872,7 @@ export function openSecretStore(options: OpenSecretStoreOptions): SecretStore {
     backend: defaultBackend,
     get(name) {
       assertName(name);
-      return ensureAvailable(backendFor(name)).get(service, name);
+      return nonEmpty(ensureAvailable(backendFor(name)).get(service, name));
     },
     has(name) {
       return store.get(name) !== null;
@@ -862,7 +920,7 @@ export function openSecretStore(options: OpenSecretStoreOptions): SecretStore {
         .map(([name, e]) => {
           let present: boolean | null;
           try {
-            present = backend(e.backend).availability().ok ? backend(e.backend).get(service, name) !== null : null;
+            present = backend(e.backend).availability().ok ? nonEmpty(backend(e.backend).get(service, name)) !== null : null;
           } catch {
             present = null;
           }
@@ -900,6 +958,13 @@ export function openSecretStore(options: OpenSecretStoreOptions): SecretStore {
 export interface ResolveSecretEnvOptions extends SecretBackendOptions {
   /** `"placeholder"` for wrapper templates (`{secret:X}`), `"ref"` for config values (`${secret:X}`). */
   form?: "ref" | "placeholder";
+  /**
+   * Expand `${env:VAR}` / `${env:VAR:-default}` in the template text around
+   * the secret references against this environment (an unset variable
+   * without a default becomes ""). Secret values themselves are never
+   * expanded. Omit to leave the references verbatim.
+   */
+  expandEnv?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -922,17 +987,24 @@ export function resolveSecretEnv(
   const lookup = (name: string): string | null => {
     if (cache.has(name)) return cache.get(name) ?? null;
     let v: string | null = null;
-    try {
-      v = store.get(name);
-    } catch (err) {
-      backendProblem ??= err instanceof Error ? err.message : String(err);
+    // After one backend failure the remaining names are reported unset
+    // without another subprocess round (a locked keychain would otherwise
+    // cost the timeout once per name and outlive the host's launch timeout).
+    if (backendProblem === undefined) {
+      try {
+        v = store.get(name);
+      } catch (err) {
+        backendProblem = err instanceof Error ? err.message : String(err);
+      }
     }
     cache.set(name, v);
     return v;
   };
+  const expand = options.expandEnv;
+  const literal = expand ? (text: string) => resolveEnvRefs(text, expand) : undefined;
   const out: Record<string, string> = {};
   for (const [key, template] of entries) {
-    out[key] = renderSecretTemplate(template, lookup, form, (name) => missing.add(name));
+    out[key] = renderSecretTemplate(template, lookup, form, (name) => missing.add(name), literal);
   }
   if (missing.size > 0) throw new SecretResolutionError(connectorId, [...missing], backendProblem);
   return out;

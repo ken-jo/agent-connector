@@ -76,11 +76,14 @@ import { createAdapterSuite } from "../support/adapter-suite.js";
 // ─────────────────────────────────────────────────────────────────────────
 
 let execFileSyncImpl: (...args: any[]) => string = () => "";
-const execFileSyncMock = vi.fn((...args: any[]) => execFileSyncImpl(...args));
+const execFileSyncMock = vi.hoisted(() =>
+  vi.fn((...args: any[]) => execFileSyncImpl(...args)),
+);
 
 vi.mock("node:child_process", () => ({
   execFileSync: execFileSyncMock,
   execSync: execFileSyncMock,
+  spawnSync: execFileSyncMock,
 }));
 
 // Pin process.platform to a POSIX value for the whole file so the generated

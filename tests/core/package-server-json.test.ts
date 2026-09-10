@@ -151,3 +151,24 @@ describe("mcp-server-json — excluded from --format all", () => {
     expect(FEASIBLE_FORMATS).not.toContain("mcp-server-json");
   });
 });
+
+describe("mcp-server-json — ${secret:NAME} env vars", () => {
+  it("declares every keystore-backed env var as a secret, required environment variable", () => {
+    const connector = defineConnector({
+      id: "acme-db",
+      version: "1.0.0",
+      server: {
+        transport: "stdio",
+        command: "node",
+        args: ["server.js"],
+        env: { ACME_DB_URL: "${env:ACME_DB_URL}", ACME_API_KEY: "${secret:api-key}" },
+      },
+      publish: { registryNamespace: "io.github.acme", packageName: "@acme/acme-db-mcp" },
+    });
+    const j = emit(connector);
+    const vars = j.packages[0].environmentVariables as { name: string }[];
+    expect(vars.find((v) => v.name === "ACME_API_KEY")).toEqual({ name: "ACME_API_KEY", isSecret: true, isRequired: true });
+    expect(vars.find((v) => v.name === "ACME_DB_URL")).toEqual({ name: "ACME_DB_URL" });
+    expect(JSON.stringify(j)).not.toContain("${secret:");
+  });
+});

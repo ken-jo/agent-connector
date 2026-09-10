@@ -134,8 +134,23 @@ export interface ServerDef {
   // ── stdio transport ──
   command?: string;
   args?: string[];
-  /** Env vars passed to the server process. Values support ${env:VAR} interpolation. */
+  /**
+   * Env vars passed to the server process. Values support ${env:VAR}
+   * interpolation; a value may also reference a stored secret as
+   * `${secret:NAME}` (stdio servers only) — defineConnector moves such
+   * entries into {@link secretEnv}.
+   */
   env?: Record<string, string>;
+  /**
+   * Env entries whose values reference `${secret:NAME}` — POPULATED BY
+   * defineConnector (never written by hand). They are delivered by the
+   * `serve` wrapper at launch (`--secret-env NAME={secret:X}` placeholders,
+   * resolved from the OS keystore into the real server's environment; any
+   * `${env:VAR}` around a reference is expanded there too) and are NEVER
+   * written to a host config file. A per-host `env` override replaces this
+   * map along with `env`. See core/secrets.ts.
+   */
+  secretEnv?: Record<string, string>;
   cwd?: string;
 
   // ── remote (http / sse / ws) transport ──

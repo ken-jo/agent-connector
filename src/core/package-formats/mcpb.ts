@@ -24,6 +24,7 @@ import {
   isConcreteSemver,
   isPlaceholderVersion,
 } from "../mcp-standard.js";
+import { SECRET_REF_RE } from "../secrets.js";
 import type { EmitContext, FormatEmitter, PackageResult } from "./shared.js";
 import { createEmitter, json } from "./shared.js";
 
@@ -44,6 +45,11 @@ function secretEnvNames(server: ServerDef): Set<string> {
     names.add(server.auth.bearerEnvVar);
   }
   return names;
+}
+
+/** A `${secret:NAME}` name as a user_config key (`db-pass` → `db_pass`). */
+function userConfigKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
 }
 
 function recipeReadme(connector: ResolvedConnector): string {
@@ -114,32 +120,41 @@ export const emitMcpbBundle: FormatEmitter = (
   const secrets = secretEnvNames(server);
   const env: Record<string, string> = {};
   const userConfig: Record<string, Record<string, unknown>> = {};
+  const field = (key: string, label: string): void => {
+    userConfig[key] = {
+      type: "string",
+      title: titleize(label),
+      description: `Value for ${label}`,
+      sensitive: true,
+      required: true,
+    };
+  };
   for (const [k, v] of Object.entries(server.env ?? {})) {
     if (secrets.has(k)) {
       const key = k.toLowerCase();
-      userConfig[key] = {
-        type: "string",
-        title: titleize(k),
-        description: `Value for ${k}`,
-        sensitive: true,
-        required: true,
-      };
+      field(key, k);
       env[k] = `\${user_config.${key}}`;
     } else {
       env[k] = v;
     }
   }
-  // A bearer-token env not already present in server.env still needs a field.
+  // Env vars the connector fills from the OS keystore (`${secret:NAME}` →
+  // server.secretEnv). A bundle is installed by the host, not by our serve
+  // wrapper, so the host asks the user: each referenced NAME is its own
+  // sensitive field, substituted into the template (`pg://u:${user_config.db_pass}@h`)
+  // so the user enters the secret, never the whole value.
+  for (const [k, template] of Object.entries(server.secretEnv ?? {})) {
+    env[k] = template.replace(new RegExp(SECRET_REF_RE.source, "g"), (_m, name: string) => {
+      const key = userConfigKey(name);
+      field(key, name);
+      return `\${user_config.${key}}`;
+    });
+  }
+  // A bearer-token env var in neither map still needs a field.
   for (const name of secrets) {
     if (!(name in env)) {
       const key = name.toLowerCase();
-      userConfig[key] = {
-        type: "string",
-        title: titleize(name),
-        description: `Value for ${name}`,
-        sensitive: true,
-        required: true,
-      };
+      field(key, name);
       env[name] = `\${user_config.${key}}`;
     }
   }

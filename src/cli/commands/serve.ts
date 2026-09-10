@@ -27,6 +27,7 @@ import { parseArgs } from "node:util";
 import type { PlatformId } from "../../core/types.js";
 import type { TelemetryInstallScope } from "../../telemetry/types.js";
 import { runServe } from "../../runtime/index.js";
+import { SecretError, SecretResolutionError, parseSecretEnvFlag } from "../../core/secrets.js";
 import { fail } from "../app.js";
 
 export async function run(argv: string[]): Promise<number> {
@@ -35,7 +36,7 @@ export async function run(argv: string[]): Promise<number> {
   const sepIndex = argv.indexOf("--");
   if (sepIndex === -1) {
     return fail(
-      "usage: agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] [--data-dir <path>] -- <command> [args...]",
+      "usage: agent-connector serve --connector <id> [--scope <user|project>] [--host <platformId>] [--data-dir <path>] [--secret-env NAME=<template>]... -- <command> [args...]",
     );
   }
   const flagArgs = argv.slice(0, sepIndex);
@@ -59,6 +60,10 @@ export async function run(argv: string[]): Promise<number> {
       // never depends on inheriting AGENT_CONNECTOR_DATA_DIR (codex strips it).
       // Optional + tolerated (strict:false).
       "data-dir": { type: "string" },
+      // `--secret-env NAME=<template>` (repeatable) names an env var the wrapper
+      // must inject from the OS keystore: the template carries `{secret:X}`
+      // placeholders, never a value. Optional + tolerated (strict:false).
+      "secret-env": { type: "string", multiple: true },
     },
     allowPositionals: true,
     strict: false,
@@ -99,13 +104,40 @@ export async function run(argv: string[]): Promise<number> {
   }
   const serverArgs = serverInvocation.slice(1);
 
-  const code = await runServe({
-    connectorId,
-    serverCommand,
-    serverArgs,
-    installScope,
-    hostPlatformOverride,
-    dataDir,
-  });
+  // Repeated `--secret-env NAME=template` → { NAME: template }. A malformed
+  // flag is a config-rendering bug worth failing on (the server would otherwise
+  // start without a secret it was promised).
+  const secretEnv: Record<string, string> = {};
+  const rawSecretEnv = values["secret-env"];
+  for (const raw of Array.isArray(rawSecretEnv) ? rawSecretEnv : []) {
+    if (typeof raw !== "string") continue;
+    try {
+      const { name, template } = parseSecretEnvFlag(raw);
+      secretEnv[name] = template;
+    } catch (err) {
+      return fail(err instanceof SecretError ? err.message : String(err));
+    }
+  }
+
+  let code: number;
+  try {
+    code = await runServe({
+      connectorId,
+      serverCommand,
+      serverArgs,
+      installScope,
+      hostPlatformOverride,
+      dataDir,
+      ...(Object.keys(secretEnv).length > 0 ? { secretEnv } : {}),
+    });
+  } catch (err) {
+    // A secret that is not set (or a keystore that cannot be read) is the
+    // expected failure here: the host's MCP log gets the message and the
+    // `secrets set` hint, not a stack trace.
+    if (err instanceof SecretResolutionError || err instanceof SecretError) {
+      return fail(err.message + (err instanceof SecretError && err.hint ? ` (${err.hint})` : ""), 1);
+    }
+    throw err;
+  }
   process.exit(code);
 }

@@ -90,6 +90,13 @@ describe("references and placeholders", () => {
     expect(missing).toEqual(["b"]);
   });
 
+  it("never rescans a substituted value", () => {
+    const lookup = (n: string) => (n === "x" ? "{secret:y}${secret:y}" : "Y");
+    expect(renderSecretTemplate("a {secret:x} b", lookup, "placeholder")).toBe("a {secret:y}${secret:y} b");
+    expect(renderSecretTemplate("a ${secret:x} b", lookup, "ref")).toBe("a {secret:y}${secret:y} b");
+    expect(renderSecretTemplate("{secret:x}", () => "", "placeholder", (n) => expect(n).toBe("x"))).toBe("{secret:x}");
+  });
+
   it("parses --secret-env NAME=template", () => {
     expect(parseSecretEnvFlag("DSN=pg://{secret:p}@h=1")).toEqual({ name: "DSN", template: "pg://{secret:p}@h=1" });
     expect(() => parseSecretEnvFlag("=x")).toThrow(SecretError);
@@ -190,6 +197,59 @@ describe("resolveSecretEnv", () => {
     expect((err as SecretResolutionError).message).toContain("secrets set <name> --connector-id acme-db");
     expect(resolveSecretEnv("acme-db", {}, { dataRoot: tmp })).toEqual({});
   });
+
+  it("expands ${env:VAR} around a reference, never inside a value, and only when expandEnv is given", () => {
+    const store = openSecretStore({ connectorId: "acme-db", backend: "file", dataRoot: tmp, env: NO_ENV });
+    store.set("db-pass", "p${env:HOME}w"); // a value is opaque text
+    const templates = { DSN: "pg://${env:DB_USER}:{secret:db-pass}@${env:DB_HOST:-localhost}/db" };
+    const opts = { form: "placeholder" as const, dataRoot: tmp, env: { [SECRETS_BACKEND_ENV]: "file" } };
+    expect(resolveSecretEnv("acme-db", templates, opts)).toEqual({
+      DSN: "pg://${env:DB_USER}:p${env:HOME}w@${env:DB_HOST:-localhost}/db",
+    });
+    expect(resolveSecretEnv("acme-db", templates, { ...opts, expandEnv: { DB_USER: "ken" } })).toEqual({
+      DSN: "pg://ken:p${env:HOME}w@localhost/db",
+    });
+  });
+
+  it("stops asking the backend after its first failure and reports the rest unset", () => {
+    const { exec, calls } = fakeExec((c) =>
+      c.args[0] === "lookup" ? { status: 1, stderr: "Cannot autolaunch D-Bus without X11 $DISPLAY" } : {},
+    );
+    const opts = { backend: "secret-service" as const, exec, platform: "linux", dataRoot: tmp, env: NO_ENV };
+    let err: unknown;
+    try {
+      resolveSecretEnv(
+        "acme-db",
+        { A: "{secret:a}", B: "{secret:b}", C: "{secret:c}" },
+        { form: "placeholder", ...opts },
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(SecretResolutionError);
+    expect((err as SecretResolutionError).missing).toEqual(["a", "b", "c"]);
+    expect((err as SecretResolutionError).message).toContain("D-Bus");
+    expect(calls.filter((c) => c.args[0] === "lookup")).toHaveLength(1);
+  });
+
+  it("treats an empty value read back from a backend as unset (get / has / list / resolve)", () => {
+    // secret-tool answers every lookup with exit 0 and no output.
+    const { exec } = fakeExec((c) => (c.args[0] === "lookup" ? { status: 0, stdout: "" } : {}));
+    const opts = { backend: "secret-service" as const, exec, platform: "linux", dataRoot: tmp, env: NO_ENV };
+    const store = openSecretStore({ connectorId: "acme-db", ...opts });
+    store.set("api-key", "K");
+    expect(store.get("api-key")).toBeNull();
+    expect(store.has("api-key")).toBe(false);
+    expect(store.list()).toMatchObject([{ name: "api-key", backend: "secret-service", present: false }]);
+    let err: unknown;
+    try {
+      resolveSecretEnv("acme-db", { API_KEY: "{secret:api-key}" }, { form: "placeholder", ...opts });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(SecretResolutionError);
+    expect((err as SecretResolutionError).missing).toEqual(["api-key"]);
+  });
 });
 
 // ── OS backends through the exec seam: argv / stdin / env contracts ────────
@@ -212,12 +272,19 @@ function fakeExec(reply: (call: Call) => Partial<ExecResult>): { exec: ExecFn; c
 }
 
 describe("keychain backend (macOS `security`) — exec contract", () => {
+  it("refuses a keychainPath the `security -i` line could not carry", () => {
+    const { exec } = fakeExec(() => ({}));
+    expect(() => createSecretBackend("keychain", { exec, platform: "darwin", keychainPath: "/tmp/my keychain.db" })).toThrow(
+      /whitespace or quotes/,
+    );
+  });
+
   it("writes via `security -i` with the value hex-encoded on stdin, never in argv", () => {
     const { exec, calls } = fakeExec(() => ({}));
     const b = createSecretBackend("keychain", { exec, platform: "darwin" });
     b.set("agent-connector/acme-db", "api-key", "héllo\nworld");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.file).toBe("security");
+    expect(calls[0]!.file).toBe("/usr/bin/security");
     expect(calls[0]!.args).toEqual(["-i"]);
     expect(calls[0]!.input).toBe(
       `add-generic-password -a api-key -s agent-connector/acme-db -l agent-connector/acme-db/api-key -X ${Buffer.from("héllo\nworld", "utf8").toString("hex")} -U\n`,
@@ -271,8 +338,8 @@ describe("secret-service backend (Linux secret-tool) — exec contract", () => {
     });
     const b = createSecretBackend("secret-service", { exec, platform: "linux" });
     b.set("agent-connector/acme-db", "api-key", "K");
+    expect(calls[0]!.file).toMatch(/(^|\/)secret-tool$/);
     expect(calls[0]).toMatchObject({
-      file: "secret-tool",
       args: ["store", "--label=agent-connector/acme-db/api-key", "service", "agent-connector/acme-db", "account", "api-key"],
       input: "K",
     });
@@ -280,6 +347,21 @@ describe("secret-service backend (Linux secret-tool) — exec contract", () => {
     expect(b.get("agent-connector/acme-db", "missing")).toBeNull();
     expect(b.delete("agent-connector/acme-db", "missing")).toBe(false);
     expect(b.delete("agent-connector/acme-db", "api-key")).toBe(true);
+  });
+
+  it("round-trips a multi-line value and refuses what secret-tool's 8192-byte buffer would truncate", () => {
+    const stored = new Map<string, string>();
+    const { exec } = fakeExec((c) => {
+      if (c.args[0] === "store") stored.set(c.args[5]!, c.input ?? "");
+      if (c.args[0] === "lookup") return stored.has(c.args[4]!) ? { stdout: stored.get(c.args[4]!) } : { status: 1 };
+      return {};
+    });
+    const b = createSecretBackend("secret-service", { exec, platform: "linux" });
+    const pem = "-----BEGIN KEY-----\nabc\ndef\n-----END KEY-----";
+    b.set("svc", "key", pem);
+    expect(b.get("svc", "key")).toBe(pem);
+    expect(() => b.set("svc", "big", "é".repeat(4097))).toThrow(/8192 bytes; this value is 8194 bytes/);
+    expect(() => b.set("svc", "max", "x".repeat(8192))).not.toThrow();
   });
 
   it("reports a missing tool / no D-Bus session as unavailable with the file hint", () => {
@@ -306,7 +388,7 @@ describe("credential-manager backend (Windows PowerShell) — exec contract", ()
     const b = createSecretBackend("credential-manager", { exec, platform: "win32", env: { PATH: "x" } });
     b.set("agent-connector/acme-db", "api-key", "K");
     const c = calls[0]!;
-    expect(c.file).toBe("powershell.exe");
+    expect(c.file).toMatch(/(^|[\\/])powershell\.exe$/);
     expect(c.args.slice(0, 5)).toEqual(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand"]);
     expect(Buffer.from(c.args[5]!, "base64").toString("utf16le")).toBe(CREDENTIAL_MANAGER_SCRIPT);
     expect(c.env).toMatchObject({

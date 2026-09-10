@@ -47,7 +47,7 @@ developer-owned connector using the serve telemetry proxy.
 ## CLI Map
 
 - Branded connector package CLI: `detect`, `install`, `uninstall`, `upgrade`,
-  `doctor`, `status`, `telemetry`, `leaderboard`.
+  `doctor`, `status`, `secrets`, `telemetry`, `leaderboard`.
 - Framework CLI: `package` emits distribution artifacts such as host plugin
   bundles and MCP standard manifests. See `llms-full.txt` section 3 for format
   names and requirements.

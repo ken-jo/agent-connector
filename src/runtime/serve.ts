@@ -19,7 +19,9 @@ import { randomUUID } from "node:crypto";
 import { detectRuntimeHost } from "../adapters/detect.js";
 import { REGISTERED_PLATFORM_IDS } from "../adapters/registry.js";
 import { readRegisteredMeta } from "../core/load-connector.js";
+import type { RegisteredMeta } from "../core/load-connector.js";
 import { projectIdentity } from "../core/paths.js";
+import { resolveSecretEnv } from "../core/secrets.js";
 import { detectLaunchMethod } from "../core/spawn.js";
 import type { PlatformId } from "../core/types.js";
 import { runServeProxy } from "../telemetry/proxy.js";
@@ -60,6 +62,14 @@ export interface RunServeOptions {
    * Absent → resolve the data-root the usual way (env or default).
    */
   dataDir?: string;
+  /**
+   * Env vars to inject from the OS keystore, from repeated `--secret-env
+   * NAME=<template>` flags baked into the wrapper at install time. Each
+   * template carries `{secret:X}` placeholders (never a value); they are
+   * resolved through core/secrets before the real server spawns. A missing
+   * secret is FATAL (the server is never launched with an empty value).
+   */
+  secretEnv?: Record<string, string>;
 }
 
 /**
@@ -88,6 +98,21 @@ function resolveSessionId(env: NodeJS.ProcessEnv = process.env): string {
   );
 }
 
+/**
+ * The server `host` actually runs: the base server with `platforms[host].server`
+ * merged in (`false` disables it) — the installer's `effectiveServer` rule.
+ */
+function effectiveServer(
+  connector: RegisteredMeta,
+  host: PlatformId,
+): RegisteredMeta["server"] | undefined {
+  const override = connector.platforms?.[host]?.server;
+  if (override === false) return undefined;
+  const base = connector.server ?? undefined;
+  if (!base) return undefined;
+  return override && typeof override === "object" ? { ...base, ...override } : base;
+}
+
 export async function runServe(opts: RunServeOptions): Promise<number> {
   const {
     connectorId,
@@ -96,6 +121,7 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
     installScope,
     hostPlatformOverride,
     dataDir,
+    secretEnv,
   } = opts;
 
   // Pin the data-root BEFORE anything resolves it (the connector record lookup
@@ -113,6 +139,16 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
       `Connector "${connectorId}" is not registered. Run an install/register step first.`,
     );
   }
+
+  // Stored secrets → the child's environment ONLY. Resolved AFTER the data-root
+  // pin (the store's names index lives under it) and BEFORE anything else so a
+  // missing secret aborts the launch with a clear message instead of starting
+  // the server with an empty value. Throws SecretResolutionError.
+  const injected =
+    secretEnv !== undefined && Object.keys(secretEnv).length > 0
+      ? resolveSecretEnv(connectorId, secretEnv, { form: "placeholder", expandEnv: process.env })
+      : {};
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, ...injected };
 
   const id = projectIdentity(process.cwd());
   // Prefer the install TARGET platform baked into the wrapper (--host), but only
@@ -146,5 +182,11 @@ export async function runServe(opts: RunServeOptions): Promise<number> {
     measureToolDefs: connector.telemetry.measureToolDefs,
     installScope,
     launchMethod,
+    env: childEnv,
+    // A wrapper that exists only to deliver secrets (telemetry off, or the
+    // server this host runs opted out of telemetry wrapping) must not measure.
+    // Judged by the same per-host effective server the installer wrapped.
+    measurementEnabled:
+      connector.telemetry.enabled === true && effectiveServer(connector, hostPlatform)?.wrapForTelemetry !== false,
   });
 }

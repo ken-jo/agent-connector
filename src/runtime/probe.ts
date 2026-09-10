@@ -19,6 +19,7 @@
 import type { DiagnosticResult } from "../core/types.js";
 import { MCP_PROTOCOL_VERSION } from "../core/mcp-standard.js";
 import { spawnChild } from "../core/spawn-child.js";
+import { SecretError, SecretResolutionError, resolveSecretEnv } from "../core/secrets.js";
 import { type JsonRpcMessage, LineBuffer, idKey, isObject } from "../telemetry/jsonrpc.js";
 
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -30,6 +31,14 @@ export interface ProbeOptions {
   label?: string;
   /** Env merged over process.env for the spawned server (${env:VAR} resolved). */
   env?: Record<string, string>;
+  /** Connector id — required to resolve `secretEnv` (secrets are scoped per connector). */
+  connectorId?: string;
+  /**
+   * The connector's `server.secretEnv` (values carrying `${secret:NAME}` refs):
+   * resolved from the OS keystore into the child env exactly as the serve
+   * wrapper does at launch. A missing secret yields ONE fail result, no spawn.
+   */
+  secretEnv?: Record<string, string>;
   /** Protocol version offered in initialize. Default {@link MCP_PROTOCOL_VERSION}. */
   protocolVersion?: string;
 }
@@ -70,11 +79,39 @@ export async function probeStdioServer(
   const protocolVersion = opts.protocolVersion ?? MCP_PROTOCOL_VERSION;
   const results: DiagnosticResult[] = [];
 
+  // Stored secrets: the same resolution the serve wrapper performs. Never spawn
+  // with an empty secret — the missing names become the probe's single fail.
+  let secretValues: Record<string, string> = {};
+  if (opts.secretEnv && Object.keys(opts.secretEnv).length > 0) {
+    if (!opts.connectorId) {
+      return [
+        diag("fail", `${label}MCP probe`, "secretEnv given without connectorId — cannot resolve secrets"),
+      ];
+    }
+    try {
+      secretValues = resolveSecretEnv(opts.connectorId, opts.secretEnv, { form: "ref", expandEnv: process.env });
+    } catch (err) {
+      if (err instanceof SecretResolutionError) {
+        return [
+          diag(
+            "fail",
+            `${label}MCP probe`,
+            `secrets not set: ${err.missing.join(", ")} — run secrets set <name>`,
+          ),
+        ];
+      }
+      if (err instanceof SecretError) {
+        return [diag("fail", `${label}MCP probe`, `secrets unavailable: ${err.message}`, err.hint)];
+      }
+      throw err;
+    }
+  }
+
   // spawnChild resolves a bare Windows package runner (npx/uvx → .cmd/.exe) so
   // the probe agrees with the live serve path; no-op on macOS/Linux.
   const child = spawnChild(command, args, {
     stdio: ["pipe", "pipe", "inherit"],
-    env: { ...process.env, ...resolveEnv(opts.env) },
+    env: { ...process.env, ...resolveEnv(opts.env), ...secretValues },
   });
 
   interface Pending {

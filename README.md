@@ -27,7 +27,7 @@ guide: [Publish an MCP server so users install it in every agent host](https://a
 [![headless runtime](https://img.shields.io/badge/headless%20runtime-verified%20matrix-22c55e)](https://agent-connector.ai/coverage)
 ![package formats](https://img.shields.io/badge/package-9%20plugin%20formats%20%2B%202%20MCP%20artifacts-2563eb)
 [![agent plugins](https://img.shields.io/badge/Agent%20Plugins-1.0.0-2563eb)](https://agent-plugins.org)
-![tests](https://img.shields.io/badge/tests-152%20files-22c55e)
+![tests](https://img.shields.io/badge/tests-163%20files-22c55e)
 
 **By the numbers.** Every figure is derived from the adapter registry or measured
 by a test on each run, and a drift test fails if the README and the source disagree.
@@ -40,7 +40,7 @@ by a test on each run, and a drift test fails if the README and the source disag
 | Package formats emitted | **9** host plugin formats + **2** MCP standard artifacts (`mcp-server-json`, `mcpb`) |
 | Hosts verified against the real host binary | **29 of 42** (22 of them end-to-end through a model tool call); the other **13** by the registry install harness in an isolated HOME |
 | Measured footprint | one 135-line `defineConnector()` → **66 host-native files** in 6 file extensions across 41 of 42 hosts at user scope (63 at project scope) — `npm run measure:footprint` |
-| Test suite | **152** test files |
+| Test suite | **163** test files |
 
 **Who it is for.** agent-connector is the **publisher** side of MCP distribution:
 you wrote (or are writing) an MCP server and want it to install itself into your
@@ -441,6 +441,17 @@ everywhere.
 
 </details>
 
+**OS keystore secrets (`${secret:NAME}`).** Write `"${secret:NAME}"` as a value in a stdio server's `env` (base `server.env` or a `platforms[<id>].server.env` override) to reference a secret the user stores once with `secrets set NAME`. The value never reaches a host config: hosts see only the `serve` wrapper's `--secret-env NAME={secret:NAME}` placeholder (a form no host expands), and at launch the wrapper reads the OS keystore and injects the value into the server's own environment. A referenced name that is not set (or reads back empty) aborts the launch with a `secrets set` hint rather than starting the server with an empty value; `${env:VAR}` in the text around a reference is expanded by the wrapper at launch, a secret value never is; `install` warns per missing name and `doctor` reports a `<id>: secrets` check. `${secret:…}` is rejected anywhere else (`command` / `args` / `url` / `headers`, remote servers); names match `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, values are non-empty strings of at most 8192 characters, and there is no `:-default` form.
+
+| Backend | OS | Where the value lives | Notes |
+|---|---|---|---|
+| `keychain` | macOS | login keychain via `/usr/bin/security`: service `agent-connector/<connector-id>`, account `<NAME>` | A locked keychain needs a GUI session (Keychain Access or a desktop login); agent-connector never runs `unlock-keychain` for you. |
+| `secret-service` | Linux | freedesktop Secret Service (GNOME Keyring and compatible daemons) via `secret-tool` | Needs D-Bus and a running daemon; when either is missing, `secrets check` says so and points at `--backend file`. |
+| `credential-manager` | Windows | Credential Manager via PowerShell: target `agent-connector/<connector-id>/<NAME>` | Values are capped at 2560 bytes (1280 UTF-16 characters), the OS blob limit. |
+| `file` | any | `~/.agent-connector/secrets/file-store.json` (directory 0700, file 0600) | **Opt-in and plaintext, not encrypted** (`--backend file` or `AGENT_CONNECTOR_SECRETS_BACKEND=file`): for CI boxes and headless hosts without a keystore. |
+
+`secrets set` writes to the OS-native backend unless `--backend` or `AGENT_CONNECTOR_SECRETS_BACKEND` (`keychain|secret-service|credential-manager|file|auto`) says otherwise; the backend holding each name is recorded (names only, never values) in `~/.agent-connector/secrets/<connector-id>.index.json`, and reads follow it. Values come from a hidden prompt or `--stdin` (there is no `--value` flag, so nothing lands in shell history or the process list) and no command ever prints a value.
+
 **Native hooks escape hatch.** The normalized `hooks` API covers the 13 cross-platform events; for host-only events (Claude Code alone ships 30) declare `platforms: { "claude-code": { nativeHooks: { TaskCompleted: { handler } } } }`.
 
 <details>
@@ -542,6 +553,7 @@ Adding a platform = **one registry entry + one adapter**.
 | `upgrade [--channel …]` | Re-render host config + heal stale pointers + refresh the home binary (alias: `update`, `sync`); clears every `doctor` version warning; never a silent self-update. |
 | `doctor [--probe] [--heal] [--explain] [--json] [--dry-run]` | Per-platform health checks with fixes, plus version checks: the home binary's target install and every connector's rendering framework version are compared with the running CLI (drift → warn + `upgrade`). `--probe` runs a live MCP handshake, `--heal` re-syncs every fixable finding, `--explain` prints the per-`(host, event)` hook honor matrix. |
 | `status` | Light install-state: which connectors are present on which hosts (always exits 0). |
+| `secrets set\|delete\|list\|check [<name>] [--backend keychain\|secret-service\|credential-manager\|file] [--stdin] [--json]` | Store the secrets a connector references as `${secret:NAME}` in the OS keystore: macOS Keychain (`keychain`), Linux Secret Service (`secret-service`), Windows Credential Manager (`credential-manager`), or the opt-in plaintext `file` store. `set` reads the value from a hidden prompt or `--stdin` (no `--value` flag), `list` shows name / backend / presence, `check` runs a round-trip self-test; nothing ever prints a value. |
 | `package [--format <fmt>\|all]` | Emit a host plugin bundle, or an OFFICIAL standard artifact: `mcp-server-json` (registry) · `mcpb` (one-click bundle). |
 | `audit [--strict]` | Pre-install package identity lint: package name/version/bin, runtime dependency, connector id/version drift, and publish `files` coverage. |
 | `action <platform> <id> [--connector <id>]` | Run a declared action from the shell. |

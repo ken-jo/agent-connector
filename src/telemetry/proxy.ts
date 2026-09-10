@@ -81,6 +81,18 @@ export interface RunServeProxyOptions {
    * on every record. OPTIONAL for the same backward-compat reason as above.
    */
   launchMethod?: LaunchMethod;
+  /**
+   * Environment for the real server (default: process.env). The serve wrapper
+   * passes process.env plus the secrets it resolved from the OS keystore.
+   */
+  env?: NodeJS.ProcessEnv;
+  /**
+   * When false the proxy still forwards bytes verbatim but records NOTHING —
+   * the wrapper exists only to inject secrets (telemetry off, or the server
+   * opted out of telemetry wrapping). Default true. AGENT_CONNECTOR_TELEMETRY=0
+   * remains the global kill switch on top of this.
+   */
+  measurementEnabled?: boolean;
 }
 
 // ── JSON-RPC shapes we read (kept local + narrow; everything else opaque) ─────
@@ -131,10 +143,14 @@ export async function runServeProxy(
     measureToolDefs: shouldMeasureToolDefs,
     installScope,
     launchMethod,
+    env: childEnv,
+    measurementEnabled,
   } = opts;
 
   // Global kill switch: still proxy transparently, but skip ALL measurement.
-  const measuringEnabled = process.env.AGENT_CONNECTOR_TELEMETRY !== "0";
+  // The caller can also turn measurement off (secrets-only wrapper).
+  const measuringEnabled =
+    measurementEnabled !== false && process.env.AGENT_CONNECTOR_TELEMETRY !== "0";
   // OPT-IN Anthropic count_tokens calibration. Resolved once per session — the
   // gate (AGENT_CONNECTOR_CALIBRATE + ANTHROPIC_API_KEY) is process-level and
   // does not change mid-session. Off by default; privacy-safe.
@@ -145,7 +161,7 @@ export async function runServeProxy(
   // run via a quoted single command line with a shell. No-op on macOS/Linux.
   const child = spawnChild(command, args, {
     stdio: ["pipe", "pipe", "inherit"],
-    env: process.env,
+    env: childEnv ?? process.env,
   });
 
   // ── Per-session measurement state ───────────────────────────────────────

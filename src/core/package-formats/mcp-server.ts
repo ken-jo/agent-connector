@@ -47,16 +47,23 @@ function buildEnvVars(server: ServerDef): KeyValueInput[] {
     vars.push(v);
     byName.set(key, v);
   }
-  if (server.auth?.type === "bearerEnv" && server.auth.bearerEnvVar) {
-    const name = server.auth.bearerEnvVar;
+  const markSecret = (name: string): void => {
     const existing = byName.get(name);
     if (existing) {
       existing.isSecret = true;
       existing.isRequired = true;
     } else {
-      vars.push({ name, isSecret: true, isRequired: true });
+      const v: KeyValueInput = { name, isSecret: true, isRequired: true };
+      vars.push(v);
+      byName.set(name, v);
     }
+  };
+  if (server.auth?.type === "bearerEnv" && server.auth.bearerEnvVar) {
+    markSecret(server.auth.bearerEnvVar);
   }
+  // Env vars the connector fills from the OS keystore (`${secret:NAME}` →
+  // server.secretEnv) are secrets the registry consumer must supply.
+  for (const name of Object.keys(server.secretEnv ?? {})) markSecret(name);
   return vars;
 }
 
