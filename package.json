@@ -1,6 +1,6 @@
 {
   "name": "@ken-jo/agent-connector",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "description": "Deploy one MCP server to every agent host. Declare it once with defineConnector() and ship a branded package that installs itself into Claude Code, Codex, Cursor, Copilot, Gemini CLI, Windsurf, Zed, Kiro, Warp, OpenCode and 42 agent hosts in all — native config, hooks, skills, Agent Plugins bundle, per-tool token telemetry.",
   "keywords": [

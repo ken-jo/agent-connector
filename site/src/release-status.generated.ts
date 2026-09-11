@@ -31,7 +31,7 @@ export interface ReleaseStatus {
 
 export const releaseStatus = {
   "packageName": "@ken-jo/agent-connector",
-  "localVersion": "0.7.0",
+  "localVersion": "0.8.0",
   "npmLatest": "0.7.0",
   "npmPublishedAt": "2026-09-10T10:46:08.385Z",
   "npmPackageUrl": "https://www.npmjs.com/package/@ken-jo/agent-connector",
