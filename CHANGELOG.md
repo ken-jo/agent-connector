@@ -1,5 +1,167 @@
 # Changelog
 
+## 0.8.0 — 2026-09-11
+
+A connector can now declare the OAuth 2.0 providers its server talks to: the
+user logs in once in the browser, the refresh token lives in the OS keystore,
+and the server mints access tokens from the SDK. Three ways to supply the OAuth
+app (the framework ships no client ids), a runnable three-login sample with a
+token exchange service, and a per-provider app registration hub in the Operate
+guide.
+
+### Highlights — logins that live in the keystore
+
+An MCP server that reads Google Search Console, Bing Webmaster Tools or
+PostHog needs a user's authorization, and every connector author has been
+building the same browser flow, the same token refresh and the same "where do
+I keep the refresh token" decision alone. 0.8.0 makes that the framework's job.
+
+**One block for the author.** Declare the provider next to the server:
+
+```js
+oauth: {
+  google: {
+    provider: "google",
+    clientId: "1234-abcd.apps.googleusercontent.com",
+    clientSecret: "${secret:google-client-secret}",
+    scopes: ["https://www.googleapis.com/auth/webmasters.readonly"],
+  },
+}
+```
+
+**One login for the user.** `acme-seo auth login google` opens the browser and
+runs the authorization-code flow with PKCE S256 against a listener on
+`127.0.0.1` that accepts exactly one request; with no browser to open, the
+device-code prompt (`Visit <verification_uri> and enter code <user_code>`)
+where the preset supports it. The refresh token is stored in the connector's
+keystore namespace as `oauth.<key>.refresh-token` — the same store
+`secrets set` writes to — and the CLI confirms with
+`logged in to "google" (Google) for connector acme-seo — refresh token stored in keychain`.
+
+**One call for the server.** `getAccessToken({ connectorId, key })` from
+`@ken-jo/agent-connector/sdk` refreshes, caches the token in process memory
+until 60 s before expiry and stores a rotated refresh token. With no stored
+login it runs the login itself when a browser can be opened and otherwise
+fails closed with the exact `auth login` command (`OAuthLoginRequiredError`),
+so a connector installed as a host plugin still logs in on its first tool call.
+
+**Nothing leaks.** Access tokens live only in process memory and on
+`auth token <key>`'s stdout; nothing else ever prints a token, an authorization
+code, a PKCE verifier or a client secret, and host configs, package manifests
+and the metadata file `~/.agent-connector/oauth/<id>.json` (mode 0600) never
+carry one. Endpoints must be https (http on a loopback host only, for tests),
+may not carry credentials or a fragment, and a token request never follows a
+redirect.
+
+**Who supplies the app — three ways.** agent-connector ships no client ids.
+Developer-provided: a literal `clientId` with no secret (a public client), a
+literal `clientSecret` only for `google` (Google documents an installed app's
+client secret as not confidential), or `tokenExchangeUrl` — the developer's own
+https token exchange service that holds the client secret; the connector sends
+`client_id` and never a secret, and the wire contract is in `llms-full.txt`
+§2.2. User-registered: `clientId: "${secret:NAME}"` plus
+`clientSecret: "${secret:NAME}"` — each user registers their own app and stores
+both with `secrets set`, and `install`, `doctor` and `auth login` name the
+`secrets set` commands still to run. The project hosts no login relay.
+
+**Day two is covered.** `install` warns per absent login and per referenced
+secret that is not set, `doctor` reports `<id>: logins`, `auth status` prints
+`key  provider  present  obtained  via` without touching the network, and
+`auth logout` revokes at the provider when the preset has a revocation
+endpoint before forgetting the token.
+
+### Added
+
+- **OAuth 2.0 logins — `oauth.<key>`** (#344). Presets `google`, `microsoft`
+  (tenant option), `github`, `bing-webmaster`, `posthog` (region option; the
+  client id is the https URL of a Client ID Metadata Document) and `generic`
+  (RFC 8414 / OIDC discovery from `issuer`, or explicit endpoints). Flows:
+  `loopback` (authorization code + PKCE S256, `redirectPort` for providers
+  that match the redirect URI exactly, `redirectPath` default `/callback`) and
+  `device` (RFC 8628; `microsoft`, `github` and `generic`), selected by `flow: "auto"`
+  from whether a browser can be opened. Refresh, revocation, `state`
+  verification (a present `state` is always verified; a missing one is waived
+  only for a fixed-`redirectPort` login of a preset whose documented response
+  carries none), per-preset extra authorization parameters. `defineConnector`
+  validates keys, scopes, ports, paths and endpoint URLs offline with exact
+  `ConnectorConfigError` messages; presets are applied by the engine.
+- **`auth login | status | logout | token [<key>] [--device|--loopback] [--port <n>] [--json]`**
+  (#344). Human text goes to stderr (`Opening <label> authorization in your
+  browser…` then the URL, or `Authorize <label> at: <url>` with no browser);
+  `status` never fails on a missing login; `logout` reports
+  `(revoked at the provider)` or `(nothing was stored)`; `token` prints only the
+  access token to stdout and exits 1 with
+  `login "<key>" is not present for connector <id> — run auth login <key> --connector-id <id>`
+  when there is none. Usage errors (an undeclared key names the declared ones)
+  exit 2, engine failures 1 with a `hint:` line when the preset has one. Branded
+  CLIs (`createConnectorCli`) auto-scope it to their connector. `install` warns
+  `login "<key>" (<provider>) is not present — run auth login <key> before the server needs it`;
+  `doctor` adds the framework check `<id>: logins` (pass `<n> login(s) present`,
+  warn `not logged in: a, b — run auth login <key>`; no network).
+- **SDK** (#344): `getAccessToken`, `login`, `logout`, `loginStatus`,
+  `canOpenBrowser`, `OAUTH_PRESET_IDS`, `getOAuthPreset`, `discoverEndpoints`,
+  `OAuthError`, `OAuthLoginRequiredError` and the types `OAuthPreset`,
+  `TokenSet`, `LoginResult`, `LoginStatus`, `AccessTokenOptions`,
+  `OAuthLoginDef`, `ResolvedOAuthLoginDef`, `OAuthPresetId` from
+  `@ken-jo/agent-connector/sdk`. Docs: README, `llms-full.txt` (§2.2, `### auth`,
+  §9.1), the site CLI reference and Operate guide, the authoring skill reference.
+- **Three ways to supply the app** (#347). `tokenExchangeUrl` (https; exclusive
+  with `clientSecret`): the authorization-code exchange, every refresh and
+  device-code polling go there with `client_id` and never a secret, the device
+  authorization request and revocation stay at the provider, and the login
+  first says `Tokens are exchanged through <url> (the connector's token exchange service)`.
+  `${secret:NAME}` client ids and secrets are read from the keystore at login
+  and refresh time; an unset name is a `SecretResolutionError`, `install` warns
+  `login "<key>" (<provider>) references secret "<NAME>" which is not set — run secrets set <NAME> before auth login <key>`
+  before the absent-login line, `doctor` warns
+  `secrets not set for login(s) <key>: <NAME> — run secrets set <name>` with the
+  per-name fix, and `auth login` exits 1 naming the command. A literal
+  `clientSecret` is refused for every preset but `google`, a literal `clientId`
+  or `${env:VAR}` stays allowed, and `clientSecret` with `tokenExchangeUrl` is
+  refused as exclusive. Hardening: every token, device and revocation endpoint
+  must be https (http on a loopback host only) without credentials or a
+  fragment, every token POST uses `redirect: "error"`, and provider-supplied
+  text is stripped of control and format characters before it reaches a
+  message.
+- **`examples/seo-connector`** (#346, #347, #348): a runnable MCP server with
+  three logins — Google Search Console (developer-provided literal secret),
+  Bing Webmaster Tools (user-registered `${secret:…}` id and secret, with a
+  commented `tokenExchangeUrl` alternative) and PostHog (no secret, CIMD client
+  id) — five tools, a branded CLI, and `token-exchange-service.mjs`: an
+  env-configured service (`TOKEN_EXCHANGE_CLIENT_ID`, `_CLIENT_SECRET`,
+  `_TOKEN_ENDPOINT`, `_CLIENT_AUTH` post|basic, `_LISTEN`) that accepts only its
+  own `client_id` and the three grant types, refuses a repeated parameter or an
+  inbound `client_secret`, forwards only the accepted grant's parameters, never
+  follows a provider redirect, returns the provider's response unchanged and
+  logs one body-free line per request. The README walks through every
+  registration and the tests drive the service end to end against a mock
+  provider.
+- **Operate guide: per-provider app registration hub** (#346) — for each
+  preset, where to register, the redirect URI to enter, the credentials the
+  provider hands back, what the developer ships, and the quirks; issue #345
+  collects requests for further presets.
+
+### Changed
+
+- **`bing-webmaster` guidance** (#348): Bing's OAuth-client registration form
+  refuses a redirect URI with no letters after a dot (`http://127.0.0.1:<port>/callback`
+  and `http://localhost:<port>/callback` both fail its check before anything
+  reaches Bing's server), so a loopback login sets `redirectPath` to a dotted
+  path such as `/callback.html` next to its fixed `redirectPort`. The preset
+  comment, the README and `llms-full.txt` preset rows, the Operate guide's Bing
+  row and the sample say so; a drift test pins the sample's config against the
+  redirect URI its README tells the user to register.
+
+### Verified
+
+- **A live Bing Webmaster Tools login** through `examples/seo-connector`
+  completed over the loopback with the keychain backend and `auth status`
+  listed it as present (2026-09-11), with the app registered as
+  `http://127.0.0.1:48213/callback.html`.
+- **Not exercised against a live provider**: `google`, `microsoft`, `github`
+  and `posthog` logins, the device-code flow and the token exchange service —
+  each runs end to end against the mock provider in the test suite.
+
 ## 0.7.0 — 2026-09-10
 
 A connector can now reference secrets the user keeps in the OS keystore instead
