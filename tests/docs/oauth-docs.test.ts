@@ -792,7 +792,11 @@ describe("the site, the skill and llms.txt", () => {
       }
       expect(row.redirect).toContain("127.0.0.1");
     }
-    expect(oauthProviderRegistrations.find((r) => r.preset === "bing-webmaster")?.redirect).toContain("redirectPort");
+    const bingRedirect = oauthProviderRegistrations.find((r) => r.preset === "bing-webmaster")?.redirect ?? "";
+    expect(bingRedirect).toContain("redirectPort");
+    // Bing's registration form rejects a redirect URI with no letters after a dot: the row names the dotted path and the field that sets it.
+    expect(bingRedirect).toContain("http://127.0.0.1:<port>/callback.html");
+    expect(bingRedirect).toContain("redirectPath");
     expect(oauthProviderRegistrations.find((r) => r.preset === "posthog")?.where).toContain("Client ID Metadata Document");
     expect(searchIndex.find((e) => e.id === "operate-logins-register")?.title).toBe("Register the app with each provider");
   });

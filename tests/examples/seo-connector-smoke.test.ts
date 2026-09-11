@@ -15,7 +15,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -130,6 +130,17 @@ async function postForm(url: string, fields: Record<string, string>): Promise<{ 
 }
 
 describe("examples/seo-connector — the CLI over the built package", () => {
+  it("the bing login and the README's registration step name the same redirect URI, http://127.0.0.1:48213/callback.html (a dotted path: Bing's registration form rejects a redirect URI with no letters after a dot)", async () => {
+    const config = (await import(join(EXAMPLE, "agent-connector.config.mjs"))).default as {
+      oauth: Record<string, { redirectPort?: number; redirectPath: string }>;
+    };
+    expect(config.oauth.bing).toMatchObject({ redirectPort: 48213, redirectPath: "/callback.html" });
+    expect(config.oauth.bing.redirectPath).toMatch(/\.[a-z]+$/);
+    const readme = readFileSync(join(EXAMPLE, "README.md"), "utf8");
+    const registered = /redirect URI \*\*`(http:\/\/127\.0\.0\.1:\d+\/[^`]+)`\*\*/.exec(readme);
+    expect(registered?.[1]).toBe(`http://127.0.0.1:${config.oauth.bing.redirectPort}${config.oauth.bing.redirectPath}`);
+  });
+
   it("`install --dry-run` names the two unset bing secrets before bing's absent-login line; google and posthog are only absent (exit 1: the warn convention)", () => {
     const { code, stdout } = runExample(["install", "--dry-run", "--targets", "claude-code"]);
     // install exits 1 whenever a host entry carries a warn record — here the

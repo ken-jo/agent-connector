@@ -197,7 +197,10 @@ const github: OAuthPreset = {
 // `webmaster.read` / `webmaster.manage`; a refresh token is returned with
 // every exchange. The redirect URI must match the registered one exactly
 // (scheme, host, port and path), so a loopback login needs a fixed
-// `redirectPort`. No PKCE, device grant or revocation endpoint is documented,
+// `redirectPort`; Bing's registration form rejects a redirect URI with no
+// letters after a dot (127.0.0.1 and localhost both fail its check), so the
+// login also sets a `redirectPath` with a dot, e.g. `/callback.html`. No
+// PKCE, device grant or revocation endpoint is documented,
 // and the documented response (`?code=…` / `?error=access_denied`) carries no
 // `state` (section "Handling the OAuth 2.0 server response").
 const bingWebmaster: OAuthPreset = {

@@ -120,9 +120,13 @@ What the user does:
    sites to read.
 2. **Settings (gear) → API access → OAuth** (Microsoft's guide:
    https://learn.microsoft.com/en-us/bingwebmaster/oauth2) → register an app:
-   a name, and the redirect URI **`http://127.0.0.1:48213/callback`** — the
-   example pins `redirectPort: 48213` because Bing matches redirect URIs
-   exactly, port included. Bing issues a client id and a client secret.
+   a name, and the redirect URI **`http://127.0.0.1:48213/callback.html`** —
+   the example pins `redirectPort: 48213` because Bing matches redirect URIs
+   exactly, port included, and `redirectPath: "/callback.html"` because Bing's
+   registration form rejects a redirect URI with no letters after a dot
+   (`http://127.0.0.1:48213/callback` and `http://localhost:48213/callback`
+   both fail its check; the dot in the path satisfies it). Bing issues a
+   client id and a client secret.
 3. Store both, then log in (each `secrets set` prompts with input hidden):
 
    ```bash
@@ -163,8 +167,9 @@ instead of a login.
 
 **Or the developer runs `token-exchange-service.mjs` and sets
 `tokenExchangeUrl`.** The developer registers one Bing app (redirect URI
-`http://127.0.0.1:48213/callback`), runs the service with that app's secret in
-its environment, and ships the commented `bing` block from the config:
+`http://127.0.0.1:48213/callback.html`), runs the service with that app's
+secret in its environment, and ships the commented `bing` block from the
+config:
 
 ```js
 bing: {
@@ -173,6 +178,7 @@ bing: {
   tokenExchangeUrl: "https://seo.example.com/oauth/bing/token",
   scopes: ["webmaster.read"],
   redirectPort: 48213,
+  redirectPath: "/callback.html",
 },
 ```
 

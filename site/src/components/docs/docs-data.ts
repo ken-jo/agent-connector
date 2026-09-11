@@ -2095,7 +2095,7 @@ export const oauthProviderRegistrations: OAuthProviderRegistration[] = [
     where:
       "Bing Webmaster Tools → Settings (top right) → API Access → accept the terms → OAuth Client → register with a Client Name and the Redirect URI.",
     redirect:
-      "http://127.0.0.1:<port>/callback with the exact port the connector pins in redirectPort (Bing matches the redirect URI exactly, port included; redirectPort is required for this preset).",
+      "http://127.0.0.1:<port>/callback.html with the exact port the connector pins in redirectPort and the path it sets in redirectPath (Bing matches the redirect URI exactly, port included, and its registration form rejects a redirect URI with no letters after a dot — 127.0.0.1 and localhost both fail its check — so the path carries the dot; redirectPort is required for this preset).",
     credentials:
       "Client id + client secret (copy both from the created OAuth client; each user stores them with secrets set, or the developer's token exchange service holds the secret).",
     ships: "User-registered (${secret:…} id and secret) or tokenExchangeUrl",
