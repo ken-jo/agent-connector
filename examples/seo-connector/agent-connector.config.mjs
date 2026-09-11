@@ -64,14 +64,17 @@ export default defineConnector({
     // id and secret stored with `secrets set bing-client-id` and
     // `secrets set bing-client-secret`; install and doctor name the commands
     // still to run. Bing matches redirect URIs exactly, port included, so the
-    // loopback listener uses a fixed port: the user registers
-    // http://127.0.0.1:48213/callback with the app.
+    // loopback listener uses a fixed port. Bing's registration form rejects a
+    // redirect URI with no letters after a dot (127.0.0.1 and localhost both
+    // fail its check), so the path carries the dot: the user registers
+    // http://127.0.0.1:48213/callback.html with the app.
     bing: {
       provider: "bing-webmaster",
       clientId: "${secret:bing-client-id}",
       clientSecret: "${secret:bing-client-secret}",
       scopes: ["webmaster.read"],
       redirectPort: 48213,
+      redirectPath: "/callback.html",
     },
     // The developer-hosted alternative for Bing: one app registered by the
     // developer, whose secret lives in token-exchange-service.mjs's
@@ -86,6 +89,7 @@ export default defineConnector({
     //   tokenExchangeUrl: "https://seo.example.com/oauth/bing/token",
     //   scopes: ["webmaster.read"],
     //   redirectPort: 48213,
+    //   redirectPath: "/callback.html",
     // },
     //
     // PostHog — no registration at PostHog: the client id is the https URL of
